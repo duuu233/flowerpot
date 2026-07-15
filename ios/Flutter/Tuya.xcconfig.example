@@ -1,0 +1,4 @@
+// Copy this file to Tuya.xcconfig and fill the values from the Tuya platform.
+// Tuya.xcconfig is ignored by git and must never be committed.
+THING_SMART_APPKEY=
+THING_SMART_APPSECRET=

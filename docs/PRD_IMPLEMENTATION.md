@@ -1,0 +1,40 @@
+# 智能花盆 1.0 PRD 落地清单
+
+来源：`智能花盆1.0开发方案.docx`。
+
+## App 已实现
+
+| 一级模块 | PRD 内容 | 实现位置 |
+| --- | --- | --- |
+| 账号 | 国内手机号、海外邮箱、验证码/密码、注册、找回/修改密码、退出、注销、头像和用户名 | `features/auth`、`features/profile` |
+| 首页 | 已配网设备列表、在线/信号/电量/充电、添加和删除设备 | `features/home`、`features/devices` |
+| 配网 | 2.4 GHz Wi-Fi、AP/EZ 模式、Token、创建默认家庭 | `pairing_page.dart`、原生 Tuya bridge |
+| 设备主页 | 植物、陪伴天数、天气、水位、土壤、光照/PPFD/DLI、温度、湿度、电池 | `device_dashboard_page.dart` |
+| 报表 | 水位/湿度日周月、PPFD 日、DLI 周月、温湿度/电池趋势 | `reports_page.dart` |
+| 定制动画 | 图片列表、上传、同步、置顶、删除 | `animations_page.dart` |
+| 设备设置 | 名称、植物、硬件信息、OTA、分享/解绑/恢复出厂 | `device_settings_page.dart` |
+| 感知设置 | 自动亮度、声音/触摸开关与灵敏度、振动 | `device_settings_page.dart` |
+| 行为 | 中午小憩、夜间睡眠时间段和开关 | `device_settings_page.dart` |
+| 本地化 | 位置天气、重置位置、温标、12/24 小时 | `device_settings_page.dart` |
+| 维护 | 水位校准、修复系统文件、重新配网 | `device_settings_page.dart` |
+| 我的 | 中英文、消息开关、App 升级、帮助、隐私、协议、关于 | `features/profile` |
+
+## 需要平台参数后联调
+
+- Android/iOS AppKey、AppSecret、包名、SHA-256、iOS 安全组件和 Android `security-algorithm.aar`。
+- 产品 PID 与 101–123 DP 的最终对应关系、数据缩放倍率和枚举定义。
+- 涂鸦设备数据统计服务的开通范围与统计 API。
+- 设备图片/动画文件传输协议、大小限制、格式以及硬件确认机制。
+- 分享渠道码、Universal Link/App Link。
+- OTA 固件通道、升级类型和进度回调。
+- 微信、支付宝快捷登录参数；国内手机号一键登录服务。
+- 自定义头像的自有存储、内容审核与合规方案（涂鸦已停止维护其头像上传接口，当前仅保留本地选择预览）。
+- 正式隐私政策、用户协议、公司主体、客服邮箱与官网域名。
+
+## 独立工程范围
+
+原始 PRD 同时列出 PC 管理后台、Java 服务端与 PC 官网。这三部分不是 Flutter 技术架构，建议分别建立：
+
+- Java 服务：用户映射、涂鸦 UID、统计归档、动画元数据、FAQ/消息、App 版本。
+- 管理后台：用户、分类/PID、设备、FAQ、管理员权限、系统配置。
+- 官网：产品展示、隐私政策、账号注销入口和应用商店合规页面。

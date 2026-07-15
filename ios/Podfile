@@ -1,0 +1,49 @@
+source 'https://cdn.cocoapods.org/'
+source 'https://github.com/tuya/tuya-pod-specs.git'
+
+platform :ios, '13.0'
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  raise "Run flutter pub get first" unless File.exist?(generated_xcode_build_settings_path)
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise 'FLUTTER_ROOT not found'
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+flutter_ios_podfile_setup
+
+target 'Runner' do
+  use_frameworks!
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+
+  # Download ios_core_sdk.tar.gz from the Tuya Developer Platform and put
+  # ThingSmartCryption.podspec plus Build/ in ios/TuyaSDK. The real SDK is
+  # linked automatically only after that app-specific security kit exists.
+  tuya_sdk_path = File.join(__dir__, 'TuyaSDK')
+  if File.exist?(File.join(tuya_sdk_path, 'ThingSmartCryption.podspec'))
+    pod 'ThingSmartCryption', :path => tuya_sdk_path
+    pod 'ThingSmartHomeKit', '~> 7.5.0'
+    pod 'ThingSmartBusinessExtensionKit', '~> 7.5.0'
+  end
+
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+  end
+end
