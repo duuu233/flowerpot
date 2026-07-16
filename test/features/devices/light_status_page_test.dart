@@ -1,0 +1,79 @@
+import 'package:flowerpot/src/design_system/design_system.dart';
+import 'package:flowerpot/src/features/devices/models/light_status_page_model.dart';
+import 'package:flowerpot/src/features/devices/presentation/widgets/light_dli_bar_chart.dart';
+import 'package:flowerpot/src/features/devices/presentation/widgets/light_status_summary_card.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  testWidgets('light status widgets expose the Figma content', (tester) async {
+    await _pumpLightStatus(tester, const Size(375, 812));
+
+    expect(find.text('一般'), findsOneWidget);
+    expect(find.text('305'), findsOneWidget);
+    expect(find.text('5.642'), findsOneWidget);
+    expect(find.text('DLI（每日光量积分）'), findsOneWidget);
+    expect(find.text('建议'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('light status content scrolls at 320x568', (tester) async {
+    await _pumpLightStatus(tester, const Size(320, 568));
+
+    final advice = find.text('建议');
+    await tester.ensureVisible(advice);
+    await tester.pump();
+
+    expect(advice, findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+}
+
+Future<void> _pumpLightStatus(WidgetTester tester, Size size) async {
+  await tester.binding.setSurfaceSize(size);
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  const model = LightStatusPageModel(
+    deviceId: 'device-01',
+    status: '一般',
+    description: '光照强度高略于植物光合作用补偿点。植物新陈代谢水平较低。',
+    illuminance: 305,
+    ppfd: 5.642,
+    dliValues: <double>[.74, .67, .58, .61, .90, .63, .45],
+    advice: '当前光照略低于植物光合作用补偿点，建议将植物移至明亮散射光处，或每天补光1-2小时。',
+  );
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: <Widget>[
+              const LightStatusSummaryCard(model: model),
+              const SizedBox(height: 12),
+              const MetricChartCard(
+                title: 'DLI（每日光量积分）',
+                unit: 'mol/m²/天',
+                chart: LightDliBarChart(
+                  values: model.dliValues,
+                  labels: <String>[
+                    '周一',
+                    '周二',
+                    '周三',
+                    '周四',
+                    '周五',
+                    '周六',
+                    '周日',
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const AppInfoCard(title: '建议', message: model.advice),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+}

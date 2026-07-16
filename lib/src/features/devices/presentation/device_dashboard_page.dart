@@ -213,6 +213,14 @@ class DeviceDashboardPage extends StatelessWidget {
     SmartPlanterDevice device,
     SensorMetric metric,
   ) {
+    if (metric == SensorMetric.light) {
+      Navigator.pushNamed(
+        context,
+        AppRoutes.lightStatus,
+        arguments: device.id,
+      );
+      return;
+    }
     Navigator.pushNamed(
       context,
       AppRoutes.reports,

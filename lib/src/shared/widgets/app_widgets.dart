@@ -85,12 +85,14 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final card = Container(
-      padding: padding,
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(borderRadius),
+      side: BorderSide(color: Colors.white.withValues(alpha: .85)),
+    );
+    final content = Padding(padding: padding, child: child);
+    return DecoratedBox(
       decoration: BoxDecoration(
-        color: color ?? Colors.white.withValues(alpha: .78),
         borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(color: Colors.white.withValues(alpha: .85)),
         boxShadow: const <BoxShadow>[
           BoxShadow(
             color: Color(0x0C17332B),
@@ -99,15 +101,11 @@ class GlassCard extends StatelessWidget {
           ),
         ],
       ),
-      child: child,
-    );
-    if (onTap == null) return card;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(borderRadius),
-        onTap: onTap,
-        child: card,
+      child: Material(
+        color: color ?? Colors.white.withValues(alpha: .78),
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
+        child: onTap == null ? content : InkWell(onTap: onTap, child: content),
       ),
     );
   }

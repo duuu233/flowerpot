@@ -6,6 +6,7 @@ import '../features/auth/presentation/register_page.dart';
 import '../features/devices/presentation/animations_page.dart';
 import '../features/devices/presentation/device_dashboard_page.dart';
 import '../features/devices/presentation/device_settings_page.dart';
+import '../features/devices/presentation/light_status_page.dart';
 import '../features/devices/presentation/pairing_page.dart';
 import '../features/devices/presentation/plant_picker_page.dart';
 import '../features/devices/presentation/reports_page.dart';
@@ -13,6 +14,7 @@ import '../features/profile/presentation/about_page.dart';
 import '../features/profile/presentation/app_settings_page.dart';
 import '../features/profile/presentation/help_page.dart';
 import '../features/profile/presentation/legal_page.dart';
+import '../features/profile/presentation/mine_page.dart';
 import '../features/profile/presentation/profile_page.dart';
 import '../features/shell/presentation/shell_page.dart';
 
@@ -25,10 +27,12 @@ abstract final class AppRoutes {
   static const pairing = '/devices/pairing';
   static const device = '/devices/detail';
   static const reports = '/devices/reports';
+  static const lightStatus = '/devices/light-status';
   static const plantPicker = '/devices/plants';
   static const deviceSettings = '/devices/settings';
   static const animations = '/devices/animations';
   static const profile = '/profile';
+  static const mine = '/mine';
   static const settings = '/settings';
   static const help = '/help';
   static const privacy = '/legal/privacy';
@@ -58,11 +62,13 @@ abstract final class AppRoutes {
       pairing => const PairingPage(),
       device => DeviceDashboardPage(deviceId: settings.arguments! as String),
       reports => ReportsPage(arguments: settings.arguments! as ReportArguments),
+      lightStatus => LightStatusPage(deviceId: settings.arguments! as String),
       plantPicker => PlantPickerPage(deviceId: settings.arguments! as String),
       deviceSettings => DeviceSettingsPage(
         deviceId: settings.arguments! as String,
       ),
       animations => AnimationsPage(deviceId: settings.arguments! as String),
+      mine => const MinePage(),
       profile => const ProfilePage(),
       AppRoutes.settings => const AppSettingsPage(),
       help => const HelpPage(),
