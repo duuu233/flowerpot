@@ -266,6 +266,19 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '图片已上传并同步');
   });
 
+  Future<ActionResult> syncAnimations(String deviceId) => _guard(() async {
+    final files = _animations
+        .where((item) => !item.path.startsWith('builtin://'))
+        .toList(growable: false);
+    if (files.isEmpty) return const ActionResult(true, '暂无需要同步的文件');
+    for (final file in files) {
+      await _repository.uploadAnimation(deviceId, file);
+      final index = _animations.indexWhere((item) => item.id == file.id);
+      if (index >= 0) _animations[index] = file.copyWith(synced: true);
+    }
+    return ActionResult(true, '已同步 ${files.length} 个文件');
+  });
+
   void pinAnimation(String id) {
     final index = _animations.indexWhere((item) => item.id == id);
     if (index <= 0) return;

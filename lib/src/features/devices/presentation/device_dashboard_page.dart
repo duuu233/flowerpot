@@ -5,6 +5,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/shared.dart';
 import '../../../tuya/tuya_models.dart';
+import '../models/water_status_page_model.dart';
 import 'reports_page.dart';
 
 class DeviceDashboardPage extends StatelessWidget {
@@ -73,7 +74,7 @@ class DeviceDashboardPage extends StatelessWidget {
                   ),
                   MetricTile(
                     title: '当前水仓',
-                    value: '${device.sensors.waterLevel}%',
+                    value: '${device.sensors.waterLevel} ml',
                     status: device.sensors.waterLevel > 25 ? '储水充足' : '请添加水',
                     icon: Icons.water_outlined,
                     color: const Color(0xFF3887BE),
@@ -214,9 +215,43 @@ class DeviceDashboardPage extends StatelessWidget {
     SensorMetric metric,
   ) {
     if (metric == SensorMetric.light) {
+      Navigator.pushNamed(context, AppRoutes.lightStatus, arguments: device.id);
+      return;
+    }
+    if (metric == SensorMetric.waterLevel ||
+        metric == SensorMetric.soilMoisture) {
       Navigator.pushNamed(
         context,
-        AppRoutes.lightStatus,
+        AppRoutes.waterStatus,
+        arguments: WaterStatusArguments(
+          deviceId: device.id,
+          initialMetric: metric == SensorMetric.soilMoisture
+              ? WaterStatusMetric.soilMoisture
+              : WaterStatusMetric.waterLevel,
+        ),
+      );
+      return;
+    }
+    if (metric == SensorMetric.temperature) {
+      Navigator.pushNamed(
+        context,
+        AppRoutes.temperatureStatus,
+        arguments: device.id,
+      );
+      return;
+    }
+    if (metric == SensorMetric.humidity) {
+      Navigator.pushNamed(
+        context,
+        AppRoutes.humidityStatus,
+        arguments: device.id,
+      );
+      return;
+    }
+    if (metric == SensorMetric.battery) {
+      Navigator.pushNamed(
+        context,
+        AppRoutes.batteryStatus,
         arguments: device.id,
       );
       return;

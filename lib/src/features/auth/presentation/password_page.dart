@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
 
-import '../../../app/app_theme.dart';
 import '../../../app/flowerpot_app.dart';
+import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
-import '../../../shared/shared.dart';
 import '../../../tuya/tuya_models.dart';
 
 class PasswordArguments {
   const PasswordArguments({
     this.account = '',
     this.region = LoginRegion.domestic,
+    this.title = '忘记密码',
+    this.returnToLoginOnSuccess = true,
   });
 
   final String account;
   final LoginRegion region;
+  final String title;
+  final bool returnToLoginOnSuccess;
 }
 
 class PasswordPage extends StatefulWidget {
@@ -26,156 +29,267 @@ class PasswordPage extends StatefulWidget {
 }
 
 class _PasswordPageState extends State<PasswordPage> {
-  late final TextEditingController account;
-  final code = TextEditingController();
-  final password = TextEditingController();
-  final confirmation = TextEditingController();
-  late LoginRegion region;
+  late final TextEditingController accountController;
+  final codeController = TextEditingController();
+  final passwordController = TextEditingController();
+  final confirmationController = TextEditingController();
+  bool passwordVisible = false;
+  bool confirmationVisible = false;
+
+  LoginRegion get region => widget.arguments.region;
 
   @override
   void initState() {
     super.initState();
-    account = TextEditingController(text: widget.arguments.account);
-    region = widget.arguments.region;
+    accountController = TextEditingController(text: widget.arguments.account);
   }
 
   @override
   void dispose() {
-    account.dispose();
-    code.dispose();
-    password.dispose();
-    confirmation.dispose();
+    accountController.dispose();
+    codeController.dispose();
+    passwordController.dispose();
+    confirmationController.dispose();
     super.dispose();
   }
 
+  Future<void> _sendCode() async {
+    final result = await FlowerpotScope.of(
+      context,
+    ).sendCode(account: accountController.text, region: region, type: 3);
+    if (!mounted) return;
+    showAppMessage(
+      context,
+      result.message,
+      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+    );
+  }
+
   Future<void> _submit() async {
-    if (password.text != confirmation.text) {
-      showAppMessage(context, '两次输入的密码不一致', success: false);
+    if (passwordController.text.length < 6) {
+      showAppMessage(context, '新密码至少需要 6 位', tone: AppMessageTone.error);
       return;
     }
-    final state = FlowerpotScope.of(context);
-    final result = await state.resetPassword(
-      account: account.text,
-      newPassword: password.text,
-      code: code.text,
+    if (passwordController.text != confirmationController.text) {
+      showAppMessage(context, '两次输入的密码不一致', tone: AppMessageTone.error);
+      return;
+    }
+
+    final result = await FlowerpotScope.of(context).resetPassword(
+      account: accountController.text,
+      newPassword: passwordController.text,
+      code: codeController.text,
       region: region,
     );
     if (!mounted) return;
-    showAppMessage(context, result.message, success: result.success);
+    showAppMessage(
+      context,
+      result.message,
+      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+    );
     if (result.success) {
-      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.auth, (_) => false);
+      if (widget.arguments.returnToLoginOnSuccess) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.auth,
+          (_) => false,
+        );
+      } else {
+        Navigator.pop(context);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
-    final lockedAccount = widget.arguments.account.isNotEmpty;
-    return Scaffold(
-      appBar: AppBar(title: const Text('重置密码')),
-      body: AppBackground(
-        child: SafeArea(
-          top: false,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 36),
+    final domestic = region == LoginRegion.domestic;
+    return AppPageScaffold(
+      appBar: AppPageHeader(
+        title: widget.arguments.title,
+        leading: const AppBackButton(),
+      ),
+      background: AppPageBackground.standard,
+      body: SingleChildScrollView(
+        child: ResponsiveContent(
+          maxWidth: 375,
+          padding: const EdgeInsets.fromLTRB(28, 72, 28, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const PlantIllustration(size: 106),
-              const SizedBox(height: 16),
-              Text('设置新密码', style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 6),
-              const Text(
-                '验证码类型固定为密码重置（type 3），手机号与邮箱会分别调用涂鸦对应接口。',
-                style: TextStyle(color: AppColors.muted),
-              ),
-              const SizedBox(height: 24),
-              if (!lockedAccount) ...<Widget>[
-                SegmentedButton<LoginRegion>(
-                  segments: const <ButtonSegment<LoginRegion>>[
-                    ButtonSegment(
-                      value: LoginRegion.domestic,
-                      label: Text('手机号'),
-                    ),
-                    ButtonSegment(
-                      value: LoginRegion.overseas,
-                      label: Text('邮箱'),
-                    ),
-                  ],
-                  selected: <LoginRegion>{region},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (value) => setState(() {
-                    region = value.first;
-                    account.clear();
-                  }),
-                ),
-                const SizedBox(height: 14),
-              ],
-              TextField(
-                controller: account,
-                readOnly: lockedAccount,
-                keyboardType: region == LoginRegion.domestic
+              _PasswordField(
+                controller: accountController,
+                hintText: domestic ? '请输入手机号' : '请输入邮箱',
+                icon: domestic
+                    ? Icons.phone_iphone_rounded
+                    : Icons.mail_outline_rounded,
+                keyboardType: domestic
                     ? TextInputType.phone
                     : TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  labelText: region == LoginRegion.domestic ? '手机号' : '邮箱',
-                  prefixIcon: const Icon(Icons.person_outline_rounded),
-                ),
+                readOnly: widget.arguments.account.isNotEmpty,
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: code,
+              const SizedBox(height: AppSpacing.lg),
+              _PasswordField(
+                controller: codeController,
+                hintText: '请输入验证码',
+                icon: Icons.verified_user_outlined,
                 keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: '验证码',
-                  prefixIcon: const Icon(Icons.shield_outlined),
-                  suffixIcon: TextButton(
-                    onPressed: state.busy
-                        ? null
-                        : () async {
-                            final result = await state.sendCode(
-                              account: account.text,
-                              region: region,
-                              type: 3,
-                            );
-                            if (context.mounted) {
-                              showAppMessage(
-                                context,
-                                result.message,
-                                success: result.success,
-                              );
-                            }
-                          },
-                    child: const Text('获取验证码'),
+                suffix: _CodeButton(busy: state.busy, onPressed: _sendCode),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              _PasswordField(
+                controller: passwordController,
+                hintText: '请输入密码',
+                icon: Icons.lock_open_outlined,
+                keyboardType: TextInputType.visiblePassword,
+                obscureText: !passwordVisible,
+                suffix: IconButton(
+                  key: const Key('reset-password-visibility'),
+                  tooltip: passwordVisible ? '隐藏密码' : '显示密码',
+                  onPressed: () =>
+                      setState(() => passwordVisible = !passwordVisible),
+                  icon: Icon(
+                    passwordVisible
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    color: AppColors.textTertiary,
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: password,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: '新密码（至少 6 位）',
-                  prefixIcon: Icon(Icons.lock_outline_rounded),
+              const SizedBox(height: AppSpacing.lg),
+              _PasswordField(
+                controller: confirmationController,
+                hintText: '请确认密码',
+                icon: Icons.lock_outline_rounded,
+                keyboardType: TextInputType.visiblePassword,
+                obscureText: !confirmationVisible,
+                suffix: IconButton(
+                  key: const Key('reset-confirmation-visibility'),
+                  tooltip: confirmationVisible ? '隐藏密码' : '显示密码',
+                  onPressed: () => setState(
+                    () => confirmationVisible = !confirmationVisible,
+                  ),
+                  icon: Icon(
+                    confirmationVisible
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    color: AppColors.textTertiary,
+                  ),
                 ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: confirmation,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: '再次输入新密码',
-                  prefixIcon: Icon(Icons.lock_reset_rounded),
+              const SizedBox(height: 155),
+              FilledButton(
+                onPressed: state.busy ? null : _submit,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(56),
+                  backgroundColor: AppColors.brandPrimary,
+                  foregroundColor: AppColors.surface,
+                  shape: const StadiumBorder(),
+                  textStyle: AppTypography.pageTitle.copyWith(
+                    color: AppColors.surface,
+                  ),
                 ),
+                child: state.busy
+                    ? const SizedBox.square(
+                        dimension: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.surface,
+                        ),
+                      )
+                    : const Text('确认'),
               ),
-              const SizedBox(height: 24),
-              LoadingButton(
-                label: '更新密码',
-                loading: state.busy,
-                onPressed: _submit,
-              ),
+              const SizedBox(height: 240),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _PasswordField extends StatelessWidget {
+  const _PasswordField({
+    required this.controller,
+    required this.hintText,
+    required this.icon,
+    required this.keyboardType,
+    this.obscureText = false,
+    this.readOnly = false,
+    this.suffix,
+  });
+
+  final TextEditingController controller;
+  final String hintText;
+  final IconData icon;
+  final TextInputType keyboardType;
+  final bool obscureText;
+  final bool readOnly;
+  final Widget? suffix;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 56,
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        obscureText: obscureText,
+        readOnly: readOnly,
+        style: AppTypography.body,
+        decoration: InputDecoration(
+          hintText: hintText,
+          hintStyle: AppTypography.body.copyWith(
+            color: AppColors.textSecondary,
+            fontSize: 15,
+          ),
+          prefixIcon: Icon(icon, color: AppColors.brandPrimary, size: 22),
+          suffixIcon: suffix,
+          filled: true,
+          fillColor: AppColors.surface,
+          contentPadding: const EdgeInsets.symmetric(vertical: 17),
+          border: const OutlineInputBorder(
+            borderSide: BorderSide.none,
+            borderRadius: AppRadius.full,
+          ),
+          enabledBorder: const OutlineInputBorder(
+            borderSide: BorderSide.none,
+            borderRadius: AppRadius.full,
+          ),
+          focusedBorder: const OutlineInputBorder(
+            borderSide: BorderSide(color: AppColors.brandPrimary),
+            borderRadius: AppRadius.full,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CodeButton extends StatelessWidget {
+  const _CodeButton({required this.busy, required this.onPressed});
+
+  final bool busy;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        const SizedBox(
+          height: 30,
+          child: VerticalDivider(color: AppColors.divider),
+        ),
+        TextButton(
+          onPressed: busy ? null : onPressed,
+          child: const Text(
+            '获取验证码',
+            style: TextStyle(color: AppColors.brandPrimary),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+      ],
     );
   }
 }

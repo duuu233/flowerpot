@@ -305,7 +305,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         waterLevel: integer(dp('waterLevel'), 0),
         soilMoisture: integer(dp('soilMoisture'), 0),
         illuminance: integer(dp('illuminance'), 0),
-        ppfd: integer(dp('ppfd'), 0),
+        ppfd: decimal(dp('ppfd'), 0),
         airTemperature: decimal(dp('airTemperature'), 0),
         relativeHumidity: integer(dp('relativeHumidity'), 0),
       ),
@@ -457,6 +457,46 @@ class MockTuyaRepository implements TuyaRepository {
     ReportRange range,
   ) async {
     await _wait();
+    if (metric == SensorMetric.dli) {
+      return switch (range) {
+        ReportRange.day => List<double>.generate(
+          24,
+          (index) => index < 7 || index > 18
+              ? 0
+              : 0.04 + math.sin((index - 7) / 11 * math.pi) * 0.11,
+        ),
+        ReportRange.week => const <double>[
+          0.74,
+          0.67,
+          0.58,
+          0.61,
+          0.90,
+          0.63,
+          0.45,
+        ],
+        ReportRange.month => List<double>.generate(
+          30,
+          (index) => 0.62 + math.sin(index * 0.72) * 0.18,
+        ),
+      };
+    }
+    if (range == ReportRange.day) {
+      if (metric == SensorMetric.waterLevel) {
+        return const <double>[76, 76, 85, 73, 80, 85, 68, 68];
+      }
+      if (metric == SensorMetric.soilMoisture) {
+        return const <double>[91, 91, 100, 88, 97, 100, 82, 82];
+      }
+      if (metric == SensorMetric.temperature) {
+        return const <double>[25, 25, 30, 24, 26.9, 30, 21, 21];
+      }
+      if (metric == SensorMetric.humidity) {
+        return const <double>[50, 50, 60, 48, 52, 60, 42, 42];
+      }
+      if (metric == SensorMetric.battery) {
+        return const <double>[90, 90, 100, 88, 94, 100, 82, 82];
+      }
+    }
     final count = switch (range) {
       ReportRange.day => 24,
       ReportRange.week => 7,
@@ -499,17 +539,17 @@ class MockTuyaRepository implements TuyaRepository {
     name: '客厅的绿意',
     online: true,
     signal: 86,
-    battery: 78,
-    charging: false,
+    battery: 94,
+    charging: true,
     boundAt: DateTime.now().subtract(const Duration(days: 126)),
     plant: PlantCatalog.items.first,
     sensors: const SensorSnapshot(
-      waterLevel: 72,
-      soilMoisture: 56,
-      illuminance: 836,
-      ppfd: 146,
-      airTemperature: 24.6,
-      relativeHumidity: 61,
+      waterLevel: 80,
+      soilMoisture: 97,
+      illuminance: 305,
+      ppfd: 5.642,
+      airTemperature: 26.9,
+      relativeHumidity: 52,
     ),
     settings: const DeviceControlSettings(),
     firmwareVersion: '1.0.8',

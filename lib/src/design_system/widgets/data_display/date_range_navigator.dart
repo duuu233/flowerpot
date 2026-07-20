@@ -25,15 +25,18 @@ class DateRangeNavigator extends StatelessWidget {
           icon: Icons.chevron_left_rounded,
           onPressed: onPrevious,
         ),
-        TextButton.icon(
-          onPressed: onLabelTap,
-          label: Text(label, style: Theme.of(context).textTheme.bodyLarge),
-          iconAlignment: IconAlignment.end,
-          icon: const Icon(
-            Icons.arrow_drop_down_rounded,
-            color: AppColors.textPrimary,
+        if (onLabelTap == null)
+          Text(label, style: Theme.of(context).textTheme.bodyLarge)
+        else
+          TextButton.icon(
+            onPressed: onLabelTap,
+            label: Text(label, style: Theme.of(context).textTheme.bodyLarge),
+            iconAlignment: IconAlignment.end,
+            icon: const Icon(
+              Icons.arrow_drop_down_rounded,
+              color: AppColors.textPrimary,
+            ),
           ),
-        ),
         _NavigationButton(icon: Icons.chevron_right_rounded, onPressed: onNext),
       ],
     );

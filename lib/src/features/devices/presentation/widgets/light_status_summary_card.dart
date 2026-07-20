@@ -12,7 +12,7 @@ class LightStatusSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppSurfaceCard(
       padding: const EdgeInsets.all(18),
-      borderRadius: AppRadius.large,
+      borderRadius: AppRadius.card,
       child: Column(
         children: <Widget>[
           Row(
@@ -120,8 +120,8 @@ class _LightMetric extends StatelessWidget {
           icon: icon,
           color: color,
           backgroundColor: backgroundColor,
-          size: 40,
-          iconSize: 24,
+          size: 48,
+          iconSize: 28,
         ),
         const SizedBox(width: AppSpacing.sm),
         Flexible(

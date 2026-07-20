@@ -36,7 +36,7 @@ Future<void> _openExperienceHome(WidgetTester tester, Size size) async {
   );
   await tester.pumpAndSettle();
 
-  expect(find.text('照顾植物，\n也照顾生活。'), findsOneWidget);
+  expect(find.text('登录账号，连接和管理你的智能设备'), findsOneWidget);
   final demoButton = find.text('体验模式');
   await tester.ensureVisible(demoButton);
   await tester.pumpAndSettle();

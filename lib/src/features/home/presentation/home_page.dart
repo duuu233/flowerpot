@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
+import '../../devices/models/water_status_page_model.dart';
 import '../../../routes/app_routes.dart';
 import '../models/home_dashboard_model.dart';
 import 'widgets/home_care_banner.dart';
+import 'widgets/home_empty_device_content.dart';
 import 'widgets/home_header.dart';
 import 'widgets/home_help_card.dart';
 import 'widgets/home_plant_overview.dart';
@@ -34,7 +36,15 @@ class HomePage extends StatelessWidget {
 
     return AppPageScaffold(
       background: AppPageBackground.standard,
-      body: model.isWithoutPlant
+      body: model.isWithoutDevice
+          ? HomeEmptyDeviceContent(
+              userLabel: model.userLabel,
+              onRefresh: state.refreshDevices,
+              onAvatarTap: () => Navigator.pushNamed(context, AppRoutes.mine),
+              onAddDevice: () =>
+                  Navigator.pushNamed(context, AppRoutes.pairing),
+            )
+          : model.isWithoutPlant
           ? HomeUnplantedContent(
               model: model,
               onRefresh: state.refreshDevices,
@@ -77,9 +87,16 @@ class HomePage extends StatelessWidget {
                                 onMetricTap: (kind) => _openDevice(
                                   context,
                                   model.deviceId,
-                                  kind == HomeMetricKind.light
-                                      ? AppRoutes.lightStatus
-                                      : AppRoutes.device,
+                                  switch (kind) {
+                                    HomeMetricKind.water =>
+                                      AppRoutes.waterStatus,
+                                    HomeMetricKind.light =>
+                                      AppRoutes.lightStatus,
+                                    HomeMetricKind.temperature =>
+                                      AppRoutes.temperatureStatus,
+                                    HomeMetricKind.humidity =>
+                                      AppRoutes.humidityStatus,
+                                  },
                                 ),
                               ),
                               SizedBox(
@@ -127,7 +144,7 @@ class HomePage extends StatelessWidget {
   ) {
     final route = switch (kind) {
       HomeActionKind.animation => AppRoutes.animations,
-      HomeActionKind.battery => AppRoutes.device,
+      HomeActionKind.battery => AppRoutes.batteryStatus,
       HomeActionKind.settings => AppRoutes.deviceSettings,
     };
     _openDevice(context, deviceId, route);
@@ -138,6 +155,12 @@ class HomePage extends StatelessWidget {
       showAppMessage(context, '请先添加并连接花盆', tone: AppMessageTone.info);
       return;
     }
-    Navigator.pushNamed(context, route, arguments: deviceId);
+    final arguments = route == AppRoutes.waterStatus
+        ? WaterStatusArguments(
+            deviceId: deviceId,
+            initialMetric: WaterStatusMetric.soilMoisture,
+          )
+        : deviceId;
+    Navigator.pushNamed(context, route, arguments: arguments);
   }
 }

@@ -14,6 +14,7 @@ class AppInfoCard extends StatelessWidget {
     this.icon,
     this.tone = AppInfoTone.brand,
     this.trailing,
+    this.emphasized = false,
   });
 
   final String title;
@@ -21,6 +22,7 @@ class AppInfoCard extends StatelessWidget {
   final IconData? icon;
   final AppInfoTone tone;
   final Widget? trailing;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +34,23 @@ class AppInfoCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Icon(icon ?? Icons.lightbulb_outline_rounded, color: colors.$1),
+            if (emphasized)
+              DecoratedBox(
+                decoration: const BoxDecoration(
+                  color: AppColors.surface,
+                  shape: BoxShape.circle,
+                ),
+                child: SizedBox.square(
+                  dimension: 48,
+                  child: Icon(
+                    icon ?? Icons.lightbulb_outline_rounded,
+                    color: colors.$1,
+                    size: 28,
+                  ),
+                ),
+              )
+            else
+              Icon(icon ?? Icons.lightbulb_outline_rounded, color: colors.$1),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(
@@ -40,12 +58,19 @@ class AppInfoCard extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     title,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleSmall?.copyWith(color: colors.$1),
+                    style: emphasized
+                        ? Theme.of(context).textTheme.titleLarge
+                        : Theme.of(
+                            context,
+                          ).textTheme.titleSmall?.copyWith(color: colors.$1),
                   ),
                   const SizedBox(height: AppSpacing.xxs),
-                  Text(message, style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    message,
+                    style: emphasized
+                        ? Theme.of(context).textTheme.bodyMedium
+                        : Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),

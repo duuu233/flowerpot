@@ -1,131 +1,235 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../../app/app_theme.dart';
 import '../../../app/flowerpot_app.dart';
-import '../../../shared/shared.dart';
+import '../../../design_system/design_system.dart';
+import '../../../routes/app_routes.dart';
+import '../models/personal_info_page_model.dart';
+import 'widgets/personal_info_card.dart';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  const ProfilePage({super.key, this.pageModel});
+
+  final PersonalInfoPageModel? pageModel;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  final nickname = TextEditingController();
-  String? avatarPath;
-  bool seeded = false;
+  String? _localAvatarPath;
+  bool _seeded = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!seeded) {
-      final user = FlowerpotScope.of(context).user;
-      nickname.text = user?.nickname ?? '';
-      avatarPath = user?.avatarUrl;
-      seeded = true;
+    if (!_seeded) {
+      _localAvatarPath = FlowerpotScope.of(context).user?.avatarUrl;
+      _seeded = true;
     }
-  }
-
-  @override
-  void dispose() {
-    nickname.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
-    final fileExists = avatarPath != null && File(avatarPath!).existsSync();
-    return Scaffold(
-      appBar: AppBar(title: const Text('基本信息')),
-      body: AppBackground(
-        child: SafeArea(
-          top: false,
-          child: ListView(
-            padding: const EdgeInsets.all(22),
-            children: <Widget>[
-              Center(
-                child: Stack(
-                  children: <Widget>[
-                    CircleAvatar(
-                      radius: 54,
-                      backgroundColor: AppColors.lime,
-                      backgroundImage: fileExists
-                          ? FileImage(File(avatarPath!))
-                          : null,
-                      child: fileExists
-                          ? null
-                          : const Icon(
-                              Icons.person_rounded,
-                              color: AppColors.ink,
-                              size: 54,
-                            ),
-                    ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: IconButton.filled(
-                        onPressed: () async {
-                          final image = await ImagePicker().pickImage(
-                            source: ImageSource.gallery,
-                            imageQuality: 82,
-                            maxWidth: 1000,
-                          );
-                          if (image != null) {
-                            setState(() => avatarPath = image.path);
-                          }
-                        },
-                        icon: const Icon(Icons.camera_alt_outlined, size: 18),
-                      ),
-                    ),
-                  ],
-                ),
+    final baseModel =
+        widget.pageModel ?? PersonalInfoPageModel.fromUser(state.user);
+    final model = _localAvatarPath == null
+        ? baseModel
+        : baseModel.copyWith(avatarPath: _localAvatarPath);
+    final avatarImage = _avatarImage(model.avatarPath);
+
+    return AppPageScaffold(
+      appBar: const AppPageHeader(title: '个人信息', leading: AppBackButton()),
+      background: AppPageBackground.standard,
+      body: CustomScrollView(
+        key: const Key('personal-info-scroll-view'),
+        slivers: <Widget>[
+          SliverToBoxAdapter(
+            child: ResponsiveContent(
+              maxWidth: 375,
+              padding: const EdgeInsets.fromLTRB(20, 84, 20, 0),
+              child: PersonalInfoCard(
+                model: model,
+                avatarImage: avatarImage,
+                onAvatarTap: state.busy ? null : _pickAvatar,
+                onNicknameTap: state.busy ? null : _editNickname,
+                onPhoneTap: state.busy
+                    ? null
+                    : () => Navigator.pushNamed(context, AppRoutes.settings),
+                onAccountIdTap: state.busy
+                    ? null
+                    : () => _copyAccountId(model.accountId),
               ),
-              const SizedBox(height: 30),
-              TextField(
-                controller: nickname,
-                maxLength: 20,
-                decoration: const InputDecoration(labelText: '用户名'),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                initialValue: state.user?.account ?? '',
-                readOnly: true,
-                decoration: const InputDecoration(
-                  labelText: '登录账号',
-                  prefixIcon: Icon(Icons.verified_user_outlined),
-                ),
-              ),
-              const SizedBox(height: 24),
-              LoadingButton(
-                label: '保存',
-                loading: state.busy,
-                onPressed: () async {
-                  if (nickname.text.trim().isEmpty) {
-                    showAppMessage(context, '用户名不能为空', success: false);
-                    return;
-                  }
-                  final result = await state.updateProfile(
-                    nickname: nickname.text,
-                    avatarUrl: avatarPath,
-                  );
-                  if (context.mounted) {
-                    showAppMessage(
-                      context,
-                      result.message,
-                      success: result.success,
-                    );
-                  }
-                },
-              ),
-            ],
+            ),
           ),
-        ),
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 64),
+                child: PersonalInfoLogoutButton(
+                  onPressed: state.busy ? null : _confirmLogout,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  ImageProvider<Object>? _avatarImage(String? path) {
+    final value = path?.trim();
+    if (value == null || value.isEmpty) return null;
+    final file = File(value);
+    if (file.existsSync()) return FileImage(file);
+    final uri = Uri.tryParse(value);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      return NetworkImage(value);
+    }
+    return null;
+  }
+
+  Future<void> _pickAvatar() async {
+    final previousPath = _localAvatarPath;
+    XFile? image;
+    try {
+      image = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 82,
+        maxWidth: 1000,
+        maxHeight: 1000,
+      );
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      showAppMessage(
+        context,
+        error.message ?? '无法访问相册，请检查照片权限',
+        tone: AppMessageTone.error,
+      );
+      return;
+    }
+    final pickedImage = image;
+    if (pickedImage == null || !mounted) return;
+    setState(() => _localAvatarPath = pickedImage.path);
+
+    final state = FlowerpotScope.of(context);
+    final result = await state.updateProfile(
+      nickname: state.user?.nickname ?? '',
+      avatarUrl: pickedImage.path,
+    );
+    if (!mounted) return;
+    if (!result.success) {
+      setState(() => _localAvatarPath = previousPath);
+      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      return;
+    }
+    showAppMessage(context, result.message);
+  }
+
+  Future<void> _editNickname() async {
+    final state = FlowerpotScope.of(context);
+    final currentNickname = state.user?.nickname ?? '';
+    final nickname = await showDialog<String>(
+      context: context,
+      builder: (_) => _NicknameEditDialog(initialValue: currentNickname),
+    );
+    if (nickname == null || nickname == currentNickname || !mounted) return;
+
+    final result = await state.updateProfile(
+      nickname: nickname,
+      avatarUrl: _localAvatarPath,
+    );
+    if (!mounted) return;
+    showAppMessage(
+      context,
+      result.message,
+      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+    );
+  }
+
+  Future<void> _copyAccountId(String accountId) async {
+    if (accountId == '—') return;
+    await Clipboard.setData(ClipboardData(text: accountId));
+    if (!mounted) return;
+    showAppMessage(context, '账号ID已复制', tone: AppMessageTone.info);
+  }
+
+  Future<void> _confirmLogout() async {
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: '退出登录',
+      message: '确定退出当前账号吗？',
+      confirmLabel: '退出登录',
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    final result = await FlowerpotScope.of(context).logout();
+    if (!mounted) return;
+    if (!result.success) {
+      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      return;
+    }
+    Navigator.pushNamedAndRemoveUntil(context, AppRoutes.auth, (_) => false);
+  }
+}
+
+class _NicknameEditDialog extends StatefulWidget {
+  const _NicknameEditDialog({required this.initialValue});
+
+  final String initialValue;
+
+  @override
+  State<_NicknameEditDialog> createState() => _NicknameEditDialogState();
+}
+
+class _NicknameEditDialogState extends State<_NicknameEditDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialValue,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const Key('nickname-edit-dialog'),
+      title: const Text('修改昵称'),
+      content: TextField(
+        key: const Key('nickname-edit-field'),
+        controller: _controller,
+        autofocus: true,
+        maxLength: 20,
+        textInputAction: TextInputAction.done,
+        decoration: const InputDecoration(hintText: '请输入昵称'),
+        onChanged: (_) => setState(() {}),
+        onSubmitted: _submit,
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const Key('confirm-nickname-edit'),
+          onPressed: _controller.text.trim().isEmpty ? null : _submit,
+          child: const Text('确认'),
+        ),
+      ],
+    );
+  }
+
+  void _submit([String? value]) {
+    final nickname = (value ?? _controller.text).trim();
+    if (nickname.isNotEmpty) Navigator.pop(context, nickname);
   }
 }

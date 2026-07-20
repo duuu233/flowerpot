@@ -42,11 +42,15 @@ class DeviceSettingsSummaryCard extends StatelessWidget {
                     style: AppTypography.deviceTitle.copyWith(fontSize: 22),
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  AppStatusChip(
-                    label: '已陪伴${model.companionDays}天',
-                    textStyle: AppTypography.compactBody.copyWith(
-                      color: AppColors.brandPrimary,
-                      height: 1,
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: AppStatusChip(
+                      label: '已陪伴${model.companionDays}天',
+                      textStyle: AppTypography.compactBody.copyWith(
+                        color: AppColors.brandPrimary,
+                        height: 1,
+                      ),
                     ),
                   ),
                 ],

@@ -1,0 +1,37 @@
+import 'package:flutter/material.dart';
+
+import '../../../../design_system/design_system.dart';
+import 'water_trend_line_chart.dart';
+
+class BatteryTrendChartCard extends StatelessWidget {
+  const BatteryTrendChartCard({
+    required this.values,
+    required this.labels,
+    super.key,
+  });
+
+  final List<double> values;
+  final List<String> labels;
+
+  @override
+  Widget build(BuildContext context) {
+    return MetricChartCard(
+      leading: const Icon(
+        Icons.info_outline_rounded,
+        size: 16,
+        color: AppColors.textSecondary,
+      ),
+      title: '相对湿度变化',
+      unit: '%',
+      height: 188,
+      titleStyle: AppTypography.body,
+      unitStyle: AppTypography.body.copyWith(color: AppColors.textSecondary),
+      chart: WaterTrendLineChart(
+        values: values,
+        labels: labels,
+        unit: '%',
+        semanticsName: '电池电量趋势图',
+      ),
+    );
+  }
+}

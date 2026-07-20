@@ -46,7 +46,20 @@ class _DliBarChartPainter extends CustomPainter {
     for (var index = 0; index <= 5; index++) {
       final ratio = index / 5;
       final y = top + chartHeight * ratio;
-      canvas.drawLine(Offset(left, y), Offset(size.width - right, y), gridPaint);
+      if (index == 5) {
+        canvas.drawLine(
+          Offset(left, y),
+          Offset(size.width - right, y),
+          gridPaint,
+        );
+      } else {
+        _drawDashedLine(
+          canvas,
+          Offset(left, y),
+          Offset(size.width - right, y),
+          gridPaint,
+        );
+      }
       _paintText(
         canvas,
         (maxValue * (1 - ratio)).toStringAsFixed(1),
@@ -63,9 +76,10 @@ class _DliBarChartPainter extends CustomPainter {
       final normalized = values[index] / maxValue;
       final x = left + slotWidth * index + (slotWidth - barWidth) / 2;
       final barHeight = chartHeight * normalized;
-      final rect = RRect.fromRectAndRadius(
+      final rect = RRect.fromRectAndCorners(
         Rect.fromLTWH(x, top + chartHeight - barHeight, barWidth, barHeight),
-        const Radius.circular(4),
+        topLeft: const Radius.circular(4),
+        topRight: const Radius.circular(4),
       );
       canvas.drawRRect(rect, barPaint);
       final label = index < labels.length ? labels[index] : '${index + 1}';
@@ -77,14 +91,25 @@ class _DliBarChartPainter extends CustomPainter {
     }
   }
 
+  void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
+    const dashWidth = 3.0;
+    const dashGap = 3.0;
+    var x = start.dx;
+    while (x < end.dx) {
+      canvas.drawLine(
+        Offset(x, start.dy),
+        Offset(math.min(x + dashWidth, end.dx), end.dy),
+        paint,
+      );
+      x += dashWidth + dashGap;
+    }
+  }
+
   void _paintCenteredText(Canvas canvas, String text, Offset center) {
     final painter = TextPainter(
       text: TextSpan(
         text: text,
-        style: const TextStyle(
-          color: AppColors.textSecondary,
-          fontSize: 10,
-        ),
+        style: AppTypography.axis.copyWith(fontSize: 11),
       ),
       textDirection: TextDirection.ltr,
       maxLines: 1,
@@ -102,7 +127,7 @@ class _DliBarChartPainter extends CustomPainter {
     final painter = TextPainter(
       text: TextSpan(
         text: text,
-        style: TextStyle(color: color, fontSize: fontSize),
+        style: AppTypography.axis.copyWith(color: color, fontSize: fontSize),
       ),
       textDirection: TextDirection.ltr,
     )..layout();

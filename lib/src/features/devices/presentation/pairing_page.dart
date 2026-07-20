@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../app/app_theme.dart';
 import '../../../app/flowerpot_app.dart';
+import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
-import '../../../shared/shared.dart';
 import '../../../tuya/tuya_models.dart';
 
 class PairingPage extends StatefulWidget {
@@ -14,249 +13,731 @@ class PairingPage extends StatefulWidget {
 }
 
 class _PairingPageState extends State<PairingPage> {
-  final ssid = TextEditingController();
-  final password = TextEditingController();
-  int step = 0;
-  String mode = 'ap';
-  String? pairedDeviceId;
+  final ssidController = TextEditingController(text: 'Home_2.4G');
+  final passwordController = TextEditingController(text: '12345678');
 
   @override
   void dispose() {
-    ssid.dispose();
-    password.dispose();
+    ssidController.dispose();
+    passwordController.dispose();
     super.dispose();
   }
 
-  Future<void> _pair() async {
-    if (ssid.text.trim().isEmpty || password.text.isEmpty) {
-      showAppMessage(context, '请输入 Wi-Fi 名称与密码', success: false);
-      return;
-    }
-    setState(() => step = 2);
-    final result = await FlowerpotScope.of(context).pairDevice(
-      PairingRequest(
-        ssid: ssid.text.trim(),
-        password: password.text,
-        mode: mode,
-      ),
+  Future<void> _switchWifi() async {
+    final value = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: .42),
+      builder: (_) => _WifiSelectionSheet(current: ssidController.text),
     );
-    if (!mounted) return;
-    if (result.success) {
-      pairedDeviceId = FlowerpotScope.of(context).selectedDevice?.id;
-      setState(() => step = 3);
-    } else {
-      setState(() => step = 1);
-      showAppMessage(context, result.message, success: false);
+    if (value != null && value.isNotEmpty && mounted) {
+      setState(() => ssidController.text = value);
     }
   }
 
+  Future<void> _pair() async {
+    if (ssidController.text.trim().isEmpty || passwordController.text.isEmpty) {
+      showAppMessage(context, '请输入 Wi-Fi 名称与密码', tone: AppMessageTone.error);
+      return;
+    }
+
+    await Navigator.pushNamed(
+      context,
+      AppRoutes.deviceSearch,
+      arguments: PairingRequest(
+        ssid: ssidController.text.trim(),
+        password: passwordController.text,
+        mode: 'ap',
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('添加智能花盆')),
-    body: AppBackground(
-      child: SafeArea(
-        top: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(22, 10, 22, 32),
-          children: <Widget>[
-            _StepHeader(step: step),
-            const SizedBox(height: 24),
-            if (step == 0) _prepare(context),
-            if (step == 1) _wifi(context),
-            if (step == 2) _searching(context),
-            if (step == 3) _success(context),
-          ],
-        ),
-      ),
-    ),
-  );
-
-  Widget _prepare(BuildContext context) => Column(
-    children: <Widget>[
-      GlassCard(
-        color: AppColors.ink,
-        child: Column(
-          children: <Widget>[
-            const PlantIllustration(size: 190),
-            Text(
-              '让设备进入配网模式',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(color: Colors.white),
+  Widget build(BuildContext context) {
+    final state = FlowerpotScope.of(context);
+    return AppPageScaffold(
+      appBar: const AppPageHeader(title: '连接Wi-Fi', leading: AppBackButton()),
+      background: AppPageBackground.standard,
+      body: Stack(
+        children: <Widget>[
+          SingleChildScrollView(
+            key: const Key('pairing-scroll-view'),
+            padding: const EdgeInsets.only(bottom: 92),
+            child: ResponsiveContent(
+              maxWidth: 375,
+              padding: const EdgeInsets.fromLTRB(20, 88, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  const _WifiConnectionIllustration(),
+                  const SizedBox(height: 27),
+                  const Text(
+                    '请将设备连接到2.4GHz Wi-Fi网络',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 15,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const _WifiNoticeCard(),
+                  const SizedBox(height: 12),
+                  _WifiCredentialsCard(
+                    ssidController: ssidController,
+                    passwordController: passwordController,
+                    onSwitchWifi: _switchWifi,
+                  ),
+                  const SizedBox(height: 38),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      Icon(
+                        Icons.info_outline_rounded,
+                        color: AppColors.brandPrimary,
+                        size: 18,
+                      ),
+                      SizedBox(width: 7),
+                      Text(
+                        '连接过程中请保持设备靠近路由器',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              '长按花盆背面的配网键 5 秒，直到 Wi-Fi 指示灯快速闪烁。',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white70, height: 1.5),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 18),
-      const GlassCard(
-        child: Row(
-          children: <Widget>[
-            Icon(Icons.info_outline_rounded, color: AppColors.sun),
-            SizedBox(width: 12),
-            Expanded(child: Text('设备只支持 2.4 GHz Wi-Fi，请确保手机已连接对应网络。')),
-          ],
-        ),
-      ),
-      const SizedBox(height: 24),
-      FilledButton(
-        onPressed: () => setState(() => step = 1),
-        child: const Text('指示灯正在闪烁'),
-      ),
-    ],
-  );
-
-  Widget _wifi(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: <Widget>[
-      Text('连接 Wi-Fi', style: Theme.of(context).textTheme.headlineSmall),
-      const SizedBox(height: 8),
-      const Text('密码只会交给涂鸦 SDK 用于本次设备配网。'),
-      const SizedBox(height: 20),
-      TextField(
-        controller: ssid,
-        decoration: const InputDecoration(
-          labelText: 'Wi-Fi 名称',
-          prefixIcon: Icon(Icons.wifi_rounded),
-        ),
-      ),
-      const SizedBox(height: 12),
-      TextField(
-        controller: password,
-        obscureText: true,
-        decoration: const InputDecoration(
-          labelText: 'Wi-Fi 密码',
-          prefixIcon: Icon(Icons.lock_outline_rounded),
-        ),
-      ),
-      const SizedBox(height: 18),
-      Text('配网方式', style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 10),
-      SegmentedButton<String>(
-        segments: const <ButtonSegment<String>>[
-          ButtonSegment(
-            value: 'ap',
-            icon: Icon(Icons.router_outlined),
-            label: Text('热点模式'),
           ),
-          ButtonSegment(
-            value: 'ez',
-            icon: Icon(Icons.bolt_rounded),
-            label: Text('快连模式'),
+          Positioned(
+            left: 20,
+            right: 20,
+            bottom: 8,
+            child: FilledButton(
+              key: const Key('start-pairing-button'),
+              onPressed: state.busy ? null : _pair,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(50),
+                backgroundColor: AppColors.brandPrimary,
+                foregroundColor: AppColors.surface,
+                elevation: 2,
+                shadowColor: AppColors.brandPrimary.withValues(alpha: .35),
+                shape: const StadiumBorder(),
+                textStyle: AppTypography.pageTitle.copyWith(
+                  color: AppColors.surface,
+                ),
+              ),
+              child: state.busy
+                  ? const SizedBox.square(
+                      dimension: 22,
+                      child: CircularProgressIndicator(
+                        color: AppColors.surface,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text('开始配网'),
+            ),
           ),
         ],
-        selected: <String>{mode},
-        showSelectedIcon: false,
-        onSelectionChanged: (value) => setState(() => mode = value.first),
       ),
-      const SizedBox(height: 8),
-      Text(
-        mode == 'ap' ? '官方推荐：成功率更高，对路由器兼容性更好。' : '适合网络环境简单、路由器兼容性良好的场景。',
-        style: Theme.of(context).textTheme.bodyMedium,
-      ),
-      const SizedBox(height: 28),
-      FilledButton(onPressed: _pair, child: const Text('开始配网')),
-    ],
-  );
+    );
+  }
+}
 
-  Widget _searching(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 40),
-    child: Column(
-      children: <Widget>[
-        SizedBox.square(
-          dimension: 184,
-          child: Stack(
-            alignment: Alignment.center,
-            children: <Widget>[
-              const CircularProgressIndicator(
-                strokeWidth: 3,
-                color: AppColors.leaf,
-              ),
-              Container(
-                width: 140,
-                height: 140,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: .7),
-                  shape: BoxShape.circle,
+class _WifiConnectionIllustration extends StatelessWidget {
+  const _WifiConnectionIllustration();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      height: 250,
+      child: Stack(
+        alignment: Alignment.center,
+        children: <Widget>[
+          _SignalCircle(size: 230, opacity: .20),
+          _SignalCircle(size: 184, opacity: .25),
+          _SignalCircle(size: 140, opacity: .34),
+          Positioned(left: 5, top: 34, child: _DecorationDot(size: 10)),
+          Positioned(right: 25, top: 60, child: _DecorationDot(size: 10)),
+          Positioned(left: 18, bottom: 5, child: _DecorationDot(size: 15)),
+          Positioned(right: 31, bottom: 17, child: _DecorationDot(size: 9)),
+          Positioned(left: 58, top: 136, child: _PlanterWifiHub()),
+          Positioned(right: 42, top: 137, child: _RouterHub()),
+          Positioned(left: 124, right: 117, top: 166, child: _DottedLink()),
+          Positioned(top: 151, child: _ConnectionLock()),
+        ],
+      ),
+    );
+  }
+}
+
+class _SignalCircle extends StatelessWidget {
+  const _SignalCircle({required this.size, required this.opacity});
+
+  final double size;
+  final double opacity;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.brandSurface.withValues(alpha: opacity),
+        shape: BoxShape.circle,
+      ),
+      child: SizedBox.square(dimension: size),
+    );
+  }
+}
+
+class _DecorationDot extends StatelessWidget {
+  const _DecorationDot({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.brandSoft.withValues(alpha: .35),
+        shape: BoxShape.circle,
+      ),
+      child: SizedBox.square(dimension: size),
+    );
+  }
+}
+
+class _PlanterWifiHub extends StatelessWidget {
+  const _PlanterWifiHub();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 70,
+      height: 65,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: <Widget>[
+          const Positioned(
+            top: 0,
+            child: Icon(
+              Icons.wifi_rounded,
+              color: AppColors.brandPrimary,
+              size: 48,
+            ),
+          ),
+          Container(
+            width: 62,
+            height: 29,
+            decoration: const BoxDecoration(
+              color: AppColors.brandPrimary,
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                _WhiteDot(),
+                SizedBox(width: 8),
+                _WhiteDot(),
+                SizedBox(width: 8),
+                _WhiteDot(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RouterHub extends StatelessWidget {
+  const _RouterHub();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 82,
+      height: 62,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: <Widget>[
+          const Positioned(left: 8, top: 0, child: _Antenna()),
+          const Positioned(right: 8, top: 0, child: _Antenna()),
+          Container(
+            width: 82,
+            height: 27,
+            decoration: const BoxDecoration(
+              color: AppColors.brandPrimary,
+              borderRadius: BorderRadius.all(Radius.circular(9)),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: <Widget>[
+                SizedBox(
+                  width: 13,
+                  height: 3,
+                  child: ColoredBox(color: AppColors.surface),
                 ),
-                child: const PlantIllustration(size: 132),
+                SizedBox(width: 8),
+                _WhiteDot(size: 4),
+                SizedBox(width: 6),
+                _WhiteDot(size: 4),
+                SizedBox(width: 6),
+                _WhiteDot(size: 4),
+                SizedBox(width: 10),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Antenna extends StatelessWidget {
+  const _Antenna();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.brandPrimary,
+        borderRadius: AppRadius.full,
+      ),
+      child: SizedBox(width: 5, height: 41),
+    );
+  }
+}
+
+class _WhiteDot extends StatelessWidget {
+  const _WhiteDot({this.size = 7});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        shape: BoxShape.circle,
+      ),
+      child: SizedBox.square(dimension: size),
+    );
+  }
+}
+
+class _DottedLink extends StatelessWidget {
+  const _DottedLink();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: List<Widget>.generate(
+        10,
+        (_) => const DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppColors.brandPrimary,
+            shape: BoxShape.circle,
+          ),
+          child: SizedBox.square(dimension: 3),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConnectionLock extends StatelessWidget {
+  const _ConnectionLock();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.brandSurface,
+        shape: BoxShape.circle,
+      ),
+      child: SizedBox.square(
+        dimension: 31,
+        child: Icon(Icons.lock_rounded, color: AppColors.brandDark, size: 18),
+      ),
+    );
+  }
+}
+
+class _WifiNoticeCard extends StatelessWidget {
+  const _WifiNoticeCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 300;
+        return DecoratedBox(
+          decoration: const BoxDecoration(
+            color: AppColors.brandSurfaceAlt,
+            borderRadius: AppRadius.card,
+          ),
+          child: SizedBox(
+            height: compact ? 84 : 72,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: <Widget>[
+                  _WifiBandIcon(),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          '仅支持2.4GHz Wi-Fi网络',
+                          style: TextStyle(
+                            color: AppColors.brandPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          '请确保设备连接的是稳定的2.4GHz网络',
+                          style: TextStyle(
+                            color: AppColors.brandPrimary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _WifiBandIcon extends StatelessWidget {
+  const _WifiBandIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        shape: BoxShape.circle,
+      ),
+      child: SizedBox.square(
+        dimension: 40,
+        child: Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            Positioned(
+              top: 7,
+              child: Icon(
+                Icons.wifi_rounded,
+                color: AppColors.brandPrimary,
+                size: 25,
+              ),
+            ),
+            Positioned(
+              bottom: 4,
+              child: Text(
+                '2.4G',
+                style: TextStyle(
+                  color: AppColors.brandPrimary,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WifiCredentialsCard extends StatelessWidget {
+  const _WifiCredentialsCard({
+    required this.ssidController,
+    required this.passwordController,
+    required this.onSwitchWifi,
+  });
+
+  final TextEditingController ssidController;
+  final TextEditingController passwordController;
+  final VoidCallback onSwitchWifi;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.card,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          children: <Widget>[
+            SizedBox(
+              height: 72,
+              child: Row(
+                children: <Widget>[
+                  const _CredentialIcon(icon: Icons.wifi_rounded),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Text(
+                          'Wi-Fi名称',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        SizedBox(
+                          height: 24,
+                          child: TextField(
+                            key: const Key('pairing-ssid-field'),
+                            controller: ssidController,
+                            readOnly: true,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 15,
+                            ),
+                            decoration: const InputDecoration.collapsed(
+                              hintText: '请选择 Wi-Fi',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    key: const Key('switch-wifi-button'),
+                    onPressed: onSwitchWifi,
+                    child: const Text('切换'),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: AppColors.divider),
+            SizedBox(
+              height: 72,
+              child: Row(
+                children: <Widget>[
+                  const _CredentialIcon(icon: Icons.lock_outline_rounded),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Text(
+                          'Wi-Fi密码',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
+                        ),
+                        SizedBox(
+                          height: 24,
+                          child: TextField(
+                            key: const Key('pairing-password-field'),
+                            controller: passwordController,
+                            obscureText: true,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 15,
+                              letterSpacing: 3,
+                            ),
+                            decoration: const InputDecoration.collapsed(
+                              hintText: '请输入密码',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CredentialIcon extends StatelessWidget {
+  const _CredentialIcon({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.brandSurface,
+        borderRadius: AppRadius.card,
+      ),
+      child: SizedBox.square(
+        dimension: 40,
+        child: Icon(icon, color: AppColors.brandPrimary, size: 24),
+      ),
+    );
+  }
+}
+
+class _WifiSelectionSheet extends StatefulWidget {
+  const _WifiSelectionSheet({required this.current});
+
+  final String current;
+
+  @override
+  State<_WifiSelectionSheet> createState() => _WifiSelectionSheetState();
+}
+
+class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
+  late String selected = widget.current;
+
+  List<String> get networks => <String>[
+    widget.current,
+    if (widget.current != 'Home_2.4G') 'Home_2.4G',
+    if (widget.current != 'TP-LINK_2.4G') 'TP-LINK_2.4G',
+    if (widget.current != 'Xiaomi_2.4G') 'Xiaomi_2.4G',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        height: 360,
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: <Widget>[
+              const SizedBox(height: 10),
+              Container(
+                width: 48,
+                height: 4,
+                decoration: const BoxDecoration(
+                  color: AppColors.disabled,
+                  borderRadius: AppRadius.full,
+                ),
+              ),
+              SizedBox(
+                height: 56,
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          key: const Key('wifi-selection-cancel'),
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text(
+                            '取消',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Text(
+                      '选择Wi-Fi',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          key: const Key('wifi-selection-confirm'),
+                          onPressed: () => Navigator.pop(context, selected),
+                          child: const Text(
+                            '确认',
+                            style: TextStyle(
+                              color: AppColors.brandPrimary,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Text(
+                '仅显示可用的2.4GHzWi-Fi网络',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 36),
+                  itemCount: networks.length,
+                  separatorBuilder: (_, _) =>
+                      const Divider(height: 1, color: AppColors.divider),
+                  itemBuilder: (context, index) {
+                    final network = networks[index];
+                    final active = selected == network;
+                    return InkWell(
+                      key: Key('wifi-option-$network'),
+                      onTap: () => setState(() => selected = network),
+                      child: SizedBox(
+                        height: 64,
+                        child: Row(
+                          children: <Widget>[
+                            const Icon(
+                              Icons.wifi_rounded,
+                              color: AppColors.brandPrimary,
+                              size: 27,
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Text(
+                                network,
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 17,
+                                ),
+                              ),
+                            ),
+                            if (active)
+                              const Icon(
+                                Icons.check_rounded,
+                                key: Key('wifi-selected-check'),
+                                color: AppColors.brandPrimary,
+                                size: 28,
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 28),
-        Text('正在发现花盆…', style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 8),
-        const Text('正在获取配网 Token，并将设备加入“我的花园”'),
-        const SizedBox(height: 18),
-        const StatusPill(label: 'Token 有效期 10 分钟', icon: Icons.timer_outlined),
-      ],
-    ),
-  );
-
-  Widget _success(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 28),
-    child: Column(
-      children: <Widget>[
-        Container(
-          width: 92,
-          height: 92,
-          decoration: const BoxDecoration(
-            color: AppColors.leaf,
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(Icons.check_rounded, color: Colors.white, size: 52),
-        ),
-        const SizedBox(height: 24),
-        Text('设备添加成功', style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 8),
-        const Text('花盆已连接，现在可以为它选择植物。'),
-        const SizedBox(height: 26),
-        FilledButton(
-          onPressed: () => Navigator.pushReplacementNamed(
-            context,
-            AppRoutes.plantPicker,
-            arguments: pairedDeviceId,
-          ),
-          child: const Text('选择植物'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pushNamedAndRemoveUntil(
-            context,
-            AppRoutes.shell,
-            (_) => false,
-          ),
-          child: const Text('稍后设置'),
-        ),
-      ],
-    ),
-  );
-}
-
-class _StepHeader extends StatelessWidget {
-  const _StepHeader({required this.step});
-
-  final int step;
-
-  @override
-  Widget build(BuildContext context) => Row(
-    children: List<Widget>.generate(4, (index) {
-      final active = index <= step;
-      return Expanded(
-        child: Container(
-          height: 5,
-          margin: EdgeInsets.only(right: index == 3 ? 0 : 7),
-          decoration: BoxDecoration(
-            color: active ? AppColors.leaf : const Color(0xFFD9E2DA),
-            borderRadius: BorderRadius.circular(99),
-          ),
-        ),
-      );
-    }),
-  );
+      ),
+    );
+  }
 }

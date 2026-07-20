@@ -63,10 +63,10 @@ class _StepCircle extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: Text(
-        '\${index + 1}',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: active ? AppColors.surface : AppColors.textSecondary,
-        ),
+        '${index + 1}',
+        style: Theme.of(
+          context,
+        ).textTheme.labelSmall?.copyWith(color: AppColors.surface),
       ),
     );
   }

@@ -1,0 +1,76 @@
+import 'package:flutter/material.dart';
+
+import '../../../app/flowerpot_app.dart';
+import '../../../design_system/design_system.dart';
+import '../../../routes/app_routes.dart';
+import '../../../tuya/tuya_models.dart';
+import '../../auth/presentation/password_page.dart';
+import '../models/account_security_page_model.dart';
+import 'widgets/account_security_card.dart';
+
+class AccountSecurityPage extends StatelessWidget {
+  const AccountSecurityPage({super.key, this.pageModel});
+
+  final AccountSecurityPageModel? pageModel;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = FlowerpotScope.of(context);
+    final model = pageModel ?? AccountSecurityPageModel.fromUser(state.user);
+
+    return AppPageScaffold(
+      appBar: const AppPageHeader(title: '账号与安全', leading: AppBackButton()),
+      background: AppPageBackground.standard,
+      body: SingleChildScrollView(
+        key: const Key('account-security-scroll-view'),
+        child: ResponsiveContent(
+          maxWidth: 375,
+          padding: const EdgeInsets.fromLTRB(20, 84, 20, 40),
+          child: AccountSecurityCard(
+            model: model,
+            onPhoneTap: state.busy
+                ? null
+                : () => showAppMessage(
+                    context,
+                    '手机号修改功能暂未开放',
+                    tone: AppMessageTone.info,
+                  ),
+            onLoginPasswordTap: state.busy
+                ? null
+                : () => _openPasswordPage(context, title: '修改密码'),
+            onChangePasswordTap: state.busy
+                ? null
+                : () => _openPasswordPage(context, title: '修改密码'),
+            onForgotPasswordTap: state.busy
+                ? null
+                : () => _openPasswordPage(
+                    context,
+                    title: '忘记密码',
+                    returnToLoginOnSuccess: true,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openPasswordPage(
+    BuildContext context, {
+    required String title,
+    bool returnToLoginOnSuccess = false,
+  }) {
+    final account = FlowerpotScope.of(context).user?.account ?? '';
+    Navigator.pushNamed(
+      context,
+      AppRoutes.password,
+      arguments: PasswordArguments(
+        account: account,
+        region: account.contains('@')
+            ? LoginRegion.overseas
+            : LoginRegion.domestic,
+        title: title,
+        returnToLoginOnSuccess: returnToLoginOnSuccess,
+      ),
+    );
+  }
+}

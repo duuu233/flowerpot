@@ -17,7 +17,7 @@ class LightStatusPageModel {
   }) {
     final illuminance = device.sensors.illuminance;
     final status = switch (illuminance) {
-      < 500 => '偏低',
+      < 200 => '偏低',
       > 1200 => '充足',
       _ => '一般',
     };
@@ -29,14 +29,14 @@ class LightStatusPageModel {
     final advice = switch (status) {
       '偏低' => '当前光照略低于植物光合作用补偿点，建议将植物移至明亮散射光处，或每天补光1-2小时。',
       '充足' => '当前光照较为充足，建议保持稳定的明亮散射光，并留意叶片是否出现灼伤。',
-      _ => '当前光照接近植物适宜范围，建议保持现有位置并持续观察每日光量积分。',
+      _ => '当前光照略低于植物光合作用补偿点，建议将植物移至明亮散射光处，或每天补光1-2小时。',
     };
     return LightStatusPageModel(
       deviceId: device.id,
       status: status,
       description: description,
       illuminance: illuminance,
-      ppfd: device.sensors.ppfd.toDouble(),
+      ppfd: device.sensors.ppfd,
       dliValues: dliValues,
       advice: advice,
     );

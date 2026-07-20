@@ -13,6 +13,9 @@ class AppSettingsList extends StatelessWidget {
     this.borderRadius = AppRadius.card,
     this.color = AppColors.surface,
     this.showShadow = true,
+    this.dividerIndent = AppSpacing.lg,
+    this.dividerEndIndent = AppSpacing.lg,
+    this.dividerColor,
   });
 
   final List<Widget> children;
@@ -20,6 +23,9 @@ class AppSettingsList extends StatelessWidget {
   final BorderRadius borderRadius;
   final Color color;
   final bool showShadow;
+  final double dividerIndent;
+  final double dividerEndIndent;
+  final Color? dividerColor;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +39,12 @@ class AppSettingsList extends StatelessWidget {
           for (var index = 0; index < children.length; index++) ...<Widget>[
             children[index],
             if (showDividers && index < children.length - 1)
-              const Divider(indent: AppSpacing.lg, endIndent: AppSpacing.lg),
+              Divider(
+                height: 1,
+                indent: dividerIndent,
+                endIndent: dividerEndIndent,
+                color: dividerColor,
+              ),
           ],
         ],
       ),

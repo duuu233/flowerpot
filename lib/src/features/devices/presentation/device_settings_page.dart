@@ -77,6 +77,14 @@ class DeviceSettingsPage extends StatelessWidget {
       Navigator.pushNamed(context, AppRoutes.plantPicker, arguments: device.id);
       return;
     }
+    if (kind == DeviceSettingsMenuKind.other) {
+      Navigator.pushNamed(
+        context,
+        AppRoutes.deviceOtherSettings,
+        arguments: device.id,
+      );
+      return;
+    }
     showAppBottomSheet<void>(
       context,
       title: _titleFor(kind),
@@ -139,83 +147,6 @@ class DeviceSettingsPage extends StatelessWidget {
   }
 
   void _showMore(BuildContext context, SmartPlanterDevice device) {
-    showAppBottomSheet<void>(
-      context,
-      title: '更多',
-      builder: (sheetContext) => AppSettingsList(
-        showShadow: false,
-        children: <Widget>[
-          AppSettingsTile(
-            title: '设备名称',
-            icon: Icons.edit_outlined,
-            value: device.name,
-            onTap: () {
-              Navigator.pop(sheetContext);
-              _rename(context, device);
-            },
-          ),
-          AppSettingsTile(
-            title: '当前植物',
-            icon: Icons.eco_outlined,
-            value: device.plant.name,
-            onTap: () {
-              Navigator.pop(sheetContext);
-              Navigator.pushNamed(
-                context,
-                AppRoutes.plantPicker,
-                arguments: device.id,
-              );
-            },
-          ),
-          AppSettingsTile(
-            title: '固件版本',
-            icon: Icons.memory_rounded,
-            value: device.firmwareVersion,
-          ),
-          AppSettingsTile(
-            title: '设备 ID',
-            icon: Icons.info_outline_rounded,
-            value: device.id,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _rename(BuildContext context, SmartPlanterDevice device) async {
-    final controller = TextEditingController(text: device.name);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('编辑设备名称'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 20,
-        ),
-        actions: <Widget>[
-          AppTextButton(
-            label: '取消',
-            onPressed: () => Navigator.pop(dialogContext),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text),
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (name == null || !context.mounted) return;
-    final result = await FlowerpotScope.of(
-      context,
-    ).renameDevice(device.id, name);
-    if (context.mounted) {
-      showAppMessage(
-        context,
-        result.message,
-        tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-      );
-    }
+    Navigator.pushNamed(context, AppRoutes.deviceInfo, arguments: device.id);
   }
 }

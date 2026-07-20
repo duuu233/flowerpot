@@ -1,6 +1,6 @@
 # 光照状态页面 Flutter 实现说明
 
-本页面遵循 `docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`，归入 UI 开发批次 1，是该批次的第 4 个页面。完整回归测试将在本批次累计约 5 个页面后统一执行。
+本页面遵循 `docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`，归入 UI 开发批次 1，是该批次的第 4 个页面。页面完成后已随批次执行完整回归测试。
 
 ## Page
 
@@ -17,7 +17,7 @@
 | `LightStatusSummaryCard` | `presentation/widgets/light_status_summary_card.dart` | 设备占位、光照等级、说明、lux 和 PPFD |
 | `LightDliBarChart` | `presentation/widgets/light_dli_bar_chart.dart` | DLI 柱状图、网格、刻度和时间标签 |
 
-页面继续复用 `AppDevicePlaceholder`、`AppSurfaceCard`、`AppIconBadge`、`AppInfoCard` 和公共范围选择组件，没有重复实现卡片、日期导航或信息提示。
+页面继续复用 `AppDevicePlaceholder`、`AppSurfaceCard`、`AppIconBadge`、`CareAdviceCard` 和公共范围选择组件，没有重复实现卡片、日期导航或信息提示。`MetricChartCard` 增加了向后兼容的标题前置图标和文本样式参数，`AppInfoCard` 增加强调式图标布局，供截图中的 DLI 标题和建议卡复用。
 
 ## Model 结构
 
@@ -33,10 +33,11 @@
 - PPFD：`SensorSnapshot.ppfd`。
 - DLI：`FlowerpotState.historyFor(deviceId, SensorMetric.dli, range)`。
 - 日期前后导航目前调整展示周期；历史接口扩展日期参数后可直接接入指定周期数据。
+- PPFD 全链路使用 `double`，保留设备上报的三位小数精度；体验模式数据使用截图中的 305 lux、5.642 μmol/m²/s 及周 DLI 示例。
 
 ## 图片占位
 
-- 缺少盆栽设备素材时复用 `AppDevicePlaceholder(hasPlant: true)`。
+- 缺少盆栽设备素材时复用 `AppDevicePlaceholder(hasPlant: true)`，占位组件使用 Flutter `CustomPainter` 绘制叶片、粉色盆体、表情面板和阴影。
 - 不引用或裁切 Figma 截图。
 
 ## 尺寸适配
@@ -48,5 +49,7 @@
 
 ## 批次校验状态
 
-- 页面测试用例已建立。
-- 完整静态分析、双尺寸和全量 Flutter Test 在 UI 批次 1 第 5 页完成后统一执行。
+- 页面测试覆盖 375 × 812 内容结构与 320 × 568 滚动适配。
+- `dart analyze lib test`：通过，0 个问题。
+- `flutter test`：通过，17 个测试全部成功（包含光照页真实设备数据与日/周范围切换测试）。
+- 回归过程中同时修复了设备设置摘要卡在 320px 宽度下的 8px 标签溢出。

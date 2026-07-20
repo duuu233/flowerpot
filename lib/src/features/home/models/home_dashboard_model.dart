@@ -128,4 +128,6 @@ class HomeDashboardModel {
       scene != HomeDashboardScene.withoutCompanionSummary;
 
   bool get isWithoutPlant => scene == HomeDashboardScene.withoutPlant;
+
+  bool get isWithoutDevice => deviceId == null && !isWithoutPlant;
 }

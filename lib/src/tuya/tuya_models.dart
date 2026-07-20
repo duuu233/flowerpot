@@ -131,7 +131,12 @@ class SensorSnapshot {
   final int waterLevel;
   final int soilMoisture;
   final int illuminance;
-  final int ppfd;
+
+  /// Photosynthetic photon flux density in μmol/m²/s.
+  ///
+  /// The device reports fractional values (for example 5.642), so this must
+  /// remain a double all the way through the presentation layer.
+  final double ppfd;
   final double airTemperature;
   final int relativeHumidity;
 
@@ -139,7 +144,7 @@ class SensorSnapshot {
     SensorMetric.waterLevel => waterLevel.toDouble(),
     SensorMetric.soilMoisture => soilMoisture.toDouble(),
     SensorMetric.light => illuminance.toDouble(),
-    SensorMetric.ppfd => ppfd.toDouble(),
+    SensorMetric.ppfd => ppfd,
     SensorMetric.dli => ppfd * 0.0432,
     SensorMetric.temperature => airTemperature,
     SensorMetric.humidity => relativeHumidity.toDouble(),

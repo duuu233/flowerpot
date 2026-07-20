@@ -40,19 +40,13 @@ class _LightStatusPageState extends State<LightStatusPage> {
     final device = FlowerpotScope.of(context).deviceById(widget.deviceId);
     if (device == null) {
       return AppPageScaffold(
-        appBar: const AppPageHeader(
-          title: '光照状态',
-          leading: AppBackButton(),
-        ),
+        appBar: const AppPageHeader(title: '光照状态', leading: AppBackButton()),
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
     final summaryModel = LightStatusPageModel.fromDevice(device);
     return AppPageScaffold(
-      appBar: const AppPageHeader(
-        title: '光照状态',
-        leading: AppBackButton(),
-      ),
+      appBar: const AppPageHeader(title: '光照状态', leading: AppBackButton()),
       background: AppPageBackground.standard,
       body: CustomScrollView(
         slivers: <Widget>[
@@ -83,6 +77,17 @@ class _LightStatusPageState extends State<LightStatusPage> {
                   FutureBuilder<List<double>>(
                     future: history,
                     builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return const AppSurfaceCard(
+                          child: SizedBox(
+                            height: 220,
+                            child: AppErrorView(
+                              title: '光照历史读取失败',
+                              message: '请稍后重试。',
+                            ),
+                          ),
+                        );
+                      }
                       if (!snapshot.hasData) {
                         return const AppSurfaceCard(
                           child: SizedBox(
@@ -93,9 +98,18 @@ class _LightStatusPageState extends State<LightStatusPage> {
                       }
                       final values = snapshot.data!;
                       return MetricChartCard(
-                        title: 'ⓘ  DLI（每日光量积分）',
+                        leading: const Icon(
+                          Icons.info_outline_rounded,
+                          size: 16,
+                          color: AppColors.textSecondary,
+                        ),
+                        title: 'DLI（每日光量积分）',
                         unit: 'mol/m²/天',
-                        height: 220,
+                        height: 188,
+                        titleStyle: AppTypography.body,
+                        unitStyle: AppTypography.body.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
                         chart: LightDliBarChart(
                           values: values,
                           labels: _chartLabels(values.length),
@@ -104,10 +118,9 @@ class _LightStatusPageState extends State<LightStatusPage> {
                     },
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  AppInfoCard(
-                    title: '建议',
+                  CareAdviceCard(
                     message: summaryModel.advice,
-                    icon: Icons.lightbulb_outline_rounded,
+                    emphasized: true,
                   ),
                 ],
               ),
