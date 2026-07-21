@@ -39,7 +39,7 @@ void main() {
 
     expect(find.text('用户协议'), findsOneWidget);
     expect(find.text('《YSplanter 用户协议》'), findsOneWidget);
-    expect(find.text('一、服务内容'), findsOneWidget);
+    expect(find.text('一、服务说明'), findsOneWidget);
     expect(find.text('《YSplanter 隐私政策》'), findsNothing);
     expect(tester.takeException(), isNull);
   });

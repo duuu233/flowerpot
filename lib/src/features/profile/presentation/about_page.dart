@@ -1,60 +1,79 @@
 import 'package:flutter/material.dart';
 
-import '../../../app/app_theme.dart';
-import '../../../shared/shared.dart';
+import '../../../design_system/design_system.dart';
+import '../models/about_page_model.dart';
+import 'widgets/about_brand_lockup.dart';
+import 'widgets/about_version_card.dart';
 
 class AboutPage extends StatelessWidget {
-  const AboutPage({super.key});
+  const AboutPage({super.key, this.pageModel});
+
+  final AboutPageModel? pageModel;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('关于我们')),
-    body: AppBackground(
-      child: SafeArea(
-        top: false,
-        child: ListView(
-          padding: const EdgeInsets.all(22),
-          children: <Widget>[
-            const Center(child: PlantIllustration(size: 180)),
-            Center(
-              child: Text(
-                '智能花盆',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Center(
-              child: Text(
-                'Version 1.0.0 (1)',
-                style: TextStyle(color: AppColors.muted),
-              ),
-            ),
-            const SizedBox(height: 24),
-            const GlassCard(
-              child: Text(
-                '我们希望把复杂的光照、水分和环境数据，变成简单、温和、可以马上行动的养护建议。让每一株植物都被看见，也让忙碌生活里多一点生长的节奏。',
-                textAlign: TextAlign.center,
-                style: TextStyle(height: 1.7),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const SettingGroup(
-              children: <Widget>[
-                SettingTile(
-                  icon: Icons.mail_outline_rounded,
-                  title: '联系我们',
-                  subtitle: 'support@flowerpot.example',
+  Widget build(BuildContext context) {
+    final model = pageModel ?? AboutPageModel.current();
+    final compact = MediaQuery.sizeOf(context).height < 700;
+
+    return AppPageScaffold(
+      appBar: const AppPageHeader(
+        title: '关于YSplanter',
+        leading: AppBackButton(),
+      ),
+      background: AppPageBackground.standard,
+      body: SingleChildScrollView(
+        key: const Key('about-scroll-view'),
+        child: ResponsiveContent(
+          maxWidth: 375,
+          padding: EdgeInsets.fromLTRB(20, compact ? 78 : 166, 20, 48),
+          child: Column(
+            children: <Widget>[
+              AboutBrandLockup(model: model),
+              SizedBox(height: compact ? 32 : 48),
+              AboutVersionCard(
+                model: model,
+                onCheckUpdate: () => showAppMessage(
+                  context,
+                  model.updateStatus,
+                  tone: AppMessageTone.info,
                 ),
-                SettingTile(
-                  icon: Icons.language_rounded,
-                  title: '官方网站',
-                  subtitle: 'www.flowerpot.example',
-                ),
-              ],
-            ),
-          ],
+                onReleaseNotes: () => _showReleaseNotes(context, model),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
+
+  Future<void> _showReleaseNotes(BuildContext context, AboutPageModel model) {
+    return showAppBottomSheet<void>(
+      context,
+      title: '版本说明',
+      builder: (sheetContext) => Column(
+        key: const Key('about-release-notes-sheet'),
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text(
+            model.displayVersion,
+            style: AppTypography.sectionTitle.copyWith(
+              color: AppColors.brandDark,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          for (final note in model.releaseNotes)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Text('• $note', style: AppTypography.body),
+            ),
+          const SizedBox(height: AppSpacing.lg),
+          FilledButton(
+            onPressed: () => Navigator.pop(sheetContext),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+  }
 }

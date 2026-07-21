@@ -16,7 +16,6 @@
 | --- | --- | --- |
 | `DeviceSettingsSummaryCard` | `presentation/widgets/device_settings_summary_card.dart` | 设备占位图、名称、陪伴天数和更多入口 |
 | `DeviceSettingsFunctionList` | `presentation/widgets/device_settings_function_list.dart` | 功能设置标题和七项设置入口 |
-| `DeviceSettingsControlSheet` | `presentation/widgets/device_settings_control_sheet.dart` | 显示、听觉、触觉、振动、行为和其他设置的控制弹层 |
 
 设备卡复用 `AppSurfaceCard`、`AppStatusChip` 和 `AppDevicePlaceholder`；设置列表复用 `AppSettingsList`、`AppSettingsTile` 和 `ToggleSettingsTile`。
 
@@ -43,7 +42,10 @@
 - 分享按钮 → 生成并复制设备分享链接。
 - 更多 → 设备名称、植物、固件和设备 ID。
 - 选择植物 → 植物选择页面。
-- 显示、听觉感知、触觉感知、震动设置、行为、其他设置 → 对应控制 Bottom Sheet。
+- 显示 → 独立的 `DisplaySettingsPage`。
+- 显示、听觉感知、触觉感知、震动设置、行为 → 对应完整设置页面。
+- 其他设置 → 已有完整页面。
+- 七个功能入口统一由 `DeviceSettingsMenuKind` 到 `AppRoutes` 的映射导航，不再保留重复的控制 Bottom Sheet。
 - 控制项继续调用现有 `FlowerpotState.updateSetting`、维护和配网能力。
 
 ## 尺寸适配
@@ -54,5 +56,5 @@
 
 ## 批次校验状态
 
-- 页面测试用例已建立。
-- 完整静态分析、双尺寸和全量 Flutter Test 在 UI 批次 1 完成约 5 页后统一执行。
+- `dart analyze lib test`：通过，无静态分析问题。
+- `flutter test --reporter compact`：通过，共 164 项测试。

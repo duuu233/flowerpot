@@ -6,6 +6,8 @@ import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../auth/presentation/password_page.dart';
 import '../models/account_security_page_model.dart';
+import 'login_password_page.dart';
+import 'modify_password_page.dart';
 import 'widgets/account_security_card.dart';
 
 class AccountSecurityPage extends StatelessWidget {
@@ -37,10 +39,10 @@ class AccountSecurityPage extends StatelessWidget {
                   ),
             onLoginPasswordTap: state.busy
                 ? null
-                : () => _openPasswordPage(context, title: '修改密码'),
+                : () => _openLoginPasswordPage(context),
             onChangePasswordTap: state.busy
                 ? null
-                : () => _openPasswordPage(context, title: '修改密码'),
+                : () => _openModifyPasswordPage(context),
             onForgotPasswordTap: state.busy
                 ? null
                 : () => _openPasswordPage(
@@ -50,6 +52,30 @@ class AccountSecurityPage extends StatelessWidget {
                   ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _openLoginPasswordPage(BuildContext context) {
+    Navigator.pushNamed(
+      context,
+      AppRoutes.loginPassword,
+      arguments: LoginPasswordArguments(
+        account: FlowerpotScope.of(context).user?.account ?? '',
+      ),
+    );
+  }
+
+  void _openModifyPasswordPage(BuildContext context) {
+    final account = FlowerpotScope.of(context).user?.account ?? '';
+    Navigator.pushNamed(
+      context,
+      AppRoutes.modifyPassword,
+      arguments: ModifyPasswordArguments(
+        account: account,
+        region: account.contains('@')
+            ? LoginRegion.overseas
+            : LoginRegion.domestic,
       ),
     );
   }

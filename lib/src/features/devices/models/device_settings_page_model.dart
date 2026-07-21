@@ -57,12 +57,12 @@ class DeviceSettingsPageModel {
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.touch,
           label: '触觉感知',
-          value: settings.touchInteraction ? '已开启' : '已关闭',
+          value: settings.touchInteraction ? '已启用' : '已禁用',
         ),
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.vibration,
           label: '震动设置',
-          value: settings.vibration ? '已开启' : '已禁用',
+          value: settings.vibration ? '已启用' : '已禁用',
         ),
         const DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.behavior,

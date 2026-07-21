@@ -6,7 +6,6 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import '../models/device_settings_page_model.dart';
-import 'widgets/device_settings_control_sheet.dart';
 import 'widgets/device_settings_function_list.dart';
 import 'widgets/device_settings_summary_card.dart';
 
@@ -73,64 +72,16 @@ class DeviceSettingsPage extends StatelessWidget {
     SmartPlanterDevice device,
     DeviceSettingsMenuKind kind,
   ) {
-    if (kind == DeviceSettingsMenuKind.plant) {
-      Navigator.pushNamed(context, AppRoutes.plantPicker, arguments: device.id);
-      return;
-    }
-    if (kind == DeviceSettingsMenuKind.other) {
-      Navigator.pushNamed(
-        context,
-        AppRoutes.deviceOtherSettings,
-        arguments: device.id,
-      );
-      return;
-    }
-    showAppBottomSheet<void>(
-      context,
-      title: _titleFor(kind),
-      builder: (sheetContext) => DeviceSettingsControlSheet(
-        kind: kind,
-        settings: device.settings,
-        onSettingChanged: (key, value) => _setting(context, key, value),
-        onPairing: () {
-          Navigator.pop(sheetContext);
-          Navigator.pushNamed(context, AppRoutes.pairing);
-        },
-        onMaintenance: (action) => _maintenance(context, action),
-      ),
-    );
-  }
-
-  String _titleFor(DeviceSettingsMenuKind kind) => switch (kind) {
-    DeviceSettingsMenuKind.plant => '选择植物',
-    DeviceSettingsMenuKind.display => '显示',
-    DeviceSettingsMenuKind.hearing => '听觉感知',
-    DeviceSettingsMenuKind.touch => '触觉感知',
-    DeviceSettingsMenuKind.vibration => '震动设置',
-    DeviceSettingsMenuKind.behavior => '行为',
-    DeviceSettingsMenuKind.other => '其他设置',
-  };
-
-  Future<void> _setting(BuildContext context, String key, Object value) async {
-    final result = await FlowerpotScope.of(
-      context,
-    ).updateSetting(deviceId, key, value);
-    if (context.mounted && !result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
-    }
-  }
-
-  Future<void> _maintenance(BuildContext context, String action) async {
-    final result = await FlowerpotScope.of(
-      context,
-    ).runMaintenance(deviceId, action);
-    if (context.mounted) {
-      showAppMessage(
-        context,
-        result.message,
-        tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-      );
-    }
+    final route = switch (kind) {
+      DeviceSettingsMenuKind.plant => AppRoutes.plantPicker,
+      DeviceSettingsMenuKind.display => AppRoutes.displaySettings,
+      DeviceSettingsMenuKind.hearing => AppRoutes.hearingSettings,
+      DeviceSettingsMenuKind.touch => AppRoutes.touchSettings,
+      DeviceSettingsMenuKind.vibration => AppRoutes.vibrationSettings,
+      DeviceSettingsMenuKind.behavior => AppRoutes.behaviorSettings,
+      DeviceSettingsMenuKind.other => AppRoutes.deviceOtherSettings,
+    };
+    Navigator.pushNamed(context, route, arguments: device.id);
   }
 
   Future<void> _share(BuildContext context, String id) async {

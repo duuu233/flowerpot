@@ -5,6 +5,7 @@ import '../features/auth/presentation/password_page.dart';
 import '../features/auth/presentation/register_page.dart';
 import '../features/devices/presentation/animations_page.dart';
 import '../features/devices/presentation/battery_status_page.dart';
+import '../features/devices/presentation/behavior_settings_page.dart';
 import '../features/devices/models/water_status_page_model.dart';
 import '../features/devices/presentation/device_dashboard_page.dart';
 import '../features/devices/presentation/device_info_page.dart';
@@ -13,6 +14,8 @@ import '../features/devices/presentation/device_other_settings_page.dart';
 import '../features/devices/presentation/device_search_page.dart';
 import '../features/devices/presentation/device_selection_page.dart';
 import '../features/devices/presentation/device_settings_page.dart';
+import '../features/devices/presentation/display_settings_page.dart';
+import '../features/devices/presentation/hearing_settings_page.dart';
 import '../features/devices/presentation/humidity_status_page.dart';
 import '../features/devices/presentation/light_status_page.dart';
 import '../features/devices/presentation/pairing_page.dart';
@@ -22,12 +25,16 @@ import '../features/devices/presentation/plant_detail_page.dart';
 import '../features/devices/presentation/plant_picker_page.dart';
 import '../features/devices/presentation/reports_page.dart';
 import '../features/devices/presentation/temperature_status_page.dart';
+import '../features/devices/presentation/touch_settings_page.dart';
+import '../features/devices/presentation/vibration_settings_page.dart';
 import '../features/devices/presentation/water_status_page.dart';
 import '../features/profile/presentation/about_page.dart';
 import '../features/profile/presentation/account_security_page.dart';
 import '../features/profile/presentation/help_page.dart';
 import '../features/profile/presentation/legal_page.dart';
+import '../features/profile/presentation/login_password_page.dart';
 import '../features/profile/presentation/mine_page.dart';
+import '../features/profile/presentation/modify_password_page.dart';
 import '../features/profile/presentation/profile_page.dart';
 import '../features/shell/presentation/shell_page.dart';
 import '../tuya/tuya_models.dart';
@@ -37,6 +44,8 @@ abstract final class AppRoutes {
   static const auth = '/auth';
   static const register = '/register';
   static const password = '/password';
+  static const loginPassword = '/login-password';
+  static const modifyPassword = '/modify-password';
   static const shell = '/shell';
   static const pairing = '/devices/pairing';
   static const pairingFailure = '/devices/pairing-failure';
@@ -56,6 +65,11 @@ abstract final class AppRoutes {
   static const plantPicker = '/devices/plants';
   static const plantDetail = '/devices/plant-detail';
   static const deviceSettings = '/devices/settings';
+  static const displaySettings = '/devices/display';
+  static const hearingSettings = '/devices/hearing';
+  static const touchSettings = '/devices/touch';
+  static const vibrationSettings = '/devices/vibration';
+  static const behaviorSettings = '/devices/behavior';
   static const animations = '/devices/animations';
   static const profile = '/profile';
   static const mine = '/mine';
@@ -83,6 +97,16 @@ abstract final class AppRoutes {
         arguments:
             settings.arguments as PasswordArguments? ??
             const PasswordArguments(),
+      ),
+      loginPassword => LoginPasswordPage(
+        arguments:
+            settings.arguments as LoginPasswordArguments? ??
+            const LoginPasswordArguments(),
+      ),
+      modifyPassword => ModifyPasswordPage(
+        arguments:
+            settings.arguments as ModifyPasswordArguments? ??
+            const ModifyPasswordArguments(),
       ),
       shell => const AppShell(),
       pairing => const PairingPage(),
@@ -121,6 +145,21 @@ abstract final class AppRoutes {
         arguments: settings.arguments! as PlantDetailArguments,
       ),
       deviceSettings => DeviceSettingsPage(
+        deviceId: settings.arguments! as String,
+      ),
+      displaySettings => DisplaySettingsPage(
+        deviceId: settings.arguments! as String,
+      ),
+      hearingSettings => HearingSettingsPage(
+        deviceId: settings.arguments! as String,
+      ),
+      touchSettings => TouchSettingsPage(
+        deviceId: settings.arguments! as String,
+      ),
+      vibrationSettings => VibrationSettingsPage(
+        deviceId: settings.arguments! as String,
+      ),
+      behaviorSettings => BehaviorSettingsPage(
         deviceId: settings.arguments! as String,
       ),
       animations => AnimationsPage(deviceId: settings.arguments! as String),

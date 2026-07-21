@@ -31,7 +31,8 @@
 ## 交互与路由
 
 - 手机号：当前 Repository 没有修改手机号接口，点击后明确提示“手机号修改功能暂未开放”，不伪造本地保存。
-- 登录密码、修改密码：进入现有 `PasswordPage` 的“修改密码”模式，账号预填且成功后返回账号安全页。
+- 登录密码：进入独立的 `LoginPasswordPage`，按 Figma 展示账号说明、脱敏账号、双密码输入与设置建议。
+- 修改密码：进入独立的 `ModifyPasswordPage`，展示原密码、新密码、确认密码和忘记密码入口。
 - 忘记密码：进入现有验证码重置模式，成功后回到登录页。
 - `PasswordArguments` 新增标题与成功返回策略，默认行为仍与原忘记密码入口兼容。
 
@@ -44,4 +45,4 @@
 ## 校验状态
 
 - `dart analyze lib test`：通过，无静态分析问题。
-- `flutter test --reporter compact`：通过，共 109 项测试。
+- `flutter test --reporter compact`：通过，共 164 项测试。

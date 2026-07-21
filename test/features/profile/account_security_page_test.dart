@@ -2,6 +2,8 @@ import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/auth/presentation/password_page.dart';
 import 'package:flowerpot/src/features/profile/presentation/account_security_page.dart';
+import 'package:flowerpot/src/features/profile/presentation/login_password_page.dart';
+import 'package:flowerpot/src/features/profile/presentation/modify_password_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -27,23 +29,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('change password opens the existing reset flow in change mode', (
-    tester,
-  ) async {
-    PasswordArguments? arguments;
+  testWidgets('change password opens the dedicated Figma page', (tester) async {
+    ModifyPasswordArguments? arguments;
     await _pumpAccountSecurityPage(
       tester,
       const Size(375, 812),
-      onPasswordArguments: (value) => arguments = value,
+      onModifyPasswordArguments: (value) => arguments = value,
     );
 
     await tester.tap(find.byKey(const Key('account-security-change-password')));
     await tester.pumpAndSettle();
 
-    expect(find.text('password-target'), findsOneWidget);
+    expect(find.text('modify-password-target'), findsOneWidget);
     expect(arguments?.account, '13812345678');
-    expect(arguments?.title, '修改密码');
-    expect(arguments?.returnToLoginOnSuccess, isFalse);
+    expect(arguments?.region, LoginRegion.domestic);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('login password opens the dedicated Figma page', (tester) async {
+    LoginPasswordArguments? arguments;
+    await _pumpAccountSecurityPage(
+      tester,
+      const Size(375, 812),
+      onLoginPasswordArguments: (value) => arguments = value,
+    );
+
+    await tester.tap(find.byKey(const Key('account-security-login-password')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('login-password-target'), findsOneWidget);
+    expect(arguments?.account, '13812345678');
     expect(tester.takeException(), isNull);
   });
 
@@ -93,6 +108,8 @@ Future<FlowerpotState> _pumpAccountSecurityPage(
   WidgetTester tester,
   Size size, {
   ValueChanged<PasswordArguments>? onPasswordArguments,
+  ValueChanged<LoginPasswordArguments>? onLoginPasswordArguments,
+  ValueChanged<ModifyPasswordArguments>? onModifyPasswordArguments,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -111,6 +128,26 @@ Future<FlowerpotState> _pumpAccountSecurityPage(
         theme: buildAppTheme(),
         home: const AccountSecurityPage(),
         onGenerateRoute: (settings) {
+          if (settings.name == AppRoutes.modifyPassword) {
+            onModifyPasswordArguments?.call(
+              settings.arguments! as ModifyPasswordArguments,
+            );
+            return MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(
+                body: Center(child: Text('modify-password-target')),
+              ),
+            );
+          }
+          if (settings.name == AppRoutes.loginPassword) {
+            onLoginPasswordArguments?.call(
+              settings.arguments! as LoginPasswordArguments,
+            );
+            return MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(
+                body: Center(child: Text('login-password-target')),
+              ),
+            );
+          }
           if (settings.name == AppRoutes.password) {
             onPasswordArguments?.call(settings.arguments! as PasswordArguments);
             return MaterialPageRoute<void>(
