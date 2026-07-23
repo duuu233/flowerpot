@@ -20,6 +20,7 @@ D:\Work\Flutter\flutter\bin\flutter.bat run --dart-define=TUYA_ENABLED=true
 ## 文档
 
 - [项目结构](PROJECT_STRUCTURE.md)
+- [公共模块复用说明](docs/COMMON_MODULES.md)
 - [PRD 功能落地清单](docs/PRD_IMPLEMENTATION.md)
 - [涂鸦 SDK 配置](docs/TUYA_SDK_SETUP.md)
 

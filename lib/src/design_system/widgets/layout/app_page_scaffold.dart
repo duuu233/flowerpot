@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../tokens/app_assets.dart';
 import '../../tokens/app_colors.dart';
 
 class AppPageScaffold extends StatelessWidget {
@@ -39,7 +40,16 @@ class AppPageScaffold extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: <Widget>[
-            if (background != AppPageBackground.plain) ...<Widget>[
+            if (background.assetPath != null)
+              Image.asset(
+                background.assetPath!,
+                key: const Key('app-page-background-image'),
+                fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
+                filterQuality: FilterQuality.high,
+                excludeFromSemantics: true,
+              )
+            else if (background != AppPageBackground.plain) ...<Widget>[
               const Positioned(
                 top: -96,
                 right: -72,
@@ -64,11 +74,17 @@ class AppPageScaffold extends StatelessWidget {
 
 enum AppPageBackground {
   standard,
+  account,
   warm,
   plain;
 
+  String? get assetPath => switch (this) {
+    account => AppAssets.accountBackground,
+    _ => null,
+  };
+
   LinearGradient get gradient => switch (this) {
-    standard => const LinearGradient(
+    standard || account => const LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: <Color>[Color(0xFFF8FBFB), Color(0xFFEFF7F8), AppColors.canvas],

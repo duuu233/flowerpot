@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../app/app_theme.dart';
+import 'app_toast.dart';
 
 class AppBackground extends StatelessWidget {
   const AppBackground({required this.child, super.key, this.warm = false});
@@ -349,23 +350,9 @@ void showAppMessage(
   String message, {
   bool success = true,
 }) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Row(
-          children: <Widget>[
-            Icon(
-              success ? Icons.check_circle_rounded : Icons.error_rounded,
-              color: Colors.white,
-            ),
-            const SizedBox(width: 10),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: success ? AppColors.leafDark : AppColors.danger,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      ),
-    );
+  AppToast.show(
+    context,
+    message,
+    tone: success ? AppToastTone.success : AppToastTone.error,
+  );
 }

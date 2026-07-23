@@ -4,6 +4,8 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import 'verification_code_countdown.dart';
+import 'widgets/auth_asset_icon.dart';
 
 class PasswordArguments {
   const PasswordArguments({
@@ -33,6 +35,7 @@ class _PasswordPageState extends State<PasswordPage> {
   final codeController = TextEditingController();
   final passwordController = TextEditingController();
   final confirmationController = TextEditingController();
+  final codeCountdown = VerificationCodeCountdown();
   bool passwordVisible = false;
   bool confirmationVisible = false;
 
@@ -42,6 +45,7 @@ class _PasswordPageState extends State<PasswordPage> {
   void initState() {
     super.initState();
     accountController = TextEditingController(text: widget.arguments.account);
+    codeCountdown.addListener(_refreshCountdown);
   }
 
   @override
@@ -50,14 +54,21 @@ class _PasswordPageState extends State<PasswordPage> {
     codeController.dispose();
     passwordController.dispose();
     confirmationController.dispose();
+    codeCountdown.dispose();
     super.dispose();
   }
 
+  void _refreshCountdown() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _sendCode() async {
+    if (codeCountdown.active) return;
     final result = await FlowerpotScope.of(
       context,
     ).sendCode(account: accountController.text, region: region, type: 3);
     if (!mounted) return;
+    if (result.success) codeCountdown.start();
     showAppMessage(
       context,
       result.message,
@@ -109,7 +120,7 @@ class _PasswordPageState extends State<PasswordPage> {
         title: widget.arguments.title,
         leading: const AppBackButton(),
       ),
-      background: AppPageBackground.standard,
+      background: AppPageBackground.account,
       body: SingleChildScrollView(
         child: ResponsiveContent(
           maxWidth: 375,
@@ -120,9 +131,13 @@ class _PasswordPageState extends State<PasswordPage> {
               _PasswordField(
                 controller: accountController,
                 hintText: domestic ? '请输入手机号' : '请输入邮箱',
-                icon: domestic
-                    ? Icons.phone_iphone_rounded
-                    : Icons.mail_outline_rounded,
+                prefixIcon: domestic
+                    ? const AuthAssetIcon(assetPath: AppAssets.phoneIcon)
+                    : const Icon(
+                        Icons.mail_outline_rounded,
+                        color: AppColors.brandPrimary,
+                        size: 22,
+                      ),
                 keyboardType: domestic
                     ? TextInputType.phone
                     : TextInputType.emailAddress,
@@ -132,15 +147,24 @@ class _PasswordPageState extends State<PasswordPage> {
               _PasswordField(
                 controller: codeController,
                 hintText: '请输入验证码',
-                icon: Icons.verified_user_outlined,
+                prefixIcon: const AuthAssetIcon(
+                  assetPath: AppAssets.verificationCodeIcon,
+                ),
                 keyboardType: TextInputType.number,
-                suffix: _CodeButton(busy: state.busy, onPressed: _sendCode),
+                suffix: _CodeButton(
+                  busy: state.busy || codeCountdown.active,
+                  label: codeCountdown.label,
+                  onPressed: _sendCode,
+                ),
               ),
               const SizedBox(height: AppSpacing.lg),
               _PasswordField(
                 controller: passwordController,
                 hintText: '请输入密码',
-                icon: Icons.lock_open_outlined,
+                prefixIcon: const AuthAssetIcon(
+                  assetPath: AppAssets.passwordIcon,
+                  size: 20,
+                ),
                 keyboardType: TextInputType.visiblePassword,
                 obscureText: !passwordVisible,
                 suffix: IconButton(
@@ -160,7 +184,9 @@ class _PasswordPageState extends State<PasswordPage> {
               _PasswordField(
                 controller: confirmationController,
                 hintText: '请确认密码',
-                icon: Icons.lock_outline_rounded,
+                prefixIcon: const AuthAssetIcon(
+                  assetPath: AppAssets.confirmPasswordIcon,
+                ),
                 keyboardType: TextInputType.visiblePassword,
                 obscureText: !confirmationVisible,
                 suffix: IconButton(
@@ -212,7 +238,7 @@ class _PasswordField extends StatelessWidget {
   const _PasswordField({
     required this.controller,
     required this.hintText,
-    required this.icon,
+    required this.prefixIcon,
     required this.keyboardType,
     this.obscureText = false,
     this.readOnly = false,
@@ -221,7 +247,7 @@ class _PasswordField extends StatelessWidget {
 
   final TextEditingController controller;
   final String hintText;
-  final IconData icon;
+  final Widget prefixIcon;
   final TextInputType keyboardType;
   final bool obscureText;
   final bool readOnly;
@@ -243,7 +269,11 @@ class _PasswordField extends StatelessWidget {
             color: AppColors.textSecondary,
             fontSize: 15,
           ),
-          prefixIcon: Icon(icon, color: AppColors.brandPrimary, size: 22),
+          prefixIcon: prefixIcon,
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 56,
+            minHeight: 48,
+          ),
           suffixIcon: suffix,
           filled: true,
           fillColor: AppColors.surface,
@@ -267,9 +297,14 @@ class _PasswordField extends StatelessWidget {
 }
 
 class _CodeButton extends StatelessWidget {
-  const _CodeButton({required this.busy, required this.onPressed});
+  const _CodeButton({
+    required this.busy,
+    required this.label,
+    required this.onPressed,
+  });
 
   final bool busy;
+  final String label;
   final VoidCallback onPressed;
 
   @override
@@ -283,9 +318,9 @@ class _CodeButton extends StatelessWidget {
         ),
         TextButton(
           onPressed: busy ? null : onPressed,
-          child: const Text(
-            '获取验证码',
-            style: TextStyle(color: AppColors.brandPrimary),
+          child: Text(
+            label,
+            style: const TextStyle(color: AppColors.brandPrimary),
           ),
         ),
         const SizedBox(width: AppSpacing.sm),

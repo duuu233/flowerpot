@@ -112,7 +112,7 @@ class _ModifyPasswordPageState extends State<ModifyPasswordPage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '修改密码', leading: AppBackButton()),
-      background: AppPageBackground.standard,
+      background: AppPageBackground.account,
       body: SingleChildScrollView(
         key: const Key('modify-password-scroll-view'),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,

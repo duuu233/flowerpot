@@ -22,7 +22,7 @@ class AccountSecurityPage extends StatelessWidget {
 
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '账号与安全', leading: AppBackButton()),
-      background: AppPageBackground.standard,
+      background: AppPageBackground.account,
       body: SingleChildScrollView(
         key: const Key('account-security-scroll-view'),
         child: ResponsiveContent(

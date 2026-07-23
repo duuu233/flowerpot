@@ -87,7 +87,7 @@ class _LoginPasswordPageState extends State<LoginPasswordPage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '登录密码', leading: AppBackButton()),
-      background: AppPageBackground.standard,
+      background: AppPageBackground.account,
       body: SingleChildScrollView(
         key: const Key('login-password-scroll-view'),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,

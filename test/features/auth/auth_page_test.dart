@@ -10,7 +10,39 @@ void main() {
   testWidgets('verification login exposes the Figma content', (tester) async {
     await _pumpAuthPage(tester, const Size(375, 812));
 
-    expect(find.text('YSplanter'), findsOneWidget);
+    expect(find.byKey(const Key('auth-app-logo')), findsOneWidget);
+    expect(find.byKey(const Key('auth-wordmark')), findsOneWidget);
+    expect(
+      find.byKey(
+        const ValueKey<String>('auth-asset-icon:assets/images/phone_icon.png'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey<String>(
+          'auth-asset-icon:assets/images/verification_code_icon.png',
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey<String>(
+          'auth-social-icon:assets/images/wechat_login_icon.png',
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(
+        const ValueKey<String>(
+          'auth-social-icon:assets/images/alipay_login_icon.png',
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('app-page-background-image')), findsOneWidget);
     expect(find.text('登录账号，连接和管理你的智能设备'), findsOneWidget);
     expect(find.text('验证码登录'), findsOneWidget);
     expect(find.text('密码登录'), findsOneWidget);
@@ -22,7 +54,14 @@ void main() {
     expect(find.text('其他登录方式'), findsOneWidget);
     expect(find.text('《用户协议》'), findsOneWidget);
     expect(find.text('《隐私政策》'), findsOneWidget);
+    for (final field in tester.widgetList<TextField>(find.byType(TextField))) {
+      expect(field.decoration?.prefixIconConstraints?.minWidth, 56);
+    }
     expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    final panelRect = tester.getRect(find.byKey(const Key('login-panel')));
+    expect(panelRect.left, 20);
+    expect(panelRect.right, 355);
+    expect(panelRect.width, 335);
     expect(tester.takeException(), isNull);
   });
 
@@ -44,8 +83,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('请输入密码'), findsOneWidget);
+    expect(
+      find.byKey(
+        const ValueKey<String>(
+          'auth-asset-icon:assets/images/password_icon.png',
+        ),
+      ),
+      findsOneWidget,
+    );
+    final passwordIcon = tester.widget<Image>(
+      find.byKey(
+        const ValueKey<String>(
+          'auth-asset-icon:assets/images/password_icon.png',
+        ),
+      ),
+    );
+    expect(passwordIcon.width, 20);
+    expect(passwordIcon.height, 20);
     expect(find.text('获取验证码'), findsNothing);
     expect(find.text('忘记密码?'), findsOneWidget);
+    expect(
+      find.byKey(const Key('forgot-password-link')).hitTestable(),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('password-visibility-toggle')), findsOneWidget);
     var fields = tester.widgetList<TextField>(find.byType(TextField)).toList();
     expect(fields.last.obscureText, isTrue);
@@ -63,6 +123,10 @@ void main() {
 
     expect(find.text('请输入密码'), findsOneWidget);
     expect(find.text('忘记密码?'), findsOneWidget);
+    expect(
+      find.byKey(const Key('forgot-password-link')).hitTestable(),
+      findsOneWidget,
+    );
     expect(find.text('获取验证码'), findsNothing);
     expect(tester.takeException(), isNull);
   });

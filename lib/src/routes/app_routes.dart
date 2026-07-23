@@ -36,6 +36,9 @@ import '../features/profile/presentation/login_password_page.dart';
 import '../features/profile/presentation/mine_page.dart';
 import '../features/profile/presentation/modify_password_page.dart';
 import '../features/profile/presentation/profile_page.dart';
+import '../features/preview/preview_config.dart';
+import '../features/preview/presentation/preview_hub_page.dart';
+import '../features/preview/presentation/preview_return_overlay.dart';
 import '../features/shell/presentation/shell_page.dart';
 import '../tuya/tuya_models.dart';
 
@@ -86,11 +89,19 @@ abstract final class AppRoutes {
     final public = <String>{auth, register, password, privacy, agreement};
     final requested = settings.name ?? root;
     final name =
-        !authenticated && requested != root && !public.contains(requested)
+        !StaticPreviewConfig.enabled &&
+            !authenticated &&
+            requested != root &&
+            !public.contains(requested)
         ? auth
         : requested;
     final page = switch (name) {
-      root => authenticated ? const AppShell() : const AuthPage(),
+      root =>
+        StaticPreviewConfig.enabled
+            ? const PreviewHubPage()
+            : authenticated
+            ? const AppShell()
+            : const AuthPage(),
       auth => const AuthPage(),
       register => const RegisterPage(),
       password => PasswordPage(
@@ -172,8 +183,11 @@ abstract final class AppRoutes {
       about => const AboutPage(),
       _ => const AuthPage(),
     };
+    final routedPage = StaticPreviewConfig.enabled && name != root
+        ? PreviewReturnOverlay(child: page)
+        : page;
     return MaterialPageRoute<dynamic>(
-      builder: (_) => page,
+      builder: (_) => routedPage,
       settings: RouteSettings(name: name, arguments: settings.arguments),
     );
   }

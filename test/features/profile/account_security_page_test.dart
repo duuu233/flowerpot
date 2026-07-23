@@ -18,6 +18,7 @@ void main() {
     await _pumpAccountSecurityPage(tester, const Size(375, 812));
 
     expect(find.text('账号与安全'), findsOneWidget);
+    expect(find.byKey(const Key('app-page-background-image')), findsOneWidget);
     expect(find.text('手机号'), findsOneWidget);
     expect(find.text('138****5678'), findsOneWidget);
     expect(find.text('登录密码'), findsOneWidget);

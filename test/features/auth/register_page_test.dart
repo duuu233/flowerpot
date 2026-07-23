@@ -11,7 +11,28 @@ void main() {
     await _pumpRegisterPage(tester, const Size(375, 812));
 
     expect(find.text('注册账号'), findsOneWidget);
+    expect(find.byKey(const Key('app-page-background-image')), findsOneWidget);
     expect(find.text('请输入手机号'), findsOneWidget);
+    for (final assetPath in <String>[
+      'assets/images/phone_icon.png',
+      'assets/images/verification_code_icon.png',
+      'assets/images/password_icon.png',
+      'assets/images/confirm_password_icon.png',
+    ]) {
+      expect(
+        find.byKey(ValueKey<String>('auth-asset-icon:$assetPath')),
+        findsOneWidget,
+      );
+    }
+    final passwordIcon = tester.widget<Image>(
+      find.byKey(
+        const ValueKey<String>(
+          'auth-asset-icon:assets/images/password_icon.png',
+        ),
+      ),
+    );
+    expect(passwordIcon.width, 20);
+    expect(passwordIcon.height, 20);
     expect(find.text('请输入验证码'), findsOneWidget);
     expect(find.text('请输入密码'), findsOneWidget);
     expect(find.text('请确认密码'), findsOneWidget);
@@ -21,6 +42,9 @@ void main() {
     expect(find.text('去登录'), findsOneWidget);
     expect(find.text('《用户协议》'), findsOneWidget);
     expect(find.text('《隐私政策》'), findsOneWidget);
+    for (final field in tester.widgetList<TextField>(find.byType(TextField))) {
+      expect(field.decoration?.prefixIconConstraints?.minWidth, 56);
+    }
     expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
     expect(tester.takeException(), isNull);
   });

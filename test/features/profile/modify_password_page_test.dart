@@ -14,6 +14,7 @@ void main() {
     await _pumpModifyPasswordPage(tester, const Size(375, 812));
 
     expect(find.text('修改密码'), findsOneWidget);
+    expect(find.byKey(const Key('app-page-background-image')), findsOneWidget);
     expect(find.text('原密码'), findsOneWidget);
     expect(find.text('请输入原密码'), findsOneWidget);
     expect(find.text('密码'), findsOneWidget);

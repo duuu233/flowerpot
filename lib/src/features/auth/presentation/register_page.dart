@@ -4,6 +4,8 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import 'verification_code_countdown.dart';
+import 'widgets/auth_asset_icon.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -17,9 +19,20 @@ class _RegisterPageState extends State<RegisterPage> {
   final codeController = TextEditingController();
   final passwordController = TextEditingController();
   final confirmationController = TextEditingController();
+  final codeCountdown = VerificationCodeCountdown();
   bool passwordVisible = false;
   bool confirmationVisible = false;
   bool accepted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    codeCountdown.addListener(_refreshCountdown);
+  }
+
+  void _refreshCountdown() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
@@ -27,16 +40,19 @@ class _RegisterPageState extends State<RegisterPage> {
     codeController.dispose();
     passwordController.dispose();
     confirmationController.dispose();
+    codeCountdown.dispose();
     super.dispose();
   }
 
   Future<void> _sendCode() async {
+    if (codeCountdown.active) return;
     final result = await FlowerpotScope.of(context).sendCode(
       account: accountController.text,
       region: LoginRegion.domestic,
       type: 1,
     );
     if (!mounted) return;
+    if (result.success) codeCountdown.start();
     showAppMessage(
       context,
       result.message,
@@ -87,7 +103,7 @@ class _RegisterPageState extends State<RegisterPage> {
     final state = FlowerpotScope.of(context);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '注册账号', leading: AppBackButton()),
-      background: AppPageBackground.standard,
+      background: AppPageBackground.account,
       body: LayoutBuilder(
         builder: (context, constraints) {
           return SingleChildScrollView(
@@ -100,17 +116,18 @@ class _RegisterPageState extends State<RegisterPage> {
                   _RegisterField(
                     controller: accountController,
                     hintText: '请输入手机号',
-                    icon: Icons.phone_iphone_rounded,
+                    iconAsset: AppAssets.phoneIcon,
                     keyboardType: TextInputType.phone,
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   _RegisterField(
                     controller: codeController,
                     hintText: '请输入验证码',
-                    icon: Icons.verified_user_outlined,
+                    iconAsset: AppAssets.verificationCodeIcon,
                     keyboardType: TextInputType.number,
                     suffix: _RegisterCodeButton(
-                      busy: state.busy,
+                      busy: state.busy || codeCountdown.active,
+                      label: codeCountdown.label,
                       onPressed: _sendCode,
                     ),
                   ),
@@ -118,7 +135,8 @@ class _RegisterPageState extends State<RegisterPage> {
                   _RegisterField(
                     controller: passwordController,
                     hintText: '请输入密码',
-                    icon: Icons.lock_open_outlined,
+                    iconAsset: AppAssets.passwordIcon,
+                    iconSize: 20,
                     keyboardType: TextInputType.visiblePassword,
                     obscureText: !passwordVisible,
                     suffix: IconButton(
@@ -138,7 +156,7 @@ class _RegisterPageState extends State<RegisterPage> {
                   _RegisterField(
                     controller: confirmationController,
                     hintText: '请确认密码',
-                    icon: Icons.lock_outline_rounded,
+                    iconAsset: AppAssets.confirmPasswordIcon,
                     keyboardType: TextInputType.visiblePassword,
                     obscureText: !confirmationVisible,
                     suffix: IconButton(
@@ -221,15 +239,17 @@ class _RegisterField extends StatelessWidget {
   const _RegisterField({
     required this.controller,
     required this.hintText,
-    required this.icon,
+    required this.iconAsset,
     required this.keyboardType,
+    this.iconSize = 24,
     this.obscureText = false,
     this.suffix,
   });
 
   final TextEditingController controller;
   final String hintText;
-  final IconData icon;
+  final String iconAsset;
+  final double iconSize;
   final TextInputType keyboardType;
   final bool obscureText;
   final Widget? suffix;
@@ -249,7 +269,11 @@ class _RegisterField extends StatelessWidget {
             color: AppColors.textSecondary,
             fontSize: 15,
           ),
-          prefixIcon: Icon(icon, color: AppColors.brandPrimary, size: 22),
+          prefixIcon: AuthAssetIcon(assetPath: iconAsset, size: iconSize),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 56,
+            minHeight: 48,
+          ),
           suffixIcon: suffix,
           filled: true,
           fillColor: AppColors.surface,
@@ -273,9 +297,14 @@ class _RegisterField extends StatelessWidget {
 }
 
 class _RegisterCodeButton extends StatelessWidget {
-  const _RegisterCodeButton({required this.busy, required this.onPressed});
+  const _RegisterCodeButton({
+    required this.busy,
+    required this.label,
+    required this.onPressed,
+  });
 
   final bool busy;
+  final String label;
   final VoidCallback onPressed;
 
   @override
@@ -289,9 +318,9 @@ class _RegisterCodeButton extends StatelessWidget {
         ),
         TextButton(
           onPressed: busy ? null : onPressed,
-          child: const Text(
-            '获取验证码',
-            style: TextStyle(color: AppColors.brandPrimary),
+          child: Text(
+            label,
+            style: const TextStyle(color: AppColors.brandPrimary),
           ),
         ),
         const SizedBox(width: AppSpacing.sm),

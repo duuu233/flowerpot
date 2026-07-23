@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../features/preview/preview_config.dart';
 import '../routes/app_routes.dart';
 import '../state.dart';
 import '../tuya/tuya_repository.dart';
@@ -22,7 +25,14 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
   @override
   void initState() {
     super.initState();
-    state.initialize();
+    unawaited(_initializeState());
+  }
+
+  Future<void> _initializeState() async {
+    await state.initialize();
+    if (StaticPreviewConfig.enabled) {
+      await state.enterDemo();
+    }
   }
 
   @override

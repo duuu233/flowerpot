@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/cache/image_cache_cleanup.dart';
+import 'features/auth/domain/auth_validator.dart';
 import 'tuya/tuya_config.dart';
 import 'tuya/tuya_models.dart';
 import 'tuya/tuya_repository.dart';
@@ -15,6 +17,7 @@ class FlowerpotState extends ChangeNotifier {
   bool _sdkReady = false;
   bool _demoMode = false;
   bool _notificationsEnabled = true;
+  int _sessionEpoch = 0;
   String _languageCode = 'zh';
   AppUser? _user;
   String? _selectedDeviceId;
@@ -69,11 +72,22 @@ class FlowerpotState extends ChangeNotifier {
       _languageCode = preferences.getString('languageCode') ?? 'zh';
       _notificationsEnabled =
           preferences.getBool('notificationsEnabled') ?? true;
+    } catch (_) {
+      // Local preference failures do not block SDK/session initialization.
+    }
+    try {
       _sdkReady = await _repository.initialize();
-      _user = await _repository.restoreSession();
-      if (_user != null) await refreshDevices();
     } catch (_) {
       _sdkReady = false;
+    }
+    try {
+      _user = await _repository.restoreSession();
+      if (_user != null) {
+        _sessionEpoch++;
+        await _refreshDevicesForSession(ignoreErrors: true);
+      }
+    } catch (_) {
+      _user = null;
     } finally {
       _initialized = true;
       notifyListeners();
@@ -85,9 +99,9 @@ class FlowerpotState extends ChangeNotifier {
     required LoginRegion region,
     required int type,
   }) => _guard(() async {
-    if (account.trim().isEmpty) throw const TuyaException('account', '请先填写账号');
+    final normalizedAccount = _normalizeAccount(account, region);
     await _repository.sendVerificationCode(
-      account: account.trim(),
+      account: normalizedAccount,
       countryCode: region == LoginRegion.domestic ? '86' : '1',
       type: type,
     );
@@ -100,13 +114,19 @@ class FlowerpotState extends ChangeNotifier {
     required LoginRegion region,
     required bool verificationCode,
   }) => _guard(() async {
+    final normalizedAccount = _normalizeAccount(account, region);
+    final normalizedCredential = AuthValidator.credential(
+      credential,
+      verificationCode: verificationCode,
+    );
     _user = await _repository.login(
-      account: account,
-      credential: credential,
+      account: normalizedAccount,
+      credential: normalizedCredential,
       region: region,
       verificationCode: verificationCode,
     );
-    await refreshDevices();
+    _sessionEpoch++;
+    await _refreshDevicesForSession(ignoreErrors: true);
     return const ActionResult(true, '登录成功');
   });
 
@@ -116,13 +136,17 @@ class FlowerpotState extends ChangeNotifier {
     required String code,
     required LoginRegion region,
   }) => _guard(() async {
+    final normalizedAccount = _normalizeAccount(account, region);
+    final normalizedPassword = AuthValidator.password(password);
+    final normalizedCode = AuthValidator.code(code);
     _user = await _repository.register(
-      account: account,
-      password: password,
-      code: code,
+      account: normalizedAccount,
+      password: normalizedPassword,
+      code: normalizedCode,
       region: region,
     );
-    await refreshDevices();
+    _sessionEpoch++;
+    await _refreshDevicesForSession(ignoreErrors: true);
     return const ActionResult(true, '账号创建成功');
   });
 
@@ -132,16 +156,16 @@ class FlowerpotState extends ChangeNotifier {
     required String code,
     required LoginRegion region,
   }) => _guard(() async {
-    if (account.trim().isEmpty || code.trim().isEmpty) {
-      throw const TuyaException('invalid_input', '请填写账号和验证码');
-    }
-    if (newPassword.length < 6) {
-      throw const TuyaException('weak_password', '新密码至少需要 6 位');
-    }
+    final normalizedAccount = _normalizeAccount(account, region);
+    final normalizedCode = AuthValidator.code(code);
+    final normalizedPassword = AuthValidator.password(
+      newPassword,
+      minimumLength: 6,
+    );
     await _repository.resetPassword(
-      account: account.trim(),
-      newPassword: newPassword,
-      code: code.trim(),
+      account: normalizedAccount,
+      newPassword: normalizedPassword,
+      code: normalizedCode,
       region: region,
     );
     return const ActionResult(true, '密码已更新，请使用新密码登录');
@@ -160,25 +184,22 @@ class FlowerpotState extends ChangeNotifier {
   }
 
   Future<void> refreshDevices() async {
-    _devices = await _repository.getDevices();
-    if (_devices.isNotEmpty) _selectedDeviceId ??= _devices.first.id;
-    notifyListeners();
+    await _refreshDevicesForSession(ignoreErrors: false);
   }
 
   Future<ActionResult> logout() => _guard(() async {
-    await _repository.logout();
-    _user = null;
-    _devices = <SmartPlanterDevice>[];
-    _selectedDeviceId = null;
-    _demoMode = false;
+    try {
+      await _repository.logout();
+    } catch (_) {
+      // Local logout must remain available while the SDK/network is offline.
+    }
+    _clearLocalSession();
     return const ActionResult(true, '已退出登录');
   });
 
   Future<ActionResult> deleteAccount() => _guard(() async {
     await _repository.deleteAccount();
-    _user = null;
-    _devices = <SmartPlanterDevice>[];
-    _selectedDeviceId = null;
+    _clearLocalSession();
     return const ActionResult(true, '账号已注销');
   });
 
@@ -365,6 +386,8 @@ class FlowerpotState extends ChangeNotifier {
     notifyListeners();
     try {
       return await action();
+    } on AuthValidationException catch (error) {
+      return ActionResult(false, error.message);
     } on TuyaException catch (error) {
       return ActionResult(false, error.message);
     } catch (error) {
@@ -373,5 +396,39 @@ class FlowerpotState extends ChangeNotifier {
       _busy = false;
       notifyListeners();
     }
+  }
+
+  Future<void> _refreshDevicesForSession({required bool ignoreErrors}) async {
+    final epoch = _sessionEpoch;
+    try {
+      final devices = await _repository.getDevices();
+      if (epoch != _sessionEpoch) return;
+      _devices = devices;
+      if (_devices.isEmpty) {
+        _selectedDeviceId = null;
+      } else if (_devices.every((item) => item.id != _selectedDeviceId)) {
+        _selectedDeviceId = _devices.first.id;
+      }
+      notifyListeners();
+    } catch (_) {
+      if (!ignoreErrors) rethrow;
+    }
+  }
+
+  void _clearLocalSession() {
+    _sessionEpoch++;
+    _user = null;
+    _devices = <SmartPlanterDevice>[];
+    _selectedDeviceId = null;
+    _demoMode = false;
+    ImageCacheCleanup.clearAll();
+  }
+
+  String _normalizeAccount(String account, LoginRegion region) {
+    final normalized = account.trim();
+    if (_repository is MockTuyaRepository && normalized.isNotEmpty) {
+      return normalized;
+    }
+    return AuthValidator.account(normalized, region);
   }
 }

@@ -5,6 +5,8 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import 'password_page.dart';
+import 'verification_code_countdown.dart';
+import 'widgets/auth_asset_icon.dart';
 
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key, this.initialCodeLogin = true});
@@ -18,6 +20,7 @@ class AuthPage extends StatefulWidget {
 class _AuthPageState extends State<AuthPage> {
   final accountController = TextEditingController();
   final credentialController = TextEditingController();
+  final codeCountdown = VerificationCodeCountdown();
   late bool codeLogin;
   bool passwordVisible = false;
   bool accepted = false;
@@ -26,13 +29,19 @@ class _AuthPageState extends State<AuthPage> {
   void initState() {
     super.initState();
     codeLogin = widget.initialCodeLogin;
+    codeCountdown.addListener(_refreshCountdown);
   }
 
   @override
   void dispose() {
     accountController.dispose();
     credentialController.dispose();
+    codeCountdown.dispose();
     super.dispose();
+  }
+
+  void _refreshCountdown() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _login() async {
@@ -59,12 +68,14 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   Future<void> _sendCode() async {
+    if (codeCountdown.active) return;
     final result = await FlowerpotScope.of(context).sendCode(
       account: accountController.text,
       region: LoginRegion.domestic,
       type: 2,
     );
     if (!mounted) return;
+    if (result.success) codeCountdown.start();
     showAppMessage(
       context,
       result.message,
@@ -87,7 +98,7 @@ class _AuthPageState extends State<AuthPage> {
     final state = FlowerpotScope.of(context);
     return AppPageScaffold(
       useSafeArea: false,
-      background: AppPageBackground.standard,
+      background: AppPageBackground.account,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -114,49 +125,54 @@ class _AuthPageState extends State<AuthPage> {
                         ),
                       ),
                       const SizedBox(height: 22),
-                      _LoginPanel(
-                        accountController: accountController,
-                        credentialController: credentialController,
-                        codeLogin: codeLogin,
-                        accepted: accepted,
-                        passwordVisible: passwordVisible,
-                        busy: state.busy,
-                        onModeChanged: (value) => setState(() {
-                          codeLogin = value;
-                          passwordVisible = false;
-                          credentialController.clear();
-                        }),
-                        onPasswordVisibilityChanged: () =>
-                            setState(() => passwordVisible = !passwordVisible),
-                        onAcceptedChanged: (value) =>
-                            setState(() => accepted = value),
-                        onSendCode: _sendCode,
-                        onLogin: _login,
-                        onRegister: () =>
-                            Navigator.pushNamed(context, AppRoutes.register),
-                        onAgreement: () =>
-                            Navigator.pushNamed(context, AppRoutes.agreement),
-                        onPrivacy: () =>
-                            Navigator.pushNamed(context, AppRoutes.privacy),
-                        onForgotPassword: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.password,
-                          arguments: PasswordArguments(
-                            account: accountController.text.trim(),
-                            region: LoginRegion.domestic,
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: _LoginPanel(
+                          accountController: accountController,
+                          credentialController: credentialController,
+                          codeLogin: codeLogin,
+                          accepted: accepted,
+                          passwordVisible: passwordVisible,
+                          busy: state.busy,
+                          codeCountdown: codeCountdown,
+                          onModeChanged: (value) => setState(() {
+                            codeLogin = value;
+                            passwordVisible = false;
+                            credentialController.clear();
+                          }),
+                          onPasswordVisibilityChanged: () => setState(
+                            () => passwordVisible = !passwordVisible,
                           ),
+                          onAcceptedChanged: (value) =>
+                              setState(() => accepted = value),
+                          onSendCode: _sendCode,
+                          onLogin: _login,
+                          onRegister: () =>
+                              Navigator.pushNamed(context, AppRoutes.register),
+                          onAgreement: () =>
+                              Navigator.pushNamed(context, AppRoutes.agreement),
+                          onPrivacy: () =>
+                              Navigator.pushNamed(context, AppRoutes.privacy),
+                          onForgotPassword: () => Navigator.pushNamed(
+                            context,
+                            AppRoutes.password,
+                            arguments: PasswordArguments(
+                              account: accountController.text.trim(),
+                              region: LoginRegion.domestic,
+                            ),
+                          ),
+                          onWechat: () => showAppMessage(
+                            context,
+                            '微信开放平台参数待配置',
+                            tone: AppMessageTone.info,
+                          ),
+                          onAlipay: () => showAppMessage(
+                            context,
+                            '支付宝开放平台参数待配置',
+                            tone: AppMessageTone.info,
+                          ),
+                          onDemo: state.busy ? null : _enterDemo,
                         ),
-                        onWechat: () => showAppMessage(
-                          context,
-                          '微信开放平台参数待配置',
-                          tone: AppMessageTone.info,
-                        ),
-                        onAlipay: () => showAppMessage(
-                          context,
-                          '支付宝开放平台参数待配置',
-                          tone: AppMessageTone.info,
-                        ),
-                        onDemo: state.busy ? null : _enterDemo,
                       ),
                     ],
                   ),
@@ -178,6 +194,7 @@ class _LoginPanel extends StatelessWidget {
     required this.accepted,
     required this.passwordVisible,
     required this.busy,
+    required this.codeCountdown,
     required this.onModeChanged,
     required this.onPasswordVisibilityChanged,
     required this.onAcceptedChanged,
@@ -198,6 +215,7 @@ class _LoginPanel extends StatelessWidget {
   final bool accepted;
   final bool passwordVisible;
   final bool busy;
+  final VerificationCodeCountdown codeCountdown;
   final ValueChanged<bool> onModeChanged;
   final VoidCallback onPasswordVisibilityChanged;
   final ValueChanged<bool> onAcceptedChanged;
@@ -213,11 +231,9 @@ class _LoginPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.md)),
-      ),
+    return CustomPaint(
+      key: const Key('login-panel'),
+      painter: _LoginPanelBackgroundPainter(codeLogin: codeLogin),
       child: Column(
         children: <Widget>[
           _LoginTabs(codeLogin: codeLogin, onChanged: onModeChanged),
@@ -228,20 +244,27 @@ class _LoginPanel extends StatelessWidget {
                 _LoginField(
                   controller: accountController,
                   hintText: '请输入手机号',
-                  icon: Icons.phone_iphone_rounded,
+                  iconAsset: AppAssets.phoneIcon,
                   keyboardType: TextInputType.phone,
                 ),
                 const SizedBox(height: 22),
                 _LoginField(
                   controller: credentialController,
                   hintText: codeLogin ? '请输入验证码' : '请输入密码',
-                  icon: Icons.verified_user_outlined,
+                  iconAsset: codeLogin
+                      ? AppAssets.verificationCodeIcon
+                      : AppAssets.passwordIcon,
+                  iconSize: codeLogin ? 24 : 20,
                   keyboardType: codeLogin
                       ? TextInputType.number
                       : TextInputType.visiblePassword,
                   obscureText: !codeLogin && !passwordVisible,
                   suffix: codeLogin
-                      ? _SendCodeButton(busy: busy, onPressed: onSendCode)
+                      ? _SendCodeButton(
+                          busy: busy || codeCountdown.active,
+                          label: codeCountdown.label,
+                          onPressed: onSendCode,
+                        )
                       : IconButton(
                           key: const Key('password-visibility-toggle'),
                           tooltip: passwordVisible ? '隐藏密码' : '显示密码',
@@ -258,19 +281,23 @@ class _LoginPanel extends StatelessWidget {
                   Align(
                     alignment: Alignment.centerRight,
                     child: SizedBox(
-                      height: 30,
+                      height: 34,
                       child: TextButton(
+                        key: const Key('forgot-password-link'),
                         onPressed: onForgotPassword,
                         style: TextButton.styleFrom(
                           foregroundColor: AppColors.textSecondary,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(0, 34),
+                          padding: const EdgeInsets.only(left: 8, right: 12),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           visualDensity: VisualDensity.compact,
+                          textStyle: AppTypography.body.copyWith(fontSize: 14),
                         ),
                         child: const Text('忘记密码?'),
                       ),
                     ),
                   ),
-                SizedBox(height: codeLogin ? 30 : 8),
+                SizedBox(height: codeLogin ? 30 : 6),
                 FilledButton(
                   onPressed: busy ? null : onLogin,
                   style: FilledButton.styleFrom(
@@ -321,28 +348,14 @@ class _LoginPanel extends StatelessWidget {
                   children: <Widget>[
                     _SocialButton(
                       label: '微信登录',
-                      color: const Color(0xFF10C800),
+                      assetPath: AppAssets.wechatLoginIcon,
                       onTap: onWechat,
-                      child: const Icon(
-                        Icons.wechat_rounded,
-                        color: AppColors.surface,
-                        size: 31,
-                      ),
                     ),
                     const SizedBox(width: 32),
                     _SocialButton(
                       label: '支付宝登录',
-                      color: const Color(0xFF1677FF),
+                      assetPath: AppAssets.alipayLoginIcon,
                       onTap: onAlipay,
-                      child: const Text(
-                        '支',
-                        style: TextStyle(
-                          color: AppColors.surface,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w600,
-                          height: 1,
-                        ),
-                      ),
                     ),
                   ],
                 ),
@@ -415,7 +428,7 @@ class _LoginTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? AppColors.surface : AppColors.brandSurface,
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         child: Column(
@@ -446,19 +459,107 @@ class _LoginTab extends StatelessWidget {
   }
 }
 
+class _LoginPanelBackgroundPainter extends CustomPainter {
+  const _LoginPanelBackgroundPainter({required this.codeLogin});
+
+  static const double _cornerRadius = AppRadius.md;
+  static const double _tabHeight = 44;
+
+  final bool codeLogin;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final panelBounds = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(_cornerRadius),
+    );
+    canvas.drawRRect(panelBounds, Paint()..color = const Color(0x66FFFFFF));
+    canvas.drawPath(_selectedSurface(size), Paint()..color = AppColors.surface);
+    canvas.drawRRect(
+      panelBounds,
+      Paint()
+        ..color = AppColors.surface
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+  }
+
+  Path _selectedSurface(Size size) {
+    final width = size.width;
+    final height = size.height;
+    final slopeStart = width / 2 - 15;
+    final slopeEnd = width / 2 + 11;
+
+    if (codeLogin) {
+      return Path()
+        ..moveTo(_cornerRadius, 0)
+        ..lineTo(slopeStart, 0)
+        ..cubicTo(
+          slopeStart + 10,
+          0,
+          slopeEnd - 7,
+          _tabHeight,
+          slopeEnd,
+          _tabHeight,
+        )
+        ..lineTo(width - _cornerRadius, _tabHeight)
+        ..quadraticBezierTo(
+          width,
+          _tabHeight,
+          width,
+          _tabHeight + _cornerRadius,
+        )
+        ..lineTo(width, height - _cornerRadius)
+        ..quadraticBezierTo(width, height, width - _cornerRadius, height)
+        ..lineTo(_cornerRadius, height)
+        ..quadraticBezierTo(0, height, 0, height - _cornerRadius)
+        ..lineTo(0, _cornerRadius)
+        ..quadraticBezierTo(0, 0, _cornerRadius, 0)
+        ..close();
+    }
+
+    return Path()
+      ..moveTo(width - _cornerRadius, 0)
+      ..lineTo(width - slopeStart, 0)
+      ..cubicTo(
+        width - slopeStart - 10,
+        0,
+        width - slopeEnd + 7,
+        _tabHeight,
+        width - slopeEnd,
+        _tabHeight,
+      )
+      ..lineTo(_cornerRadius, _tabHeight)
+      ..quadraticBezierTo(0, _tabHeight, 0, _tabHeight + _cornerRadius)
+      ..lineTo(0, height - _cornerRadius)
+      ..quadraticBezierTo(0, height, _cornerRadius, height)
+      ..lineTo(width - _cornerRadius, height)
+      ..quadraticBezierTo(width, height, width, height - _cornerRadius)
+      ..lineTo(width, _cornerRadius)
+      ..quadraticBezierTo(width, 0, width - _cornerRadius, 0)
+      ..close();
+  }
+
+  @override
+  bool shouldRepaint(_LoginPanelBackgroundPainter oldDelegate) =>
+      oldDelegate.codeLogin != codeLogin;
+}
+
 class _LoginField extends StatelessWidget {
   const _LoginField({
     required this.controller,
     required this.hintText,
-    required this.icon,
+    required this.iconAsset,
     required this.keyboardType,
+    this.iconSize = 24,
     this.obscureText = false,
     this.suffix,
   });
 
   final TextEditingController controller;
   final String hintText;
-  final IconData icon;
+  final String iconAsset;
+  final double iconSize;
   final TextInputType keyboardType;
   final bool obscureText;
   final Widget? suffix;
@@ -478,7 +579,11 @@ class _LoginField extends StatelessWidget {
             color: AppColors.textSecondary,
             fontSize: 15,
           ),
-          prefixIcon: Icon(icon, color: AppColors.brandPrimary, size: 22),
+          prefixIcon: AuthAssetIcon(assetPath: iconAsset, size: iconSize),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 56,
+            minHeight: 48,
+          ),
           suffixIcon: suffix,
           filled: true,
           fillColor: const Color(0xFFF7F7F7),
@@ -502,9 +607,14 @@ class _LoginField extends StatelessWidget {
 }
 
 class _SendCodeButton extends StatelessWidget {
-  const _SendCodeButton({required this.busy, required this.onPressed});
+  const _SendCodeButton({
+    required this.busy,
+    required this.label,
+    required this.onPressed,
+  });
 
   final bool busy;
+  final String label;
   final VoidCallback onPressed;
 
   @override
@@ -518,9 +628,9 @@ class _SendCodeButton extends StatelessWidget {
         ),
         TextButton(
           onPressed: busy ? null : onPressed,
-          child: const Text(
-            '获取验证码',
-            style: TextStyle(color: AppColors.brandPrimary),
+          child: Text(
+            label,
+            style: const TextStyle(color: AppColors.brandPrimary),
           ),
         ),
         const SizedBox(width: AppSpacing.sm),
@@ -557,15 +667,13 @@ class _OtherLoginDivider extends StatelessWidget {
 class _SocialButton extends StatelessWidget {
   const _SocialButton({
     required this.label,
-    required this.color,
+    required this.assetPath,
     required this.onTap,
-    required this.child,
   });
 
   final String label;
-  final Color color;
+  final String assetPath;
   final VoidCallback onTap;
-  final Widget child;
 
   @override
   Widget build(BuildContext context) {
@@ -575,9 +683,14 @@ class _SocialButton extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         customBorder: const CircleBorder(),
-        child: DecoratedBox(
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          child: SizedBox.square(dimension: 48, child: Center(child: child)),
+        child: Image.asset(
+          assetPath,
+          key: ValueKey<String>('auth-social-icon:$assetPath'),
+          width: 48,
+          height: 48,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          excludeFromSemantics: true,
         ),
       ),
     );
@@ -662,9 +775,14 @@ class _BrandLogo extends StatelessWidget {
     return Semantics(
       image: true,
       label: 'YSplanter 品牌图标',
-      child: const SizedBox.square(
-        dimension: 76,
-        child: CustomPaint(painter: _BrandLogoPainter()),
+      child: Image.asset(
+        AppAssets.appLogo,
+        key: const Key('auth-app-logo'),
+        width: 76,
+        height: 76,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        excludeFromSemantics: true,
       ),
     );
   }
@@ -675,116 +793,18 @@ class _BrandTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: <Widget>[
-        Text(
-          'YSplanter',
-          style: AppTypography.deviceTitle.copyWith(
-            color: AppColors.textStrong,
-            fontSize: 38,
-            fontWeight: FontWeight.w600,
-            height: 1,
-          ),
-        ),
-        const Positioned(
-          right: 35,
-          top: -2,
-          child: Icon(
-            Icons.eco_rounded,
-            color: AppColors.brandPrimary,
-            size: 18,
-          ),
-        ),
-      ],
+    return Semantics(
+      image: true,
+      label: 'YSplanter',
+      child: Image.asset(
+        AppAssets.ysplanterWordmark,
+        key: const Key('auth-wordmark'),
+        width: 210,
+        height: 47,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        excludeFromSemantics: true,
+      ),
     );
   }
-}
-
-class _BrandLogoPainter extends CustomPainter {
-  const _BrandLogoPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, Radius.circular(size.width * .2)),
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[Color(0xFFB9E2D7), AppColors.brandPrimary],
-        ).createShader(rect),
-    );
-    final white = Paint()
-      ..color = AppColors.surface
-      ..strokeWidth = size.width * .075
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..style = PaintingStyle.stroke;
-    final stem = Path()
-      ..moveTo(size.width * .50, size.height * .66)
-      ..lineTo(size.width * .50, size.height * .49)
-      ..quadraticBezierTo(
-        size.width * .42,
-        size.height * .31,
-        size.width * .28,
-        size.height * .25,
-      )
-      ..moveTo(size.width * .50, size.height * .49)
-      ..quadraticBezierTo(
-        size.width * .61,
-        size.height * .27,
-        size.width * .79,
-        size.height * .19,
-      );
-    canvas.drawPath(stem, white);
-    final leftLeaf = Path()
-      ..moveTo(size.width * .28, size.height * .25)
-      ..quadraticBezierTo(
-        size.width * .38,
-        size.height * .20,
-        size.width * .45,
-        size.height * .38,
-      )
-      ..quadraticBezierTo(
-        size.width * .30,
-        size.height * .36,
-        size.width * .28,
-        size.height * .25,
-      )
-      ..close();
-    final rightLeaf = Path()
-      ..moveTo(size.width * .79, size.height * .19)
-      ..quadraticBezierTo(
-        size.width * .75,
-        size.height * .38,
-        size.width * .55,
-        size.height * .41,
-      )
-      ..quadraticBezierTo(
-        size.width * .62,
-        size.height * .22,
-        size.width * .79,
-        size.height * .19,
-      )
-      ..close();
-    canvas.drawPath(leftLeaf, Paint()..color = AppColors.surface);
-    canvas.drawPath(rightLeaf, Paint()..color = AppColors.surface);
-    final pot = Path()
-      ..moveTo(size.width * .33, size.height * .70)
-      ..lineTo(size.width * .67, size.height * .70)
-      ..lineTo(size.width * .62, size.height * .88)
-      ..lineTo(size.width * .38, size.height * .88)
-      ..close();
-    canvas.drawPath(pot, Paint()..color = AppColors.surface);
-    canvas.drawLine(
-      Offset(size.width * .30, size.height * .69),
-      Offset(size.width * .70, size.height * .69),
-      white,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_BrandLogoPainter oldDelegate) => false;
 }

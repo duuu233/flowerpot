@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../tokens/app_colors.dart';
+import '../../../shared/widgets/app_toast.dart';
 
 enum AppMessageTone { success, error, info }
 
@@ -9,23 +9,10 @@ void showAppMessage(
   String message, {
   AppMessageTone tone = AppMessageTone.success,
 }) {
-  final (icon, color) = switch (tone) {
-    AppMessageTone.success => (Icons.check_circle_rounded, AppColors.success),
-    AppMessageTone.error => (Icons.error_rounded, AppColors.danger),
-    AppMessageTone.info => (Icons.info_rounded, AppColors.infoDark),
+  final toastTone = switch (tone) {
+    AppMessageTone.success => AppToastTone.success,
+    AppMessageTone.error => AppToastTone.error,
+    AppMessageTone.info => AppToastTone.info,
   };
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        backgroundColor: color,
-        content: Row(
-          children: <Widget>[
-            Icon(icon, color: AppColors.surface),
-            const SizedBox(width: 10),
-            Expanded(child: Text(message)),
-          ],
-        ),
-      ),
-    );
+  AppToast.show(context, message, tone: toastTone);
 }
