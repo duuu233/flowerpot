@@ -6,6 +6,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('pairing page exposes the Figma content', (tester) async {
     await _pumpPairingPage(tester, const Size(375, 812));
@@ -20,7 +22,10 @@ void main() {
     expect(find.text('Wi-Fi密码'), findsOneWidget);
     expect(find.text('连接过程中请保持设备靠近路由器'), findsOneWidget);
     expect(find.text('开始配网'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(
+      findAssetImage(AppAssets.pairingWifiSetupIllustration),
+      findsOneWidget,
+    );
 
     final password = tester.widget<TextField>(
       find.byKey(const Key('pairing-password-field')),

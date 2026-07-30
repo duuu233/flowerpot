@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../tokens/app_colors.dart';
 import '../../tokens/app_spacing.dart';
+import 'app_back_button.dart';
 
 class AppPageHeader extends StatelessWidget implements PreferredSizeWidget {
   const AppPageHeader({
@@ -30,14 +30,8 @@ class AppPageHeader extends StatelessWidget implements PreferredSizeWidget {
       leading:
           leading ??
           (automaticallyImplyLeading && canPop
-              ? IconButton(
-                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+              ? AppBackButton(
                   onPressed: onBack ?? () => Navigator.of(context).maybePop(),
-                  icon: const Icon(
-                    Icons.arrow_back_ios_new_rounded,
-                    size: 18,
-                    color: AppColors.textSecondary,
-                  ),
                 )
               : null),
       title: Text(title),

@@ -78,11 +78,16 @@ class _AddDeviceButton extends StatelessWidget {
         tooltip: '添加设备',
         onPressed: onPressed,
         style: IconButton.styleFrom(
-          backgroundColor: AppColors.brandPrimary,
-          foregroundColor: AppColors.surface,
           minimumSize: const Size.square(40),
+          padding: EdgeInsets.zero,
         ),
-        icon: const Icon(Icons.add_rounded, size: 28),
+        icon: Image.asset(
+          AppAssets.addIcon,
+          width: 40,
+          height: 40,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+        ),
       ),
     );
   }
@@ -108,10 +113,17 @@ class _DeviceListCard extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(18, 7, 17, 7),
             child: Row(
               children: <Widget>[
-                const SizedBox(
+                SizedBox(
                   width: 58,
                   child: Center(
-                    child: AppDevicePlaceholder(hasPlant: true, width: 48),
+                    child: Image.asset(
+                      AppAssets.smartPlanterWithPlant,
+                      width: 48,
+                      height: 62,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
+                      semanticLabel: '带植物的 YSplanter',
+                    ),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -135,10 +147,13 @@ class _DeviceListCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.textSecondary,
-                  size: 30,
+                Image.asset(
+                  AppAssets.chevronRightIcon,
+                  width: 28,
+                  height: 28,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  excludeFromSemantics: true,
                 ),
               ],
             ),

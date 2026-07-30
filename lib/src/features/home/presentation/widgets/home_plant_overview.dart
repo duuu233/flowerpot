@@ -34,7 +34,14 @@ class HomePlantOverview extends StatelessWidget {
               Positioned(
                 top: 44,
                 left: (width - 106) / 2,
-                child: const AppDevicePlaceholder(hasPlant: true),
+                child: Image.asset(
+                  AppAssets.smartPlanterWithPlant,
+                  width: 106,
+                  height: 137,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  semanticLabel: '带植物的 YSplanter',
+                ),
               ),
               Positioned(
                 top: 42,
@@ -104,14 +111,11 @@ class _HomeMetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (icon, color) = switch (data.kind) {
-      HomeMetricKind.water => (Icons.water_drop_outlined, AppColors.info),
-      HomeMetricKind.light => (Icons.wb_sunny_outlined, AppColors.warning),
-      HomeMetricKind.temperature => (
-        Icons.device_thermostat_rounded,
-        AppColors.brandDark,
-      ),
-      HomeMetricKind.humidity => (Icons.water_drop_rounded, AppColors.infoDark),
+    final assetPath = switch (data.kind) {
+      HomeMetricKind.water => AppAssets.metricWaterIcon,
+      HomeMetricKind.light => AppAssets.metricLightIcon,
+      HomeMetricKind.temperature => AppAssets.metricTemperatureIcon,
+      HomeMetricKind.humidity => AppAssets.metricWaterIcon,
     };
     return AppSurfaceCard(
       onTap: () => onTap(data.kind),
@@ -122,11 +126,11 @@ class _HomeMetricCard extends StatelessWidget {
       child: Row(
         children: <Widget>[
           AppIconBadge(
-            icon: icon,
-            color: color,
-            backgroundColor: AppColors.surface,
+            assetPath: assetPath,
+            semanticLabel: data.label,
+            backgroundColor: Colors.transparent,
             size: 32,
-            iconSize: 19,
+            iconSize: 32,
           ),
           const SizedBox(width: AppSpacing.xs),
           Expanded(

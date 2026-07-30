@@ -99,10 +99,13 @@ class _AccountSecurityTile extends StatelessWidget {
               ),
             ),
           const SizedBox(width: AppSpacing.sm),
-          const Icon(
-            Icons.chevron_right_rounded,
-            size: 20,
-            color: AppColors.textSecondary,
+          Image.asset(
+            AppAssets.chevronRightIcon,
+            width: 20,
+            height: 20,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            excludeFromSemantics: true,
           ),
         ],
       ),

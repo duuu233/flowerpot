@@ -8,6 +8,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('personal information page matches the 375x812 Figma content', (
     tester,
@@ -24,7 +26,7 @@ void main() {
     expect(find.text('J123456'), findsOneWidget);
     expect(find.text('退出登录'), findsOneWidget);
     expect(find.byKey(const Key('personal-info-card')), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.profileAvatarIcon), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

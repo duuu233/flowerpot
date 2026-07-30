@@ -4,6 +4,8 @@ import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('pairing success page exposes the Figma content', (tester) async {
     await _pumpSuccessPage(tester, const Size(375, 812));
@@ -13,7 +15,10 @@ void main() {
     expect(find.text('设备已成功连接，可以开始添加植物了'), findsOneWidget);
     expect(find.text('添加植物'), findsOneWidget);
     expect(find.text('返回首页'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(
+      findAssetImage(AppAssets.pairingSuccessIllustration),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

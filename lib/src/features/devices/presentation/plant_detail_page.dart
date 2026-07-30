@@ -108,19 +108,19 @@ class _PlantSummaryCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
                         _EnvironmentMetric(
-                          icon: Icons.thermostat_rounded,
+                          assetPath: AppAssets.metricTemperatureIcon,
                           label: '适宜温度',
                           value: data.temperature,
                         ),
                         const SizedBox(height: 7),
                         _EnvironmentMetric(
-                          icon: Icons.water_drop_outlined,
+                          assetPath: AppAssets.statusHumidityIcon,
                           label: '适宜湿度',
                           value: data.humidity,
                         ),
                         const SizedBox(height: 7),
                         _EnvironmentMetric(
-                          icon: Icons.wb_sunny_outlined,
+                          assetPath: AppAssets.metricLightIcon,
                           label: '光照需求',
                           rating: data.lightRating,
                           warning: true,
@@ -191,14 +191,14 @@ class _BindingChip extends StatelessWidget {
 
 class _EnvironmentMetric extends StatelessWidget {
   const _EnvironmentMetric({
-    required this.icon,
+    required this.assetPath,
     required this.label,
     this.value,
     this.rating,
     this.warning = false,
   });
 
-  final IconData icon;
+  final String assetPath;
   final String label;
   final String? value;
   final int? rating;
@@ -206,16 +206,15 @@ class _EnvironmentMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = warning ? AppColors.warning : AppColors.infoDark;
-    final surface = warning ? AppColors.warningSurface : AppColors.brandSurface;
     return Row(
       children: <Widget>[
-        DecoratedBox(
-          decoration: BoxDecoration(color: surface, shape: BoxShape.circle),
-          child: SizedBox.square(
-            dimension: 36,
-            child: Icon(icon, color: accent, size: 22),
-          ),
+        Image.asset(
+          assetPath,
+          width: 36,
+          height: 36,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          semanticLabel: label,
         ),
         const SizedBox(width: 8),
         Expanded(
@@ -271,7 +270,10 @@ class _PlantBasicInfoCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            const _SectionHeader(icon: Icons.grass_rounded, title: '基础信息'),
+            const _SectionHeader(
+              assetPath: AppAssets.selectPlantIcon,
+              title: '基础信息',
+            ),
             const SizedBox(height: 14),
             _DetailRow(label: '学名', child: Text(plant.latinName)),
             const SizedBox(height: 12),
@@ -351,7 +353,7 @@ class _PlantCareAdviceCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             const _SectionHeader(
-              icon: Icons.lightbulb_outline_rounded,
+              assetPath: AppAssets.plantCareTipIcon,
               title: '养护建议',
             ),
             const SizedBox(height: 12),
@@ -367,16 +369,23 @@ class _PlantCareAdviceCard extends StatelessWidget {
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.icon, required this.title});
+  const _SectionHeader({required this.assetPath, required this.title});
 
-  final IconData icon;
+  final String assetPath;
   final String title;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        Icon(icon, color: AppColors.brandPrimary, size: 23),
+        Image.asset(
+          assetPath,
+          width: 23,
+          height: 23,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          semanticLabel: title,
+        ),
         const SizedBox(width: 10),
         Text(
           title,

@@ -10,6 +10,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('display settings page matches the 375x812 Figma content', (
     tester,
@@ -21,7 +23,7 @@ void main() {
     expect(find.text('已开启'), findsOneWidget);
     expect(find.text('自动屏幕亮度开启后，YSplanter会根据检测到的环境'), findsOneWidget);
     expect(find.text('光强度自动调节屏幕亮度。'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.brightnessSymbol), findsOneWidget);
     final card = find.byType(DisplaySettingsCard);
     expect(tester.getSize(card), const Size(335, 339));
     expect(tester.getTopLeft(card), const Offset(20, 93));

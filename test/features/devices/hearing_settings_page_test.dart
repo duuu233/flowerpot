@@ -10,6 +10,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('hearing settings page matches the 375x812 Figma content', (
     tester,
@@ -23,7 +25,7 @@ void main() {
     expect(find.text('特反馈。'), findsOneWidget);
     expect(find.text('传感器灵敏度'), findsOneWidget);
     expect(find.text('80%'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.hearingWaveformSymbol), findsOneWidget);
     final card = find.byType(HearingSettingsCard);
     expect(tester.getSize(card), const Size(335, 425));
     expect(tester.getTopLeft(card), const Offset(20, 93));

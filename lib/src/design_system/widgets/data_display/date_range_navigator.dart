@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../tokens/app_assets.dart';
 import '../../tokens/app_colors.dart';
 
 class DateRangeNavigator extends StatelessWidget {
@@ -22,7 +23,7 @@ class DateRangeNavigator extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: <Widget>[
         _NavigationButton(
-          icon: Icons.chevron_left_rounded,
+          assetPath: AppAssets.chevronLeftIcon,
           onPressed: onPrevious,
         ),
         if (onLabelTap == null)
@@ -37,16 +38,19 @@ class DateRangeNavigator extends StatelessWidget {
               color: AppColors.textPrimary,
             ),
           ),
-        _NavigationButton(icon: Icons.chevron_right_rounded, onPressed: onNext),
+        _NavigationButton(
+          assetPath: AppAssets.chevronRightIcon,
+          onPressed: onNext,
+        ),
       ],
     );
   }
 }
 
 class _NavigationButton extends StatelessWidget {
-  const _NavigationButton({required this.icon, this.onPressed});
+  const _NavigationButton({required this.assetPath, this.onPressed});
 
-  final IconData icon;
+  final String assetPath;
   final VoidCallback? onPressed;
 
   @override
@@ -58,7 +62,14 @@ class _NavigationButton extends StatelessWidget {
         foregroundColor: AppColors.textSecondary,
       ),
       onPressed: onPressed,
-      icon: Icon(icon, size: 18),
+      icon: Image.asset(
+        assetPath,
+        width: 18,
+        height: 18,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        excludeFromSemantics: true,
+      ),
     );
   }
 }

@@ -25,18 +25,21 @@ class HomeQuickActions extends StatelessWidget {
             minTileHeight: 60,
             contentPadding: const EdgeInsets.symmetric(horizontal: 18),
             leading: AppIconBadge(
-              icon: _iconFor(action.kind),
-              color: AppColors.brandPrimary,
-              backgroundColor: AppColors.brandSurface,
+              assetPath: _assetFor(action.kind),
+              semanticLabel: action.label,
+              backgroundColor: Colors.transparent,
               size: 40,
-              iconSize: 21,
+              iconSize: 40,
               borderRadius: AppRadius.large,
             ),
             titleStyle: AppTypography.status.copyWith(fontSize: 15),
-            trailing: const Icon(
-              Icons.chevron_right_rounded,
-              size: 26,
-              color: AppColors.textSecondary,
+            trailing: Image.asset(
+              AppAssets.chevronRightIcon,
+              width: 26,
+              height: 26,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              excludeFromSemantics: true,
             ),
             onTap: () => onActionTap(action.kind),
           ),
@@ -44,9 +47,9 @@ class HomeQuickActions extends StatelessWidget {
     );
   }
 
-  IconData _iconFor(HomeActionKind kind) => switch (kind) {
-    HomeActionKind.animation => Icons.smart_display_rounded,
-    HomeActionKind.battery => Icons.battery_charging_full_rounded,
-    HomeActionKind.settings => Icons.settings_rounded,
+  String _assetFor(HomeActionKind kind) => switch (kind) {
+    HomeActionKind.animation => AppAssets.customAnimationIcon,
+    HomeActionKind.battery => AppAssets.batteryStatusIcon,
+    HomeActionKind.settings => AppAssets.deviceSettingsIcon,
   };
 }

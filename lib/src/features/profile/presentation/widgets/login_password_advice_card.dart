@@ -18,10 +18,13 @@ class LoginPasswordAdviceCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Icon(
-            Icons.contact_support_rounded,
-            size: 26,
-            color: AppColors.brandPrimary,
+          Image.asset(
+            AppAssets.helpChatIcon,
+            width: 26,
+            height: 26,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            semanticLabel: '密码设置建议',
           ),
           const SizedBox(width: 10),
           Expanded(

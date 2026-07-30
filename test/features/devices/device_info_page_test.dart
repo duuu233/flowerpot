@@ -10,6 +10,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('device info page exposes the Figma content', (tester) async {
     await _pumpDeviceInfo(tester, const Size(375, 812));
@@ -25,7 +27,7 @@ void main() {
     expect(find.text('硬件'), findsOneWidget);
     expect(find.text('D885ACA2B9B4'), findsOneWidget);
     expect(find.text('uuid0325950de48cb82c'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.editIcon), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

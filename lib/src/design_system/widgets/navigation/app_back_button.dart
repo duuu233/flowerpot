@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../tokens/app_colors.dart';
+import '../../tokens/app_assets.dart';
 
 class AppBackButton extends StatelessWidget {
   const AppBackButton({super.key, this.onPressed, this.color});
@@ -13,10 +13,15 @@ class AppBackButton extends StatelessWidget {
     return IconButton(
       tooltip: MaterialLocalizations.of(context).backButtonTooltip,
       onPressed: onPressed ?? () => Navigator.of(context).maybePop(),
-      icon: Icon(
-        Icons.arrow_back_ios_new_rounded,
-        size: 18,
-        color: color ?? AppColors.textSecondary,
+      icon: Image.asset(
+        AppAssets.chevronLeftIcon,
+        width: 18,
+        height: 18,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        color: color,
+        colorBlendMode: BlendMode.srcIn,
+        excludeFromSemantics: true,
       ),
     );
   }

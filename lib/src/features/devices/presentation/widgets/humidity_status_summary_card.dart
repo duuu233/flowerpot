@@ -31,7 +31,7 @@ class HumidityStatusSummaryCard extends StatelessWidget {
                   children: <Widget>[
                     Row(
                       children: <Widget>[
-                        const _HumidityBadge(size: 40, iconSize: 24),
+                        const _HumidityBadge(size: 40),
                         const SizedBox(width: AppSpacing.md),
                         Flexible(
                           child: Text(
@@ -63,7 +63,7 @@ class HumidityStatusSummaryCard extends StatelessWidget {
           Row(
             children: <Widget>[
               const SizedBox(width: 28),
-              const _HumidityBadge(size: 48, iconSize: 29),
+              const _HumidityBadge(size: 48),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(
@@ -102,10 +102,13 @@ class HumidityStatusSummaryCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: AppSpacing.xs),
-                        const Icon(
-                          Icons.info_outline_rounded,
-                          size: 14,
-                          color: AppColors.textSecondary,
+                        Image.asset(
+                          AppAssets.infoIcon,
+                          width: 14,
+                          height: 14,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                          excludeFromSemantics: true,
                         ),
                       ],
                     ),
@@ -121,43 +124,19 @@ class HumidityStatusSummaryCard extends StatelessWidget {
 }
 
 class _HumidityBadge extends StatelessWidget {
-  const _HumidityBadge({required this.size, required this.iconSize});
+  const _HumidityBadge({required this.size});
 
   final double size;
-  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: AppColors.brandSurface,
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(
-        dimension: size,
-        child: Stack(
-          alignment: Alignment.center,
-          children: <Widget>[
-            Transform.translate(
-              offset: Offset(-iconSize * .12, 0),
-              child: Icon(
-                Icons.water_drop_outlined,
-                color: AppColors.infoDark,
-                size: iconSize,
-              ),
-            ),
-            Positioned(
-              right: size * .17,
-              bottom: size * .21,
-              child: Icon(
-                Icons.water_drop_outlined,
-                color: AppColors.infoDark,
-                size: iconSize * .48,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return Image.asset(
+      AppAssets.statusHumidityIcon,
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '相对湿度',
     );
   }
 }

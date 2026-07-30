@@ -144,12 +144,19 @@ class _RegisterPageState extends State<RegisterPage> {
                       tooltip: passwordVisible ? '隐藏密码' : '显示密码',
                       onPressed: () =>
                           setState(() => passwordVisible = !passwordVisible),
-                      icon: Icon(
-                        passwordVisible
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                        color: AppColors.textTertiary,
-                      ),
+                      icon: passwordVisible
+                          ? const Icon(
+                              Icons.visibility_outlined,
+                              color: AppColors.textTertiary,
+                            )
+                          : Image.asset(
+                              AppAssets.passwordVisibilityOffIcon,
+                              width: 22,
+                              height: 22,
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.high,
+                              excludeFromSemantics: true,
+                            ),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.lg),
@@ -165,12 +172,19 @@ class _RegisterPageState extends State<RegisterPage> {
                       onPressed: () => setState(
                         () => confirmationVisible = !confirmationVisible,
                       ),
-                      icon: Icon(
-                        confirmationVisible
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                        color: AppColors.textTertiary,
-                      ),
+                      icon: confirmationVisible
+                          ? const Icon(
+                              Icons.visibility_outlined,
+                              color: AppColors.textTertiary,
+                            )
+                          : Image.asset(
+                              AppAssets.passwordVisibilityOffIcon,
+                              width: 22,
+                              height: 22,
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.high,
+                              excludeFromSemantics: true,
+                            ),
                     ),
                   ),
                   const SizedBox(height: 155),

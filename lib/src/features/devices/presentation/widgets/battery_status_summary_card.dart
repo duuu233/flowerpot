@@ -102,10 +102,13 @@ class BatteryStatusSummaryCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: AppSpacing.xs),
-                        const Icon(
-                          Icons.info_outline_rounded,
-                          size: 14,
-                          color: AppColors.textSecondary,
+                        Image.asset(
+                          AppAssets.infoIcon,
+                          width: 14,
+                          height: 14,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                          excludeFromSemantics: true,
                         ),
                       ],
                     ),
@@ -127,57 +130,13 @@ class ChargingBatteryBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: AppColors.brandSurface,
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(
-        dimension: size,
-        child: CustomPaint(painter: const _ChargingBatteryPainter()),
-      ),
+    return Image.asset(
+      AppAssets.batteryIcon,
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '电池状态',
     );
   }
-}
-
-class _ChargingBatteryPainter extends CustomPainter {
-  const _ChargingBatteryPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final scale = size.width / 48;
-    final body = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-        center: Offset(size.width * .48, size.height * .5),
-        width: 26 * scale,
-        height: 14 * scale,
-      ),
-      Radius.circular(1.5 * scale),
-    );
-    final color = Paint()..color = AppColors.brandPrimary;
-    canvas.drawRRect(body, color);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(size.width * .79, size.height * .5),
-          width: 3 * scale,
-          height: 7 * scale,
-        ),
-        Radius.circular(scale),
-      ),
-      color,
-    );
-    final bolt = Path()
-      ..moveTo(size.width * .49, size.height * .31)
-      ..lineTo(size.width * .38, size.height * .52)
-      ..lineTo(size.width * .48, size.height * .52)
-      ..lineTo(size.width * .43, size.height * .70)
-      ..lineTo(size.width * .60, size.height * .45)
-      ..lineTo(size.width * .50, size.height * .45)
-      ..close();
-    canvas.drawPath(bolt, Paint()..color = AppColors.surface);
-  }
-
-  @override
-  bool shouldRepaint(_ChargingBatteryPainter oldDelegate) => false;
 }

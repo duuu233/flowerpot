@@ -28,10 +28,13 @@ class WaterTrendChartCard extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              const Icon(
-                Icons.info_outline_rounded,
-                size: 16,
-                color: AppColors.textSecondary,
+              Image.asset(
+                AppAssets.infoIcon,
+                width: 16,
+                height: 16,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                excludeFromSemantics: true,
               ),
               const SizedBox(width: AppSpacing.sm),
               PopupMenuButton<WaterStatusMetric>(

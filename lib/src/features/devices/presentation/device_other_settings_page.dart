@@ -571,39 +571,39 @@ class _GeneralSettingsCard extends StatelessWidget {
         children: <Widget>[
           _SettingsRow(
             key: const Key('temperature-unit-setting'),
-            icon: Icons.device_thermostat_rounded,
+            assetPath: AppAssets.temperatureUnitIcon,
             title: '温度单位',
             value: settings.temperatureUnit == 'celsius' ? '摄氏度（℃）' : '华氏度（℉）',
             onTap: onTemperatureUnit,
           ),
           _SettingsRow(
             key: const Key('clock-format-setting'),
-            icon: Icons.schedule_rounded,
+            assetPath: AppAssets.clockModeIcon,
             title: '时钟模式',
             value: settings.clockFormat == '24h' ? '24小时' : '12小时',
             onTap: onClockFormat,
           ),
           _SettingsRow(
             key: const Key('water-level-calibration-setting'),
-            icon: Icons.water_outlined,
+            assetPath: AppAssets.waterCalibrationIcon,
             title: '水位传感器校准',
             onTap: onCalibration,
           ),
           _SettingsRow(
-            icon: Icons.system_update_alt_rounded,
+            assetPath: AppAssets.fileSyncIcon,
             title: '系统文件更新',
             onTap: onSystemFiles,
           ),
           const _SystemFileNotice(),
           _SettingsRow(
-            icon: Icons.system_update_rounded,
+            assetPath: AppAssets.chipUpdateIcon,
             title: '固件版本更新',
             value: 'V${device.firmwareVersion}',
             loading: updatingFirmware,
             onTap: onFirmware,
           ),
           _SettingsRow(
-            icon: Icons.build_circle_outlined,
+            assetPath: AppAssets.deviceRepairIcon,
             title: '修复系统文件',
             onTap: onRepair,
           ),
@@ -629,12 +629,19 @@ class _SystemFileNotice extends StatelessWidget {
         color: AppColors.dangerSurface,
         borderRadius: BorderRadius.all(Radius.circular(6)),
       ),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(Icons.info_outline_rounded, size: 18, color: AppColors.danger),
-          SizedBox(width: AppSpacing.sm),
-          Expanded(
+          Image.asset(
+            AppAssets.warningIcon,
+            width: 18,
+            height: 18,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            semanticLabel: '系统文件说明',
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          const Expanded(
             child: Text(
               '系统文件包括YSplanter的表情、行为模型、语言包，和其他系统所需文件。',
               style: TextStyle(
@@ -669,25 +676,22 @@ class _DeviceActionsCard extends StatelessWidget {
         children: <Widget>[
           _SettingsRow(
             key: const Key('repair-network-setting'),
-            icon: Icons.language_rounded,
+            assetPath: AppAssets.globeWarningIcon,
             title: '重新配网',
-            iconColor: AppColors.warningSoft,
             titleColor: AppColors.warningSoft,
             onTap: onPairing,
           ),
           _SettingsRow(
             key: const Key('factory-reset-setting'),
-            icon: Icons.restart_alt_rounded,
+            assetPath: AppAssets.resetIcon,
             title: '恢复出厂设置',
-            iconColor: AppColors.danger,
             titleColor: AppColors.danger,
             onTap: onFactoryReset,
           ),
           _SettingsRow(
             key: const Key('remove-device-setting'),
-            icon: Icons.delete_outline_rounded,
+            assetPath: AppAssets.deleteIcon,
             title: '移除设备',
-            iconColor: AppColors.danger,
             titleColor: AppColors.danger,
             onTap: onRemove,
           ),
@@ -699,20 +703,18 @@ class _DeviceActionsCard extends StatelessWidget {
 
 class _SettingsRow extends StatelessWidget {
   const _SettingsRow({
-    required this.icon,
+    required this.assetPath,
     required this.title,
     required this.onTap,
     super.key,
     this.value,
-    this.iconColor = AppColors.brandPrimary,
     this.titleColor,
     this.loading = false,
   });
 
-  final IconData icon;
+  final String assetPath;
   final String title;
   final String? value;
-  final Color iconColor;
   final Color? titleColor;
   final bool loading;
   final VoidCallback onTap;
@@ -722,7 +724,14 @@ class _SettingsRow extends StatelessWidget {
     return ListTile(
       minTileHeight: 44,
       contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-      leading: Icon(icon, color: iconColor, size: 23),
+      leading: Image.asset(
+        assetPath,
+        width: 23,
+        height: 23,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        semanticLabel: title,
+      ),
       title: Text(
         title,
         style: AppTypography.bodyEmphasis.copyWith(
@@ -745,10 +754,13 @@ class _SettingsRow extends StatelessWidget {
               ),
             ),
           const SizedBox(width: AppSpacing.xs),
-          const Icon(
-            Icons.chevron_right_rounded,
-            color: AppColors.textSecondary,
-            size: 22,
+          Image.asset(
+            AppAssets.chevronRightIcon,
+            width: 22,
+            height: 22,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            excludeFromSemantics: true,
           ),
         ],
       ),

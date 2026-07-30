@@ -32,11 +32,11 @@ class LightStatusSummaryCard extends StatelessWidget {
                     Row(
                       children: <Widget>[
                         const AppIconBadge(
-                          icon: Icons.wb_sunny_outlined,
-                          color: AppColors.warning,
-                          backgroundColor: AppColors.warningSurface,
+                          assetPath: AppAssets.statusLightIcon,
+                          semanticLabel: '光照状态',
+                          backgroundColor: Colors.transparent,
                           size: 40,
-                          iconSize: 24,
+                          iconSize: 40,
                         ),
                         const SizedBox(width: AppSpacing.md),
                         Text(
@@ -68,9 +68,7 @@ class LightStatusSummaryCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: _LightMetric(
-                  icon: Icons.wb_sunny_outlined,
-                  color: AppColors.warning,
-                  backgroundColor: AppColors.warningSurface,
+                  assetPath: AppAssets.statusLightIcon,
                   value: '${model.illuminance}',
                   unit: 'lux',
                 ),
@@ -81,9 +79,7 @@ class LightStatusSummaryCard extends StatelessWidget {
               ),
               Expanded(
                 child: _LightMetric(
-                  icon: Icons.eco_outlined,
-                  color: AppColors.success,
-                  backgroundColor: AppColors.successSurface,
+                  assetPath: AppAssets.plantSelectionBadgeIcon,
                   value: model.ppfd.toStringAsFixed(3),
                   unit: 'μmol/m²/s',
                 ),
@@ -98,16 +94,12 @@ class LightStatusSummaryCard extends StatelessWidget {
 
 class _LightMetric extends StatelessWidget {
   const _LightMetric({
-    required this.icon,
-    required this.color,
-    required this.backgroundColor,
+    required this.assetPath,
     required this.value,
     required this.unit,
   });
 
-  final IconData icon;
-  final Color color;
-  final Color backgroundColor;
+  final String assetPath;
   final String value;
   final String unit;
 
@@ -117,11 +109,10 @@ class _LightMetric extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
         AppIconBadge(
-          icon: icon,
-          color: color,
-          backgroundColor: backgroundColor,
+          assetPath: assetPath,
+          backgroundColor: Colors.transparent,
           size: 48,
-          iconSize: 28,
+          iconSize: 48,
         ),
         const SizedBox(width: AppSpacing.sm),
         Flexible(
@@ -154,10 +145,13 @@ class _LightMetric extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: AppSpacing.xs),
-                  const Icon(
-                    Icons.info_outline_rounded,
-                    size: 14,
-                    color: AppColors.textSecondary,
+                  Image.asset(
+                    AppAssets.infoIcon,
+                    width: 14,
+                    height: 14,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                    excludeFromSemantics: true,
                   ),
                 ],
               ),

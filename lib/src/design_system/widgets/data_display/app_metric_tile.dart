@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../tokens/app_assets.dart';
 import '../../tokens/app_colors.dart';
 import '../../tokens/app_spacing.dart';
 import '../cards/app_surface_card.dart';
@@ -52,10 +53,13 @@ class AppMetricTile extends StatelessWidget {
             ),
           ),
           if (onTap != null)
-            const Icon(
-              Icons.chevron_right_rounded,
-              size: 18,
-              color: AppColors.textSecondary,
+            Image.asset(
+              AppAssets.chevronRightIcon,
+              width: 18,
+              height: 18,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              excludeFromSemantics: true,
             ),
         ],
       ),

@@ -3,6 +3,8 @@ import 'package:flowerpot/src/features/profile/presentation/about_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('about page matches the 375x812 Figma content', (tester) async {
     await _pumpAboutPage(tester, const Size(375, 812));
@@ -17,7 +19,7 @@ void main() {
     expect(find.text('版本说明'), findsOneWidget);
     expect(find.byKey(const Key('about-logo-placeholder')), findsOneWidget);
     expect(find.byKey(const Key('about-version-card')), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.aboutCurrentVersionIcon), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

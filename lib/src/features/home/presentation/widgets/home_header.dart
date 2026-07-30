@@ -27,15 +27,15 @@ class HomeHeader extends StatelessWidget {
               size: 32,
               fallbackText: userLabel,
               fallback: showGenericAvatar
-                  ? const Icon(
-                      Icons.person_rounded,
-                      size: 29,
-                      color: AppColors.surface,
+                  ? Image.asset(
+                      AppAssets.profileAvatarIcon,
+                      width: 32,
+                      height: 32,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
                     )
                   : null,
-              backgroundColor: showGenericAvatar
-                  ? AppColors.brandPrimary
-                  : AppColors.brandSurface,
+              backgroundColor: AppColors.brandSurface,
               onTap: onAvatarTap,
             ),
           ),

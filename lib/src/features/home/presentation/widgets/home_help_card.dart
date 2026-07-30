@@ -22,11 +22,11 @@ class HomeHelpCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             const AppIconBadge(
-              icon: Icons.question_mark_rounded,
-              color: AppColors.surface,
-              backgroundColor: AppColors.brandPrimary,
+              assetPath: AppAssets.helpChatIcon,
+              semanticLabel: '使用帮助',
+              backgroundColor: Colors.transparent,
               size: 24,
-              iconSize: 16,
+              iconSize: 24,
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(

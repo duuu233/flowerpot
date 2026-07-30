@@ -34,10 +34,13 @@ class MineMenuList extends StatelessWidget {
               value: item.trailingValue,
               minTileHeight: 48,
               contentPadding: const EdgeInsets.symmetric(horizontal: 32),
-              leading: Icon(
-                _iconFor(item.kind),
-                size: 26,
-                color: AppColors.brandPrimary,
+              leading: Image.asset(
+                _assetFor(item.kind),
+                width: 26,
+                height: 26,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                semanticLabel: item.label,
               ),
               titleStyle: AppTypography.status.copyWith(fontSize: 16),
               onTap: () => onItemTap(item.kind),
@@ -47,13 +50,13 @@ class MineMenuList extends StatelessWidget {
     );
   }
 
-  IconData _iconFor(MineMenuKind kind) => switch (kind) {
-    MineMenuKind.personalInfo => Icons.manage_accounts_outlined,
-    MineMenuKind.accountSecurity => Icons.shield_outlined,
-    MineMenuKind.helpCenter => Icons.help_outline_rounded,
-    MineMenuKind.feedback => Icons.rate_review_outlined,
-    MineMenuKind.privacyPolicy => Icons.verified_user_outlined,
-    MineMenuKind.userAgreement => Icons.description_outlined,
-    MineMenuKind.about => Icons.info_outline_rounded,
+  String _assetFor(MineMenuKind kind) => switch (kind) {
+    MineMenuKind.personalInfo => AppAssets.profileMenuPersonalInfoIcon,
+    MineMenuKind.accountSecurity => AppAssets.profileMenuAccountSecurityIcon,
+    MineMenuKind.helpCenter => AppAssets.profileMenuHelpIcon,
+    MineMenuKind.feedback => AppAssets.profileMenuFeedbackIcon,
+    MineMenuKind.privacyPolicy => AppAssets.profileMenuPrivacyIcon,
+    MineMenuKind.userAgreement => AppAssets.profileMenuAgreementIcon,
+    MineMenuKind.about => AppAssets.profileMenuAboutIcon,
   };
 }

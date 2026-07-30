@@ -9,6 +9,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('other settings page exposes the Figma content', (tester) async {
     await _pumpOtherSettings(tester, const Size(375, 812));
@@ -27,7 +29,7 @@ void main() {
     expect(find.text('重新配网'), findsOneWidget);
     expect(find.text('恢复出厂设置'), findsOneWidget);
     expect(find.text('移除设备'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.temperatureUnitIcon), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

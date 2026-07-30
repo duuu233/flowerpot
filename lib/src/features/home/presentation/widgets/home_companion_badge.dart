@@ -22,10 +22,13 @@ class HomeCompanionBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(
-            Icons.calendar_month_outlined,
-            size: 16,
-            color: AppColors.brandPrimary,
+          Image.asset(
+            AppAssets.calendarIcon,
+            width: 16,
+            height: 16,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            semanticLabel: '陪伴天数',
           ),
           const SizedBox(width: AppSpacing.xs),
           Text(
@@ -41,10 +44,13 @@ class HomeCompanionBadge extends StatelessWidget {
             child: VerticalDivider(color: AppColors.divider),
           ),
           const SizedBox(width: AppSpacing.sm),
-          const Icon(
-            Icons.battery_5_bar_rounded,
-            size: 18,
-            color: AppColors.brandPrimary,
+          Image.asset(
+            AppAssets.batteryIcon,
+            width: 18,
+            height: 18,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            semanticLabel: '电量',
           ),
           const SizedBox(width: AppSpacing.xs),
           Text(

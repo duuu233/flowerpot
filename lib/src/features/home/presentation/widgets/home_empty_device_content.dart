@@ -122,114 +122,13 @@ class _EmptyDeviceRadar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox.square(
-      dimension: 230,
-      child: Stack(
-        alignment: Alignment.center,
-        children: <Widget>[
-          _RadarDisc(size: 226, opacity: .24),
-          _RadarDisc(size: 174, opacity: .35),
-          _RadarDisc(size: 126, opacity: .48),
-          Positioned(left: 24, top: 30, child: _RadarDot(size: 9)),
-          Positioned(right: 22, top: 51, child: _RadarDot(size: 10)),
-          Positioned(left: 36, bottom: 20, child: _RadarDot(size: 14)),
-          Positioned(right: 30, bottom: 32, child: _RadarDot(size: 8)),
-          _EmptyWifiHub(),
-        ],
-      ),
-    );
-  }
-}
-
-class _RadarDisc extends StatelessWidget {
-  const _RadarDisc({required this.size, required this.opacity});
-
-  final double size;
-  final double opacity;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface.withValues(alpha: opacity),
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: size),
-    );
-  }
-}
-
-class _RadarDot extends StatelessWidget {
-  const _RadarDot({required this.size});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandSoft.withValues(alpha: .45),
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: size),
-    );
-  }
-}
-
-class _EmptyWifiHub extends StatelessWidget {
-  const _EmptyWifiHub();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 80,
-      height: 80,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: <Widget>[
-          const Positioned(
-            top: 0,
-            child: Icon(
-              Icons.wifi_rounded,
-              color: AppColors.brandPrimary,
-              size: 57,
-            ),
-          ),
-          Container(
-            width: 72,
-            height: 33,
-            decoration: const BoxDecoration(
-              color: AppColors.brandPrimary,
-              borderRadius: BorderRadius.all(Radius.circular(14)),
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                _HubDot(),
-                SizedBox(width: 9),
-                _HubDot(),
-                SizedBox(width: 9),
-                _HubDot(),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HubDot extends StatelessWidget {
-  const _HubDot();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: 7),
+    return Image.asset(
+      AppAssets.pairingDeviceSearchIllustration,
+      width: 230,
+      height: 230,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      excludeFromSemantics: true,
     );
   }
 }
@@ -287,40 +186,13 @@ class _QuestionBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: 34,
-      child: Stack(
-        children: <Widget>[
-          Positioned(
-            left: 4,
-            bottom: 4,
-            child: Transform.rotate(
-              angle: .785,
-              child: const SizedBox.square(
-                dimension: 9,
-                child: ColoredBox(color: AppColors.brandPrimary),
-              ),
-            ),
-          ),
-          const Align(
-            alignment: Alignment.topCenter,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AppColors.brandPrimary,
-                shape: BoxShape.circle,
-              ),
-              child: SizedBox.square(
-                dimension: 30,
-                child: Icon(
-                  Icons.question_mark_rounded,
-                  color: AppColors.surface,
-                  size: 19,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return Image.asset(
+      AppAssets.helpChatIcon,
+      width: 34,
+      height: 34,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '提示',
     );
   }
 }

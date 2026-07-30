@@ -5,6 +5,8 @@ import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('pairing failure page exposes the Figma content', (tester) async {
     await _pumpFailurePage(tester, const Size(375, 812));
@@ -15,7 +17,10 @@ void main() {
     expect(find.text('小提示'), findsOneWidget);
     expect(find.text('重新配网'), findsOneWidget);
     expect(find.text('返回选择设备'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(
+      findAssetImage(AppAssets.pairingFailureIllustration),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

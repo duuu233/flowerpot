@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../tokens/app_assets.dart';
 import 'app_text_field.dart';
 
 class AppSearchField extends StatelessWidget {
@@ -23,7 +24,17 @@ class AppSearchField extends StatelessWidget {
     return AppTextField(
       controller: controller,
       hintText: hintText,
-      prefixIcon: const Icon(Icons.search_rounded),
+      prefixIcon: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Image.asset(
+          AppAssets.searchIcon,
+          width: 20,
+          height: 20,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          excludeFromSemantics: true,
+        ),
+      ),
       suffixIcon: onClear == null
           ? null
           : IconButton(

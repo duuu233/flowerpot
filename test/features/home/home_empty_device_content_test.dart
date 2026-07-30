@@ -7,6 +7,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('empty device home matches the 375x812 Figma content', (
     tester,
@@ -19,7 +21,10 @@ void main() {
     expect(find.text('添加设备'), findsOneWidget);
     expect(find.text('小提示'), findsOneWidget);
     expect(find.text('1. 打开设备电源\n2. 请将设备放在手机附近'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(
+      findAssetImage(AppAssets.pairingDeviceSearchIllustration),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

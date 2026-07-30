@@ -42,10 +42,13 @@ class DeviceSettingsFunctionList extends StatelessWidget {
                 value: item.value,
                 minTileHeight: 46,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-                leading: Icon(
-                  _iconFor(item.kind),
-                  size: 25,
-                  color: AppColors.brandPrimary,
+                leading: Image.asset(
+                  _assetFor(item.kind),
+                  width: 25,
+                  height: 25,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  semanticLabel: item.label,
                 ),
                 titleStyle: AppTypography.sectionTitle.copyWith(fontSize: 15),
                 onTap: () => onItemTap(item.kind),
@@ -56,13 +59,13 @@ class DeviceSettingsFunctionList extends StatelessWidget {
     );
   }
 
-  IconData _iconFor(DeviceSettingsMenuKind kind) => switch (kind) {
-    DeviceSettingsMenuKind.plant => Icons.eco_outlined,
-    DeviceSettingsMenuKind.display => Icons.light_mode_outlined,
-    DeviceSettingsMenuKind.hearing => Icons.hearing_rounded,
-    DeviceSettingsMenuKind.touch => Icons.touch_app_outlined,
-    DeviceSettingsMenuKind.vibration => Icons.vibration_rounded,
-    DeviceSettingsMenuKind.behavior => Icons.manage_search_rounded,
-    DeviceSettingsMenuKind.other => Icons.tune_rounded,
+  String _assetFor(DeviceSettingsMenuKind kind) => switch (kind) {
+    DeviceSettingsMenuKind.plant => AppAssets.settingsPlantIcon,
+    DeviceSettingsMenuKind.display => AppAssets.settingsDisplayIcon,
+    DeviceSettingsMenuKind.hearing => AppAssets.settingsHearingIcon,
+    DeviceSettingsMenuKind.touch => AppAssets.settingsTouchIcon,
+    DeviceSettingsMenuKind.vibration => AppAssets.settingsVibrationIcon,
+    DeviceSettingsMenuKind.behavior => AppAssets.settingsBehaviorIcon,
+    DeviceSettingsMenuKind.other => AppAssets.settingsOtherIcon,
   };
 }

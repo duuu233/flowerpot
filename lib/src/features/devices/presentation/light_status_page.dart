@@ -98,10 +98,13 @@ class _LightStatusPageState extends State<LightStatusPage> {
                       }
                       final values = snapshot.data!;
                       return MetricChartCard(
-                        leading: const Icon(
-                          Icons.info_outline_rounded,
-                          size: 16,
-                          color: AppColors.textSecondary,
+                        leading: Image.asset(
+                          AppAssets.infoIcon,
+                          width: 16,
+                          height: 16,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                          excludeFromSemantics: true,
                         ),
                         title: 'DLI（每日光量积分）',
                         unit: 'mol/m²/天',

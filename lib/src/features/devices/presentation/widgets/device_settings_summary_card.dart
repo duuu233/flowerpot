@@ -65,9 +65,13 @@ class DeviceSettingsSummaryCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.xs),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: AppColors.textSecondary,
+            Image.asset(
+              AppAssets.chevronRightIcon,
+              width: 24,
+              height: 24,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              excludeFromSemantics: true,
             ),
           ],
         ),

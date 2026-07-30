@@ -32,11 +32,11 @@ class TemperatureStatusSummaryCard extends StatelessWidget {
                     Row(
                       children: <Widget>[
                         const AppIconBadge(
-                          icon: Icons.device_thermostat_rounded,
-                          color: AppColors.brandDark,
-                          backgroundColor: AppColors.brandSurface,
+                          assetPath: AppAssets.statusTemperatureIcon,
+                          semanticLabel: '空气温度状态',
+                          backgroundColor: Colors.transparent,
                           size: 40,
-                          iconSize: 24,
+                          iconSize: 40,
                         ),
                         const SizedBox(width: AppSpacing.md),
                         Flexible(
@@ -70,11 +70,11 @@ class TemperatureStatusSummaryCard extends StatelessWidget {
             children: <Widget>[
               const SizedBox(width: 28),
               const AppIconBadge(
-                icon: Icons.device_thermostat_rounded,
-                color: AppColors.brandDark,
-                backgroundColor: AppColors.brandSurface,
+                assetPath: AppAssets.statusTemperatureIcon,
+                semanticLabel: '空气温度',
+                backgroundColor: Colors.transparent,
                 size: 48,
-                iconSize: 28,
+                iconSize: 48,
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
@@ -114,10 +114,13 @@ class TemperatureStatusSummaryCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: AppSpacing.xs),
-                        const Icon(
-                          Icons.info_outline_rounded,
-                          size: 14,
-                          color: AppColors.textSecondary,
+                        Image.asset(
+                          AppAssets.infoIcon,
+                          width: 14,
+                          height: 14,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                          excludeFromSemantics: true,
                         ),
                       ],
                     ),

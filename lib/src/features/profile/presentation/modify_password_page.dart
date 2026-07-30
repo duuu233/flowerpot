@@ -150,6 +150,7 @@ class _ModifyPasswordPageState extends State<ModifyPasswordPage> {
                   AccountPasswordField(
                     controller: confirmationController,
                     label: '确认密码',
+                    assetPath: AppAssets.accountPasswordConfirmIcon,
                     hintText: '请确认密码',
                     visible: confirmationVisible,
                     visibilityKey: const Key(

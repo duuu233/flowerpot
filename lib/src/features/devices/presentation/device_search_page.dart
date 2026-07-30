@@ -126,6 +126,14 @@ class _SearchRadar extends StatelessWidget {
           alignment: Alignment.center,
           children: <Widget>[
             Positioned.fill(
+              child: Image.asset(
+                AppAssets.pairingDeviceSearchIllustration,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                excludeFromSemantics: true,
+              ),
+            ),
+            Positioned.fill(
               child: AnimatedBuilder(
                 animation: animation,
                 builder: (context, _) => CustomPaint(
@@ -133,7 +141,6 @@ class _SearchRadar extends StatelessWidget {
                 ),
               ),
             ),
-            const _SearchingWifiHub(),
           ],
         ),
       ),
@@ -150,15 +157,6 @@ class _RadarPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = size.center(Offset.zero);
     final radius = size.shortestSide * .43;
-    final ringPaint = Paint()..style = PaintingStyle.fill;
-
-    ringPaint.color = AppColors.brandSurface.withValues(alpha: .28);
-    canvas.drawCircle(center, radius, ringPaint);
-    ringPaint.color = AppColors.brandSurface.withValues(alpha: .42);
-    canvas.drawCircle(center, radius * .70, ringPaint);
-    ringPaint.color = AppColors.brandSurface.withValues(alpha: .58);
-    canvas.drawCircle(center, radius * .43, ringPaint);
-
     final angle = -math.pi / 2 + progress * math.pi * 2;
     final sweep = Path()
       ..moveTo(center.dx, center.dy)
@@ -173,82 +171,11 @@ class _RadarPainter extends CustomPainter {
       sweep,
       Paint()..color = AppColors.brandPrimary.withValues(alpha: .12),
     );
-
-    final dotPaint = Paint()
-      ..color = AppColors.brandSoft.withValues(alpha: .42);
-    final dots = <Offset>[
-      Offset(size.width * .15, size.height * .18),
-      Offset(size.width * .86, size.height * .28),
-      Offset(size.width * .17, size.height * .68),
-      Offset(size.width * .79, size.height * .83),
-    ];
-    final dotSizes = <double>[4.5, 5.5, 4.5, 4.5];
-    for (var index = 0; index < dots.length; index++) {
-      canvas.drawCircle(dots[index], dotSizes[index], dotPaint);
-    }
   }
 
   @override
   bool shouldRepaint(_RadarPainter oldDelegate) =>
       oldDelegate.progress != progress;
-}
-
-class _SearchingWifiHub extends StatelessWidget {
-  const _SearchingWifiHub();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 82,
-      height: 82,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: <Widget>[
-          const Positioned(
-            top: 0,
-            child: Icon(
-              Icons.wifi_rounded,
-              color: AppColors.brandPrimary,
-              size: 58,
-            ),
-          ),
-          Container(
-            width: 72,
-            height: 34,
-            decoration: const BoxDecoration(
-              color: AppColors.brandPrimary,
-              borderRadius: BorderRadius.all(Radius.circular(14)),
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                _HubDot(),
-                SizedBox(width: 9),
-                _HubDot(),
-                SizedBox(width: 9),
-                _HubDot(),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HubDot extends StatelessWidget {
-  const _HubDot();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: 7),
-    );
-  }
 }
 
 class _SearchTipCard extends StatelessWidget {
@@ -306,40 +233,13 @@ class _QuestionBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: 34,
-      child: Stack(
-        children: <Widget>[
-          Positioned(
-            left: 4,
-            bottom: 4,
-            child: Transform.rotate(
-              angle: math.pi / 4,
-              child: const SizedBox.square(
-                dimension: 9,
-                child: ColoredBox(color: AppColors.brandPrimary),
-              ),
-            ),
-          ),
-          const Align(
-            alignment: Alignment.topCenter,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AppColors.brandPrimary,
-                shape: BoxShape.circle,
-              ),
-              child: SizedBox.square(
-                dimension: 30,
-                child: Icon(
-                  Icons.question_mark_rounded,
-                  color: AppColors.surface,
-                  size: 19,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return Image.asset(
+      AppAssets.helpChatIcon,
+      width: 34,
+      height: 34,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '提示',
     );
   }
 }

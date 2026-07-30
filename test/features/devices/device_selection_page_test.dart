@@ -8,6 +8,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('device selection page exposes the Figma content', (
     tester,
@@ -20,7 +22,10 @@ void main() {
     expect(find.text('YSplanter-02'), findsOneWidget);
     expect(find.text('YSplanter-03'), findsOneWidget);
     expect(find.text('连接'), findsNWidgets(3));
-    expect(find.byType(Image), findsNothing);
+    expect(
+      findAssetImage(AppAssets.pairingDeviceSelectionIllustration),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

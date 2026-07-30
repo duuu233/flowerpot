@@ -18,10 +18,13 @@ class HomeCareBanner extends StatelessWidget {
         side: const BorderSide(color: AppColors.surface),
         child: Row(
           children: <Widget>[
-            const Icon(
-              Icons.local_florist_rounded,
-              size: 18,
-              color: AppColors.brandPrimary,
+            Image.asset(
+              AppAssets.plantIcon,
+              width: 18,
+              height: 18,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              semanticLabel: '今日养护',
             ),
             const SizedBox(width: AppSpacing.lg),
             Text(

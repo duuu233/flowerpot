@@ -42,7 +42,14 @@ class PersonalInfoCard extends StatelessWidget {
                   size: 36,
                   imageProvider: avatarImage,
                   fallbackText: model.nickname,
-                  backgroundColor: AppColors.brandPrimary,
+                  fallback: Image.asset(
+                    AppAssets.profileAvatarIcon,
+                    width: 36,
+                    height: 36,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                  ),
+                  backgroundColor: AppColors.brandSurface,
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 const _TrailingChevron(),
@@ -59,10 +66,13 @@ class PersonalInfoCard extends StatelessWidget {
               children: <Widget>[
                 _PersonalInfoValue(model.nickname),
                 const SizedBox(width: AppSpacing.sm),
-                const Icon(
-                  Icons.edit_outlined,
-                  size: 16,
-                  color: AppColors.textSecondary,
+                Image.asset(
+                  AppAssets.profileEditIcon,
+                  width: 16,
+                  height: 16,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  excludeFromSemantics: true,
                 ),
               ],
             ),
@@ -204,10 +214,13 @@ class _TrailingChevron extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Icon(
-      Icons.chevron_right_rounded,
-      size: 20,
-      color: AppColors.textSecondary,
+    return Image.asset(
+      AppAssets.chevronRightIcon,
+      width: 20,
+      height: 20,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      excludeFromSemantics: true,
     );
   }
 }

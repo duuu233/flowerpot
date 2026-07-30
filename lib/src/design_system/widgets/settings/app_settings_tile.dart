@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../tokens/app_assets.dart';
 import '../../tokens/app_colors.dart';
 import '../../tokens/app_spacing.dart';
 
@@ -62,10 +63,13 @@ class AppSettingsTile extends StatelessWidget {
                 Text(value!, style: Theme.of(context).textTheme.bodyMedium),
               if (onTap != null) ...<Widget>[
                 const SizedBox(width: AppSpacing.xs),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  size: 20,
-                  color: AppColors.textSecondary,
+                Image.asset(
+                  AppAssets.chevronRightIcon,
+                  width: 20,
+                  height: 20,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  excludeFromSemantics: true,
                 ),
               ],
             ],

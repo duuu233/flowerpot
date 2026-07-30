@@ -20,11 +20,11 @@ class LoginPasswordAccountCard extends StatelessWidget {
         child: Row(
           children: <Widget>[
             const AppIconBadge(
-              icon: Icons.shield_outlined,
-              color: AppColors.brandPrimary,
-              backgroundColor: AppColors.brandSurface,
+              assetPath: AppAssets.accountPasswordHeaderIcon,
+              semanticLabel: '登录密码',
+              backgroundColor: Colors.transparent,
               size: 40,
-              iconSize: 24,
+              iconSize: 40,
             ),
             const SizedBox(width: 10),
             Expanded(

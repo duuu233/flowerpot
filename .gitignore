@@ -48,3 +48,4 @@ app.*.map.json
 /android/app/libs/security-algorithm.aar
 /ios/TuyaSDK/
 /ios/Flutter/Tuya.xcconfig
+.codegraph/

@@ -210,10 +210,16 @@ class _PlantSearchField extends StatelessWidget {
             color: AppColors.textSecondary,
             fontSize: 15,
           ),
-          prefixIcon: const Icon(
-            Icons.search_rounded,
-            color: AppColors.textSecondary,
-            size: 24,
+          prefixIcon: Padding(
+            padding: const EdgeInsets.all(11),
+            child: Image.asset(
+              AppAssets.searchIcon,
+              width: 24,
+              height: 24,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              excludeFromSemantics: true,
+            ),
           ),
           filled: true,
           fillColor: AppColors.surface,
@@ -289,19 +295,13 @@ class _TipIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(
-        dimension: 40,
-        child: Icon(
-          Icons.lightbulb_outline_rounded,
-          color: AppColors.brandPrimary,
-          size: 25,
-        ),
-      ),
+    return Image.asset(
+      AppAssets.plantCareTipIcon,
+      width: 40,
+      height: 40,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '植物选择提示',
     );
   }
 }

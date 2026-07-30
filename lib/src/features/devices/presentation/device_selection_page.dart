@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -112,118 +110,11 @@ class _DeviceSelectionIllustration extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       height: compact ? 205 : 285,
-      child: Stack(
-        alignment: Alignment.center,
-        children: <Widget>[
-          _SignalDisc(size: compact ? 194 : 260, opacity: .25),
-          _SignalDisc(size: compact ? 142 : 190, opacity: .34),
-          _SignalDisc(size: compact ? 92 : 126, opacity: .46),
-          const Positioned(left: 66, top: 15, child: _SoftDot(size: 8)),
-          const Positioned(right: 53, top: 74, child: _SoftDot(size: 8)),
-          const Positioned(left: 88, bottom: 15, child: _SoftDot(size: 9)),
-          const Positioned(right: 95, bottom: 0, child: _SoftDot(size: 10)),
-          Positioned(
-            left: compact ? 6 : 22,
-            child: const Opacity(
-              opacity: .34,
-              child: _WifiDeviceHub(scale: .62),
-            ),
-          ),
-          const _WifiDeviceHub(),
-          Positioned(
-            right: compact ? 6 : 22,
-            child: const Opacity(
-              opacity: .34,
-              child: _WifiDeviceHub(scale: .62),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SignalDisc extends StatelessWidget {
-  const _SignalDisc({required this.size, required this.opacity});
-
-  final double size;
-  final double opacity;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface.withValues(alpha: opacity),
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: size),
-    );
-  }
-}
-
-class _SoftDot extends StatelessWidget {
-  const _SoftDot({required this.size});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandSoft.withValues(alpha: .35),
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: size),
-    );
-  }
-}
-
-class _WifiDeviceHub extends StatelessWidget {
-  const _WifiDeviceHub({this.scale = 1});
-
-  final double scale;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 92 * scale,
-      height: 91 * scale,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: <Widget>[
-          Positioned(
-            top: 0,
-            child: Icon(
-              Icons.wifi_rounded,
-              color: AppColors.brandPrimary,
-              size: 64 * scale,
-            ),
-          ),
-          Container(
-            width: 84 * scale,
-            height: 38 * scale,
-            decoration: BoxDecoration(
-              color: AppColors.brandPrimary,
-              borderRadius: BorderRadius.all(Radius.circular(16 * scale)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List<Widget>.generate(
-                3,
-                (index) => Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 5 * scale),
-                  child: DecoratedBox(
-                    decoration: const BoxDecoration(
-                      color: AppColors.surface,
-                      shape: BoxShape.circle,
-                    ),
-                    child: SizedBox.square(dimension: 8 * scale),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+      child: Image.asset(
+        AppAssets.pairingDeviceSelectionIllustration,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        excludeFromSemantics: true,
       ),
     );
   }
@@ -290,14 +181,13 @@ class _DeviceRow extends StatelessWidget {
       height: 72,
       child: Row(
         children: <Widget>[
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              color: AppColors.brandSurface,
-              borderRadius: AppRadius.card,
-            ),
-            child: SizedBox.square(
-              dimension: 42,
-              child: CustomPaint(painter: _PlantDevicePainter()),
+          SizedBox.square(
+            dimension: 42,
+            child: Image.asset(
+              AppAssets.devicePlanterIcon,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              semanticLabel: 'YSplanter 设备',
             ),
           ),
           const SizedBox(width: 14),
@@ -373,47 +263,4 @@ class _SignalBars extends StatelessWidget {
       ),
     );
   }
-}
-
-class _PlantDevicePainter extends CustomPainter {
-  const _PlantDevicePainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = AppColors.brandPrimary;
-    canvas.save();
-    canvas.translate(size.width * .49, size.height * .38);
-    canvas.rotate(-math.pi / 4);
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset.zero, width: 10, height: 18),
-      paint,
-    );
-    canvas.restore();
-    canvas.save();
-    canvas.translate(size.width * .62, size.height * .31);
-    canvas.rotate(math.pi / 4);
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset.zero, width: 10, height: 18),
-      paint,
-    );
-    canvas.restore();
-    canvas.drawRect(
-      Rect.fromLTWH(size.width * .48, size.height * .33, 2.5, 11),
-      paint,
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(size.width * .28, size.height * .51, size.width * .44, 4),
-      paint,
-    );
-    final pot = Path()
-      ..moveTo(size.width * .33, size.height * .61)
-      ..lineTo(size.width * .67, size.height * .61)
-      ..lineTo(size.width * .62, size.height * .82)
-      ..lineTo(size.width * .38, size.height * .82)
-      ..close();
-    canvas.drawPath(pot, paint);
-  }
-
-  @override
-  bool shouldRepaint(_PlantDevicePainter oldDelegate) => false;
 }

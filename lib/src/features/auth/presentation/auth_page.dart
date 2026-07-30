@@ -269,12 +269,19 @@ class _LoginPanel extends StatelessWidget {
                           key: const Key('password-visibility-toggle'),
                           tooltip: passwordVisible ? '隐藏密码' : '显示密码',
                           onPressed: onPasswordVisibilityChanged,
-                          icon: Icon(
-                            passwordVisible
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                            color: AppColors.textTertiary,
-                          ),
+                          icon: passwordVisible
+                              ? const Icon(
+                                  Icons.visibility_outlined,
+                                  color: AppColors.textTertiary,
+                                )
+                              : Image.asset(
+                                  AppAssets.passwordVisibilityOffIcon,
+                                  width: 22,
+                                  height: 22,
+                                  fit: BoxFit.contain,
+                                  filterQuality: FilterQuality.high,
+                                  excludeFromSemantics: true,
+                                ),
                         ),
                 ),
                 if (!codeLogin)

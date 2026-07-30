@@ -87,10 +87,13 @@ class _HelpCenterFaqTile extends StatelessWidget {
                       turns: expanded ? .25 : 0,
                       duration: AppDurations.fast,
                       curve: AppDurations.standardCurve,
-                      child: const Icon(
-                        Icons.chevron_right_rounded,
-                        size: 20,
-                        color: AppColors.textSecondary,
+                      child: Image.asset(
+                        AppAssets.chevronRightIcon,
+                        width: 20,
+                        height: 20,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                        excludeFromSemantics: true,
                       ),
                     ),
                   ],
@@ -143,49 +146,14 @@ class _HelpQuestionBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ExcludeSemantics(
-      child: SizedBox.square(
-        dimension: 20,
-        child: CustomPaint(painter: _HelpQuestionBubblePainter()),
+    return ExcludeSemantics(
+      child: Image.asset(
+        AppAssets.helpChatIcon,
+        width: 20,
+        height: 20,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
       ),
     );
   }
-}
-
-class _HelpQuestionBubblePainter extends CustomPainter {
-  const _HelpQuestionBubblePainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final bubble = Path()
-      ..addOval(Rect.fromLTWH(0, 0, size.width - 1, size.height - 2))
-      ..moveTo(size.width * .63, size.height * .72)
-      ..lineTo(size.width, size.height)
-      ..lineTo(size.width * .48, size.height * .88)
-      ..close();
-    canvas.drawPath(bubble, Paint()..color = AppColors.brandPrimary);
-
-    final questionMark = TextPainter(
-      text: const TextSpan(
-        text: '?',
-        style: TextStyle(
-          color: AppColors.surface,
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          height: 1,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    questionMark.paint(
-      canvas,
-      Offset(
-        (size.width - questionMark.width) / 2 - .5,
-        (size.height - 2 - questionMark.height) / 2,
-      ),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_HelpQuestionBubblePainter oldDelegate) => false;
 }

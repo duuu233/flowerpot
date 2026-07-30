@@ -26,20 +26,20 @@ class AboutVersionCard extends StatelessWidget {
       children: <Widget>[
         _AboutVersionTile(
           tileKey: const Key('about-current-version'),
-          icon: Icons.manage_accounts_outlined,
+          assetPath: AppAssets.aboutCurrentVersionIcon,
           label: '当前版本',
           value: model.displayVersion,
         ),
         _AboutVersionTile(
           tileKey: const Key('about-check-update'),
-          icon: Icons.shield_outlined,
+          assetPath: AppAssets.aboutCheckUpdateIcon,
           label: '检查更新',
           value: model.updateStatus,
           onTap: onCheckUpdate,
         ),
         _AboutVersionTile(
           tileKey: const Key('about-release-notes'),
-          icon: Icons.help_outline_rounded,
+          assetPath: AppAssets.aboutReleaseNotesIcon,
           label: '版本说明',
           onTap: onReleaseNotes,
         ),
@@ -51,14 +51,14 @@ class AboutVersionCard extends StatelessWidget {
 class _AboutVersionTile extends StatelessWidget {
   const _AboutVersionTile({
     required this.tileKey,
-    required this.icon,
+    required this.assetPath,
     required this.label,
     this.value,
     this.onTap,
   });
 
   final Key tileKey;
-  final IconData icon;
+  final String assetPath;
   final String label;
   final String? value;
   final VoidCallback? onTap;
@@ -67,7 +67,14 @@ class _AboutVersionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppSettingsTile(
       key: tileKey,
-      icon: icon,
+      leading: Image.asset(
+        assetPath,
+        width: 26,
+        height: 26,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        semanticLabel: label,
+      ),
       title: label,
       value: value,
       onTap: onTap,

@@ -33,10 +33,13 @@ class AnimationsPage extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               shape: const StadiumBorder(),
             ),
-            icon: const Icon(
-              Icons.sync_rounded,
-              size: 20,
-              color: AppColors.brandPrimary,
+            icon: Image.asset(
+              AppAssets.refreshIcon,
+              width: 20,
+              height: 20,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              excludeFromSemantics: true,
             ),
             label: const Text('文件同步'),
           ),
@@ -138,19 +141,13 @@ class _PermissionBanner extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         child: Row(
           children: <Widget>[
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: AppColors.danger.withValues(alpha: .12),
-                shape: BoxShape.circle,
-              ),
-              child: const SizedBox.square(
-                dimension: 40,
-                child: Icon(
-                  Icons.priority_high_rounded,
-                  color: AppColors.danger,
-                  size: 25,
-                ),
-              ),
+            Image.asset(
+              AppAssets.warningIcon,
+              width: 40,
+              height: 40,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              semanticLabel: '权限提示',
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
@@ -209,11 +206,11 @@ class _AnimationTipsCard extends StatelessWidget {
                 Row(
                   children: <Widget>[
                     const AppIconBadge(
-                      icon: Icons.notifications_rounded,
-                      color: AppColors.warningSoft,
-                      backgroundColor: AppColors.warningSurface,
+                      assetPath: AppAssets.notificationIcon,
+                      semanticLabel: '提示',
+                      backgroundColor: Colors.transparent,
                       size: 34,
-                      iconSize: 21,
+                      iconSize: 34,
                     ),
                     const SizedBox(width: AppSpacing.md),
                     Text(
@@ -307,19 +304,13 @@ class _UploadCard extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    DecoratedBox(
-                      decoration: const BoxDecoration(
-                        color: AppColors.brandSurface,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const SizedBox.square(
-                        dimension: 70,
-                        child: Icon(
-                          Icons.cloud_upload_outlined,
-                          color: AppColors.brandPrimary,
-                          size: 34,
-                        ),
-                      ),
+                    Image.asset(
+                      AppAssets.cloudUploadIcon,
+                      width: 70,
+                      height: 70,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
+                      semanticLabel: '上传文件',
                     ),
                     const SizedBox(height: AppSpacing.xl),
                     Text(
@@ -469,66 +460,13 @@ class _FilePreviewIllustration extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox.square(
       dimension: size,
-      child: CustomPaint(painter: const _FilePreviewPainter()),
+      child: Image.asset(
+        AppAssets.animationUploadIllustration,
+        fit: BoxFit.cover,
+        alignment: Alignment.centerRight,
+        filterQuality: FilterQuality.high,
+        excludeFromSemantics: true,
+      ),
     );
   }
-}
-
-class _FilePreviewPainter extends CustomPainter {
-  const _FilePreviewPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawCircle(
-      Offset(size.width * .62, size.height * .54),
-      size.width * .52,
-      Paint()..color = AppColors.brandSurface,
-    );
-    final folder = RRect.fromRectAndRadius(
-      Rect.fromLTWH(
-        size.width * .20,
-        size.height * .43,
-        size.width * .62,
-        size.height * .36,
-      ),
-      Radius.circular(size.width * .08),
-    );
-    canvas.drawRRect(folder, Paint()..color = AppColors.brandSoft);
-    final paper = RRect.fromRectAndRadius(
-      Rect.fromLTWH(
-        size.width * .37,
-        size.height * .22,
-        size.width * .36,
-        size.height * .39,
-      ),
-      Radius.circular(size.width * .03),
-    );
-    canvas.drawRRect(paper, Paint()..color = AppColors.surface);
-    final line = Paint()
-      ..color = AppColors.brandSoft
-      ..strokeWidth = size.width * .025
-      ..strokeCap = StrokeCap.round;
-    for (var index = 0; index < 3; index++) {
-      final y = size.height * (.33 + index * .08);
-      canvas.drawLine(
-        Offset(size.width * .44, y),
-        Offset(size.width * .66, y),
-        line,
-      );
-    }
-    canvas.drawCircle(
-      Offset(size.width * .56, size.height * .68),
-      size.width * .12,
-      Paint()..color = AppColors.success,
-    );
-    final play = Path()
-      ..moveTo(size.width * .53, size.height * .62)
-      ..lineTo(size.width * .53, size.height * .74)
-      ..lineTo(size.width * .62, size.height * .68)
-      ..close();
-    canvas.drawPath(play, Paint()..color = AppColors.surface);
-  }
-
-  @override
-  bool shouldRepaint(_FilePreviewPainter oldDelegate) => false;
 }

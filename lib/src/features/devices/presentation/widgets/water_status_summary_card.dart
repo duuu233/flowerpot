@@ -32,13 +32,11 @@ class WaterStatusSummaryCard extends StatelessWidget {
                     Row(
                       children: <Widget>[
                         AppIconBadge(
-                          icon: Icons.water_drop_outlined,
-                          color: AppColors.info,
-                          backgroundColor: AppColors.info.withValues(
-                            alpha: .11,
-                          ),
+                          assetPath: AppAssets.statusWaterIcon,
+                          semanticLabel: '需水状态',
+                          backgroundColor: Colors.transparent,
                           size: 40,
-                          iconSize: 24,
+                          iconSize: 40,
                         ),
                         const SizedBox(width: AppSpacing.md),
                         Flexible(
@@ -72,9 +70,7 @@ class WaterStatusSummaryCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: _WaterMetric(
-                  icon: Icons.water_outlined,
-                  color: AppColors.info,
-                  backgroundColor: AppColors.info.withValues(alpha: .11),
+                  assetPath: AppAssets.waterLevelIcon,
                   value: '${model.waterLevel}',
                   unit: 'ml',
                   label: '当前水仓水位',
@@ -86,9 +82,7 @@ class WaterStatusSummaryCard extends StatelessWidget {
               ),
               Expanded(
                 child: _WaterMetric(
-                  icon: Icons.water_drop_outlined,
-                  color: AppColors.success,
-                  backgroundColor: AppColors.successSurface,
+                  assetPath: AppAssets.waterStatusIcon,
                   value: '${model.soilMoisture}',
                   unit: '%',
                   label: '当前土壤湿度',
@@ -104,17 +98,13 @@ class WaterStatusSummaryCard extends StatelessWidget {
 
 class _WaterMetric extends StatelessWidget {
   const _WaterMetric({
-    required this.icon,
-    required this.color,
-    required this.backgroundColor,
+    required this.assetPath,
     required this.value,
     required this.unit,
     required this.label,
   });
 
-  final IconData icon;
-  final Color color;
-  final Color backgroundColor;
+  final String assetPath;
   final String value;
   final String unit;
   final String label;
@@ -125,11 +115,10 @@ class _WaterMetric extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
         AppIconBadge(
-          icon: icon,
-          color: color,
-          backgroundColor: backgroundColor,
+          assetPath: assetPath,
+          backgroundColor: Colors.transparent,
           size: 48,
-          iconSize: 28,
+          iconSize: 48,
         ),
         const SizedBox(width: AppSpacing.sm),
         Flexible(
@@ -175,10 +164,13 @@ class _WaterMetric extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: AppSpacing.xs),
-                  const Icon(
-                    Icons.info_outline_rounded,
-                    size: 14,
-                    color: AppColors.textSecondary,
+                  Image.asset(
+                    AppAssets.infoIcon,
+                    width: 14,
+                    height: 14,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                    excludeFromSemantics: true,
                   ),
                 ],
               ),

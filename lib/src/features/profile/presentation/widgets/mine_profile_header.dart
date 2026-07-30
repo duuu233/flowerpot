@@ -26,12 +26,14 @@ class MineProfileHeader extends StatelessWidget {
         AppAvatar(
           size: 88,
           imageProvider: imageProvider,
-          fallback: const Icon(
-            Icons.person_rounded,
-            size: 54,
-            color: AppColors.surface,
+          fallback: Image.asset(
+            AppAssets.profileAvatarIcon,
+            width: 88,
+            height: 88,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
           ),
-          backgroundColor: AppColors.brandPrimary,
+          backgroundColor: AppColors.brandSurface,
           onTap: onEdit,
         ),
         const SizedBox(height: 14),
@@ -52,7 +54,7 @@ class MineProfileHeader extends StatelessWidget {
             ),
             const SizedBox(width: AppSpacing.xs),
             AppIconButton(
-              icon: Icons.edit_outlined,
+              assetPath: AppAssets.profileEditIcon,
               tooltip: '编辑个人信息',
               size: 32,
               onPressed: onEdit,

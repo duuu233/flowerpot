@@ -8,6 +8,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('device search page exposes the Figma content', (tester) async {
     await _pumpDeviceSearchPage(tester, const Size(375, 812));
@@ -17,7 +19,10 @@ void main() {
     expect(find.text('请保持手机蓝牙和Wi-Fi已开启，并让设备处于配网状态'), findsOneWidget);
     expect(find.text('小提示'), findsOneWidget);
     expect(find.text('若长时间未搜索到设备，请确认设备已开机\n请将手机靠近设备'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(
+      findAssetImage(AppAssets.pairingDeviceSearchIllustration),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

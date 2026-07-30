@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../../design_system/design_system.dart';
@@ -140,144 +138,13 @@ class _FailureRadar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox.square(
-      dimension: 235,
-      child: Stack(
-        alignment: Alignment.center,
-        children: <Widget>[
-          _FailureDisc(size: 230, opacity: .24),
-          _FailureDisc(size: 176, opacity: .35),
-          _FailureDisc(size: 126, opacity: .48),
-          Positioned(left: 26, top: 29, child: _FailureDot(size: 9)),
-          Positioned(right: 25, top: 49, child: _FailureDot(size: 10)),
-          Positioned(left: 35, bottom: 18, child: _FailureDot(size: 14)),
-          Positioned(right: 31, bottom: 29, child: _FailureDot(size: 8)),
-          _FailedWifiHub(),
-          Positioned(
-            left: 36,
-            bottom: 51,
-            child: _StatusBubble(
-              color: AppColors.danger,
-              icon: Icons.priority_high_rounded,
-            ),
-          ),
-          Positioned(
-            right: 35,
-            bottom: 51,
-            child: _StatusBubble(
-              color: AppColors.brandPrimary,
-              icon: Icons.refresh_rounded,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FailureDisc extends StatelessWidget {
-  const _FailureDisc({required this.size, required this.opacity});
-
-  final double size;
-  final double opacity;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface.withValues(alpha: opacity),
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: size),
-    );
-  }
-}
-
-class _FailureDot extends StatelessWidget {
-  const _FailureDot({required this.size});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandSoft.withValues(alpha: .46),
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: size),
-    );
-  }
-}
-
-class _FailedWifiHub extends StatelessWidget {
-  const _FailedWifiHub();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox.square(
-      dimension: 90,
-      child: CustomPaint(painter: _FailedWifiHubPainter()),
-    );
-  }
-}
-
-class _FailedWifiHubPainter extends CustomPainter {
-  const _FailedWifiHubPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.brandPrimary
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6
-      ..strokeCap = StrokeCap.butt;
-    for (final spec in const <(Rect, double)>[
-      (Rect.fromLTWH(10, 5, 70, 58), .76),
-      (Rect.fromLTWH(22, 21, 46, 39), .66),
-      (Rect.fromLTWH(32, 36, 26, 22), .52),
-    ]) {
-      canvas.drawArc(spec.$1, 3.72, spec.$2, false, paint);
-      canvas.drawArc(spec.$1, 3.72 + spec.$2 + .46, spec.$2, false, paint);
-    }
-
-    final bodyPaint = Paint()
-      ..color = AppColors.brandPrimary
-      ..style = PaintingStyle.fill;
-    final body = RRect.fromRectAndRadius(
-      const Rect.fromLTWH(10, 57, 70, 31),
-      const Radius.circular(14),
-    );
-    canvas.drawRRect(body, bodyPaint);
-    canvas.drawRect(const Rect.fromLTWH(23, 77, 44, 13), bodyPaint);
-    final dotPaint = Paint()..color = AppColors.surface;
-    for (final x in const <double>[31, 45, 59]) {
-      canvas.drawCircle(Offset(x, 72), 4, dotPaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_FailedWifiHubPainter oldDelegate) => false;
-}
-
-class _StatusBubble extends StatelessWidget {
-  const _StatusBubble({required this.color, required this.icon});
-
-  final Color color;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(color: AppColors.surface, width: 1.2),
-      ),
-      child: SizedBox.square(
-        dimension: 35,
-        child: Icon(icon, color: AppColors.surface, size: 25),
-      ),
+    return Image.asset(
+      AppAssets.pairingFailureIllustration,
+      width: 235,
+      height: 235,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      excludeFromSemantics: true,
     );
   }
 }
@@ -338,40 +205,13 @@ class _QuestionBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: 34,
-      child: Stack(
-        children: <Widget>[
-          Positioned(
-            left: 4,
-            bottom: 4,
-            child: Transform.rotate(
-              angle: math.pi / 4,
-              child: const SizedBox.square(
-                dimension: 9,
-                child: ColoredBox(color: AppColors.brandPrimary),
-              ),
-            ),
-          ),
-          const Align(
-            alignment: Alignment.topCenter,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AppColors.brandPrimary,
-                shape: BoxShape.circle,
-              ),
-              child: SizedBox.square(
-                dimension: 30,
-                child: Icon(
-                  Icons.question_mark_rounded,
-                  color: AppColors.surface,
-                  size: 19,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return Image.asset(
+      AppAssets.helpChatIcon,
+      width: 34,
+      height: 34,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '提示',
     );
   }
 }

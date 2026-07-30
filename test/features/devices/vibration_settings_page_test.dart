@@ -10,6 +10,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('vibration settings page matches the 375x812 Figma content', (
     tester,
@@ -21,7 +23,7 @@ void main() {
     expect(find.text('已禁用'), findsOneWidget);
     expect(find.text('开启后，YSplanter将在触摸操作、缺水警报及番茄钟'), findsOneWidget);
     expect(find.text('提醒等情况自动触发振动。'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.vibrationSymbol), findsOneWidget);
     final card = find.byType(VibrationSettingsCard);
     expect(tester.getSize(card), const Size(335, 339));
     expect(tester.getTopLeft(card), const Offset(20, 93));

@@ -90,16 +90,18 @@ class _PairingPageState extends State<PairingPage> {
                     onSwitchWifi: _switchWifi,
                   ),
                   const SizedBox(height: 38),
-                  const Row(
+                  Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
-                      Icon(
-                        Icons.info_outline_rounded,
-                        color: AppColors.brandPrimary,
-                        size: 18,
+                      Image.asset(
+                        AppAssets.infoOutlineIcon,
+                        width: 18,
+                        height: 18,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
                       ),
-                      SizedBox(width: 7),
-                      Text(
+                      const SizedBox(width: 7),
+                      const Text(
                         '连接过程中请保持设备靠近路由器',
                         style: TextStyle(
                           color: AppColors.textSecondary,
@@ -152,216 +154,13 @@ class _WifiConnectionIllustration extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(
+    return SizedBox(
       height: 250,
-      child: Stack(
-        alignment: Alignment.center,
-        children: <Widget>[
-          _SignalCircle(size: 230, opacity: .20),
-          _SignalCircle(size: 184, opacity: .25),
-          _SignalCircle(size: 140, opacity: .34),
-          Positioned(left: 5, top: 34, child: _DecorationDot(size: 10)),
-          Positioned(right: 25, top: 60, child: _DecorationDot(size: 10)),
-          Positioned(left: 18, bottom: 5, child: _DecorationDot(size: 15)),
-          Positioned(right: 31, bottom: 17, child: _DecorationDot(size: 9)),
-          Positioned(left: 58, top: 136, child: _PlanterWifiHub()),
-          Positioned(right: 42, top: 137, child: _RouterHub()),
-          Positioned(left: 124, right: 117, top: 166, child: _DottedLink()),
-          Positioned(top: 151, child: _ConnectionLock()),
-        ],
-      ),
-    );
-  }
-}
-
-class _SignalCircle extends StatelessWidget {
-  const _SignalCircle({required this.size, required this.opacity});
-
-  final double size;
-  final double opacity;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface.withValues(alpha: opacity),
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: size),
-    );
-  }
-}
-
-class _DecorationDot extends StatelessWidget {
-  const _DecorationDot({required this.size});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandSoft.withValues(alpha: .35),
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: size),
-    );
-  }
-}
-
-class _PlanterWifiHub extends StatelessWidget {
-  const _PlanterWifiHub();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 70,
-      height: 65,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: <Widget>[
-          const Positioned(
-            top: 0,
-            child: Icon(
-              Icons.wifi_rounded,
-              color: AppColors.brandPrimary,
-              size: 48,
-            ),
-          ),
-          Container(
-            width: 62,
-            height: 29,
-            decoration: const BoxDecoration(
-              color: AppColors.brandPrimary,
-              borderRadius: BorderRadius.all(Radius.circular(12)),
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                _WhiteDot(),
-                SizedBox(width: 8),
-                _WhiteDot(),
-                SizedBox(width: 8),
-                _WhiteDot(),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RouterHub extends StatelessWidget {
-  const _RouterHub();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 82,
-      height: 62,
-      child: Stack(
-        alignment: Alignment.bottomCenter,
-        children: <Widget>[
-          const Positioned(left: 8, top: 0, child: _Antenna()),
-          const Positioned(right: 8, top: 0, child: _Antenna()),
-          Container(
-            width: 82,
-            height: 27,
-            decoration: const BoxDecoration(
-              color: AppColors.brandPrimary,
-              borderRadius: BorderRadius.all(Radius.circular(9)),
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: <Widget>[
-                SizedBox(
-                  width: 13,
-                  height: 3,
-                  child: ColoredBox(color: AppColors.surface),
-                ),
-                SizedBox(width: 8),
-                _WhiteDot(size: 4),
-                SizedBox(width: 6),
-                _WhiteDot(size: 4),
-                SizedBox(width: 6),
-                _WhiteDot(size: 4),
-                SizedBox(width: 10),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Antenna extends StatelessWidget {
-  const _Antenna();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandPrimary,
-        borderRadius: AppRadius.full,
-      ),
-      child: SizedBox(width: 5, height: 41),
-    );
-  }
-}
-
-class _WhiteDot extends StatelessWidget {
-  const _WhiteDot({this.size = 7});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: size),
-    );
-  }
-}
-
-class _DottedLink extends StatelessWidget {
-  const _DottedLink();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: List<Widget>.generate(
-        10,
-        (_) => const DecoratedBox(
-          decoration: BoxDecoration(
-            color: AppColors.brandPrimary,
-            shape: BoxShape.circle,
-          ),
-          child: SizedBox.square(dimension: 3),
-        ),
-      ),
-    );
-  }
-}
-
-class _ConnectionLock extends StatelessWidget {
-  const _ConnectionLock();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandSurface,
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(
-        dimension: 31,
-        child: Icon(Icons.lock_rounded, color: AppColors.brandDark, size: 18),
+      child: Image.asset(
+        AppAssets.pairingWifiSetupIllustration,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        excludeFromSemantics: true,
       ),
     );
   }
@@ -427,38 +226,13 @@ class _WifiBandIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(
-        dimension: 40,
-        child: Stack(
-          alignment: Alignment.center,
-          children: <Widget>[
-            Positioned(
-              top: 7,
-              child: Icon(
-                Icons.wifi_rounded,
-                color: AppColors.brandPrimary,
-                size: 25,
-              ),
-            ),
-            Positioned(
-              bottom: 4,
-              child: Text(
-                '2.4G',
-                style: TextStyle(
-                  color: AppColors.brandPrimary,
-                  fontSize: 8,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+    return Image.asset(
+      AppAssets.wifi24GhzIcon,
+      width: 40,
+      height: 40,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '2.4GHz Wi-Fi',
     );
   }
 }
@@ -489,7 +263,10 @@ class _WifiCredentialsCard extends StatelessWidget {
               height: 72,
               child: Row(
                 children: <Widget>[
-                  const _CredentialIcon(icon: Icons.wifi_rounded),
+                  const _CredentialIcon(
+                    assetPath: AppAssets.wifiNetworkIcon,
+                    semanticLabel: 'Wi-Fi 名称',
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -534,7 +311,10 @@ class _WifiCredentialsCard extends StatelessWidget {
               height: 72,
               child: Row(
                 children: <Widget>[
-                  const _CredentialIcon(icon: Icons.lock_outline_rounded),
+                  const _CredentialIcon(
+                    assetPath: AppAssets.wifiPasswordIcon,
+                    semanticLabel: 'Wi-Fi 密码',
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -578,21 +358,20 @@ class _WifiCredentialsCard extends StatelessWidget {
 }
 
 class _CredentialIcon extends StatelessWidget {
-  const _CredentialIcon({required this.icon});
+  const _CredentialIcon({required this.assetPath, required this.semanticLabel});
 
-  final IconData icon;
+  final String assetPath;
+  final String semanticLabel;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: AppColors.brandSurface,
-        borderRadius: AppRadius.card,
-      ),
-      child: SizedBox.square(
-        dimension: 40,
-        child: Icon(icon, color: AppColors.brandPrimary, size: 24),
-      ),
+    return Image.asset(
+      assetPath,
+      width: 40,
+      height: 40,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: semanticLabel,
     );
   }
 }
@@ -705,10 +484,13 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
                         height: 64,
                         child: Row(
                           children: <Widget>[
-                            const Icon(
-                              Icons.wifi_rounded,
-                              color: AppColors.brandPrimary,
-                              size: 27,
+                            Image.asset(
+                              AppAssets.wifiSignalIcon,
+                              width: 27,
+                              height: 27,
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.high,
+                              semanticLabel: 'Wi-Fi 网络',
                             ),
                             const SizedBox(width: 16),
                             Expanded(
@@ -721,11 +503,14 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
                               ),
                             ),
                             if (active)
-                              const Icon(
-                                Icons.check_rounded,
-                                key: Key('wifi-selected-check'),
-                                color: AppColors.brandPrimary,
-                                size: 28,
+                              Image.asset(
+                                AppAssets.checkmarkIcon,
+                                key: const Key('wifi-selected-check'),
+                                width: 28,
+                                height: 28,
+                                fit: BoxFit.contain,
+                                filterQuality: FilterQuality.high,
+                                semanticLabel: '已选择',
                               ),
                           ],
                         ),

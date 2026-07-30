@@ -8,6 +8,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('device list page exposes the Figma content', (tester) async {
     await _pumpDeviceList(tester, const Size(375, 812));
@@ -19,7 +21,7 @@ void main() {
     expect(find.text('在线'), findsNWidgets(2));
     expect(find.text('离线'), findsOneWidget);
     expect(find.byKey(const Key('device-list-add-button')), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.addIcon), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../tokens/app_assets.dart';
 import 'app_text_field.dart';
 
 class AppPasswordField extends StatefulWidget {
@@ -44,11 +45,16 @@ class _AppPasswordFieldState extends State<AppPasswordField> {
       suffixIcon: IconButton(
         tooltip: _obscureText ? '显示密码' : '隐藏密码',
         onPressed: () => setState(() => _obscureText = !_obscureText),
-        icon: Icon(
-          _obscureText
-              ? Icons.visibility_off_outlined
-              : Icons.visibility_outlined,
-        ),
+        icon: _obscureText
+            ? Image.asset(
+                AppAssets.passwordVisibilityOffIcon,
+                width: 24,
+                height: 24,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                excludeFromSemantics: true,
+              )
+            : const Icon(Icons.visibility_outlined),
       ),
       onChanged: widget.onChanged,
       onSubmitted: widget.onSubmitted,

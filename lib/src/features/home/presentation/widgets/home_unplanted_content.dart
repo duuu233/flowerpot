@@ -113,7 +113,14 @@ class _UnplantedHero extends StatelessWidget {
               Positioned(
                 top: 78,
                 left: (constraints.maxWidth - 106) / 2,
-                child: const AppDevicePlaceholder(hasPlant: false),
+                child: Image.asset(
+                  AppAssets.smartPlanterDevice,
+                  width: 106,
+                  height: 106,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  semanticLabel: 'YSplanter 设备',
+                ),
               ),
               Positioned(
                 bottom: 0,

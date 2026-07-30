@@ -205,10 +205,16 @@ class _CalibrationStepContent extends StatelessWidget {
               child: Semantics(
                 label: step.semanticLabel,
                 image: true,
-                child: CustomPaint(
+                child: Image.asset(
+                  _assetFor(step.visual),
                   key: const Key('water-level-calibration-illustration'),
-                  size: Size.infinite,
-                  painter: _WaterLevelCalibrationPainter(step.visual),
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  excludeFromSemantics: true,
+                  errorBuilder: (context, error, stackTrace) => CustomPaint(
+                    size: Size.infinite,
+                    painter: _WaterLevelCalibrationPainter(step.visual),
+                  ),
                 ),
               ),
             ),
@@ -217,6 +223,15 @@ class _CalibrationStepContent extends StatelessWidget {
       },
     );
   }
+
+  String _assetFor(WaterLevelCalibrationVisual visual) => switch (visual) {
+    WaterLevelCalibrationVisual.emptyReservoir =>
+      AppAssets.waterCalibrationRemoveInnerPot,
+    WaterLevelCalibrationVisual.firstPour => AppAssets.waterCalibrationAdd30ml,
+    WaterLevelCalibrationVisual.secondPour =>
+      AppAssets.waterCalibrationAddSecond30ml,
+    WaterLevelCalibrationVisual.completed => AppAssets.waterCalibrationComplete,
+  };
 }
 
 class _WaterLevelCalibrationPainter extends CustomPainter {

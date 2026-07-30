@@ -3,6 +3,8 @@ import 'package:flowerpot/src/features/profile/presentation/help_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('help center matches the 375x812 Figma content', (tester) async {
     await _pumpHelpPage(tester, const Size(375, 812));
@@ -15,7 +17,7 @@ void main() {
     expect(find.text('为什么土壤湿度没有变化？'), findsOneWidget);
     expect(find.text('如何重新绑定植物？'), findsOneWidget);
     expect(find.byKey(const Key('help-faq-answer-add-device')), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.helpChatIcon), findsAtLeastNWidgets(1));
     expect(tester.takeException(), isNull);
   });
 

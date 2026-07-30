@@ -4,6 +4,8 @@ import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('plant detail page exposes the Figma content', (tester) async {
     await _pumpPlantDetail(tester, const Size(375, 812));
@@ -24,7 +26,7 @@ void main() {
       find.byKey(const Key('plant-detail-image-placeholder')),
       findsOneWidget,
     );
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.selectPlantIcon), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

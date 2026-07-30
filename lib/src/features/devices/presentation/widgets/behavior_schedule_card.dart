@@ -185,10 +185,13 @@ class BehaviorTimeRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.textSecondary,
-                  size: 22,
+                Image.asset(
+                  AppAssets.chevronRightIcon,
+                  width: 22,
+                  height: 22,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  excludeFromSemantics: true,
                 ),
               ],
             ),

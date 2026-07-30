@@ -230,10 +230,13 @@ class _DeviceInfoHero extends StatelessWidget {
                           tooltip: '编辑设备名称',
                           onPressed: onRename,
                           visualDensity: VisualDensity.compact,
-                          icon: const Icon(
-                            Icons.edit_outlined,
-                            color: AppColors.brandPrimary,
-                            size: 22,
+                          icon: Image.asset(
+                            AppAssets.editIcon,
+                            width: 22,
+                            height: 22,
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.high,
+                            excludeFromSemantics: true,
                           ),
                         ),
                       ],

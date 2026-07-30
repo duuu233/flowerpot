@@ -10,6 +10,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('touch settings page matches the 375x812 Figma content', (
     tester,
@@ -22,7 +24,7 @@ void main() {
     expect(find.text('YSplanter可以通过它的植物与身体感知人类触摸。'), findsOneWidget);
     expect(find.text('传感器灵敏度'), findsOneWidget);
     expect(find.text('80%'), findsOneWidget);
-    expect(find.byType(Image), findsNothing);
+    expect(findAssetImage(AppAssets.touchGestureSymbol), findsOneWidget);
     final card = find.byType(TouchSettingsCard);
     expect(tester.getSize(card), const Size(335, 425));
     expect(tester.getTopLeft(card), const Offset(20, 93));

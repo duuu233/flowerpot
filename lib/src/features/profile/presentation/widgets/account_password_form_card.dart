@@ -40,7 +40,7 @@ class AccountPasswordField extends StatelessWidget {
     required this.onVisibilityChanged,
     required this.textInputAction,
     super.key,
-    this.icon = Icons.lock_outline_rounded,
+    this.assetPath = AppAssets.accountPasswordIcon,
     this.autofillHints,
     this.onSubmitted,
   });
@@ -48,7 +48,7 @@ class AccountPasswordField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final String hintText;
-  final IconData icon;
+  final String assetPath;
   final bool visible;
   final Key visibilityKey;
   final VoidCallback onVisibilityChanged;
@@ -64,11 +64,11 @@ class AccountPasswordField extends StatelessWidget {
         children: <Widget>[
           const SizedBox(width: 22),
           AppIconBadge(
-            icon: icon,
-            color: AppColors.brandPrimary,
-            backgroundColor: AppColors.brandSurface,
+            assetPath: assetPath,
+            semanticLabel: label,
+            backgroundColor: Colors.transparent,
             size: 40,
-            iconSize: 23,
+            iconSize: 40,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -131,7 +131,7 @@ class AccountPasswordField extends StatelessWidget {
                   )
                 : const SizedBox.square(
                     dimension: 22,
-                    child: CustomPaint(painter: _ClosedEyePainter()),
+                    child: _PasswordVisibilityOffIcon(),
                   ),
           ),
           const SizedBox(width: 10),
@@ -141,42 +141,16 @@ class AccountPasswordField extends StatelessWidget {
   }
 }
 
-class _ClosedEyePainter extends CustomPainter {
-  const _ClosedEyePainter();
+class _PasswordVisibilityOffIcon extends StatelessWidget {
+  const _PasswordVisibilityOffIcon();
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.textSecondary
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8
-      ..strokeCap = StrokeCap.round;
-    final eye = Path()
-      ..moveTo(size.width * .18, size.height * .44)
-      ..quadraticBezierTo(
-        size.width * .50,
-        size.height * .75,
-        size.width * .82,
-        size.height * .44,
-      );
-    canvas.drawPath(eye, paint);
-    canvas.drawLine(
-      Offset(size.width * .25, size.height * .59),
-      Offset(size.width * .19, size.height * .76),
-      paint,
-    );
-    canvas.drawLine(
-      Offset(size.width * .50, size.height * .68),
-      Offset(size.width * .50, size.height * .86),
-      paint,
-    );
-    canvas.drawLine(
-      Offset(size.width * .75, size.height * .59),
-      Offset(size.width * .81, size.height * .76),
-      paint,
+  Widget build(BuildContext context) {
+    return Image.asset(
+      AppAssets.passwordVisibilityOffIcon,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      excludeFromSemantics: true,
     );
   }
-
-  @override
-  bool shouldRepaint(_ClosedEyePainter oldDelegate) => false;
 }
