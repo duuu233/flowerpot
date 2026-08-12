@@ -3,7 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../app/app_theme.dart';
-import '../../design_system/tokens/app_assets.dart';
+import '../../design_system/widgets/navigation/app_trailing_chevron.dart';
 import 'app_toast.dart';
 
 class AppBackground extends StatelessWidget {
@@ -312,18 +312,7 @@ class SettingTile extends StatelessWidget {
     subtitle: subtitle == null
         ? null
         : Text(subtitle!, style: const TextStyle(fontSize: 11)),
-    trailing:
-        trailing ??
-        (onTap == null
-            ? null
-            : Image.asset(
-                AppAssets.chevronRightIcon,
-                width: 20,
-                height: 20,
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.high,
-                excludeFromSemantics: true,
-              )),
+    trailing: trailing ?? (onTap == null ? null : const AppTrailingChevron()),
     onTap: onTap,
   );
 }

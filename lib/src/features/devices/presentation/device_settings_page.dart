@@ -6,6 +6,7 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import '../models/device_settings_page_model.dart';
+import 'plant_picker_page.dart';
 import 'widgets/device_settings_function_list.dart';
 import 'widgets/device_settings_summary_card.dart';
 
@@ -72,6 +73,17 @@ class DeviceSettingsPage extends StatelessWidget {
     SmartPlanterDevice device,
     DeviceSettingsMenuKind kind,
   ) {
+    if (kind == DeviceSettingsMenuKind.plant) {
+      Navigator.pushNamed(
+        context,
+        AppRoutes.plantPicker,
+        arguments: PlantPickerArguments(
+          deviceId: device.id,
+          mode: PlantPickerMode.select,
+        ),
+      );
+      return;
+    }
     final route = switch (kind) {
       DeviceSettingsMenuKind.plant => AppRoutes.plantPicker,
       DeviceSettingsMenuKind.display => AppRoutes.displaySettings,

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../tokens/app_assets.dart';
 import '../../tokens/app_colors.dart';
 import '../../tokens/app_spacing.dart';
+import '../navigation/app_trailing_chevron.dart';
 
 class AppSettingsTile extends StatelessWidget {
   const AppSettingsTile({
@@ -63,14 +63,7 @@ class AppSettingsTile extends StatelessWidget {
                 Text(value!, style: Theme.of(context).textTheme.bodyMedium),
               if (onTap != null) ...<Widget>[
                 const SizedBox(width: AppSpacing.xs),
-                Image.asset(
-                  AppAssets.chevronRightIcon,
-                  width: 20,
-                  height: 20,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
-                  excludeFromSemantics: true,
-                ),
+                const AppTrailingChevron(),
               ],
             ],
           ),

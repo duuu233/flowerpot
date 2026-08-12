@@ -23,6 +23,10 @@ void main() {
       findAssetImage(AppAssets.pairingDeviceSearchIllustration),
       findsOneWidget,
     );
+    final background = tester.widget<Image>(
+      findAssetImage(AppAssets.accountBackground),
+    );
+    expect(background.fit, BoxFit.cover);
     expect(tester.takeException(), isNull);
   });
 

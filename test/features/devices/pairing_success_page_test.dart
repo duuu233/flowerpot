@@ -1,5 +1,6 @@
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_success_page.dart';
+import 'package:flowerpot/src/features/devices/presentation/plant_picker_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,6 +20,14 @@ void main() {
       findAssetImage(AppAssets.pairingSuccessIllustration),
       findsOneWidget,
     );
+    final background = tester.widget<Image>(
+      findAssetImage(AppAssets.accountBackground),
+    );
+    expect(background.fit, BoxFit.cover);
+    final title = tester.widget<Text>(
+      find.byKey(const Key('pairing-success-title')),
+    );
+    expect(title.style?.fontSize, 24);
     expect(tester.takeException(), isNull);
   });
 
@@ -49,7 +58,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('plant-picker-target'), findsOneWidget);
-    expect(pickerArguments, 'planter-demo-01');
+    final arguments = pickerArguments! as PlantPickerArguments;
+    expect(arguments.deviceId, 'planter-demo-01');
+    expect(arguments.mode, PlantPickerMode.add);
     expect(tester.takeException(), isNull);
   });
 

@@ -36,6 +36,7 @@ class AppPageScaffold extends StatelessWidget {
       floatingActionButton: floatingActionButton,
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
       body: DecoratedBox(
+        key: const Key('app-page-background'),
         decoration: BoxDecoration(gradient: background.gradient),
         child: Stack(
           fit: StackFit.expand,
@@ -49,7 +50,8 @@ class AppPageScaffold extends StatelessWidget {
                 filterQuality: FilterQuality.high,
                 excludeFromSemantics: true,
               )
-            else if (background != AppPageBackground.plain) ...<Widget>[
+            else if (background != AppPageBackground.plain &&
+                background != AppPageBackground.white) ...<Widget>[
               const Positioned(
                 top: -96,
                 right: -72,
@@ -74,17 +76,20 @@ class AppPageScaffold extends StatelessWidget {
 
 enum AppPageBackground {
   standard,
+  home,
   account,
   warm,
-  plain;
+  plain,
+  white;
 
   String? get assetPath => switch (this) {
+    standard || home => AppAssets.homeBackground,
     account => AppAssets.accountBackground,
     _ => null,
   };
 
   LinearGradient get gradient => switch (this) {
-    standard || account => const LinearGradient(
+    standard || home || account => const LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: <Color>[Color(0xFFF8FBFB), Color(0xFFEFF7F8), AppColors.canvas],
@@ -101,6 +106,9 @@ enum AppPageBackground {
     ),
     plain => const LinearGradient(
       colors: <Color>[AppColors.canvas, AppColors.canvas],
+    ),
+    white => const LinearGradient(
+      colors: <Color>[AppColors.surface, AppColors.surface],
     ),
   };
 }

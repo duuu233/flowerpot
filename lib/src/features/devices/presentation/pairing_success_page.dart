@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import 'plant_picker_page.dart';
 
 class PairingSuccessPage extends StatelessWidget {
   const PairingSuccessPage({required this.deviceId, super.key});
@@ -12,7 +13,10 @@ class PairingSuccessPage extends StatelessWidget {
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.plantPicker,
-      arguments: deviceId,
+      arguments: PlantPickerArguments(
+        deviceId: deviceId,
+        mode: PlantPickerMode.add,
+      ),
     );
   }
 
@@ -24,7 +28,7 @@ class PairingSuccessPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接设备', leading: AppBackButton()),
-      background: AppPageBackground.standard,
+      background: AppPageBackground.account,
       body: LayoutBuilder(
         builder: (context, constraints) {
           final contentHeight = constraints.maxHeight < 690
@@ -52,10 +56,11 @@ class PairingSuccessPage extends StatelessWidget {
                       right: 12,
                       child: Text(
                         '连接成功',
+                        key: Key('pairing-success-title'),
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: AppColors.textPrimary,
-                          fontSize: 28,
+                          fontSize: 24,
                           fontWeight: FontWeight.w600,
                           height: 1.3,
                         ),

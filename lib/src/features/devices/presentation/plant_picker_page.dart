@@ -8,6 +8,13 @@ import 'plant_detail_page.dart';
 
 enum PlantPickerMode { add, select }
 
+class PlantPickerArguments {
+  const PlantPickerArguments({required this.deviceId, required this.mode});
+
+  final String deviceId;
+  final PlantPickerMode mode;
+}
+
 class PlantPickerPage extends StatefulWidget {
   const PlantPickerPage({required this.deviceId, super.key, this.mode});
 
@@ -73,12 +80,15 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
       tone: result.success ? AppMessageTone.success : AppMessageTone.error,
     );
     if (result.success) {
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.device,
-        (route) => route.settings.name == AppRoutes.shell,
-        arguments: widget.deviceId,
-      );
+      if (addingPlant) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.shell,
+          (_) => false,
+        );
+      } else {
+        Navigator.pop(context);
+      }
     }
   }
 
@@ -395,15 +405,13 @@ class _SelectedBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.brandPrimary,
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(
-        dimension: 23,
-        child: Icon(Icons.check_rounded, color: AppColors.surface, size: 17),
-      ),
+    return Image.asset(
+      AppAssets.plantSelectionBadgeIcon,
+      width: 23,
+      height: 23,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '已选择',
     );
   }
 }

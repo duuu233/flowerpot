@@ -26,6 +26,21 @@ void main() {
       findAssetImage(AppAssets.pairingWifiSetupIllustration),
       findsOneWidget,
     );
+    final background = tester.widget<Image>(
+      findAssetImage(AppAssets.accountBackground),
+    );
+    expect(background.fit, BoxFit.cover);
+    expect(
+      tester.getSize(find.byKey(const Key('wifi-connection-illustration'))),
+      const Size(335, 270),
+    );
+    final noticeCard = tester.widget<DecoratedBox>(
+      find.byKey(const Key('wifi-notice-card')),
+    );
+    expect(
+      (noticeCard.decoration as BoxDecoration).color,
+      AppColors.surfaceTranslucent,
+    );
 
     final password = tester.widget<TextField>(
       find.byKey(const Key('pairing-password-field')),

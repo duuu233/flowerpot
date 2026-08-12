@@ -10,13 +10,14 @@
 - 基于 Material 3。
 - 复用 `AppPageScaffold`、`ResponsiveContent`、`AppSurfaceCard`、`AppSettingsList`、`AppSettingsTile`、`AppIconBadge` 与 `AppAvatar`。
 - 375 × 812 为设计基准，最大内容宽度为 375；小于 360 宽度时自动收紧水平间距，内容高度不足时纵向滚动。
+- 已添加植物和未添加植物状态通过 `AppPageBackground.home` 全屏铺设 `assets/images/bg01.png`；登录后无设备状态使用纯白背景与 `setting_orbit_background.png`。
 - 首页不显示底部导航，通过头像和首页操作项进入后续页面。
 
 ## Widget 拆分
 
 | Widget | 文件 | 职责 |
 | --- | --- | --- |
-| `HomeHeader` | `presentation/widgets/home_header.dart` | 用户头像占位、YSplanter 品牌标题 |
+| `HomeHeader` | `presentation/widgets/home_header.dart` | 右侧用户头像、无头像占位、YSplanter 品牌标题 |
 | `HomePlantOverview` | `presentation/widgets/home_plant_overview.dart` | 植物设备占位、环境指标、陪伴天数和电量 |
 | `HomeCareBanner` | `presentation/widgets/home_care_banner.dart` | 今日养护信息 |
 | `HomeQuickActions` | `presentation/widgets/home_quick_actions.dart` | 定制动画、电池状态、设置入口 |
@@ -39,7 +40,7 @@
 - `HomeActionKind`：定制动画、电池、设置。
 - `HomeDashboardModel.fromDevice`：把 `SmartPlanterDevice` 转换为页面展示模型；设备为空时提供 Figma 占位数据，便于后续 API 接入。
 - `HomeDashboardScene.withCompanionSummary`：显示“已陪伴天数 / 电量”胶囊，对应第一张首页设计图。
-- `HomeDashboardScene.withoutCompanionSummary`：隐藏胶囊并收紧下方间距，对应 `首页-已添加植物2.png`。
+- `HomeDashboardScene.withoutCompanionSummary`：隐藏胶囊并收紧下方间距，对应 `首页-已添加植物-1.png`。
 - `HomeDashboardScene.withoutPlant`：显示设备已绑定但尚未添加植物的空状态，对应 `首页-未添加植物.png`。
 - 空植物场景的标题、说明和按钮文案由 `HomeDashboardModel` 提供，便于后续服务端配置或本地化。
 
@@ -47,12 +48,12 @@
 
 ## 资源占位规则
 
-当前缺少独立盆栽图片和用户头像素材，因此不裁切设计截图、不把整张截图作为页面背景。盆栽使用绿色与粉色语义色块占位，头像使用现有 `AppAvatar` 占位。后续页面遇到缺失图片资源时沿用同一规则，获得正式素材后仅替换图片层，不改变页面结构。
+已添加植物与未添加植物首页使用正式全屏背景 `bg01.png`，无设备首页使用 `setting_orbit_background.png`。用户没有本地或网络头像时使用 `profile_avatar_icon.png`，今日养护使用 `select_plant_icon.png`。后续页面遇到缺失图片资源时仍不裁切设计截图，获得正式素材后仅替换图片层，不改变页面结构。
 
 ## 页面跳转
 
 - 头像 → 个人资料。
-- 环境指标、电池状态 → 设备详情。
+- 环境指标、电池状态 → 对应的状态详情页。
 - 光照状态指标 → 光照状态与 DLI 页面。
 - 定制动画 → 动画管理。
 - 设置 → 设备设置。

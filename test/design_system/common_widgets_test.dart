@@ -2,7 +2,24 @@ import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/asset_finder.dart';
+
 void main() {
+  testWidgets('trailing chevron uses the compact shared dimension', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: AppTrailingChevron())),
+    );
+
+    final image = tester.widget<Image>(
+      findAssetImage(AppAssets.chevronRightIcon),
+    );
+    expect(AppTrailingChevron.dimension, 14);
+    expect(image.width, AppTrailingChevron.dimension);
+    expect(image.height, AppTrailingChevron.dimension);
+  });
+
   Widget app(Widget child) {
     return MaterialApp(
       theme: buildAppTheme(),
@@ -69,5 +86,27 @@ void main() {
     );
     await tester.tap(find.text('周'));
     expect(selected, '周');
+  });
+
+  testWidgets('back button keeps its tap target while using a smaller arrow', (
+    tester,
+  ) async {
+    var tapped = false;
+    await tester.pumpWidget(
+      app(Center(child: AppBackButton(onPressed: () => tapped = true))),
+    );
+
+    final arrow = tester.widget<Image>(
+      findAssetImage(AppAssets.chevronLeftIcon),
+    );
+    expect(arrow.width, 16);
+    expect(arrow.height, 16);
+
+    final tapTarget = tester.getSize(find.byType(IconButton));
+    expect(tapTarget.width, greaterThanOrEqualTo(48));
+    expect(tapTarget.height, greaterThanOrEqualTo(48));
+
+    await tester.tap(find.byType(IconButton));
+    expect(tapped, isTrue);
   });
 }

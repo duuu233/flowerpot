@@ -33,10 +33,44 @@ void main() {
   ) async {
     await _openPreviewHome(tester, const Size(375, 812));
 
-    expect(find.text('YSplanter'), findsOneWidget);
+    expect(find.bySemanticsLabel('YSplanter'), findsOneWidget);
     expect(find.text('定制动画'), findsOneWidget);
     expect(find.text('电池状态'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
+  });
+
+  testWidgets('preview catalogue follows UI image names', (tester) async {
+    await _pumpPreviewHub(tester, const Size(375, 812));
+
+    final search = find.byKey(const Key('preview-search-field'));
+    await tester.enterText(search, '植物详情');
+    await tester.pumpAndSettle();
+
+    final boundPlantDetail = find.byKey(
+      const ValueKey<String>('preview-scenario-plant-detail-bound'),
+    );
+    final unboundPlantDetail = find.byKey(
+      const ValueKey<String>('preview-scenario-plant-detail-unbound'),
+    );
+    expect(boundPlantDetail, findsOneWidget);
+    expect(unboundPlantDetail, findsOneWidget);
+    expect(
+      find.descendant(of: boundPlantDetail, matching: find.text('植物详情')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: unboundPlantDetail, matching: find.text('植物详情-未绑定')),
+      findsOneWidget,
+    );
+
+    await tester.enterText(search, '设备详情');
+    await tester.pumpAndSettle();
+
+    expect(find.text('没有匹配的页面场景'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('preview-scenario-device-dashboard')),
+      findsNothing,
+    );
   });
 
   testWidgets('home remains usable on a compact 320x568 iPhone viewport', (
@@ -44,7 +78,7 @@ void main() {
   ) async {
     await _openPreviewHome(tester, const Size(320, 568));
 
-    expect(find.text('YSplanter'), findsOneWidget);
+    expect(find.bySemanticsLabel('YSplanter'), findsOneWidget);
     expect(find.text('设置'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

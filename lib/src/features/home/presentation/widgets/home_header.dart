@@ -7,12 +7,12 @@ class HomeHeader extends StatelessWidget {
     required this.userLabel,
     required this.onAvatarTap,
     super.key,
-    this.showGenericAvatar = false,
+    this.avatarImage,
   });
 
   final String userLabel;
   final VoidCallback onAvatarTap;
-  final bool showGenericAvatar;
+  final ImageProvider<Object>? avatarImage;
 
   @override
   Widget build(BuildContext context) {
@@ -22,21 +22,25 @@ class HomeHeader extends StatelessWidget {
         alignment: Alignment.center,
         children: <Widget>[
           Align(
-            alignment: Alignment.centerLeft,
-            child: AppAvatar(
-              size: 32,
-              fallbackText: userLabel,
-              fallback: showGenericAvatar
-                  ? Image.asset(
-                      AppAssets.profileAvatarIcon,
-                      width: 32,
-                      height: 32,
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.high,
-                    )
-                  : null,
-              backgroundColor: AppColors.brandSurface,
-              onTap: onAvatarTap,
+            alignment: Alignment.centerRight,
+            child: Semantics(
+              button: true,
+              label: '${userLabel.trim().isEmpty ? '用户' : userLabel}的头像',
+              child: AppAvatar(
+                key: const Key('home-user-avatar'),
+                size: 32,
+                imageProvider: avatarImage,
+                fallback: Image.asset(
+                  AppAssets.profileAvatarIcon,
+                  width: 32,
+                  height: 32,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  excludeFromSemantics: true,
+                ),
+                backgroundColor: AppColors.brandSurface,
+                onTap: onAvatarTap,
+              ),
             ),
           ),
           const _YsplanterLogo(),
@@ -51,37 +55,13 @@ class _YsplanterLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return Image.asset(
+      AppAssets.ysplanterWordmark,
       width: 124,
-      height: 34,
-      child: Stack(
-        clipBehavior: Clip.none,
-        alignment: Alignment.center,
-        children: <Widget>[
-          const Text(
-            'YSplanter',
-            style: TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 23,
-              fontWeight: FontWeight.w700,
-              height: 1,
-              letterSpacing: -0.8,
-            ),
-          ),
-          Positioned(
-            top: -1,
-            right: 34,
-            child: Transform.rotate(
-              angle: -0.35,
-              child: const Icon(
-                Icons.eco_rounded,
-                size: 11,
-                color: AppColors.brandPrimary,
-              ),
-            ),
-          ),
-        ],
-      ),
+      height: 27,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: 'YSplanter',
     );
   }
 }

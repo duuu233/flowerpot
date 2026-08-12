@@ -1,12 +1,12 @@
 # 涂鸦 Smart Life App SDK 配置
 
-当前桥接按 Android `thingsmart:7.5.6` 与 iOS 7.5.x 结构准备。涂鸦应用的包名必须与本项目 `com.flowerpot.smart` 一致；若要更换包名，应在创建 SDK App 和下载安全组件前完成。
+当前桥接按 Android `thingsmart:7.5.6` 与 iOS 7.5.x 结构准备。涂鸦应用的包名必须与本项目 `com.common.yikaltd` 一致；若要更换包名，应在创建 SDK App 和下载安全组件前完成。
 
 ## 1. 开发者平台
 
 1. 创建“智能家居 / Smart Life App SDK”应用。
-2. Android 包名填写 `com.flowerpot.smart`，配置调试与发布证书 SHA-256。
-3. iOS Bundle ID 填写 `com.flowerpot.smart`。
+2. Android 包名填写 `com.common.yikaltd`，配置调试与发布证书 SHA-256。
+3. iOS Bundle ID 填写 `com.common.yikaltd`。
 4. 选择 Home SDK、业务拓展 SDK、设备配网、设备管理、设备分享、数据统计和 OTA 能力。
 5. 开发阶段可用开发版；上架前需要按涂鸦政策构建正式版安全组件。
 
@@ -29,7 +29,7 @@ tuya.appSecret=YOUR_ANDROID_APP_SECRET
 
 项目 `minSdk` 为 24：满足当前 Flutter 图片选择插件要求，也高于涂鸦 SDK 7.5.x 的最低要求 23。
 
-Release 构建不会回退到调试签名。请在 `android/key.properties` 配置正式证书（文件已忽略提交）：
+Debug、profile 与 release 构建统一使用正式证书，且不会回退到默认调试签名。请在 `android/key.properties` 配置正式证书（文件已忽略提交）：
 
 ```properties
 storeFile=path/to/release.jks

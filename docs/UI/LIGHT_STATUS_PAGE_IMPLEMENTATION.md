@@ -6,7 +6,7 @@
 
 - 文件：`lib/src/features/devices/presentation/light_status_page.dart`
 - 路由：`AppRoutes.lightStatus`，路径为 `/devices/light-status`。
-- 首页“光照状态”和设备详情“环境光照”统一进入该页面。
+- 首页“光照状态”进入该页面。
 - 使用 Material 3、`AppPageScaffold`、`AppPageHeader`、`TimeRangeSelector`、`DateRangeNavigator` 和 `MetricChartCard`。
 - 日、周、月切换重新读取对应时间范围的 DLI 历史数据。
 

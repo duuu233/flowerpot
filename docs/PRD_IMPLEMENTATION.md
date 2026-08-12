@@ -9,7 +9,7 @@
 | 账号 | 国内手机号、海外邮箱、验证码/密码、注册、找回/修改密码、退出、注销、头像和用户名 | `features/auth`、`features/profile` |
 | 首页 | 已配网设备列表、在线/信号/电量/充电、添加和删除设备 | `features/home`、`features/devices` |
 | 配网 | 2.4 GHz Wi-Fi、AP/EZ 模式、Token、创建默认家庭 | `pairing_page.dart`、原生 Tuya bridge |
-| 设备主页 | 植物、陪伴天数、天气、水位、土壤、光照/PPFD/DLI、温度、湿度、电池 | `device_dashboard_page.dart` |
+| 首页与状态详情 | 植物、陪伴天数、天气、水位、土壤、光照/PPFD/DLI、温度、湿度、电池 | `features/home`、`features/devices/presentation/*_status_page.dart`、`reports_page.dart` |
 | 报表 | 水位/湿度日周月、PPFD 日、DLI 周月、温湿度/电池趋势 | `reports_page.dart` |
 | 定制动画 | 图片列表、上传、同步、置顶、删除 | `animations_page.dart` |
 | 设备设置 | 名称、植物、硬件信息、OTA、分享/解绑/恢复出厂 | `device_settings_page.dart` |

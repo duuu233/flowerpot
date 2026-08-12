@@ -8,8 +8,40 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
+}
+
+val releaseSigningPropertyNames =
+    listOf("storeFile", "keyAlias", "keyPassword", "storePassword")
+val hasReleaseSigning =
+    keystorePropertiesFile.exists() &&
+        releaseSigningPropertyNames.all { !keystoreProperties.getProperty(it).isNullOrBlank() }
+val unifiedSigningBuildTypes = setOf("debug", "profile", "release")
+val aggregateArtifactTasks = setOf("assemble", "build", "bundle", "install", "package")
+val isAndroidVariantBuild =
+    gradle.startParameter.taskNames.any { taskName ->
+        val simpleTaskName = taskName.substringAfterLast(':')
+        unifiedSigningBuildTypes.any { simpleTaskName.contains(it, ignoreCase = true) } ||
+            aggregateArtifactTasks.any { simpleTaskName.equals(it, ignoreCase = true) }
+    }
+
+if (isAndroidVariantBuild && !hasReleaseSigning) {
+    throw org.gradle.api.GradleException(
+        "Unified Android signing is not configured. Debug, profile, and release must all use " +
+            "the release certificate. Add storeFile, keyAlias, keyPassword, and storePassword " +
+            "to ${keystorePropertiesFile.path}",
+    )
+}
+
+fun requiredKeystoreProperty(name: String): String =
+    keystoreProperties.getProperty(name)
+        ?: throw org.gradle.api.GradleException("Missing '$name' in ${keystorePropertiesFile.path}")
+
 android {
-    namespace = "com.flowerpot.smart"
+    namespace = "com.common.yikaltd"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -19,7 +51,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.flowerpot.smart"
+        applicationId = "com.common.yikaltd"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // Flutter's current image picker and upcoming Flutter releases require 24.
@@ -63,38 +95,13 @@ android {
     }
 
     buildTypes {
-        release {
+        configureEach {
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
     }
 }
-
-val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("key.properties")
-if (keystorePropertiesFile.exists()) {
-    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
-}
-
-val releaseSigningPropertyNames =
-    listOf("storeFile", "keyAlias", "keyPassword", "storePassword")
-val hasReleaseSigning =
-    keystorePropertiesFile.exists() &&
-        releaseSigningPropertyNames.all { !keystoreProperties.getProperty(it).isNullOrBlank() }
-val isReleaseBuild =
-    gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
-
-if (isReleaseBuild && !hasReleaseSigning) {
-    throw org.gradle.api.GradleException(
-        "Release signing is not configured. Add storeFile, keyAlias, keyPassword, " +
-            "and storePassword to ${keystorePropertiesFile.path}",
-    )
-}
-
-fun requiredKeystoreProperty(name: String): String =
-    keystoreProperties.getProperty(name)
-        ?: throw org.gradle.api.GradleException("Missing '$name' in ${keystorePropertiesFile.path}")
 
 kotlin {
     compilerOptions {

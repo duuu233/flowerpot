@@ -39,6 +39,7 @@ export 'layout/responsive_content.dart';
 export 'navigation/app_back_button.dart';
 export 'navigation/app_bottom_navigation.dart';
 export 'navigation/app_page_header.dart';
+export 'navigation/app_trailing_chevron.dart';
 export 'settings/app_settings_list.dart';
 export 'settings/app_settings_tile.dart';
 export 'settings/toggle_settings_tile.dart';

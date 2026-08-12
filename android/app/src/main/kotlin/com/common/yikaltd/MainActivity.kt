@@ -1,4 +1,4 @@
-package com.flowerpot.smart
+package com.common.yikaltd
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -23,7 +23,7 @@ class MainActivity : FlutterActivity() {
         bridge = TuyaSdkBridge(this)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "com.flowerpot.smart/tuya",
+            "com.common.yikaltd/tuya",
         ).setMethodCallHandler { call, result ->
             if (call.method == "pairWifiDevice" && requestPairingPermissions(call, result)) {
                 return@setMethodCallHandler

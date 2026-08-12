@@ -19,7 +19,7 @@ class HomeCareBanner extends StatelessWidget {
         child: Row(
           children: <Widget>[
             Image.asset(
-              AppAssets.plantIcon,
+              AppAssets.selectPlantIcon,
               width: 18,
               height: 18,
               fit: BoxFit.contain,

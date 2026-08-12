@@ -7,7 +7,6 @@ import '../features/devices/presentation/animations_page.dart';
 import '../features/devices/presentation/battery_status_page.dart';
 import '../features/devices/presentation/behavior_settings_page.dart';
 import '../features/devices/models/water_status_page_model.dart';
-import '../features/devices/presentation/device_dashboard_page.dart';
 import '../features/devices/presentation/device_info_page.dart';
 import '../features/devices/presentation/device_list_page.dart';
 import '../features/devices/presentation/device_other_settings_page.dart';
@@ -55,7 +54,6 @@ abstract final class AppRoutes {
   static const pairingSuccess = '/devices/pairing-success';
   static const deviceSearch = '/devices/search';
   static const deviceSelection = '/devices/select';
-  static const device = '/devices/detail';
   static const deviceList = '/devices/list';
   static const deviceInfo = '/devices/info';
   static const deviceOtherSettings = '/devices/other-settings';
@@ -133,7 +131,6 @@ abstract final class AppRoutes {
       deviceSelection => DeviceSelectionPage(
         request: settings.arguments as PairingRequest?,
       ),
-      device => DeviceDashboardPage(deviceId: settings.arguments! as String),
       deviceList => const DeviceListPage(),
       deviceInfo => DeviceInfoPage(deviceId: settings.arguments! as String),
       deviceOtherSettings => DeviceOtherSettingsPage(
@@ -151,7 +148,7 @@ abstract final class AppRoutes {
       batteryStatus => BatteryStatusPage(
         deviceId: settings.arguments! as String,
       ),
-      plantPicker => PlantPickerPage(deviceId: settings.arguments! as String),
+      plantPicker => _plantPickerPage(settings.arguments),
       plantDetail => PlantDetailPage(
         arguments: settings.arguments! as PlantDetailArguments,
       ),
@@ -200,5 +197,15 @@ abstract final class AppRoutes {
       );
     }
     return WaterStatusPage(deviceId: arguments! as String);
+  }
+
+  static Widget _plantPickerPage(Object? arguments) {
+    if (arguments is PlantPickerArguments) {
+      return PlantPickerPage(
+        deviceId: arguments.deviceId,
+        mode: arguments.mode,
+      );
+    }
+    return PlantPickerPage(deviceId: arguments! as String);
   }
 }

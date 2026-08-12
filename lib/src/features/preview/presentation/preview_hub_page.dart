@@ -611,13 +611,13 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
     scenarios: <_PreviewScenario>[
       const _PreviewScenario.named(
         id: 'auth-code',
-        title: '登录页 · 验证码登录',
+        title: '登录页-验证码登录',
         route: AppRoutes.auth,
         description: '登录页默认状态',
       ),
       _PreviewScenario.page(
         id: 'auth-password',
-        title: '登录页 · 密码登录',
+        title: '登录页-密码登录',
         description: '直接展示密码输入状态',
         builder: (_) => const AuthPage(initialCodeLogin: false),
       ),
@@ -628,12 +628,12 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
       ),
       const _PreviewScenario.named(
         id: 'forgot-password-phone',
-        title: '忘记密码 · 手机号',
+        title: '忘记密码',
         route: AppRoutes.password,
       ),
       const _PreviewScenario.named(
         id: 'forgot-password-email',
-        title: '忘记密码 · 邮箱',
+        title: '忘记密码-邮箱',
         route: AppRoutes.password,
         arguments: PasswordArguments(region: LoginRegion.overseas),
       ),
@@ -646,14 +646,14 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
     scenarios: <_PreviewScenario>[
       const _PreviewScenario.named(
         id: 'shell-home',
-        title: '真实首页入口 · Shell',
+        title: '首页-Shell入口',
         route: AppRoutes.shell,
         description: '保留后续串联真实流程时的首页入口',
         requiresDevice: true,
       ),
       _PreviewScenario.page(
         id: 'home-companion',
-        title: '首页 · 已添加植物',
+        title: '首页-已添加植物',
         description: '显示陪伴天数与电量摘要',
         requiresDevice: true,
         builder: (_) =>
@@ -661,7 +661,7 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
       ),
       _PreviewScenario.page(
         id: 'home-compact',
-        title: '首页 · 已添加植物（精简）',
+        title: '首页-已添加植物-1',
         description: '隐藏陪伴摘要的另一种首页状态',
         requiresDevice: true,
         builder: (_) =>
@@ -669,14 +669,14 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
       ),
       _PreviewScenario.page(
         id: 'home-without-plant',
-        title: '首页 · 未添加植物',
+        title: '首页-未添加植物',
         description: '设备存在，等待选择植物',
         requiresDevice: true,
         builder: (_) => const HomePage(scene: HomeDashboardScene.withoutPlant),
       ),
       _PreviewScenario.page(
         id: 'home-without-device',
-        title: '首页 · 登录后无设备',
+        title: '登录后无设备',
         description: '空设备引导状态',
         builder: (_) => HomePage(
           dashboard: HomeDashboardModel.fromDevice(
@@ -694,7 +694,7 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
     scenarios: <_PreviewScenario>[
       const _PreviewScenario.named(
         id: 'pairing',
-        title: '连接 Wi-Fi',
+        title: '连接Wi-Fi',
         route: AppRoutes.pairing,
       ),
       const _PreviewScenario.named(
@@ -730,21 +730,14 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
     accent: const Color(0xFF62813A),
     scenarios: <_PreviewScenario>[
       const _PreviewScenario.named(
-        id: 'device-dashboard',
-        title: '设备详情',
-        route: AppRoutes.device,
-        arguments: _deviceId,
-        requiresDevice: true,
-      ),
-      const _PreviewScenario.named(
         id: 'device-list',
-        title: '设备列表 · 有设备',
+        title: '设备列表页面',
         route: AppRoutes.deviceList,
         requiresDevice: true,
       ),
       _PreviewScenario.page(
         id: 'device-list-empty',
-        title: '设备列表 · 空状态',
+        title: '设备列表页面-空状态',
         description: '没有已绑定设备',
         builder: (_) => const DeviceListPage(devices: <SmartPlanterDevice>[]),
       ),
@@ -768,13 +761,13 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
       ),
       _PreviewScenario.named(
         id: 'plant-detail-unbound',
-        title: '植物详情 · 未绑定',
+        title: '植物详情-未绑定',
         route: AppRoutes.plantDetail,
         arguments: PlantDetailArguments(plant: PlantCatalog.items.first),
       ),
       _PreviewScenario.named(
         id: 'plant-detail-bound',
-        title: '植物详情 · 已绑定',
+        title: '植物详情',
         route: AppRoutes.plantDetail,
         arguments: PlantDetailArguments(
           plant: PlantCatalog.items.first,
@@ -797,7 +790,7 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
     scenarios: <_PreviewScenario>[
       const _PreviewScenario.named(
         id: 'water-level',
-        title: '需水状态 · 水仓水位',
+        title: '需水状态-水仓水位变化',
         route: AppRoutes.waterStatus,
         arguments: WaterStatusArguments(
           deviceId: _deviceId,
@@ -807,7 +800,7 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
       ),
       const _PreviewScenario.named(
         id: 'soil-moisture',
-        title: '需水状态 · 土壤湿度',
+        title: '需水状态-土壤湿度变化',
         route: AppRoutes.waterStatus,
         arguments: WaterStatusArguments(
           deviceId: _deviceId,
@@ -846,7 +839,7 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
       for (final metric in SensorMetric.values)
         _PreviewScenario.named(
           id: 'report-${metric.name}',
-          title: '数据报表 · ${_metricLabel(metric)}',
+          title: '数据报表-${_metricLabel(metric)}',
           route: AppRoutes.reports,
           arguments: ReportArguments(deviceId: _deviceId, metric: metric),
           requiresDevice: true,
@@ -860,14 +853,14 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
     scenarios: <_PreviewScenario>[
       const _PreviewScenario.named(
         id: 'device-settings',
-        title: '设备设置',
+        title: '设置',
         route: AppRoutes.deviceSettings,
         arguments: _deviceId,
         requiresDevice: true,
       ),
       const _PreviewScenario.named(
         id: 'display-settings',
-        title: '显示设置',
+        title: '显示',
         route: AppRoutes.displaySettings,
         arguments: _deviceId,
         requiresDevice: true,
@@ -895,7 +888,7 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
       ),
       const _PreviewScenario.named(
         id: 'behavior-settings',
-        title: '行为设置',
+        title: '行为',
         route: AppRoutes.behaviorSettings,
         arguments: _deviceId,
         requiresDevice: true,
@@ -965,12 +958,12 @@ final List<_PreviewSection> _previewSections = <_PreviewSection>[
       ),
       const _PreviewScenario.named(
         id: 'about',
-        title: '关于 YSplanter',
+        title: '关于YSplanter',
         route: AppRoutes.about,
       ),
       _PreviewScenario.page(
         id: 'legacy-app-settings',
-        title: '应用设置（旧入口）',
+        title: '应用设置-旧入口',
         description: '保留现有 AppSettingsPage 供样式对照',
         builder: (_) => const AppSettingsPage(),
       ),

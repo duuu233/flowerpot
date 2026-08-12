@@ -15,8 +15,8 @@ class AppBackButton extends StatelessWidget {
       onPressed: onPressed ?? () => Navigator.of(context).maybePop(),
       icon: Image.asset(
         AppAssets.chevronLeftIcon,
-        width: 18,
-        height: 18,
+        width: 16,
+        height: 16,
         fit: BoxFit.contain,
         filterQuality: FilterQuality.high,
         color: color,

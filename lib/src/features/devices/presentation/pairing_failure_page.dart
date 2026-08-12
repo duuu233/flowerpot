@@ -25,7 +25,7 @@ class PairingFailurePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接设备', leading: AppBackButton()),
-      background: AppPageBackground.standard,
+      background: AppPageBackground.account,
       body: LayoutBuilder(
         builder: (context, constraints) {
           final contentHeight = constraints.maxHeight < 690
@@ -53,10 +53,11 @@ class PairingFailurePage extends StatelessWidget {
                       right: 12,
                       child: Text(
                         '配网失败，请重试',
+                        key: Key('pairing-failure-title'),
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: AppColors.textPrimary,
-                          fontSize: 28,
+                          fontSize: 24,
                           fontWeight: FontWeight.w600,
                           height: 1.3,
                         ),

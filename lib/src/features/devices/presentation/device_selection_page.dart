@@ -54,7 +54,7 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '选择设备', leading: AppBackButton()),
-      background: AppPageBackground.standard,
+      background: AppPageBackground.account,
       body: ResponsiveContent(
         maxWidth: 375,
         padding: EdgeInsets.zero,

@@ -22,7 +22,7 @@ import ThingSmartHomeKit
       return
     }
     let channel = FlutterMethodChannel(
-      name: "com.flowerpot.smart/tuya",
+      name: "com.common.yikaltd/tuya",
       binaryMessenger: registrar.messenger()
     )
     let bridge = FlowerpotTuyaBridge()

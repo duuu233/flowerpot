@@ -58,7 +58,7 @@ class _PairingPageState extends State<PairingPage> {
     final state = FlowerpotScope.of(context);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接Wi-Fi', leading: AppBackButton()),
-      background: AppPageBackground.standard,
+      background: AppPageBackground.account,
       body: Stack(
         children: <Widget>[
           SingleChildScrollView(
@@ -155,7 +155,8 @@ class _WifiConnectionIllustration extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 250,
+      key: const Key('wifi-connection-illustration'),
+      height: 270,
       child: Image.asset(
         AppAssets.pairingWifiSetupIllustration,
         fit: BoxFit.contain,
@@ -175,8 +176,9 @@ class _WifiNoticeCard extends StatelessWidget {
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 300;
         return DecoratedBox(
+          key: const Key('wifi-notice-card'),
           decoration: const BoxDecoration(
-            color: AppColors.brandSurfaceAlt,
+            color: AppColors.surfaceTranslucent,
             borderRadius: AppRadius.card,
           ),
           child: SizedBox(

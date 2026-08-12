@@ -13,9 +13,11 @@ class HomeUnplantedContent extends StatelessWidget {
     required this.onAvatarTap,
     required this.onAddPlant,
     super.key,
+    this.avatarImage,
   });
 
   final HomeDashboardModel model;
+  final ImageProvider<Object>? avatarImage;
   final Future<void> Function() onRefresh;
   final VoidCallback onAvatarTap;
   final VoidCallback onAddPlant;
@@ -50,7 +52,7 @@ class HomeUnplantedContent extends StatelessWidget {
                       children: <Widget>[
                         HomeHeader(
                           userLabel: model.userLabel,
-                          showGenericAvatar: true,
+                          avatarImage: avatarImage,
                           onAvatarTap: onAvatarTap,
                         ),
                         const SizedBox(height: 37),
@@ -60,7 +62,7 @@ class HomeUnplantedContent extends StatelessWidget {
                           model.emptyTitle,
                           textAlign: TextAlign.center,
                           style: AppTypography.emptyStateTitle.copyWith(
-                            fontSize: 28,
+                            fontSize: 26,
                             height: 1.45,
                             color: AppColors.textPrimary,
                           ),

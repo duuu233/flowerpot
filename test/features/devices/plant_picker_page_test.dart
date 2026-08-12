@@ -53,6 +53,24 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('confirming an added plant returns to the home shell', (
+    tester,
+  ) async {
+    var shellOpened = false;
+    await _pumpPlantPicker(
+      tester,
+      const Size(375, 812),
+      onShellOpened: () => shellOpened = true,
+    );
+
+    await tester.tap(find.byKey(const Key('confirm-plant-selection')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('home-shell-target'), findsOneWidget);
+    expect(shellOpened, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('selected plant details opens the detail page', (tester) async {
     await _pumpPlantPicker(tester, const Size(375, 812));
 
@@ -97,6 +115,7 @@ Future<void> _pumpPlantPicker(
   WidgetTester tester,
   Size size, {
   bool withExistingPlant = false,
+  VoidCallback? onShellOpened,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -110,6 +129,14 @@ Future<void> _pumpPlantPicker(
       child: MaterialApp(
         theme: buildAppTheme(),
         onGenerateRoute: (settings) {
+          if (settings.name == AppRoutes.shell) {
+            onShellOpened?.call();
+            return MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(
+                body: Center(child: Text('home-shell-target')),
+              ),
+            );
+          }
           if (settings.name == AppRoutes.plantDetail) {
             return MaterialPageRoute<void>(
               builder: (_) => PlantDetailPage(

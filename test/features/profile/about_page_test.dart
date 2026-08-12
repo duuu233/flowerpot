@@ -10,14 +10,15 @@ void main() {
     await _pumpAboutPage(tester, const Size(375, 812));
 
     expect(find.text('关于YSplanter'), findsOneWidget);
-    expect(find.text('YSplanter'), findsOneWidget);
+    expect(findAssetImage(AppAssets.appLogo), findsOneWidget);
+    expect(findAssetImage(AppAssets.ysplanterWordmark), findsOneWidget);
     expect(find.text('您的智能花盆贴心伴侣'), findsOneWidget);
     expect(find.text('当前版本'), findsOneWidget);
     expect(find.text('V1.0.0'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);
     expect(find.text('已是最新版本'), findsOneWidget);
     expect(find.text('版本说明'), findsOneWidget);
-    expect(find.byKey(const Key('about-logo-placeholder')), findsOneWidget);
+    expect(find.byKey(const Key('about-logo')), findsOneWidget);
     expect(find.byKey(const Key('about-version-card')), findsOneWidget);
     expect(findAssetImage(AppAssets.aboutCurrentVersionIcon), findsOneWidget);
     expect(tester.takeException(), isNull);

@@ -3,7 +3,7 @@ abstract final class TuyaConfig {
   /// platform-specific security components and credentials are supplied.
   static const enabled = bool.fromEnvironment('TUYA_ENABLED');
 
-  static const channelName = 'com.flowerpot.smart/tuya';
+  static const channelName = 'com.common.yikaltd/tuya';
   static const defaultHomeName = '我的花园';
 
   /// Product DP mapping. Update this table to match the PID configured in the

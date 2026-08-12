@@ -1,9 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
-import '../../devices/models/water_status_page_model.dart';
 import '../../../routes/app_routes.dart';
+import '../../devices/models/water_status_page_model.dart';
+import '../../devices/presentation/plant_picker_page.dart';
 import '../models/home_dashboard_model.dart';
 import 'widgets/home_care_banner.dart';
 import 'widgets/home_empty_device_content.dart';
@@ -33,12 +36,16 @@ class HomePage extends StatelessWidget {
           userLabel: state.user?.nickname ?? '用户',
           scene: scene,
         );
+    final avatarImage = _avatarImage(state.user?.avatarUrl);
 
     return AppPageScaffold(
-      background: AppPageBackground.standard,
+      background: model.isWithoutDevice
+          ? AppPageBackground.white
+          : AppPageBackground.home,
       body: model.isWithoutDevice
           ? HomeEmptyDeviceContent(
               userLabel: model.userLabel,
+              avatarImage: avatarImage,
               onRefresh: state.refreshDevices,
               onAvatarTap: () => Navigator.pushNamed(context, AppRoutes.mine),
               onAddDevice: () =>
@@ -47,6 +54,7 @@ class HomePage extends StatelessWidget {
           : model.isWithoutPlant
           ? HomeUnplantedContent(
               model: model,
+              avatarImage: avatarImage,
               onRefresh: state.refreshDevices,
               onAvatarTap: () => Navigator.pushNamed(context, AppRoutes.mine),
               onAddPlant: () => _openAddPlant(context, model.deviceId),
@@ -76,6 +84,7 @@ class HomePage extends StatelessWidget {
                             children: <Widget>[
                               HomeHeader(
                                 userLabel: model.userLabel,
+                                avatarImage: avatarImage,
                                 onAvatarTap: () => Navigator.pushNamed(
                                   context,
                                   AppRoutes.mine,
@@ -129,12 +138,31 @@ class HomePage extends StatelessWidget {
     );
   }
 
+  ImageProvider<Object>? _avatarImage(String? path) {
+    final value = path?.trim();
+    if (value == null || value.isEmpty) return null;
+    final file = File(value);
+    if (file.existsSync()) return FileImage(file);
+    final uri = Uri.tryParse(value);
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      return NetworkImage(value);
+    }
+    return null;
+  }
+
   void _openAddPlant(BuildContext context, String? deviceId) {
     if (deviceId == null) {
       showAppMessage(context, '请先添加并连接花盆', tone: AppMessageTone.info);
       return;
     }
-    Navigator.pushNamed(context, AppRoutes.plantPicker, arguments: deviceId);
+    Navigator.pushNamed(
+      context,
+      AppRoutes.plantPicker,
+      arguments: PlantPickerArguments(
+        deviceId: deviceId,
+        mode: PlantPickerMode.add,
+      ),
+    );
   }
 
   void _openAction(

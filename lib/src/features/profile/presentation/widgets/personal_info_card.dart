@@ -52,7 +52,7 @@ class PersonalInfoCard extends StatelessWidget {
                   backgroundColor: AppColors.brandSurface,
                 ),
                 const SizedBox(width: AppSpacing.sm),
-                const _TrailingChevron(),
+                const AppTrailingChevron(),
               ],
             ),
           ),
@@ -87,7 +87,7 @@ class PersonalInfoCard extends StatelessWidget {
               children: <Widget>[
                 _PersonalInfoValue(model.phone),
                 const SizedBox(width: AppSpacing.sm),
-                const _TrailingChevron(),
+                const AppTrailingChevron(),
               ],
             ),
           ),
@@ -101,7 +101,7 @@ class PersonalInfoCard extends StatelessWidget {
               children: <Widget>[
                 _PersonalInfoValue(model.accountId),
                 const SizedBox(width: AppSpacing.sm),
-                const _TrailingChevron(),
+                const AppTrailingChevron(),
               ],
             ),
           ),
@@ -205,22 +205,6 @@ class _PersonalInfoValue extends StatelessWidget {
           fontWeight: FontWeight.w400,
         ),
       ),
-    );
-  }
-}
-
-class _TrailingChevron extends StatelessWidget {
-  const _TrailingChevron();
-
-  @override
-  Widget build(BuildContext context) {
-    return Image.asset(
-      AppAssets.chevronRightIcon,
-      width: 20,
-      height: 20,
-      fit: BoxFit.contain,
-      filterQuality: FilterQuality.high,
-      excludeFromSemantics: true,
     );
   }
 }

@@ -10,9 +10,11 @@ class HomeEmptyDeviceContent extends StatelessWidget {
     required this.onAvatarTap,
     required this.onAddDevice,
     super.key,
+    this.avatarImage,
   });
 
   final String userLabel;
+  final ImageProvider<Object>? avatarImage;
   final Future<void> Function() onRefresh;
   final VoidCallback onAvatarTap;
   final VoidCallback onAddDevice;
@@ -46,18 +48,18 @@ class HomeEmptyDeviceContent extends StatelessWidget {
                           right: horizontalPadding,
                           child: HomeHeader(
                             userLabel: userLabel,
-                            showGenericAvatar: true,
+                            avatarImage: avatarImage,
                             onAvatarTap: onAvatarTap,
                           ),
                         ),
                         const Positioned(
-                          top: 88,
+                          top: 78,
                           left: 0,
                           right: 0,
                           child: Center(child: _EmptyDeviceRadar()),
                         ),
                         const Positioned(
-                          top: 304,
+                          top: 325,
                           left: 12,
                           right: 12,
                           child: Text(
@@ -65,14 +67,14 @@ class HomeEmptyDeviceContent extends StatelessWidget {
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: AppColors.textPrimary,
-                              fontSize: 28,
+                              fontSize: 24,
                               fontWeight: FontWeight.w600,
                               height: 1.35,
                             ),
                           ),
                         ),
                         const Positioned(
-                          top: 350,
+                          top: 365,
                           left: 18,
                           right: 18,
                           child: Text(
@@ -88,21 +90,27 @@ class HomeEmptyDeviceContent extends StatelessWidget {
                         Positioned(
                           left: horizontalPadding,
                           right: horizontalPadding,
-                          bottom: 135,
-                          child: SizedBox(
-                            height: 50,
-                            child: AppPrimaryButton(
-                              key: const Key('add-device-button'),
-                              label: '添加设备',
-                              onPressed: onAddDevice,
-                            ),
+                          bottom: 12,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              SizedBox(
+                                height: 50,
+                                child: AppPrimaryButton(
+                                  key: const Key('add-device-button'),
+                                  label: '添加设备',
+                                  onPressed: onAddDevice,
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.xxl),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.sm,
+                                ),
+                                child: _EmptyDeviceTipCard(),
+                              ),
+                            ],
                           ),
-                        ),
-                        Positioned(
-                          left: horizontalPadding + 8,
-                          right: horizontalPadding + 8,
-                          bottom: 10,
-                          child: const _EmptyDeviceTipCard(),
                         ),
                       ],
                     ),
@@ -123,9 +131,9 @@ class _EmptyDeviceRadar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Image.asset(
-      AppAssets.pairingDeviceSearchIllustration,
-      width: 230,
-      height: 230,
+      AppAssets.settingOrbitBackground,
+      width: 244,
+      height: 244,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       excludeFromSemantics: true,
@@ -139,17 +147,21 @@ class _EmptyDeviceTipCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
+      key: const Key('empty-device-tip-card'),
       decoration: const BoxDecoration(
         color: AppColors.brandSurfaceAlt,
         borderRadius: AppRadius.card,
       ),
       child: const Padding(
-        padding: EdgeInsets.fromLTRB(18, 14, 18, 13),
+        padding: EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.md,
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             _QuestionBubble(),
-            SizedBox(width: 12),
+            SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,17 +170,17 @@ class _EmptyDeviceTipCard extends StatelessWidget {
                     '小提示',
                     style: TextStyle(
                       color: AppColors.brandPrimary,
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  SizedBox(height: 8),
+                  SizedBox(height: AppSpacing.xs),
                   Text(
                     '1. 打开设备电源\n2. 请将设备放在手机附近',
                     style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 13,
-                      height: 1.8,
+                      height: 1.6,
                     ),
                   ),
                 ],
@@ -188,8 +200,8 @@ class _QuestionBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return Image.asset(
       AppAssets.helpChatIcon,
-      width: 34,
-      height: 34,
+      width: 30,
+      height: 30,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       semanticLabel: '提示',

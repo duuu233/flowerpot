@@ -21,6 +21,14 @@ void main() {
       findAssetImage(AppAssets.pairingFailureIllustration),
       findsOneWidget,
     );
+    final background = tester.widget<Image>(
+      findAssetImage(AppAssets.accountBackground),
+    );
+    expect(background.fit, BoxFit.cover);
+    final title = tester.widget<Text>(
+      find.byKey(const Key('pairing-failure-title')),
+    );
+    expect(title.style?.fontSize, 24);
     expect(tester.takeException(), isNull);
   });
 

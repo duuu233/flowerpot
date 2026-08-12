@@ -46,22 +46,22 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('device card selects the device and opens its dashboard', (
+  testWidgets('device card selects the device and returns to the home shell', (
     tester,
   ) async {
-    Object? dashboardArguments;
+    var shellOpened = false;
     final state = await _pumpDeviceList(
       tester,
       const Size(375, 812),
       withRoutes: true,
-      onDashboardArguments: (value) => dashboardArguments = value,
+      onShellOpened: () => shellOpened = true,
     );
 
     await tester.tap(find.byKey(const Key('device-list-item-device-02')));
     await tester.pumpAndSettle();
 
-    expect(find.text('device-dashboard-target'), findsOneWidget);
-    expect(dashboardArguments, 'device-02');
+    expect(find.text('home-shell-target'), findsOneWidget);
+    expect(shellOpened, isTrue);
     expect(state.selectedDevice?.id, 'device-02');
     expect(tester.takeException(), isNull);
   });
@@ -71,7 +71,7 @@ Future<FlowerpotState> _pumpDeviceList(
   WidgetTester tester,
   Size size, {
   bool withRoutes = false,
-  ValueChanged<Object?>? onDashboardArguments,
+  VoidCallback? onShellOpened,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -93,11 +93,11 @@ Future<FlowerpotState> _pumpDeviceList(
                     ),
                   );
                 }
-                if (settings.name == AppRoutes.device) {
-                  onDashboardArguments?.call(settings.arguments);
+                if (settings.name == AppRoutes.shell) {
+                  onShellOpened?.call();
                   return MaterialPageRoute<void>(
                     builder: (_) => const Scaffold(
-                      body: Center(child: Text('device-dashboard-target')),
+                      body: Center(child: Text('home-shell-target')),
                     ),
                   );
                 }

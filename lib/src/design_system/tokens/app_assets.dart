@@ -1,4 +1,7 @@
 abstract final class AppAssets {
+  // Home dashboard.
+  static const String homeBackground = 'assets/images/bg01.png';
+
   // Account entry assets.
   static const String accountBackground = 'assets/images/auth_background.png';
   static const String appLogo = 'assets/images/app_logo.png';

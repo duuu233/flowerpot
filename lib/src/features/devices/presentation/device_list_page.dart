@@ -17,7 +17,7 @@ class DeviceListPage extends StatelessWidget {
     SmartPlanterDevice device,
   ) {
     state.selectDevice(device.id);
-    Navigator.pushNamed(context, AppRoutes.device, arguments: device.id);
+    Navigator.pushNamedAndRemoveUntil(context, AppRoutes.shell, (_) => false);
   }
 
   @override
@@ -147,14 +147,7 @@ class _DeviceListCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Image.asset(
-                  AppAssets.chevronRightIcon,
-                  width: 28,
-                  height: 28,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
-                  excludeFromSemantics: true,
-                ),
+                const AppTrailingChevron(),
               ],
             ),
           ),
