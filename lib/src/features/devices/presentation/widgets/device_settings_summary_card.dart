@@ -26,7 +26,7 @@ class DeviceSettingsSummaryCard extends StatelessWidget {
             const SizedBox(
               width: 70,
               child: Center(
-                child: AppDevicePlaceholder(hasPlant: true, width: 58),
+                child: AppDevicePlaceholder(hasPlant: true, width: 70),
               ),
             ),
             const SizedBox(width: AppSpacing.md),

@@ -25,11 +25,11 @@ class AboutPage extends StatelessWidget {
         key: const Key('about-scroll-view'),
         child: ResponsiveContent(
           maxWidth: 375,
-          padding: EdgeInsets.fromLTRB(20, compact ? 78 : 166, 20, 48),
+          padding: EdgeInsets.fromLTRB(20, compact ? 78 : 110, 20, 48),
           child: Column(
             children: <Widget>[
               AboutBrandLockup(model: model),
-              SizedBox(height: compact ? 32 : 48),
+              const SizedBox(height: 32),
               AboutVersionCard(
                 model: model,
                 onCheckUpdate: () => showAppMessage(

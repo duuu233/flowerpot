@@ -31,7 +31,7 @@ class DeviceSettingsFunctionList extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: AppSpacing.md),
+        const SizedBox(height: AppSpacing.xs),
         AppSettingsList(
           showDividers: false,
           borderRadius: AppRadius.large,

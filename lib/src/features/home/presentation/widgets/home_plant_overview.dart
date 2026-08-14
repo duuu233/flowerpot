@@ -32,12 +32,12 @@ class HomePlantOverview extends StatelessWidget {
                 child: const HomeOrbitDecoration(),
               ),
               Positioned(
-                top: 44,
-                left: (width - 106) / 2,
+                top: 34,
+                left: (width - 132) / 2,
                 child: Image.asset(
                   AppAssets.smartPlanterWithPlant,
-                  width: 106,
-                  height: 137,
+                  width: 132,
+                  height: 170,
                   fit: BoxFit.contain,
                   filterQuality: FilterQuality.high,
                   semanticLabel: '带植物的 YSplanter',

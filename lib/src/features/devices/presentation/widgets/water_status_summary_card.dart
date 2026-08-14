@@ -11,7 +11,7 @@ class WaterStatusSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppSurfaceCard(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
       borderRadius: AppRadius.card,
       child: Column(
         children: <Widget>[
@@ -19,9 +19,9 @@ class WaterStatusSummaryCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
               const SizedBox(
-                width: 112,
+                width: 100,
                 child: Center(
-                  child: AppDevicePlaceholder(hasPlant: true, width: 84),
+                  child: AppDevicePlaceholder(hasPlant: true, width: 100),
                 ),
               ),
               const SizedBox(width: AppSpacing.md),
@@ -65,7 +65,7 @@ class WaterStatusSummaryCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: 14),
           Row(
             children: <Widget>[
               Expanded(

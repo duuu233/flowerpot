@@ -83,7 +83,7 @@ void main() {
     ]);
     final avatar = findAssetImage(AppAssets.profileAvatarIcon);
     expect(avatar, findsOneWidget);
-    expect(tester.getCenter(avatar).dx, greaterThan(300));
+    expect(tester.getCenter(avatar).dx, lessThan(75));
     expect(tester.takeException(), isNull);
   });
 }

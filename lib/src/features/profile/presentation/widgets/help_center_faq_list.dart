@@ -123,6 +123,7 @@ class _HelpCenterFaqTile extends StatelessWidget {
                         color: AppColors.textSecondary,
                         fontSize: 12,
                         height: 1.58,
+                        letterSpacing: -1,
                       ),
                     ),
                   ),

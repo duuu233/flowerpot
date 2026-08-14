@@ -43,7 +43,7 @@ class HomeEmptyDeviceContent extends StatelessWidget {
                     child: Stack(
                       children: <Widget>[
                         Positioned(
-                          top: 16,
+                          top: AppSpacing.huge,
                           left: horizontalPadding,
                           right: horizontalPadding,
                           child: HomeHeader(

@@ -17,7 +17,7 @@
 
 | Widget | 文件 | 职责 |
 | --- | --- | --- |
-| `AboutBrandLockup` | `lib/src/features/profile/presentation/widgets/about_brand_lockup.dart` | Logo 占位、YSplanter 字标和品牌标语 |
+| `AboutBrandLockup` | `lib/src/features/profile/presentation/widgets/about_brand_lockup.dart` | 正式应用 Logo、YSplanter 正式字标和品牌标语 |
 | `AboutVersionCard` | `lib/src/features/profile/presentation/widgets/about_version_card.dart` | 当前版本、检查更新和版本说明三行信息卡片 |
 
 版本卡复用 Design System 的 `AppSettingsList` 与 `AppSettingsTile`，版本说明复用公共 Material 3 Bottom Sheet。
@@ -31,7 +31,7 @@
 
 ## 图片与资源
 
-项目现有 iOS 和 Android 启动图标仍是 Flutter 默认图标，不能作为 YSplanter 正式品牌资源。当前页面使用代码绘制的植物、花盆和 “YS” 语义 Logo 占位，没有裁切 Figma 截图；取得正式品牌 Logo 后只需替换 `AboutBrandLockup` 的 Logo 层。
+页面品牌区直接使用 `AppAssets.appLogo`（`assets/images/app_logo.png`）和 `AppAssets.ysplanterWordmark`（`assets/images/ysplanter_wordmark.png`）两项正式资源，由 `AboutBrandLockup` 统一加载。页面不再使用代码绘制的植物、花盆或 “YS” 语义 Logo，也没有裁切 Figma 截图；平台启动图标作为独立发布资源，不承担本页面的品牌展示。
 
 ## 交互
 

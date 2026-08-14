@@ -13,7 +13,7 @@
 
 | Widget | 文件 | 职责 |
 | --- | --- | --- |
-| `WaterLevelCalibrationDialog` | `lib/src/features/devices/presentation/widgets/water_level_calibration_dialog.dart` | 四步弹窗布局、步骤切换、提交状态、底部操作和校准插图 |
+| `WaterLevelCalibrationDialog` | `lib/src/features/devices/presentation/widgets/water_level_calibration_dialog.dart` | 四步弹窗布局、步骤切换、提交状态、底部操作、正式步骤图和资源失败占位 |
 | `AppStepIndicator` | `lib/src/design_system/widgets/data_display/app_step_indicator.dart` | 复用公共四步进度展示，并修正步骤数字插值及未激活数字颜色 |
 
 弹窗采用 Material 3 `Dialog`，最大宽度 327px、圆角 20px、半透明遮罩和 56px 双操作栏，还原设计稿的层级、分割线与按钮颜色。
@@ -30,9 +30,9 @@ Widget 只消费页面 Model；设备维护调用仍由 Page 负责。
 
 ## 图片与占位策略
 
-- 仓库没有独立校准插画素材，因此使用 Flutter `CustomPainter` 绘制植物内胆、白色水仓、30mL 量杯、水滴、方向箭头和完成勾选。
-- 未裁切、未引用四张 Figma 截图，也未把截图注册为 Flutter Asset。
-- 每个插图状态均提供中文 `Semantics` 图片说明，后续获得正式素材时可只替换插图层。
+- 四个步骤分别使用 `AppAssets.waterCalibrationRemoveInnerPot`、`AppAssets.waterCalibrationAdd30ml`、`AppAssets.waterCalibrationAddSecond30ml` 和 `AppAssets.waterCalibrationComplete` 对应的正式图片资源。
+- 步骤图通过 `Image.asset` 加载；资源加载失败时只显示带对应中文 `Semantics` 的简单语义色块占位，不再回退到复杂 `CustomPainter` 插画。
+- 未裁切、未引用四张 Figma 截图，也未把设计截图注册为 Flutter Asset。
 
 ## 交互与状态
 

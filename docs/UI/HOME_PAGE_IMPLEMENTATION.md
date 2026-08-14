@@ -11,13 +11,13 @@
 - 复用 `AppPageScaffold`、`ResponsiveContent`、`AppSurfaceCard`、`AppSettingsList`、`AppSettingsTile`、`AppIconBadge` 与 `AppAvatar`。
 - 375 × 812 为设计基准，最大内容宽度为 375；小于 360 宽度时自动收紧水平间距，内容高度不足时纵向滚动。
 - 已添加植物和未添加植物状态通过 `AppPageBackground.home` 全屏铺设 `assets/images/bg01.png`；登录后无设备状态使用纯白背景与 `setting_orbit_background.png`。
-- 首页不显示底部导航，通过头像和首页操作项进入后续页面。
+- 首页不显示底部导航，通过左侧头像和首页操作项进入后续页面。
 
 ## Widget 拆分
 
 | Widget | 文件 | 职责 |
 | --- | --- | --- |
-| `HomeHeader` | `presentation/widgets/home_header.dart` | 右侧用户头像、无头像占位、YSplanter 品牌标题 |
+| `HomeHeader` | `presentation/widgets/home_header.dart` | 左侧用户头像、无头像正式占位、居中 YSplanter 正式字标 |
 | `HomePlantOverview` | `presentation/widgets/home_plant_overview.dart` | 植物设备占位、环境指标、陪伴天数和电量 |
 | `HomeCareBanner` | `presentation/widgets/home_care_banner.dart` | 今日养护信息 |
 | `HomeQuickActions` | `presentation/widgets/home_quick_actions.dart` | 定制动画、电池状态、设置入口 |
@@ -48,7 +48,7 @@
 
 ## 资源占位规则
 
-已添加植物与未添加植物首页使用正式全屏背景 `bg01.png`，无设备首页使用 `setting_orbit_background.png`。用户没有本地或网络头像时使用 `profile_avatar_icon.png`，今日养护使用 `select_plant_icon.png`。后续页面遇到缺失图片资源时仍不裁切设计截图，获得正式素材后仅替换图片层，不改变页面结构。
+已添加植物与未添加植物首页使用正式全屏背景 `bg01.png`，无设备首页使用纯白页面背景与 `setting_orbit_background.png` 设备轨道图。`HomeHeader` 左侧显示用户头像，没有本地或网络头像时使用 `profile_avatar_icon.png`；标题区居中加载正式 `ysplanter_wordmark.png` 字标。今日养护使用 `select_plant_icon.png`。后续页面遇到缺失图片资源时仍不裁切设计截图，获得正式素材后仅替换图片层，不改变页面结构。
 
 ## 页面跳转
 

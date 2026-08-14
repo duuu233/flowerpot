@@ -25,8 +25,8 @@ class AboutBrandLockup extends StatelessWidget {
         const SizedBox(height: AppSpacing.xl),
         Image.asset(
           AppAssets.ysplanterWordmark,
-          width: 184,
-          height: 39,
+          width: 170,
+          height: 36,
           fit: BoxFit.contain,
           filterQuality: FilterQuality.high,
           semanticLabel: model.appName,

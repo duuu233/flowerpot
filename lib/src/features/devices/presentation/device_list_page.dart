@@ -46,7 +46,7 @@ class DeviceListPage extends StatelessWidget {
               : ListView.separated(
                   key: const Key('device-list-view'),
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(20, 72, 20, 24),
+                  padding: const EdgeInsets.fromLTRB(20, 35, 20, 24),
                   itemCount: items.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
@@ -110,11 +110,11 @@ class _DeviceListCard extends StatelessWidget {
         child: SizedBox(
           height: 92,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 7, 17, 7),
+            padding: const EdgeInsets.fromLTRB(12, 7, 17, 7),
             child: Row(
               children: <Widget>[
                 SizedBox(
-                  width: 58,
+                  width: 52,
                   child: Center(
                     child: Image.asset(
                       AppAssets.smartPlanterWithPlant,
@@ -126,7 +126,7 @@ class _DeviceListCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 15),
                 Expanded(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -207,14 +207,18 @@ class _EmptyDeviceList extends StatelessWidget {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 180, 20, 24),
-      children: const <Widget>[
-        Icon(
-          Icons.devices_other_rounded,
-          color: AppColors.brandPrimary,
-          size: 54,
+      children: <Widget>[
+        Image.asset(
+          AppAssets.devicePlanterIcon,
+          key: const Key('empty-device-list-illustration'),
+          width: 54,
+          height: 54,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          excludeFromSemantics: true,
         ),
-        SizedBox(height: 16),
-        Text(
+        const SizedBox(height: 16),
+        const Text(
           '暂无设备',
           textAlign: TextAlign.center,
           style: TextStyle(

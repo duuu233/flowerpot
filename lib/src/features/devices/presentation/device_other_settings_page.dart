@@ -38,7 +38,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
           SliverToBoxAdapter(
             child: ResponsiveContent(
               maxWidth: 375,
-              padding: const EdgeInsets.fromLTRB(20, 72, 20, 40),
+              padding: const EdgeInsets.fromLTRB(20, AppSpacing.xl, 20, 40),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -566,7 +566,7 @@ class _GeneralSettingsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final settings = device.settings;
     return AppSurfaceCard(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       child: Column(
         children: <Widget>[
           _SettingsRow(
@@ -620,7 +620,7 @@ class _SystemFileNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       key: const Key('system-file-notice'),
-      margin: const EdgeInsets.fromLTRB(51, 0, 16, 7),
+      margin: const EdgeInsets.fromLTRB(51, 0, 16, AppSpacing.xxs),
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.md,
         vertical: AppSpacing.sm,
@@ -671,7 +671,7 @@ class _DeviceActionsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppSurfaceCard(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       child: Column(
         children: <Widget>[
           _SettingsRow(
@@ -722,7 +722,7 @@ class _SettingsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      minTileHeight: 44,
+      minTileHeight: 42,
       contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
       leading: Image.asset(
         assetPath,

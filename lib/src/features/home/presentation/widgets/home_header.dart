@@ -22,7 +22,7 @@ class HomeHeader extends StatelessWidget {
         alignment: Alignment.center,
         children: <Widget>[
           Align(
-            alignment: Alignment.centerRight,
+            alignment: Alignment.centerLeft,
             child: Semantics(
               button: true,
               label: '${userLabel.trim().isEmpty ? '用户' : userLabel}的头像',
@@ -57,8 +57,8 @@ class _YsplanterLogo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Image.asset(
       AppAssets.ysplanterWordmark,
-      width: 124,
-      height: 27,
+      width: 106,
+      height: 23,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       semanticLabel: 'YSplanter',

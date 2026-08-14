@@ -38,6 +38,14 @@ keyPassword=YOUR_KEY_PASSWORD
 storePassword=YOUR_STORE_PASSWORD
 ```
 
+不要在 `android.defaultConfig` 中手动配置 `ndk.abiFilters`。Flutter Gradle 插件会根据构建参数管理 ABI；手动过滤会与 `--split-per-abi` 注入的拆分配置冲突。生成按 ABI 拆分、使用正式证书签名的 release APK：
+
+```bash
+flutter build apk --release --split-per-abi --no-pub
+```
+
+该命令只决定 Android release 构建和拆包方式，不会自动启用真实涂鸦链路。真实设备生产构建仍需按第 5 节启用 `TUYA_ENABLED`，关闭静态预览，并完成密钥、安全组件、DP 与真机验证。
+
 ## 3. iOS
 
 解压平台生成的 `ios_core_sdk.tar.gz`，整理为：
@@ -82,6 +90,7 @@ D:\Work\Flutter\flutter\bin\flutter.bat run --dart-define=TUYA_ENABLED=true
 ## 6. 发布前检查
 
 - Android 包名、签名 SHA-256、AppKey/AppSecret、安全 AAR 完全匹配。
+- 使用 `apksigner verify` 核对所有待分发 APK 的签名有效且证书一致。
 - iOS Bundle ID、AppKey/AppSecret、ThingSmartCryption 完全匹配。
 - 关闭 release SDK debug 日志。
 - 购买/构建正式版 SDK，补齐隐私清单和第三方 SDK 清单。

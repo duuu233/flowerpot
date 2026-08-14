@@ -30,7 +30,12 @@ class MinePage extends StatelessWidget {
               SliverToBoxAdapter(
                 child: ResponsiveContent(
                   maxWidth: 375,
-                  padding: const EdgeInsets.fromLTRB(20, 64, 20, 16),
+                  padding: const EdgeInsets.fromLTRB(
+                    20,
+                    AppSpacing.xxxl,
+                    20,
+                    16,
+                  ),
                   child: MineProfileHeader(
                     model: model,
                     onEdit: () =>

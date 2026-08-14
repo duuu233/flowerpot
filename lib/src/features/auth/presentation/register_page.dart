@@ -109,7 +109,7 @@ class _RegisterPageState extends State<RegisterPage> {
           return SingleChildScrollView(
             child: ResponsiveContent(
               maxWidth: 375,
-              padding: const EdgeInsets.fromLTRB(28, 72, 28, 24),
+              padding: const EdgeInsets.fromLTRB(28, AppSpacing.xxxl, 28, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[

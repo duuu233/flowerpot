@@ -43,7 +43,7 @@ class HomeUnplantedContent extends StatelessWidget {
                     maxWidth: 375,
                     padding: EdgeInsets.fromLTRB(
                       horizontalPadding,
-                      16,
+                      AppSpacing.huge,
                       horizontalPadding,
                       74,
                     ),
