@@ -41,6 +41,44 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the scan advances without Wi-Fi credentials', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final state = FlowerpotState(
+      repository: MockTuyaRepository(latency: Duration.zero),
+    );
+    addTearDown(state.dispose);
+    Object? selectionArguments = 'unset';
+
+    await tester.pumpWidget(
+      FlowerpotScope(
+        state: state,
+        child: MaterialApp(
+          theme: buildAppTheme(),
+          home: const DeviceSearchPage(),
+          onGenerateRoute: (settings) {
+            if (settings.name == AppRoutes.deviceSelection) {
+              selectionArguments = settings.arguments;
+              return MaterialPageRoute<void>(
+                builder: (_) => const Scaffold(
+                  body: Center(child: Text('device-selection-target')),
+                ),
+              );
+            }
+            return null;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+
+    expect(find.text('device-selection-target'), findsOneWidget);
+    expect(selectionArguments, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('discovered devices open the selection page', (tester) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));

@@ -10,16 +10,18 @@ class HomeUnplantedContent extends StatelessWidget {
   const HomeUnplantedContent({
     required this.model,
     required this.onRefresh,
-    required this.onAvatarTap,
     required this.onAddPlant,
     super.key,
     this.avatarImage,
+    this.onAvatarTap,
+    this.onBack,
   });
 
   final HomeDashboardModel model;
   final ImageProvider<Object>? avatarImage;
   final Future<void> Function() onRefresh;
-  final VoidCallback onAvatarTap;
+  final VoidCallback? onAvatarTap;
+  final VoidCallback? onBack;
   final VoidCallback onAddPlant;
 
   @override
@@ -54,6 +56,7 @@ class HomeUnplantedContent extends StatelessWidget {
                           userLabel: model.userLabel,
                           avatarImage: avatarImage,
                           onAvatarTap: onAvatarTap,
+                          onBack: onBack,
                         ),
                         const SizedBox(height: 37),
                         _UnplantedHero(model: model),

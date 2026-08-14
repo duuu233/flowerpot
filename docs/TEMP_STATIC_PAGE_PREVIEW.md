@@ -1,39 +1,46 @@
-# 临时静态页面调试入口
+# 静态演示构建
 
-## 本次调整
+## 用途
 
-为了集中调整静态页面样式，项目当前启用了临时“页面场景调试目录”：
+当前构建用于向他人演示整体 UI 效果：走真实的导航链路，但后端是 Mock，账号下没有任何已绑定设备，
+因此可以从「登录 → 无设备 → 配网 → 设备列表 → 选择植物 → 设备详情」完整走一遍。
 
-- App 启动默认进入调试目录，不再根据登录状态进入登录页或首页。
-- 目录按业务模块列出了现有页面；同一页面的重要状态（例如验证码/密码登录、有无设备、有无植物、配网成功/失败、水位/土壤湿度、空设备列表、植物绑定状态）均拆成独立入口。
-- 有对应 `docs/UI/*.png` 的页面，目录标题与图片文件名（不含扩展名）保持一致；额外调试状态统一使用 `页面名-状态` 命名。
-- UI 中不存在的旧“设备详情”页已移除；`植物详情.png` 对应目录中的“植物详情”，未绑定状态单列为“植物详情-未绑定”。
-- 临时模式启动后自动进入本地演示模式并准备演示设备，设备、传感器、报表和设置页面可直接预览。
-- 所有从目录打开的页面右下角均显示“返回目录”按钮；在页面内继续跳转后，该按钮仍然存在。
-- 目录支持按页面名称或状态搜索。
+早期的「页面场景调试目录」已移除，App 启动直接进入登录页。
+
+## 演示动线
+
+1. **登录页**：输入任意手机号 + 任意验证码，勾选协议后登录（Mock 仓库不校验手机号格式）。
+2. **登录后无设备**：底部菜单出现「首页 / 我的」；首页 Tab 在无设备时显示该页。
+3. **添加设备**：搜索设备 → 选择设备 → 连接 Wi-Fi → 连接成功（「已完成」回到首页）。
+4. **设备列表**：绑定设备后首页 Tab 即为设备列表；左上角是个人中心入口，右上角是添加设备。
+5. **设备详情**：点击设备先进入「未添加植物」，选择植物后进入详情页；两页左上角都是返回按钮。
+
+## 页面归属
+
+| 位置 | 页面 |
+| --- | --- |
+| 底部 Tab「首页」（无设备） | `HomePage` → `HomeEmptyDeviceContent` |
+| 底部 Tab「首页」（有设备） | `DeviceListPage` |
+| 底部 Tab「我的」 | `MinePage(showBackButton: false)` |
+| 设备页（未添加植物） | `HomePage(scene: withoutPlant, showBackButton: true)` |
+| 设备页（详情） | `HomePage(scene: withCompanionSummary, showBackButton: true)` |
 
 ## 相关文件
 
-- `lib/src/features/preview/preview_config.dart`：临时模式总开关与演示设备 ID。
-- `lib/src/features/preview/presentation/preview_hub_page.dart`：页面与状态目录。
-- `lib/src/features/preview/presentation/preview_return_overlay.dart`：统一返回目录按钮。
-- `lib/src/routes/app_routes.dart`：临时默认入口、鉴权旁路和返回按钮包装。
-- `lib/src/app/flowerpot_app.dart`：临时模式下准备本地演示数据。
+- `lib/src/features/preview/preview_config.dart`：演示模式开关。
+- `lib/src/features/shell/presentation/shell_page.dart`：底部菜单与首页 Tab 分流。
+- `lib/src/features/home/presentation/home_page.dart`：三种首页/设备页形态与 `HomeDeviceArguments`。
+- `lib/src/features/home/presentation/widgets/home_header.dart`：左上角个人中心入口与返回按钮的切换。
+- `lib/src/routes/app_routes.dart`：命名路由，含 `deviceHome`。
 
-## 页面调试完成后恢复真实流程
+## 恢复正式数据
 
-将以下开关改为 `false` 即可恢复原有启动与鉴权流程：
+`StaticPreviewConfig.enabled` 只控制 Mock 后端是否预置一台演示设备，不再影响启动入口或鉴权：
 
 ```dart
 // lib/src/features/preview/preview_config.dart
 static const bool enabled = false;
 ```
 
-关闭后：
-
-1. 根路由重新按登录状态进入 `AuthPage` 或 `AppShell`。
-2. 受保护路由重新启用登录鉴权。
-3. 启动时不再自动进入演示模式。
-4. 业务页面不再显示“返回目录”悬浮按钮。
-
-预览目录代码无需立即删除，保留后可用于后续 UI 回归；若确定不再需要，可删除 `features/preview` 目录、本文档，并移除 `flowerpot_app.dart` 与 `app_routes.dart` 中对应引用。
+置为 `false` 后，Mock 仓库重新预置 `planter-demo-01`，登录后直接进入设备列表。
+启动入口、鉴权分流和页面导航在两种取值下完全一致。

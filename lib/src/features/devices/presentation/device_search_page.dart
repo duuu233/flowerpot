@@ -28,16 +28,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       vsync: this,
       duration: const Duration(seconds: 4),
     )..repeat();
-    if (widget.request != null) {
-      _discoveryTimer = Timer(const Duration(seconds: 2), () {
-        if (!mounted) return;
-        Navigator.pushReplacementNamed(
-          context,
-          AppRoutes.deviceSelection,
-          arguments: widget.request,
-        );
-      });
-    }
+    // Discovery is the first pairing step now, so the scan always advances to
+    // the device list; Wi-Fi credentials are collected after a device is
+    // connected.
+    _discoveryTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.deviceSelection,
+        arguments: widget.request,
+      );
+    });
   }
 
   @override

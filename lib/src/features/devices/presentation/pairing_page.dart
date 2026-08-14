@@ -5,16 +5,34 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 
+/// Route arguments for the Wi-Fi step, which now runs after a device is
+/// connected on the selection page.
+class PairingArguments {
+  const PairingArguments({this.deviceName, this.request});
+
+  /// Planter picked on the selection page, shown above the credentials.
+  final String? deviceName;
+
+  /// Credentials from a previous attempt, so a retry keeps what was entered.
+  final PairingRequest? request;
+}
+
 class PairingPage extends StatefulWidget {
-  const PairingPage({super.key});
+  const PairingPage({super.key, this.arguments});
+
+  final PairingArguments? arguments;
 
   @override
   State<PairingPage> createState() => _PairingPageState();
 }
 
 class _PairingPageState extends State<PairingPage> {
-  final ssidController = TextEditingController(text: 'Home_2.4G');
-  final passwordController = TextEditingController(text: '12345678');
+  late final ssidController = TextEditingController(
+    text: widget.arguments?.request?.ssid ?? 'Home_2.4G',
+  );
+  late final passwordController = TextEditingController(
+    text: widget.arguments?.request?.password ?? '12345678',
+  );
 
   @override
   void dispose() {
@@ -42,14 +60,26 @@ class _PairingPageState extends State<PairingPage> {
       return;
     }
 
-    await Navigator.pushNamed(
+    final state = FlowerpotScope.of(context);
+    final request = PairingRequest(
+      ssid: ssidController.text.trim(),
+      password: passwordController.text,
+      mode: 'ap',
+    );
+    final result = await state.pairDevice(request);
+    if (!mounted) return;
+    if (!result.success) {
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.pairingFailure,
+        arguments: request,
+      );
+      return;
+    }
+    Navigator.pushReplacementNamed(
       context,
-      AppRoutes.deviceSearch,
-      arguments: PairingRequest(
-        ssid: ssidController.text.trim(),
-        password: passwordController.text,
-        mode: 'ap',
-      ),
+      AppRoutes.pairingSuccess,
+      arguments: state.selectedDevice!.id,
     );
   }
 
@@ -72,6 +102,19 @@ class _PairingPageState extends State<PairingPage> {
                 children: <Widget>[
                   const _WifiConnectionIllustration(),
                   const SizedBox(height: 27),
+                  if (widget.arguments?.deviceName case final String name) ...[
+                    Text(
+                      '已连接 $name',
+                      key: const Key('pairing-connected-device'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   const Text(
                     '请将设备连接到2.4GHz Wi-Fi网络',
                     textAlign: TextAlign.center,

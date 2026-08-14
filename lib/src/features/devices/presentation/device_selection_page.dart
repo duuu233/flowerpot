@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import 'pairing_page.dart';
 
 class DeviceSelectionPage extends StatefulWidget {
   const DeviceSelectionPage({super.key, this.request});
@@ -23,30 +23,22 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
 
   int? _connectingIndex;
 
+  /// Connects to the picked planter, then collects the Wi-Fi credentials.
+  /// Provisioning itself runs on the Wi-Fi page.
   Future<void> _connect(int index) async {
     if (_connectingIndex != null) return;
-    if (widget.request == null) {
-      await Navigator.pushNamed(context, AppRoutes.pairing);
-      return;
-    }
-
     setState(() => _connectingIndex = index);
-    final state = FlowerpotScope.of(context);
-    final result = await state.pairDevice(widget.request!);
+    await Future<void>.delayed(const Duration(milliseconds: 600));
     if (!mounted) return;
-    if (!result.success) {
-      setState(() => _connectingIndex = null);
-      Navigator.pushReplacementNamed(
-        context,
-        AppRoutes.pairingFailure,
-        arguments: widget.request,
-      );
-      return;
-    }
-    Navigator.pushReplacementNamed(
+    setState(() => _connectingIndex = null);
+    await Navigator.pushNamed(
       context,
-      AppRoutes.pairingSuccess,
-      arguments: state.selectedDevice!.id,
+      AppRoutes.pairing,
+      arguments: PairingArguments(
+        deviceName: _devices[index].name,
+        // Carries the credentials back when arriving from the failure page.
+        request: widget.request,
+      ),
     );
   }
 

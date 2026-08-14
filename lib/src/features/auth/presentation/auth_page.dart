@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import '../../preview/preview_config.dart';
 import 'password_page.dart';
 import 'verification_code_countdown.dart';
 import 'widgets/auth_asset_icon.dart';
@@ -84,7 +85,9 @@ class _AuthPageState extends State<AuthPage> {
   }
 
   Future<void> _enterDemo() async {
-    final result = await FlowerpotScope.of(context).enterDemo();
+    final result = await FlowerpotScope.of(
+      context,
+    ).enterDemo(seedDevice: !StaticPreviewConfig.enabled);
     if (!mounted) return;
     if (result.success) {
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.shell, (_) => false);

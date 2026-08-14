@@ -29,7 +29,7 @@
 | [`UI/UI_ASSET_INTEGRATION_PROGRESS.md`](UI/UI_ASSET_INTEGRATION_PROGRESS.md) | Tracking | 图片和图标接入进度。 |
 | [`history/README.md`](history/README.md) | Active | 本地操作更新记录规则、模板与索引。 |
 
-`FIGMA_DESIGN_ANALYSIS.md` 和 `UI/*_IMPLEMENTATION.md` 是设计分析或页面级说明；使用前核对其日期和当前源码。`TEMP_STATIC_PAGE_PREVIEW.md` 只描述临时预览流程，不承担生产配置说明。原始 DOCX 和 PNG 是输入资料，不是当前代码事实。
+`FIGMA_DESIGN_ANALYSIS.md` 和 `UI/*_IMPLEMENTATION.md` 是设计分析或页面级说明；使用前核对其日期和当前源码。[`TEMP_STATIC_PAGE_PREVIEW.md`](TEMP_STATIC_PAGE_PREVIEW.md) 描述当前静态演示构建的动线与开关，不承担生产配置说明。原始 DOCX 和 PNG 是输入资料，不是当前代码事实。
 
 ## CodeGraph 与文档的边界
 
@@ -60,4 +60,4 @@ codegraph sync .
 
 记录路径为 `history/YYYY-MM/YYYY-MM-DD-topic.md`。一次集中修改对应一份记录，不维护无限增长的单文件日志。不得记录 Token、涂鸦密钥、安全组件、签名资料、Wi-Fi 密码、个人数据或完整本地配置。
 
-最近记录：[`history/2026-08/2026-08-14-android-split-release-build.md`](history/2026-08/2026-08-14-android-split-release-build.md)。
+最近记录：[`history/2026-08/2026-08-15-demo-navigation-and-app-icons.md`](history/2026-08/2026-08-15-demo-navigation-and-app-icons.md)。

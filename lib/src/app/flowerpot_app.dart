@@ -19,20 +19,17 @@ class FlowerpotApp extends StatefulWidget {
 
 class _FlowerpotAppState extends State<FlowerpotApp> {
   late final FlowerpotState state = FlowerpotState(
-    repository: widget.repository ?? TuyaRepository.create(),
+    repository:
+        widget.repository ??
+        TuyaRepository.create(seedMockDevice: !StaticPreviewConfig.enabled),
   );
 
   @override
   void initState() {
     super.initState();
-    unawaited(_initializeState());
-  }
-
-  Future<void> _initializeState() async {
-    await state.initialize();
-    if (StaticPreviewConfig.enabled) {
-      await state.enterDemo();
-    }
+    // The demo build starts signed out on the login page like the real app;
+    // it only differs in that the mock backend owns no planter yet.
+    unawaited(state.initialize());
   }
 
   @override

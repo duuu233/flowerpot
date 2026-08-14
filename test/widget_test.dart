@@ -5,108 +5,163 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('preview hub is the default entry and pages return to it', (
+  testWidgets('the app opens on the login page without a tab bar', (
     tester,
   ) async {
-    await _pumpPreviewHub(tester, const Size(375, 812));
-
-    expect(find.text('页面场景\n调试目录'), findsOneWidget);
-    expect(find.byKey(const Key('preview-search-field')), findsOneWidget);
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('preview-scenario-auth-code')),
-    );
-    await tester.pumpAndSettle();
+    await _pumpApp(tester, const Size(375, 812));
 
     expect(find.text('登录账号，连接和管理你的智能设备'), findsOneWidget);
-    expect(find.byKey(const Key('preview-return-button')), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('preview-return-button')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('页面场景\n调试目录'), findsOneWidget);
+    expect(find.text('验证码登录'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('preview catalogue reaches the Figma home at 375x812', (
+  testWidgets('any phone number and code sign in to the empty-device home', (
     tester,
   ) async {
-    await _openPreviewHome(tester, const Size(375, 812));
+    await _pumpApp(tester, const Size(375, 812));
+    await _signIn(tester);
 
-    expect(find.bySemanticsLabel('YSplanter'), findsOneWidget);
+    expect(find.text('暂无设备'), findsOneWidget);
+    expect(find.byKey(const Key('add-device-button')), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(_tabLabel('首页'), findsOneWidget);
+    expect(_tabLabel('我的'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the bottom tab bar switches to the profile centre', (
+    tester,
+  ) async {
+    await _pumpApp(tester, const Size(375, 812));
+    await _signIn(tester);
+
+    expect(_selectedTab(tester), 0);
+
+    await tester.tap(_tabLabel('我的'));
+    await tester.pumpAndSettle();
+
+    expect(_selectedTab(tester), 1);
+    expect(find.text('个人信息'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('pairing runs search → selection → Wi-Fi → success', (
+    tester,
+  ) async {
+    await _pumpApp(tester, const Size(375, 812));
+    await _signIn(tester);
+
+    await tester.tap(find.byKey(const Key('add-device-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('搜索附近设备…'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.text('请选择需要连接的设备'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('connect-device-0')));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+    expect(find.text('连接Wi-Fi'), findsOneWidget);
+    expect(find.byKey(const Key('pairing-connected-device')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pairing-success-title')), findsOneWidget);
+    expect(find.text('已完成'), findsOneWidget);
+    expect(find.byKey(const Key('success-add-plant-button')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('success-return-home-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('设备列表'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the device list opens the unplanted page, then details', (
+    tester,
+  ) async {
+    await _pumpApp(tester, const Size(375, 812), seedDevice: true);
+    await _signIn(tester);
+
+    expect(find.text('设备列表'), findsOneWidget);
+    expect(find.byKey(const Key('device-list-profile-button')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('device-list-item-planter-demo-01')));
+    await tester.pumpAndSettle();
+    expect(find.text('还未添加植物'), findsOneWidget);
+    expect(find.byKey(const Key('home-back-button')), findsOneWidget);
+
+    await tester.tap(find.text('添加植物'));
+    await tester.pumpAndSettle();
+    expect(find.text('确认添加'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('confirm-plant-selection')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('还未添加植物'), findsNothing);
     expect(find.text('定制动画'), findsOneWidget);
     expect(find.text('电池状态'), findsOneWidget);
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
-  testWidgets('preview catalogue follows UI image names', (tester) async {
-    await _pumpPreviewHub(tester, const Size(375, 812));
-
-    final search = find.byKey(const Key('preview-search-field'));
-    await tester.enterText(search, '植物详情');
-    await tester.pumpAndSettle();
-
-    final boundPlantDetail = find.byKey(
-      const ValueKey<String>('preview-scenario-plant-detail-bound'),
-    );
-    final unboundPlantDetail = find.byKey(
-      const ValueKey<String>('preview-scenario-plant-detail-unbound'),
-    );
-    expect(boundPlantDetail, findsOneWidget);
-    expect(unboundPlantDetail, findsOneWidget);
-    expect(
-      find.descendant(of: boundPlantDetail, matching: find.text('植物详情')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: unboundPlantDetail, matching: find.text('植物详情-未绑定')),
-      findsOneWidget,
-    );
-
-    await tester.enterText(search, '设备详情');
-    await tester.pumpAndSettle();
-
-    expect(find.text('没有匹配的页面场景'), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey<String>('preview-scenario-device-dashboard')),
-      findsNothing,
-    );
-  });
-
-  testWidgets('home remains usable on a compact 320x568 iPhone viewport', (
+  testWidgets('home remains usable on a compact 320x568 viewport', (
     tester,
   ) async {
-    await _openPreviewHome(tester, const Size(320, 568));
+    await _pumpApp(tester, const Size(320, 568), seedDevice: true);
+    await _signIn(tester);
 
-    expect(find.bySemanticsLabel('YSplanter'), findsOneWidget);
-    expect(find.text('设置'), findsOneWidget);
+    expect(find.text('设备列表'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
 
-Future<void> _pumpPreviewHub(WidgetTester tester, Size size) async {
+/// The shell keeps both tabs in an [IndexedStack], so tab labels have to be
+/// matched inside the [NavigationBar] rather than anywhere in the tree.
+Finder _tabLabel(String label) => find.descendant(
+  of: find.byType(NavigationBar),
+  matching: find.text(label),
+);
+
+int _selectedTab(WidgetTester tester) =>
+    tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex;
+
+Future<void> _pumpApp(
+  WidgetTester tester,
+  Size size, {
+  bool seedDevice = false,
+}) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
   SharedPreferences.setMockInitialValues(<String, Object>{});
   await tester.pumpWidget(
-    FlowerpotApp(repository: MockTuyaRepository(latency: Duration.zero)),
+    FlowerpotApp(
+      repository: MockTuyaRepository(
+        latency: Duration.zero,
+        seedDevice: seedDevice,
+      ),
+    ),
   );
   await tester.pumpAndSettle();
 }
 
-Future<void> _openPreviewHome(WidgetTester tester, Size size) async {
-  await _pumpPreviewHub(tester, size);
+/// Signs in with an arbitrary phone number and code, which is all the demo
+/// build asks for.
+Future<void> _signIn(WidgetTester tester) async {
+  await tester.enterText(find.byType(TextField).first, '13800000000');
+  await tester.enterText(find.byType(TextField).at(1), '8888');
 
-  await tester.enterText(
-    find.byKey(const Key('preview-search-field')),
-    '已添加植物',
-  );
+  final agreement = find.byType(Checkbox);
+  await tester.ensureVisible(agreement);
   await tester.pumpAndSettle();
-  final homeButton = find.byKey(
-    const ValueKey<String>('preview-scenario-home-companion'),
-  );
-  await tester.ensureVisible(homeButton);
+  await tester.tap(agreement);
   await tester.pumpAndSettle();
-  await tester.tap(homeButton);
+
+  final loginButton = find.widgetWithText(FilledButton, '登录');
+  await tester.ensureVisible(loginButton);
+  await tester.pumpAndSettle();
+  await tester.tap(loginButton);
   await tester.pumpAndSettle();
 }

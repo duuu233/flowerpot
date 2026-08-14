@@ -1,6 +1,8 @@
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_list_page.dart';
+import 'package:flowerpot/src/features/home/models/home_dashboard_model.dart';
+import 'package:flowerpot/src/features/home/presentation/home_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -25,6 +27,21 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the header leads to the profile centre instead of going back', (
+    tester,
+  ) async {
+    await _pumpDeviceList(tester, const Size(375, 812), withRoutes: true);
+
+    expect(find.byKey(const Key('device-list-profile-button')), findsOneWidget);
+    expect(find.byType(AppBackButton), findsNothing);
+
+    await tester.tap(find.byKey(const Key('device-list-profile-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('mine-target'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('device list remains usable at 320x568', (tester) async {
     await _pumpDeviceList(tester, const Size(320, 568));
 
@@ -36,33 +53,56 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('add button opens the pairing flow', (tester) async {
+  testWidgets('add button starts the pairing flow with the device search', (
+    tester,
+  ) async {
     await _pumpDeviceList(tester, const Size(375, 812), withRoutes: true);
 
     await tester.tap(find.byKey(const Key('device-list-add-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('pairing-target'), findsOneWidget);
+    expect(find.text('device-search-target'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('device card selects the device and returns to the home shell', (
-    tester,
-  ) async {
-    var shellOpened = false;
+  testWidgets('device card opens the unplanted device page', (tester) async {
+    Object? deviceArguments;
     final state = await _pumpDeviceList(
       tester,
       const Size(375, 812),
       withRoutes: true,
-      onShellOpened: () => shellOpened = true,
+      onDeviceArguments: (value) => deviceArguments = value,
     );
 
     await tester.tap(find.byKey(const Key('device-list-item-device-02')));
     await tester.pumpAndSettle();
 
-    expect(find.text('home-shell-target'), findsOneWidget);
-    expect(shellOpened, isTrue);
+    expect(find.text('device-home-target'), findsOneWidget);
     expect(state.selectedDevice?.id, 'device-02');
+    final arguments = deviceArguments! as HomeDeviceArguments;
+    expect(arguments.deviceId, 'device-02');
+    expect(arguments.scene, HomeDashboardScene.withoutPlant);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a device with a chosen plant opens the detail page', (
+    tester,
+  ) async {
+    Object? deviceArguments;
+    final state = await _pumpDeviceList(
+      tester,
+      const Size(375, 812),
+      withRoutes: true,
+      onDeviceArguments: (value) => deviceArguments = value,
+    );
+    await state.selectPlant('device-02', PlantCatalog.items.first);
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('device-list-item-device-02')));
+    await tester.pumpAndSettle();
+
+    final arguments = deviceArguments! as HomeDeviceArguments;
+    expect(arguments.scene, HomeDashboardScene.withCompanionSummary);
     expect(tester.takeException(), isNull);
   });
 }
@@ -71,7 +111,7 @@ Future<FlowerpotState> _pumpDeviceList(
   WidgetTester tester,
   Size size, {
   bool withRoutes = false,
-  VoidCallback? onShellOpened,
+  ValueChanged<Object?>? onDeviceArguments,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -86,18 +126,25 @@ Future<FlowerpotState> _pumpDeviceList(
         home: const DeviceListPage(),
         onGenerateRoute: withRoutes
             ? (settings) {
-                if (settings.name == AppRoutes.pairing) {
+                if (settings.name == AppRoutes.deviceSearch) {
                   return MaterialPageRoute<void>(
                     builder: (_) => const Scaffold(
-                      body: Center(child: Text('pairing-target')),
+                      body: Center(child: Text('device-search-target')),
                     ),
                   );
                 }
-                if (settings.name == AppRoutes.shell) {
-                  onShellOpened?.call();
+                if (settings.name == AppRoutes.deviceHome) {
+                  onDeviceArguments?.call(settings.arguments);
                   return MaterialPageRoute<void>(
                     builder: (_) => const Scaffold(
-                      body: Center(child: Text('home-shell-target')),
+                      body: Center(child: Text('device-home-target')),
+                    ),
+                  );
+                }
+                if (settings.name == AppRoutes.mine) {
+                  return MaterialPageRoute<void>(
+                    builder: (_) => const Scaffold(
+                      body: Center(child: Text('mine-target')),
                     ),
                   );
                 }

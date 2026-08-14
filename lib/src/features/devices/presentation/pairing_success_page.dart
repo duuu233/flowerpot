@@ -2,25 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
-import 'plant_picker_page.dart';
 
 class PairingSuccessPage extends StatelessWidget {
   const PairingSuccessPage({required this.deviceId, super.key});
 
   final String deviceId;
 
-  void _addPlant(BuildContext context) {
-    Navigator.pushReplacementNamed(
-      context,
-      AppRoutes.plantPicker,
-      arguments: PlantPickerArguments(
-        deviceId: deviceId,
-        mode: PlantPickerMode.add,
-      ),
-    );
-  }
-
-  void _returnHome(BuildContext context) {
+  /// Ends the pairing flow. Plants are picked later, from the device page.
+  void _finish(BuildContext context) {
     Navigator.pushNamedAndRemoveUntil(context, AppRoutes.shell, (_) => false);
   }
 
@@ -83,40 +72,19 @@ class PairingSuccessPage extends StatelessWidget {
                     Positioned(
                       left: horizontalPadding,
                       right: horizontalPadding,
-                      bottom: 75,
+                      bottom: 10,
                       child: SizedBox(
                         height: 50,
                         child: FilledButton(
-                          key: const Key('success-add-plant-button'),
-                          onPressed: () => _addPlant(context),
+                          key: const Key('success-return-home-button'),
+                          onPressed: () => _finish(context),
                           style: FilledButton.styleFrom(
                             backgroundColor: AppColors.brandPrimary,
                             foregroundColor: AppColors.surface,
                             shape: const StadiumBorder(),
                             textStyle: const TextStyle(fontSize: 19),
                           ),
-                          child: const Text('添加植物'),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: horizontalPadding,
-                      right: horizontalPadding,
-                      bottom: 10,
-                      child: SizedBox(
-                        height: 50,
-                        child: OutlinedButton(
-                          key: const Key('success-return-home-button'),
-                          onPressed: () => _returnHome(context),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.brandPrimary,
-                            side: const BorderSide(
-                              color: AppColors.brandPrimary,
-                            ),
-                            shape: const StadiumBorder(),
-                            textStyle: const TextStyle(fontSize: 19),
-                          ),
-                          child: const Text('返回首页'),
+                          child: const Text('已完成'),
                         ),
                       ),
                     ),

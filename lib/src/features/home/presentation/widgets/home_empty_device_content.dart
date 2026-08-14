@@ -7,16 +7,18 @@ class HomeEmptyDeviceContent extends StatelessWidget {
   const HomeEmptyDeviceContent({
     required this.userLabel,
     required this.onRefresh,
-    required this.onAvatarTap,
     required this.onAddDevice,
     super.key,
     this.avatarImage,
+    this.onAvatarTap,
+    this.onBack,
   });
 
   final String userLabel;
   final ImageProvider<Object>? avatarImage;
   final Future<void> Function() onRefresh;
-  final VoidCallback onAvatarTap;
+  final VoidCallback? onAvatarTap;
+  final VoidCallback? onBack;
   final VoidCallback onAddDevice;
 
   @override
@@ -50,6 +52,7 @@ class HomeEmptyDeviceContent extends StatelessWidget {
                             userLabel: userLabel,
                             avatarImage: avatarImage,
                             onAvatarTap: onAvatarTap,
+                            onBack: onBack,
                           ),
                         ),
                         const Positioned(

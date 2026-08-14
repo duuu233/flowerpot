@@ -7,8 +7,12 @@ import 'tuya_config.dart';
 import 'tuya_models.dart';
 
 abstract class TuyaRepository {
-  factory TuyaRepository.create() =>
-      TuyaConfig.enabled ? MethodChannelTuyaRepository() : MockTuyaRepository();
+  /// [seedMockDevice] pre-binds a demo planter to the mock backend. The static
+  /// UI demo turns it off so the flow starts from the "no device yet" screen.
+  factory TuyaRepository.create({bool seedMockDevice = true}) =>
+      TuyaConfig.enabled
+      ? MethodChannelTuyaRepository()
+      : MockTuyaRepository(seedDevice: seedMockDevice);
 
   Future<bool> initialize();
   Future<AppUser?> restoreSession();
@@ -327,12 +331,19 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 }
 
 class MockTuyaRepository implements TuyaRepository {
-  MockTuyaRepository({this.latency = const Duration(milliseconds: 260)});
+  MockTuyaRepository({
+    this.latency = const Duration(milliseconds: 260),
+    this.seedDevice = true,
+  });
 
   final Duration latency;
+
+  /// Whether the account already owns a planter before any pairing runs.
+  final bool seedDevice;
+
   AppUser? _user;
   late final List<SmartPlanterDevice> _devices = <SmartPlanterDevice>[
-    _demoDevice(),
+    if (seedDevice) _demoDevice(),
   ];
 
   Future<void> _wait() => Future<void>.delayed(latency);

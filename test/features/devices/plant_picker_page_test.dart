@@ -2,6 +2,8 @@ import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/plant_detail_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/plant_picker_page.dart';
+import 'package:flowerpot/src/features/home/models/home_dashboard_model.dart';
+import 'package:flowerpot/src/features/home/presentation/home_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
@@ -53,21 +55,23 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('confirming an added plant returns to the home shell', (
+  testWidgets('confirming an added plant opens the device detail page', (
     tester,
   ) async {
-    var shellOpened = false;
+    Object? deviceArguments;
     await _pumpPlantPicker(
       tester,
       const Size(375, 812),
-      onShellOpened: () => shellOpened = true,
+      onDeviceArguments: (value) => deviceArguments = value,
     );
 
     await tester.tap(find.byKey(const Key('confirm-plant-selection')));
     await tester.pumpAndSettle();
 
-    expect(find.text('home-shell-target'), findsOneWidget);
-    expect(shellOpened, isTrue);
+    expect(find.text('device-home-target'), findsOneWidget);
+    final arguments = deviceArguments! as HomeDeviceArguments;
+    expect(arguments.deviceId, 'unplanted-device');
+    expect(arguments.scene, HomeDashboardScene.withCompanionSummary);
     expect(tester.takeException(), isNull);
   });
 
@@ -115,7 +119,7 @@ Future<void> _pumpPlantPicker(
   WidgetTester tester,
   Size size, {
   bool withExistingPlant = false,
-  VoidCallback? onShellOpened,
+  ValueChanged<Object?>? onDeviceArguments,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -129,11 +133,11 @@ Future<void> _pumpPlantPicker(
       child: MaterialApp(
         theme: buildAppTheme(),
         onGenerateRoute: (settings) {
-          if (settings.name == AppRoutes.shell) {
-            onShellOpened?.call();
+          if (settings.name == AppRoutes.deviceHome) {
+            onDeviceArguments?.call(settings.arguments);
             return MaterialPageRoute<void>(
               builder: (_) => const Scaffold(
-                body: Center(child: Text('home-shell-target')),
+                body: Center(child: Text('device-home-target')),
               ),
             );
           }

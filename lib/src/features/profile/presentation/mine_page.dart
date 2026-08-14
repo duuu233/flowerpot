@@ -8,9 +8,13 @@ import 'widgets/mine_menu_list.dart';
 import 'widgets/mine_profile_header.dart';
 
 class MinePage extends StatelessWidget {
-  const MinePage({super.key, this.pageModel});
+  const MinePage({super.key, this.pageModel, this.showBackButton = true});
 
   final MinePageModel? pageModel;
+
+  /// The shell renders this page as a bottom tab, where a back button would
+  /// have nothing to pop.
+  final bool showBackButton;
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +22,11 @@ class MinePage extends StatelessWidget {
     final model = pageModel ?? MinePageModel.fromUser(state.user);
 
     return AppPageScaffold(
-      appBar: const AppPageHeader(title: '我的', leading: AppBackButton()),
+      appBar: AppPageHeader(
+        title: '我的',
+        leading: showBackButton ? const AppBackButton() : null,
+        automaticallyImplyLeading: showBackButton,
+      ),
       background: AppPageBackground.standard,
       body: LayoutBuilder(
         builder: (context, constraints) {

@@ -35,9 +35,7 @@ import '../features/profile/presentation/login_password_page.dart';
 import '../features/profile/presentation/mine_page.dart';
 import '../features/profile/presentation/modify_password_page.dart';
 import '../features/profile/presentation/profile_page.dart';
-import '../features/preview/preview_config.dart';
-import '../features/preview/presentation/preview_hub_page.dart';
-import '../features/preview/presentation/preview_return_overlay.dart';
+import '../features/home/presentation/home_page.dart';
 import '../features/shell/presentation/shell_page.dart';
 import '../tuya/tuya_models.dart';
 
@@ -55,6 +53,7 @@ abstract final class AppRoutes {
   static const deviceSearch = '/devices/search';
   static const deviceSelection = '/devices/select';
   static const deviceList = '/devices/list';
+  static const deviceHome = '/devices/home';
   static const deviceInfo = '/devices/info';
   static const deviceOtherSettings = '/devices/other-settings';
   static const reports = '/devices/reports';
@@ -87,19 +86,11 @@ abstract final class AppRoutes {
     final public = <String>{auth, register, password, privacy, agreement};
     final requested = settings.name ?? root;
     final name =
-        !StaticPreviewConfig.enabled &&
-            !authenticated &&
-            requested != root &&
-            !public.contains(requested)
+        !authenticated && requested != root && !public.contains(requested)
         ? auth
         : requested;
     final page = switch (name) {
-      root =>
-        StaticPreviewConfig.enabled
-            ? const PreviewHubPage()
-            : authenticated
-            ? const AppShell()
-            : const AuthPage(),
+      root => authenticated ? const AppShell() : const AuthPage(),
       auth => const AuthPage(),
       register => const RegisterPage(),
       password => PasswordPage(
@@ -118,7 +109,9 @@ abstract final class AppRoutes {
             const ModifyPasswordArguments(),
       ),
       shell => const AppShell(),
-      pairing => const PairingPage(),
+      pairing => PairingPage(
+        arguments: settings.arguments as PairingArguments?,
+      ),
       pairingFailure => PairingFailurePage(
         request: settings.arguments as PairingRequest?,
       ),
@@ -132,6 +125,7 @@ abstract final class AppRoutes {
         request: settings.arguments as PairingRequest?,
       ),
       deviceList => const DeviceListPage(),
+      deviceHome => _deviceHomePage(settings.arguments),
       deviceInfo => DeviceInfoPage(deviceId: settings.arguments! as String),
       deviceOtherSettings => DeviceOtherSettingsPage(
         deviceId: settings.arguments! as String,
@@ -180,13 +174,21 @@ abstract final class AppRoutes {
       about => const AboutPage(),
       _ => const AuthPage(),
     };
-    final routedPage = StaticPreviewConfig.enabled && name != root
-        ? PreviewReturnOverlay(child: page)
-        : page;
     return MaterialPageRoute<dynamic>(
-      builder: (_) => routedPage,
+      builder: (_) => page,
       settings: RouteSettings(name: name, arguments: settings.arguments),
     );
+  }
+
+  static Widget _deviceHomePage(Object? arguments) {
+    if (arguments is HomeDeviceArguments) {
+      return HomePage(
+        deviceId: arguments.deviceId,
+        scene: arguments.scene,
+        showBackButton: true,
+      );
+    }
+    return HomePage(deviceId: arguments as String?, showBackButton: true);
   }
 
   static Widget _waterStatusPage(Object? arguments) {

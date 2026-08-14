@@ -1,10 +1,9 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../../shared/shared.dart';
 import '../../devices/models/water_status_page_model.dart';
 import '../../devices/presentation/plant_picker_page.dart';
 import '../models/home_dashboard_model.dart';
@@ -16,27 +15,56 @@ import 'widgets/home_plant_overview.dart';
 import 'widgets/home_quick_actions.dart';
 import 'widgets/home_unplanted_content.dart';
 
+/// Route arguments for a device page pushed from the device list.
+class HomeDeviceArguments {
+  const HomeDeviceArguments({required this.deviceId, required this.scene});
+
+  final String deviceId;
+  final HomeDashboardScene scene;
+}
+
 class HomePage extends StatelessWidget {
   const HomePage({
     super.key,
     this.dashboard,
     this.scene = HomeDashboardScene.withCompanionSummary,
+    this.deviceId,
+    this.showBackButton = false,
+    this.onOpenProfile,
   });
 
   final HomeDashboardModel? dashboard;
   final HomeDashboardScene scene;
 
+  /// Device to render. Falls back to the currently selected device.
+  final String? deviceId;
+
+  /// Pushed device pages show a back button where a root tab shows the
+  /// profile entry.
+  final bool showBackButton;
+
+  /// Overrides how the profile centre opens, so the shell can switch tabs
+  /// instead of stacking another route.
+  final VoidCallback? onOpenProfile;
+
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
+    final device = deviceId == null
+        ? state.selectedDevice
+        : state.deviceById(deviceId!);
     final model =
         dashboard ??
         HomeDashboardModel.fromDevice(
-          device: state.selectedDevice,
+          device: device,
           userLabel: state.user?.nickname ?? '用户',
           scene: scene,
         );
-    final avatarImage = _avatarImage(state.user?.avatarUrl);
+    final avatarImage = resolveUserAvatar(state.user?.avatarUrl);
+    void goBack() => Navigator.of(context).maybePop();
+    void openProfile() => Navigator.pushNamed(context, AppRoutes.mine);
+    final VoidCallback? onBack = showBackButton ? goBack : null;
+    final VoidCallback onAvatarTap = onOpenProfile ?? openProfile;
 
     return AppPageScaffold(
       background: model.isWithoutDevice
@@ -47,16 +75,18 @@ class HomePage extends StatelessWidget {
               userLabel: model.userLabel,
               avatarImage: avatarImage,
               onRefresh: state.refreshDevices,
-              onAvatarTap: () => Navigator.pushNamed(context, AppRoutes.mine),
+              onAvatarTap: onAvatarTap,
+              onBack: onBack,
               onAddDevice: () =>
-                  Navigator.pushNamed(context, AppRoutes.pairing),
+                  Navigator.pushNamed(context, AppRoutes.deviceSearch),
             )
           : model.isWithoutPlant
           ? HomeUnplantedContent(
               model: model,
               avatarImage: avatarImage,
               onRefresh: state.refreshDevices,
-              onAvatarTap: () => Navigator.pushNamed(context, AppRoutes.mine),
+              onAvatarTap: onAvatarTap,
+              onBack: onBack,
               onAddPlant: () => _openAddPlant(context, model.deviceId),
             )
           : LayoutBuilder(
@@ -85,10 +115,8 @@ class HomePage extends StatelessWidget {
                               HomeHeader(
                                 userLabel: model.userLabel,
                                 avatarImage: avatarImage,
-                                onAvatarTap: () => Navigator.pushNamed(
-                                  context,
-                                  AppRoutes.mine,
-                                ),
+                                onAvatarTap: onAvatarTap,
+                                onBack: onBack,
                               ),
                               const SizedBox(height: 24),
                               HomePlantOverview(
@@ -136,18 +164,6 @@ class HomePage extends StatelessWidget {
               },
             ),
     );
-  }
-
-  ImageProvider<Object>? _avatarImage(String? path) {
-    final value = path?.trim();
-    if (value == null || value.isEmpty) return null;
-    final file = File(value);
-    if (file.existsSync()) return FileImage(file);
-    final uri = Uri.tryParse(value);
-    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
-      return NetworkImage(value);
-    }
-    return null;
   }
 
   void _openAddPlant(BuildContext context, String? deviceId) {

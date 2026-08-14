@@ -4,6 +4,8 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import '../../home/models/home_dashboard_model.dart';
+import '../../home/presentation/home_page.dart';
 import 'plant_detail_page.dart';
 
 enum PlantPickerMode { add, select }
@@ -36,12 +38,12 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (initialized) return;
-    final current = FlowerpotScope.of(
-      context,
-    ).deviceById(widget.deviceId)?.plant;
+    final state = FlowerpotScope.of(context);
+    final planted = state.hasPlant(widget.deviceId);
     addingPlant = widget.mode != null
         ? widget.mode == PlantPickerMode.add
-        : current == null;
+        : !planted;
+    final current = planted ? state.deviceById(widget.deviceId)?.plant : null;
     selectedId = current?.id ?? _plants.first.profile.id;
     initialized = true;
   }
@@ -81,10 +83,16 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
     );
     if (result.success) {
       if (addingPlant) {
+        // Replace the "no plant yet" page with the device detail page, so
+        // going back from here returns to the device list.
         Navigator.pushNamedAndRemoveUntil(
           context,
-          AppRoutes.shell,
-          (_) => false,
+          AppRoutes.deviceHome,
+          (route) => route.isFirst || route.settings.name == AppRoutes.shell,
+          arguments: HomeDeviceArguments(
+            deviceId: widget.deviceId,
+            scene: HomeDashboardScene.withCompanionSummary,
+          ),
         );
       } else {
         Navigator.pop(context);

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 8+ 自适应图标：没有它，桌面会把方形 PNG 缩进白色圆片，观感差。
+     背景为白色，对齐 iOS 图标观感（白底 + 品牌标）。不要改成品牌色底：
+     前景 PNG 中属于品牌标的浅色区域若为透明，彩色底会把它吃掉，
+     桌面上就只剩一整块纯色。前景 inset 30%，保证圆形/圆角遮罩下内容不被切。 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background"/>
+    <foreground>
+        <inset
+            android:drawable="@mipmap/ic_launcher_foreground"
+            android:inset="30%"/>
+    </foreground>
+</adaptive-icon>

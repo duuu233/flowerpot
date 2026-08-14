@@ -3,21 +3,38 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../../shared/shared.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
+import '../../home/models/home_dashboard_model.dart';
+import '../../home/presentation/home_page.dart';
 
 class DeviceListPage extends StatelessWidget {
-  const DeviceListPage({super.key, this.devices});
+  const DeviceListPage({super.key, this.devices, this.onOpenProfile});
 
   final List<SmartPlanterDevice>? devices;
 
+  /// Lets the shell switch to the profile tab instead of stacking a route.
+  final VoidCallback? onOpenProfile;
+
+  /// Opens the device page. A planter without a plant lands on the "no plant
+  /// yet" screen first; picking a plant there continues to the detail page.
   void _openDevice(
     BuildContext context,
     FlowerpotState state,
     SmartPlanterDevice device,
   ) {
     state.selectDevice(device.id);
-    Navigator.pushNamedAndRemoveUntil(context, AppRoutes.shell, (_) => false);
+    Navigator.pushNamed(
+      context,
+      AppRoutes.deviceHome,
+      arguments: HomeDeviceArguments(
+        deviceId: device.id,
+        scene: state.hasPlant(device.id)
+            ? HomeDashboardScene.withCompanionSummary
+            : HomeDashboardScene.withoutPlant,
+      ),
+    );
   }
 
   @override
@@ -27,10 +44,17 @@ class DeviceListPage extends StatelessWidget {
     return AppPageScaffold(
       appBar: AppPageHeader(
         title: '设备列表',
-        leading: const AppBackButton(),
+        automaticallyImplyLeading: false,
+        leading: _ProfileEntryButton(
+          avatarImage: resolveUserAvatar(state.user?.avatarUrl),
+          onPressed:
+              onOpenProfile ??
+              () => Navigator.pushNamed(context, AppRoutes.mine),
+        ),
         actions: <Widget>[
           _AddDeviceButton(
-            onPressed: () => Navigator.pushNamed(context, AppRoutes.pairing),
+            onPressed: () =>
+                Navigator.pushNamed(context, AppRoutes.deviceSearch),
           ),
         ],
       ),
@@ -58,6 +82,38 @@ class DeviceListPage extends StatelessWidget {
                     );
                   },
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileEntryButton extends StatelessWidget {
+  const _ProfileEntryButton({required this.onPressed, this.avatarImage});
+
+  final VoidCallback onPressed;
+  final ImageProvider<Object>? avatarImage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Semantics(
+        button: true,
+        label: '个人中心',
+        child: AppAvatar(
+          key: const Key('device-list-profile-button'),
+          size: 32,
+          imageProvider: avatarImage,
+          fallback: Image.asset(
+            AppAssets.profileAvatarIcon,
+            width: 32,
+            height: 32,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            excludeFromSemantics: true,
+          ),
+          backgroundColor: AppColors.brandSurface,
+          onTap: onPressed,
         ),
       ),
     );

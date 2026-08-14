@@ -22,6 +22,13 @@ class FlowerpotState extends ChangeNotifier {
   AppUser? _user;
   String? _selectedDeviceId;
   List<SmartPlanterDevice> _devices = <SmartPlanterDevice>[];
+
+  /// Devices whose plant has been picked in this session.
+  ///
+  /// [SmartPlanterDevice.plant] is non-nullable, so the "no plant yet" screen
+  /// cannot be derived from the device itself; a freshly bound planter stays
+  /// unplanted until the user confirms a choice in the plant picker.
+  final Set<String> _plantedDevices = <String>{};
   final List<AnimationAsset> _animations = <AnimationAsset>[
     AnimationAsset(
       id: 'welcome',
@@ -57,6 +64,9 @@ class FlowerpotState extends ChangeNotifier {
       orElse: () => _devices.first,
     );
   }
+
+  bool hasPlant(String? deviceId) =>
+      deviceId != null && _plantedDevices.contains(deviceId);
 
   SmartPlanterDevice? deviceById(String id) {
     for (final device in _devices) {
@@ -171,9 +181,14 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '密码已更新，请使用新密码登录');
   });
 
-  Future<ActionResult> enterDemo() async {
+  /// [seedDevice] matches the startup seeding so the demo shortcut and a
+  /// normal login land on the same screen.
+  Future<ActionResult> enterDemo({bool seedDevice = true}) async {
     _demoMode = true;
-    _repository = MockTuyaRepository(latency: const Duration(milliseconds: 80));
+    _repository = MockTuyaRepository(
+      latency: const Duration(milliseconds: 80),
+      seedDevice: seedDevice,
+    );
     await _repository.initialize();
     return login(
       account: 'demo@flowerpot.local',
@@ -228,6 +243,7 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<ActionResult> selectPlant(String id, PlantProfile plant) =>
       _guard(() async {
+        _plantedDevices.add(id);
         _replaceDevice(id, (device) => device.copyWith(plant: plant));
         return ActionResult(true, '已选择${plant.name}');
       });
@@ -340,6 +356,7 @@ class FlowerpotState extends ChangeNotifier {
       _guard(() async {
         await _repository.removeDevice(id, resetFactory: resetFactory);
         _devices.removeWhere((device) => device.id == id);
+        _plantedDevices.remove(id);
         _selectedDeviceId = _devices.firstOrNull?.id;
         return ActionResult(true, resetFactory ? '设备已解绑并清除数据' : '设备已解绑');
       });
@@ -419,6 +436,7 @@ class FlowerpotState extends ChangeNotifier {
     _sessionEpoch++;
     _user = null;
     _devices = <SmartPlanterDevice>[];
+    _plantedDevices.clear();
     _selectedDeviceId = null;
     _demoMode = false;
     ImageCacheCleanup.clearAll();

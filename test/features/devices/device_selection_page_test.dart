@@ -1,6 +1,7 @@
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_selection_page.dart';
+import 'package:flowerpot/src/features/devices/presentation/pairing_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -47,7 +48,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('connect pairs the selected device and opens success page', (
+  testWidgets('connect opens the Wi-Fi step with the picked device', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
@@ -56,22 +57,20 @@ void main() {
       repository: MockTuyaRepository(latency: Duration.zero),
     );
     addTearDown(state.dispose);
-    Object? successArguments;
+    Object? pairingArguments;
 
     await tester.pumpWidget(
       FlowerpotScope(
         state: state,
         child: MaterialApp(
           theme: buildAppTheme(),
-          home: const DeviceSelectionPage(
-            request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
-          ),
+          home: const DeviceSelectionPage(),
           onGenerateRoute: (settings) {
-            if (settings.name == AppRoutes.pairingSuccess) {
-              successArguments = settings.arguments;
+            if (settings.name == AppRoutes.pairing) {
+              pairingArguments = settings.arguments;
               return MaterialPageRoute<void>(
                 builder: (_) => const Scaffold(
-                  body: Center(child: Text('pairing-success-target')),
+                  body: Center(child: Text('pairing-wifi-target')),
                 ),
               );
             }
@@ -86,20 +85,25 @@ void main() {
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
 
-    expect(find.text('pairing-success-target'), findsOneWidget);
-    expect(successArguments, 'planter-demo-01');
+    expect(find.text('pairing-wifi-target'), findsOneWidget);
+    final arguments = pairingArguments! as PairingArguments;
+    expect(arguments.deviceName, 'YSplanter-01');
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('pairing errors open the failure page', (tester) async {
+  testWidgets('a retry carries the previous credentials to the Wi-Fi step', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final state = FlowerpotState(repository: _FailingRepository());
+    final state = FlowerpotState(
+      repository: MockTuyaRepository(latency: Duration.zero),
+    );
     addTearDown(state.dispose);
-    Object? failureArguments;
+    Object? pairingArguments;
 
     await tester.pumpWidget(
       FlowerpotScope(
@@ -107,14 +111,14 @@ void main() {
         child: MaterialApp(
           theme: buildAppTheme(),
           home: const DeviceSelectionPage(
-            request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
+            request: PairingRequest(ssid: 'TP-LINK_2.4G', password: '87654321'),
           ),
           onGenerateRoute: (settings) {
-            if (settings.name == AppRoutes.pairingFailure) {
-              failureArguments = settings.arguments;
+            if (settings.name == AppRoutes.pairing) {
+              pairingArguments = settings.arguments;
               return MaterialPageRoute<void>(
                 builder: (_) => const Scaffold(
-                  body: Center(child: Text('pairing-failure-target')),
+                  body: Center(child: Text('pairing-wifi-target')),
                 ),
               );
             }
@@ -125,11 +129,13 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byKey(const Key('connect-device-0')));
+    await tester.tap(find.byKey(const Key('connect-device-1')));
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
 
-    expect(find.text('pairing-failure-target'), findsOneWidget);
-    expect(failureArguments, isA<PairingRequest>());
+    final arguments = pairingArguments! as PairingArguments;
+    expect(arguments.deviceName, 'YSplanter-02');
+    expect(arguments.request?.ssid, 'TP-LINK_2.4G');
     expect(tester.takeException(), isNull);
   });
 }
@@ -151,13 +157,4 @@ Future<void> _pumpDeviceSelectionPage(WidgetTester tester, Size size) async {
     ),
   );
   await tester.pump();
-}
-
-class _FailingRepository extends MockTuyaRepository {
-  _FailingRepository() : super(latency: Duration.zero);
-
-  @override
-  Future<SmartPlanterDevice> pair(PairingRequest request) async {
-    throw const TuyaException('pair_failed', '配网失败');
-  }
 }
