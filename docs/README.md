@@ -60,4 +60,4 @@ codegraph sync .
 
 记录路径为 `history/YYYY-MM/YYYY-MM-DD-topic.md`。一次集中修改对应一份记录，不维护无限增长的单文件日志。不得记录 Token、涂鸦密钥、安全组件、签名资料、Wi-Fi 密码、个人数据或完整本地配置。
 
-最近记录：[`history/2026-08/2026-08-17-tuya-sdk-debug-console.md`](history/2026-08/2026-08-17-tuya-sdk-debug-console.md)。
+最近记录：[`history/2026-08/2026-08-18-android-local-config-handoff.md`](history/2026-08/2026-08-18-android-local-config-handoff.md)。

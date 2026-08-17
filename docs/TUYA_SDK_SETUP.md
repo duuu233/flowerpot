@@ -46,11 +46,11 @@ tuya.appSecret=YOUR_ANDROID_APP_SECRET
 - arm64 模拟器镜像；
 - 真机。
 
-仅看到 `Build.SUPPORTED_ABIS` 包含 `arm64-v8a` 仍不足以证明通用 APK 会按 ARM 运行：Flutter 通用 Debug APK 同时带有 x86_64 引擎时，部分模拟器会优先以 x86_64 进程启动，随后在加载涂鸦 ARM 库时报告 `libc++_shared.so not found`。本机 OPPO R11 Plus / 夜神 Android 12 实例需要构建 arm64-only APK，并在安装时显式指定 ABI：
+仅看到 `Build.SUPPORTED_ABIS` 包含 `arm64-v8a` 仍不足以证明通用 APK 会按 ARM 运行：Flutter 通用 Debug APK 同时带有 x86_64 引擎时，部分模拟器会优先以 x86_64 进程启动，随后在加载涂鸦 ARM 库时报告 `libc++_shared.so not found`。仅传 `--target-platform android-arm64` 会限制 Flutter 引擎，但依赖 AAR 仍可能把其他 ABI 的 JNI 文件装入通用 APK；本机 OPPO R11 Plus / 夜神 Android 12 实例应同时使用 `--split-per-abi` 生成真正的 arm64-only APK，并在安装时显式指定 ABI：
 
 ```bash
-flutter build apk --debug --target-platform android-arm64 --dart-define=TUYA_ENABLED=true --no-pub
-adb -s <device-serial> install -r --abi arm64-v8a build/app/outputs/flutter-apk/app-debug.apk
+flutter build apk --debug --split-per-abi --target-platform android-arm64 --dart-define=TUYA_ENABLED=true --no-pub
+adb -s <device-serial> install -r --abi arm64-v8a build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
 adb -s <device-serial> shell am start -n com.common.yikaltd/.MainActivity
 ```
 
@@ -78,6 +78,81 @@ flutter build apk --release --split-per-abi --no-pub
 该命令只决定 Android release 构建和拆包方式，不会自动启用真实涂鸦链路。真实设备生产构建仍需按第 5 节启用 `TUYA_ENABLED`，并完成密钥、安全组件、DP 与真机验证。
 
 `StaticPreviewConfig.enabled` 只影响 Mock 后端是否预置演示设备，不影响真实模式，真机联调前不需要改它。但登录页的「体验模式」按钮在任何构建下都会把仓库切换成 `MockTuyaRepository`；真实链路验证必须走正常登录，不要用该入口。登录页另有「涂鸦 SDK 联调」入口，见 5.3；它使用当前仓库，不做任何切换。
+
+### 2.1 新开发电脑的一次性配置清单
+
+下列非敏感配置已经进入 Git，拉取仓库后不需要再次手工配置：
+
+| 内容 | Git 中的权威位置 |
+| --- | --- |
+| 包名 `com.common.yikaltd`、minSdk、签名选择逻辑 | `android/app/build.gradle.kts` |
+| Home SDK 7.5.1、Expansion SDK 7.8.0 与依赖排除规则 | `android/app/build.gradle.kts` |
+| `FlowerpotApplication`、Manifest 元数据占位符与桥接代码 | `android/app/src/main/` |
+| Expansion SDK 的 `module_app.json`、`x_platform_config.json`、主题和字体资源 | `android/app/src/main/assets/` |
+| 默认 Android 字符串资源 | `android/app/src/main/res/values/strings.xml` |
+| 本机属性模板 | `android/local.properties.example` |
+| 签名属性模板 | `android/key.properties.example` |
+| arm64 Debug 构建、安装与日志命令 | 本文第 2 节和第 5 节 |
+
+下列内容禁止提交到 Git。换电脑后必须从涂鸦平台、密码管理器或其他受控渠道取回，并在本机配置一次；不要把真实值发到聊天、Issue、提交信息或 Markdown：
+
+| 本机目标 | 需要填写或复制的内容 | 原因与注意事项 |
+| --- | --- | --- |
+| `android/local.properties` | `sdk.dir` | Android SDK 的本机绝对路径，每台电脑可能不同。 |
+| `android/local.properties` | `flutter.sdk` | Flutter SDK 的本机绝对路径，每台电脑可能不同。 |
+| `android/local.properties` | `tuya.appKey` | 从包名为 `com.common.yikaltd` 的同一个涂鸦 SDK App 取回，不提交真实值。 |
+| `android/local.properties` | `tuya.appSecret` | 涂鸦应用秘密，只能保存在本机受控文件或密码管理器中。 |
+| `android/app/libs/security-algorithm.aar` | 当前 SDK App 生成的安全组件 | 必须与 AppKey、包名和签名证书属于同一份平台配置。 |
+| 本机安全目录或已忽略的 `assets/AndroidKeys/` | 正式签名 JKS | 属于签名材料；通过安全渠道从原持有人处取回，绝不提交。 |
+| `android/key.properties` | `storeFile`、`keyAlias`、`keyPassword`、`storePassword` | `storeFile` 指向上面的 JKS；其余字段从密码管理器取回。 |
+| 已忽略的 `assets/Android_SDK/` | 涂鸦平台原始下载包（仅 SDK 升级时需要） | 当前构建需要的抽取后资源已经进入 `android/app/src/main/`，普通换电脑不必复制原始压缩包。 |
+
+`flutter.buildMode`、`flutter.versionName` 与 `flutter.versionCode` 由 Flutter 构建过程生成，不要从另一台电脑复制，也不需要手工输入。
+
+Windows 公司电脑首次配置可按下面的顺序执行：
+
+```powershell
+git pull
+codegraph sync .
+Copy-Item android\local.properties.example android\local.properties
+Copy-Item android\key.properties.example android\key.properties
+```
+
+然后只在本机编辑这两个被忽略的文件：
+
+```text
+android/local.properties
+  sdk.dir
+  flutter.sdk
+  tuya.appKey
+  tuya.appSecret
+
+android/key.properties
+  storeFile
+  keyAlias
+  keyPassword
+  storePassword
+```
+
+从安全目录复制安全组件；JKS 可以留在安全目录，只要 `storeFile` 指向它：
+
+```powershell
+New-Item -ItemType Directory -Force android\app\libs
+Copy-Item <安全组件来源路径> android\app\libs\security-algorithm.aar
+```
+
+配置后执行一次无泄密检查和构建。下面的命令只检查文件是否存在，不会打印密钥或密码：
+
+```powershell
+Test-Path android\local.properties
+Test-Path android\key.properties
+Test-Path android\app\libs\security-algorithm.aar
+flutter clean
+flutter pub get
+flutter build apk --debug --split-per-abi --target-platform android-arm64 --dart-define=TUYA_ENABLED=true --dart-define=TUYA_DEBUG_TOOLS=true --no-pub
+```
+
+最终使用 `build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk`。若构建控制台没有出现 `[flowerpot] Tuya SDK enabled`，先按上表检查安全 AAR 和两个涂鸦字段，不要通过取消 Git 忽略来绕过检查。
 
 ## 3. iOS
 

@@ -1,0 +1,13 @@
+# Copy this file to android/local.properties and replace every placeholder.
+# Never commit android/local.properties: it contains machine-specific paths and
+# Tuya application credentials.
+#
+# Forward slashes work on Windows and avoid escaping backslashes.
+
+sdk.dir=D:/path/to/AndroidSdk
+flutter.sdk=D:/path/to/flutter
+tuya.appKey=YOUR_ANDROID_APP_KEY
+tuya.appSecret=YOUR_ANDROID_APP_SECRET
+
+# flutter.buildMode, flutter.versionName, and flutter.versionCode are generated
+# by Flutter during a build. Do not copy them between computers.

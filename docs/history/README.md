@@ -42,3 +42,5 @@
 - [`2026-08/2026-08-17-tuya-android-initialization-validation.md`](2026-08/2026-08-17-tuya-android-initialization-validation.md)：修正本地凭据后验证安全组件解密，修复 Expansion SDK 初始化反射签名，并记录 x86_64 模拟器显式 arm64 安装要求。
 - [`2026-08/2026-08-17-tuya-android-release-signing-validation.md`](2026-08/2026-08-17-tuya-android-release-signing-validation.md)：恢复本机受控签名材料，构建真实 Tuya 分 ABI Release APK，并核对 APK 实际签名证书与平台登记值一致。
 - [`2026-08/2026-08-17-tuya-sdk-debug-console.md`](2026-08/2026-08-17-tuya-sdk-debug-console.md)：在登录页增加涂鸦 SDK 联调入口，直接调用注册与登录并暴露原始失败码，为配网联调准备起点。
+- [`2026-08/2026-08-18-tuya-debug-arm64-apk-rebuild.md`](2026-08/2026-08-18-tuya-debug-arm64-apk-rebuild.md)：清理 Flutter 构建产物后重新生成真实涂鸦 arm64 Debug APK，并验证 ABI、签名与 SDK 联调页。
+- [`2026-08/2026-08-18-android-local-config-handoff.md`](2026-08/2026-08-18-android-local-config-handoff.md)：区分可进入 Git 的 Android 固定配置与必须本机输入的涂鸦、签名材料，并补充新电脑配置清单和模板。
