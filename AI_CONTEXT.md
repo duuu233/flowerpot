@@ -2,7 +2,7 @@
 
 > 文档类型：当前项目上下文
 > 状态：Active
-> 最后核验：2026-08-12
+> 最后核验：2026-08-17
 > 适用范围：`flowerpot` 当前工作树
 > 事实来源：源码与 CodeGraph、`pubspec.yaml`、平台配置和 `docs/` 中的当前文档
 
@@ -36,7 +36,7 @@ flutter run
 flutter run --dart-define=TUYA_ENABLED=true
 ```
 
-仅传入 `TUYA_ENABLED=true` 仍不足以进入真实设备流程：当前还必须关闭 `StaticPreviewConfig.enabled`，并准备好平台密钥、安全组件和签名。若接入独立 REST 服务，通过 `--dart-define=API_BASE_URL=https://...` 注入地址。各环境应使用 PATH 中的 Flutter/Dart；README 中的绝对路径只可视为单机示例。
+`TUYA_ENABLED=true` 会选择真实 Repository；`StaticPreviewConfig.enabled` 只控制 Mock 后端是否预置演示设备，不需要为真实模式修改。真实设备流程仍必须准备好平台密钥、安全组件和签名。若接入独立 REST 服务，通过 `--dart-define=API_BASE_URL=https://...` 注入地址。各环境应使用 PATH 中的 Flutter/Dart；README 中的绝对路径只可视为单机示例。
 
 ## 3. 架构与数据流
 
@@ -95,7 +95,7 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 
 1. 页面通过 `FlowerpotState` 和 Repository 使用业务能力，不直接依赖 MethodChannel 或散落 HTTP 调用。
 2. `TuyaConfig.dp` 是 UI 读写与产品 PID 功能点之间的契约；变更必须与固件、涂鸦平台和测试一起核对。
-3. `TUYA_ENABLED` 只是选择真实 Repository 的编译期开关；平台安全组件、AppKey/AppSecret、包名和签名仍必须匹配，且运行环境必须支持 `arm64-v8a` 或 `armeabi-v7a`（涂鸦原生库不提供 x86/x86_64）。Mock 模式没有这些约束，任何模拟器都能运行。
+3. `TUYA_ENABLED` 只是选择真实 Repository 的编译期开关；平台安全组件、AppKey/AppSecret、包名和签名仍必须匹配，且运行环境必须真正按 `arm64-v8a` 或 `armeabi-v7a` 启动应用（涂鸦原生库不提供 x86/x86_64）。部分 x86_64 模拟器即使 ABI 列表包含 ARM，通用 APK 仍会优先以 x86_64 运行；显式 arm64 构建与安装方法见 `docs/TUYA_SDK_SETUP.md`。Mock 业务模式不依赖涂鸦调用；本机已有安全 AAR 时 Application 仍会尽力初始化 SDK，但失败不阻止 Mock UI。
 4. 当前 `StaticPreviewConfig.enabled` 为 `true`，只表示 Mock 后端不预置演示设备；启动入口、鉴权分流和页面导航与正式流程一致（登录页 → `AppShell`）。真机链路仍需单独验证会话恢复和真实设备流程。
 5. 新 UI 优先复用 `design_system` 和 `shared` 组件，遵循项目自己的 YSplanter 视觉规范，不复制参考项目的产品 UI。
 6. 命名路由与参数类型集中在 `AppRoutes`；修改路由前用 CodeGraph 检查页面和测试调用方。
@@ -130,7 +130,7 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 
 ## 9. 已知风险与未确认项
 
-- 真实涂鸦 SDK 仍依赖平台密钥、安全组件、产品 PID、DP 定义和真机联调；Mock 通过不等于真实链路通过。
+- Android Home SDK 7.5.1 与 Expansion SDK 7.8.0 已在本机 arm64 强制安装模式下完成初始化验证；账号、家庭、配网、设备控制和真机链路仍未完成联调，Mock 或 SDK 初始化通过不等于真实业务链通过。
 - 静态演示构建使用 Mock 后端与空设备列表，接口错误、超时和真实鉴权行为都不会在其中出现。
 - `FlowerpotState` 被大量页面调用，继续膨胀会扩大变更影响面；拆分前必须先分析调用链并保留行为。
 - DP 101–123 的最终映射、倍率、枚举、统计服务、动画传输、分享和 OTA 回调仍需平台/固件确认。

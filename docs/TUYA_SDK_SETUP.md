@@ -42,11 +42,19 @@ tuya.appSecret=YOUR_ANDROID_APP_SECRET
 
 涂鸦安全组件与 SDK 原生库只提供 `armeabi-v7a` 与 `arm64-v8a`，没有 x86/x86_64。因此 `TUYA_ENABLED=true` 需要满足下列任一条件：
 
-- API 30 及以上的 x86_64 模拟器镜像（自带 ARM 转译，`Build.SUPPORTED_ABIS` 会包含 `arm64-v8a`）；
+- API 30 及以上、实际启用了 ARM 转译且能按 ARM ABI 启动应用的 x86_64 模拟器镜像；
 - arm64 模拟器镜像；
 - 真机。
 
-在不满足的镜像上，桥接返回 `sdk_abi_unsupported` 而不是崩溃。Mock 模式（不传 `TUYA_ENABLED`）不受 ABI 限制，任何模拟器都能运行。
+仅看到 `Build.SUPPORTED_ABIS` 包含 `arm64-v8a` 仍不足以证明通用 APK 会按 ARM 运行：Flutter 通用 Debug APK 同时带有 x86_64 引擎时，部分模拟器会优先以 x86_64 进程启动，随后在加载涂鸦 ARM 库时报告 `libc++_shared.so not found`。本机 OPPO R11 Plus / 夜神 Android 12 实例需要构建 arm64-only APK，并在安装时显式指定 ABI：
+
+```bash
+flutter build apk --debug --target-platform android-arm64 --dart-define=TUYA_ENABLED=true --no-pub
+adb -s <device-serial> install -r --abi arm64-v8a build/app/outputs/flutter-apk/app-debug.apk
+adb -s <device-serial> shell am start -n com.common.yikaltd/.MainActivity
+```
+
+若显式安装后仍出现架构不匹配，应改用 arm64 模拟器或真机。在不满足条件的镜像上，Application 初始化会记录 `sdk_abi_unsupported`；若连 Flutter 引擎本身都无法被该镜像转译，Activity 仍可能在进入 Flutter 前失败。Mock 业务模式（不传 `TUYA_ENABLED`）不依赖涂鸦调用；本地 AAR 已存在时 Application 仍会尝试初始化 SDK，但失败只记录日志，不阻止通用 Flutter APK 继续运行 Mock UI。
 
 若启动时报 `security_component_mismatch` 或日志中出现 `AEADBadTagException`，表示安全组件无法解密当前应用配置。依次确认 AppKey、AppSecret、包名 `com.common.yikaltd`、APK 实际签名 SHA-256 与平台完全一致，然后在同一个 SDK 应用下重新构建并下载 `security-algorithm.tar.gz`。安全组件与 AppKey/包名/证书必须来自同一次平台配置快照，只更新其中一项会继续报同一个错。不要在工程任意目录额外放置旧版 `t_s.bmp`；安全图片已封装在新安全 AAR 内。
 
@@ -113,7 +121,7 @@ flutter pub get
 flutter run
 ```
 
-不传 `TUYA_ENABLED` 时使用 `MockTuyaRepository`，不加载任何涂鸦原生库，因此对模拟器 ABI、密钥、安全组件和签名都没有要求。缺少 `android/key.properties` 时 debug 会用默认调试证书继续构建，只在控制台打印一条提示。
+不传 `TUYA_ENABLED` 时使用 `MockTuyaRepository`，业务操作不会调用涂鸦桥接。原生 SDK 是否编入 APK 只取决于本机是否存在 `android/app/libs/security-algorithm.aar`：没有 AAR 时完全不解析 SDK；已有 AAR 时 `FlowerpotApplication` 会尽力初始化，失败只记录日志，不影响 Mock UI。缺少 `android/key.properties` 时 debug 会用默认调试证书继续构建，只在控制台打印一条提示。
 
 ### 5.2 真实模式
 
@@ -134,7 +142,7 @@ flutter run --dart-define=TUYA_ENABLED=true
 
 ## 6. 当前桥接边界
 
-`android/app/src/main/kotlin/com/common/yikaltd/MainActivity.kt` 中的桥接不硬编码涂鸦回调接口名：先按方法名与参数个数解析目标方法，再用该方法声明的最后一个接口参数生成动态代理。因此 `logout`（`ILogoutCallback`）与 `cancelAccount`（`IResultCallback`）、`getOtaInfo`、`setOtaListener` 等签名不同的接口能共用同一套调用代码，SDK 升级改名也不会静默失效。
+`android/app/src/main/kotlin/com/common/yikaltd/MainActivity.kt` 中的桥接不硬编码涂鸦回调接口名：先按方法名与参数个数解析目标方法，再用该方法声明的最后一个接口参数生成动态代理。因此 `logout`（`ILogoutCallback`）与 `cancelAccount`（`IResultCallback`）、`getOtaInfo`、`setOtaListener` 等签名不同的接口能共用同一套调用代码，SDK 升级改名也不会静默失效。Expansion SDK 7.8.0 的初始化声明为 `ThingOptimusSdk.init(Context)`；反射查找必须使用声明类型 `Context`，实际参数仍可传入 `Application`。
 
 已接通：账号（验证码、登录、注册、找回密码、改昵称、退出、注销）、家庭查询与自动建家、AP/EZ 配网、设备列表、DP 下发、重命名、解绑、恢复出厂、OTA 查询与升级。
 

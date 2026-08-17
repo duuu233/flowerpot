@@ -21,7 +21,8 @@
 
 ## 需要平台参数后联调
 
-- Android/iOS AppKey、AppSecret、包名、SHA-256、iOS 安全组件和 Android `security-algorithm.aar`。
+- Android 本机已完成 AppKey、AppSecret、包名、证书 SHA-256、安全 AAR 与 Home/Expansion SDK 初始化验证；账号、家庭、配网和设备链仍需真机与真实账号联调。秘密与安全组件不入库，其他开发环境必须独立配置。
+- iOS AppKey、AppSecret、Bundle ID、签名与安全组件仍需配置和验证。
 - 产品 PID 与 101–123 DP 的最终对应关系、数据缩放倍率和枚举定义。
 - 涂鸦设备数据统计服务的开通范围与统计 API。
 - 设备图片/动画文件传输协议、大小限制、格式以及硬件确认机制。

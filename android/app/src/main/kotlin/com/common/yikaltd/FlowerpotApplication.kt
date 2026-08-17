@@ -1,6 +1,7 @@
 package com.common.yikaltd
 
 import android.app.Application
+import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
@@ -137,7 +138,8 @@ internal object TuyaSdkInitializer {
             return
         }
         runCatching {
-            optimus.getMethod("init", Application::class.java).invoke(null, application)
+            optimus.getMethod("init", Context::class.java)
+                .invoke(null, application)
             Log.i(TUYA_LOG_TAG, "ThingOptimusSdk.init returned successfully")
         }.onFailure {
             Log.w(TUYA_LOG_TAG, "ThingOptimusSdk.init failed: ${unwrap(it).javaClass.simpleName}")
