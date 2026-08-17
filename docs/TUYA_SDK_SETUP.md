@@ -1,6 +1,6 @@
 # 涂鸦 Smart Life App SDK 配置
 
-当前桥接按 Android `thingsmart:7.5.6` 与 iOS 7.5.x 结构准备。涂鸦应用的包名必须与本项目 `com.common.yikaltd` 一致；若要更换包名，应在创建 SDK App 和下载安全组件前完成。
+当前桥接按 Android Home SDK `thingsmart:7.5.1`、Expansion SDK `thingsmart-expansion-sdk:7.8.0` 与 iOS 7.5.x 结构准备。Home 版本以平台下载包内的 `thingsmart_home_sdk/dependencies.txt` 为准；两套 Android SDK 使用各自的版本号，不能共用一个版本变量。涂鸦应用的包名必须与本项目 `com.common.yikaltd` 一致；若要更换包名，应在创建 SDK App 和下载安全组件前完成。
 
 ## 1. 开发者平台
 
@@ -12,11 +12,20 @@
 
 ## 2. Android
 
-把平台下载资料包中的文件放到：
+平台当前会分别下载 `Android_SDK.tar.gz` 与 `security-algorithm.tar.gz`。从安全组件压缩包中解出 `security-algorithm-1.0.0-beta.aar`，重命名并放到：
 
 ```text
 android/app/libs/security-algorithm.aar
 ```
+
+原始下载包及安全 AAR 都是应用专属材料，不得提交。项目已忽略 `/assets/Android_SDK/` 和目标 AAR。将 `Android_SDK.tar.gz` 版本目录中的完整 `assets/` 与默认语言文件 `res/values/strings.xml` 合并到：
+
+```text
+android/app/src/main/assets/
+android/app/src/main/res/values/strings.xml
+```
+
+其中 `module_app.json` 与 `x_platform_config.json` 是 Expansion/BizBundle 的服务化配置，SDK 更新后必须使用同一次平台构建生成的新文件同步替换。当前 App 界面仍由 Flutter 实现，因此不复制可选的 `res/values-*` 多语言目录；当前下载包的土耳其语资源存在 `ExtraTranslation`，完整复制会使 Release Lint 失败。后续若改用 Android UI BizBundle，应升级到资源完整的业务包后再引入所需语言。
 
 在 `android/local.properties` 追加（该文件不提交）：
 
@@ -25,9 +34,11 @@ tuya.appKey=YOUR_ANDROID_APP_KEY
 tuya.appSecret=YOUR_ANDROID_APP_SECRET
 ```
 
-安全 AAR 存在时，Gradle 会自动启用 `thingsmart:7.5.6` 与 `thingsmart-expansion-sdk:7.5.0`。没有 AAR 时不下载 SDK，方便普通 UI 构建和测试。
+安全 AAR 存在时，Gradle 会自动启用 `thingsmart:7.5.1` 与 `thingsmart-expansion-sdk:7.8.0`，原生桥接会依次初始化 `ThingHomeSdk` 和可用的 `ThingOptimusSdk`。没有 AAR 时不下载 SDK，方便普通 UI 构建和测试。
 
-项目 `minSdk` 为 24：满足当前 Flutter 图片选择插件要求，也高于涂鸦 SDK 7.5.x 的最低要求 23。
+项目 `minSdk` 为 24：满足当前 Flutter 图片选择插件要求，也高于涂鸦 Android SDK 的最低要求 23。
+
+若启动时报 `security_component_mismatch` 或日志中出现 `AEADBadTagException`，表示安全组件无法解密当前应用配置。依次确认 AppKey、AppSecret、包名 `com.common.yikaltd`、APK 实际签名 SHA-256 与平台完全一致，然后在同一个 SDK 应用下重新构建并下载 `security-algorithm.tar.gz`。不要在工程任意目录额外放置旧版 `t_s.bmp`；安全图片已封装在新安全 AAR 内。
 
 Debug、profile 与 release 构建统一使用正式证书，且不会回退到默认调试签名。请在 `android/key.properties` 配置正式证书（文件已忽略提交）：
 

@@ -8,6 +8,9 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val tuyaHomeSdkVersion = "7.5.1"
+val tuyaExpansionSdkVersion = "7.8.0"
+
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
@@ -55,7 +58,7 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // Flutter's current image picker and upcoming Flutter releases require 24.
-        // This is also above Tuya SmartLife SDK 7.5.x's minimum requirement.
+        // This is also above Tuya SmartLife SDK 7.8.x's minimum requirement.
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -70,7 +73,11 @@ android {
     }
 
     packaging {
-        jniLibs.pickFirsts += "lib/*/libc++_shared.so"
+        jniLibs.pickFirsts += setOf(
+            "lib/*/libc++_shared.so",
+            "lib/*/liblog.so",
+            "lib/*/libopenh264.so",
+        )
     }
 
     signingConfigs {
@@ -106,6 +113,8 @@ kotlin {
 }
 
 configurations.all {
+    exclude(group = "com.thingclips.smart", module = "thingplugin-annotation")
+    exclude(group = "com.thingclips.android.module", module = "thingmodule-annotation")
     exclude(group = "com.thingclips.smart", module = "thingsmart-modularCampAnno")
 }
 
@@ -116,8 +125,8 @@ dependencies {
     val securityAar = file("libs/security-algorithm.aar")
     if (securityAar.exists()) {
         implementation(files(securityAar))
-        implementation("com.thingclips.smart:thingsmart:7.5.6")
-        implementation("com.thingclips.smart:thingsmart-expansion-sdk:7.5.0")
+        implementation("com.thingclips.smart:thingsmart:$tuyaHomeSdkVersion")
+        implementation("com.thingclips.smart:thingsmart-expansion-sdk:$tuyaExpansionSdkVersion")
         implementation("com.alibaba:fastjson:1.1.67.android")
         implementation("com.squareup.okhttp3:okhttp-urlconnection:3.14.9")
     }

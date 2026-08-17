@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
-import '../../../shared/shared.dart';
+import '../../../shared/user_avatar.dart';
 import '../../devices/models/water_status_page_model.dart';
 import '../../devices/presentation/plant_picker_page.dart';
 import '../models/home_dashboard_model.dart';

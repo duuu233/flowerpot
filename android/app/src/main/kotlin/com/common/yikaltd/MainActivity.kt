@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -13,6 +14,8 @@ import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import java.util.concurrent.atomic.AtomicBoolean
+
+private const val tuyaLogTag = "FlowerpotTuya"
 
 class MainActivity : FlutterActivity() {
     private lateinit var bridge: TuyaSdkBridge
@@ -77,11 +80,13 @@ class MainActivity : FlutterActivity() {
 /**
  * Flutter-to-Tuya adapter. Reflection is deliberate: the app-specific Tuya
  * security component is not committed to source control. Once
- * security-algorithm.aar is placed in app/libs, Gradle links SDK 7.5.x and the
- * same implementation starts calling the real classes without source changes.
+ * security-algorithm.aar is placed in app/libs, Gradle links Home SDK 7.5.1
+ * and Expansion SDK 7.8.0, and the same implementation starts calling the
+ * real classes without source changes.
  */
 private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private val sdkClassName = "com.thingclips.smart.home.sdk.ThingHomeSdk"
+    private val optimusSdkClassName = "com.thingclips.smart.optimus.sdk.ThingOptimusSdk"
     private var homeId: Long? = null
     private var activator: Any? = null
 
@@ -134,7 +139,15 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             result.error("credentials_missing", "请在 android/local.properties 配置涂鸦 AppKey 与 AppSecret", null)
             return
         }
-        invokeStatic(sdk, "init", activity.application, key, secret)
+        invokeStatic(sdk, "init", activity.application)
+        Log.i(tuyaLogTag, "ThingHomeSdk.init returned successfully")
+        val optimusSdk = runCatching { Class.forName(optimusSdkClassName) }.getOrNull()
+        if (optimusSdk == null) {
+            Log.w(tuyaLogTag, "ThingOptimusSdk is unavailable")
+        } else {
+            invokeStatic(optimusSdk, "init", activity.application)
+            Log.i(tuyaLogTag, "ThingOptimusSdk.init returned successfully")
+        }
         runCatching { invokeStatic(sdk, "setDebugMode", isDebugBuild()) }
         result.success(true)
     }
@@ -522,8 +535,16 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
 
     private fun fail(result: MethodChannel.Result, throwable: Throwable) {
         val cause = if (throwable is InvocationTargetException) throwable.targetException else throwable
-        val code = if (cause is ClassNotFoundException) "sdk_unavailable" else "native_error"
-        error(result, code, cause.message ?: cause.javaClass.simpleName)
+        Log.e(tuyaLogTag, "Tuya SDK call failed: ${cause.javaClass.simpleName}")
+        when (cause) {
+            is ClassNotFoundException -> error(result, "sdk_unavailable", cause.message ?: "涂鸦 SDK 不可用")
+            is javax.crypto.AEADBadTagException -> error(
+                result,
+                "security_component_mismatch",
+                "涂鸦安全组件与 AppKey、AppSecret、包名或签名不匹配，请核对平台配置后重新下载安全组件",
+            )
+            else -> error(result, "native_error", cause.message ?: cause.javaClass.simpleName)
+        }
     }
 
     private fun isDebugBuild(): Boolean = runCatching {

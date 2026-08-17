@@ -45,6 +45,7 @@ app.*.map.json
 /android/app/release
 
 # Tuya app-specific credentials and security components
+/assets/Android_SDK/
 /android/app/libs/security-algorithm.aar
 /ios/TuyaSDK/
 /ios/Flutter/Tuya.xcconfig

@@ -37,3 +37,4 @@
 - [`2026-08/2026-08-13-ui-runtime-visual-alignment.md`](2026-08/2026-08-13-ui-runtime-visual-alignment.md)：在 Android 12 模拟器中复核当前构建，校准主要页面位置、状态摘要卡与资源失败占位。
 - [`2026-08/2026-08-14-android-split-release-build.md`](2026-08/2026-08-14-android-split-release-build.md)：解除 Flutter ABI 拆分与应用层 ABI 过滤冲突，生成并校验三个 release APK。
 - [`2026-08/2026-08-15-demo-navigation-and-app-icons.md`](2026-08/2026-08-15-demo-navigation-and-app-icons.md)：为 UI 演示改造导航（底部菜单、去目录、配网顺序、设备与植物动线），并生成 iOS/Android 全套应用图标。
+- [`2026-08/2026-08-17-android-tuya-sdk-integration.md`](2026-08/2026-08-17-android-tuya-sdk-integration.md)：接入 Android Home SDK 7.5.1、Expansion SDK 7.8.0 与安全组件，记录真实模式初始化阻塞及无密钥环境的条件构建。
