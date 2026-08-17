@@ -52,6 +52,11 @@ class FlowerpotState extends ChangeNotifier {
   bool get demoMode => _demoMode;
   bool get authenticated => _user != null;
   bool get notificationsEnabled => _notificationsEnabled;
+
+  /// Whether business calls are answered by the in-app mock backend instead of
+  /// the native bridge. True without `TUYA_ENABLED`, and also after the demo
+  /// shortcut replaced the repository at runtime.
+  bool get usingMockBackend => _repository is MockTuyaRepository;
   String get languageCode => _languageCode;
   AppUser? get user => _user;
   List<SmartPlanterDevice> get devices => List.unmodifiable(_devices);
@@ -201,6 +206,41 @@ class FlowerpotState extends ChangeNotifier {
   Future<void> refreshDevices() async {
     await _refreshDevicesForSession(ignoreErrors: false);
   }
+
+  /// Re-runs SDK initialization so the reason behind [sdkReady] becomes
+  /// visible. Startup swallows this failure to keep the app usable.
+  Future<ActionResult> probeSdk() => _guard(() async {
+    final ready = await _repository.initialize();
+    _sdkReady = ready;
+    return ready
+        ? const ActionResult(true, 'SDK 初始化通过')
+        : const ActionResult(false, 'SDK 初始化返回不可用', code: 'sdk_unavailable');
+  });
+
+  /// Asks the SDK whether it still holds a login session and aligns the local
+  /// session with that answer.
+  Future<ActionResult> probeSession() => _guard(() async {
+    final user = await _repository.restoreSession();
+    if (user == null) {
+      // Probing a session is not leaving the demo: the repository swapped in by
+      // [enterDemo] stays in place, so the flag has to survive the reset.
+      final demo = _demoMode;
+      _clearLocalSession();
+      _demoMode = demo;
+      return const ActionResult(false, 'SDK 未持有登录会话', code: 'no_session');
+    }
+    _user = user;
+    _sessionEpoch++;
+    await _refreshDevicesForSession(ignoreErrors: true);
+    return ActionResult(true, '会话有效，设备 ${_devices.length} 台');
+  });
+
+  /// Device refresh that reports home query, auto-create and device list
+  /// failures instead of hiding them like the silent session refresh.
+  Future<ActionResult> probeDevices() => _guard(() async {
+    await _refreshDevicesForSession(ignoreErrors: false);
+    return ActionResult(true, '设备列表已刷新，共 ${_devices.length} 台');
+  });
 
   Future<ActionResult> logout() => _guard(() async {
     try {
@@ -398,17 +438,17 @@ class FlowerpotState extends ChangeNotifier {
   }
 
   Future<ActionResult> _guard(Future<ActionResult> Function() action) async {
-    if (_busy) return const ActionResult(false, '请等待当前操作完成');
+    if (_busy) return const ActionResult(false, '请等待当前操作完成', code: 'busy');
     _busy = true;
     notifyListeners();
     try {
       return await action();
     } on AuthValidationException catch (error) {
-      return ActionResult(false, error.message);
+      return ActionResult(false, error.message, code: 'invalid_input');
     } on TuyaException catch (error) {
-      return ActionResult(false, error.message);
+      return ActionResult(false, error.message, code: error.code);
     } catch (error) {
-      return ActionResult(false, '操作失败：$error');
+      return ActionResult(false, '操作失败：$error', code: 'unexpected_error');
     } finally {
       _busy = false;
       notifyListeners();

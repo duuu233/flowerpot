@@ -21,7 +21,7 @@
 
 ## 需要平台参数后联调
 
-- Android 本机已完成 AppKey、AppSecret、包名、证书 SHA-256、安全 AAR 与 Home/Expansion SDK 初始化验证；账号、家庭、配网和设备链仍需真机与真实账号联调。秘密与安全组件不入库，其他开发环境必须独立配置。
+- Android 本机已完成 AppKey、AppSecret、包名、证书 SHA-256、安全 AAR 与 Home/Expansion SDK 初始化验证；账号、家庭、配网和设备链仍需真机与真实账号联调。秘密与安全组件不入库，其他开发环境必须独立配置。联调起点是登录页的「涂鸦 SDK 联调」入口（见 `TUYA_SDK_SETUP.md` 5.3），它直接调用注册、登录、会话与设备列表并显示原始失败码。
 - iOS AppKey、AppSecret、Bundle ID、签名与安全组件仍需配置和验证。
 - 产品 PID 与 101–123 DP 的最终对应关系、数据缩放倍率和枚举定义。
 - 涂鸦设备数据统计服务的开通范围与统计 API。

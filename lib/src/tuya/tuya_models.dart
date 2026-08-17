@@ -311,8 +311,14 @@ class PairingRequest {
 }
 
 class ActionResult {
-  const ActionResult(this.success, this.message);
+  const ActionResult(this.success, this.message, {this.code});
 
   final bool success;
   final String message;
+
+  /// Failure code behind [message], such as `sdk_unavailable`,
+  /// `credentials_missing` or a code raised by the Tuya SDK itself. Product
+  /// pages show only [message]; the SDK debug console needs the code to tell a
+  /// platform configuration problem apart from a rejected account.
+  final String? code;
 }

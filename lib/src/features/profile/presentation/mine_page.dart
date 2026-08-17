@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../devtools/debug_tools_config.dart';
 import '../models/mine_page_model.dart';
 import 'widgets/mine_menu_list.dart';
 import 'widgets/mine_profile_header.dart';
@@ -26,6 +27,19 @@ class MinePage extends StatelessWidget {
         title: '我的',
         leading: showBackButton ? const AppBackButton() : null,
         automaticallyImplyLeading: showBackButton,
+        // A live session skips the login page on start-up, so the SDK console
+        // needs a way back in that does not require logging out.
+        actions: DebugToolsConfig.enabled
+            ? <Widget>[
+                IconButton(
+                  key: const Key('mine-tuya-debug-entry'),
+                  tooltip: '涂鸦 SDK 联调',
+                  onPressed: () =>
+                      Navigator.pushNamed(context, AppRoutes.tuyaDebug),
+                  icon: const Icon(Icons.bug_report_outlined),
+                ),
+              ]
+            : null,
       ),
       background: AppPageBackground.standard,
       body: LayoutBuilder(

@@ -61,6 +61,8 @@ lib/main.dart
                               → Android/iOS Smart Life SDK
 ```
 
+`ActionResult` 同时带回 `message` 与 `code`：产品页面只展示 `message`，SDK 联调页用 `code` 区分平台配置错误（`sdk_unavailable`、`credentials_missing`、`security_component_mismatch`）与账号错误。
+
 REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL` 读取服务地址，`ApiSession` 用 `SharedPreferences` 持久化 `userToken` 并统一处理鉴权失效。当前账号和设备主链仍以 `TuyaRepository` 为边界，业务页面不应直接发 HTTP 请求。
 
 ## 4. 关键目录
@@ -71,7 +73,7 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 | `lib/src/app/` | 根应用、主题和 `FlowerpotScope`。 |
 | `lib/src/state.dart` | 当前集中式应用状态与业务编排。 |
 | `lib/src/routes/` | 命名路由、鉴权分流和页面参数。 |
-| `lib/src/features/` | auth、home、devices、profile、preview 等业务页面。 |
+| `lib/src/features/` | auth、home、devices、profile、preview 等业务页面，以及 devtools 下不属于产品动线的 SDK 联调页。 |
 | `lib/src/design_system/` | Design Token、资源索引和公共视觉组件。 |
 | `lib/src/shared/` | 跨 Feature 复用组件。 |
 | `lib/src/core/network/` | REST 请求、会话、异常和重试。 |
@@ -88,6 +90,7 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 - 内容与维护：动画资源、设备分享、解绑、恢复出厂和 OTA。
 - 个人中心：资料、账号安全、帮助、协议、隐私、关于与偏好。
 - 设计系统：统一色彩、间距、资源、页面骨架和公共 Widget。
+- 联调工具：登录页「涂鸦 SDK 联调」与「我的」页标题栏图标都指向 `/devtools/tuya`，直接调用注册、登录、会话与设备列表并显示原始失败码，配网联调前先在该页确认平台配置；debug/profile 常开，release 需 `--dart-define=TUYA_DEBUG_TOOLS=true`。
 
 功能完成度以 [`docs/PRD_IMPLEMENTATION.md`](docs/PRD_IMPLEMENTATION.md) 为跟踪入口，UI 实施要求以 [`docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`](docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md) 为准。
 
@@ -103,7 +106,7 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 
 ## 7. 环境与秘密管理
 
-- `TUYA_ENABLED`、`API_BASE_URL` 通过 `--dart-define` 注入。
+- `TUYA_ENABLED`、`API_BASE_URL`、`TUYA_DEBUG_TOOLS` 通过 `--dart-define` 注入。
 - Android 涂鸦密钥放在未提交的 `android/local.properties`；安全组件按接入文档放置，不得写入普通 Markdown。
 - iOS 安全组件、Bundle ID、Universal Link/App Link 和签名资料按平台受控管理。
 - 文档、源码、历史记录和提交信息不得包含 Token、AppSecret、密码、签名材料、真实 Wi-Fi 凭据或用户数据。

@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import '../../devtools/debug_tools_config.dart';
 import '../../preview/preview_config.dart';
 import 'password_page.dart';
 import 'verification_code_countdown.dart';
@@ -175,6 +176,12 @@ class _AuthPageState extends State<AuthPage> {
                             tone: AppMessageTone.info,
                           ),
                           onDemo: state.busy ? null : _enterDemo,
+                          onSdkDebug: DebugToolsConfig.enabled
+                              ? () => Navigator.pushNamed(
+                                  context,
+                                  AppRoutes.tuyaDebug,
+                                )
+                              : null,
                         ),
                       ),
                     ],
@@ -210,6 +217,7 @@ class _LoginPanel extends StatelessWidget {
     required this.onWechat,
     required this.onAlipay,
     required this.onDemo,
+    required this.onSdkDebug,
   });
 
   final TextEditingController accountController;
@@ -231,6 +239,10 @@ class _LoginPanel extends StatelessWidget {
   final VoidCallback onWechat;
   final VoidCallback onAlipay;
   final VoidCallback? onDemo;
+
+  /// Null in release builds that did not opt into the SDK console, which also
+  /// hides the entry.
+  final VoidCallback? onSdkDebug;
 
   @override
   Widget build(BuildContext context) {
@@ -377,10 +389,22 @@ class _LoginPanel extends StatelessWidget {
                   onPrivacy: onPrivacy,
                 ),
                 const SizedBox(height: 24),
-                TextButton.icon(
-                  onPressed: onDemo,
-                  icon: const Icon(Icons.eco_outlined, size: 18),
-                  label: const Text('体验模式'),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  children: <Widget>[
+                    TextButton.icon(
+                      onPressed: onDemo,
+                      icon: const Icon(Icons.eco_outlined, size: 18),
+                      label: const Text('体验模式'),
+                    ),
+                    if (onSdkDebug != null)
+                      TextButton.icon(
+                        key: const Key('tuya-debug-entry'),
+                        onPressed: onSdkDebug,
+                        icon: const Icon(Icons.bug_report_outlined, size: 18),
+                        label: const Text('涂鸦 SDK 联调'),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 18),
               ],

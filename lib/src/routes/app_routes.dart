@@ -27,6 +27,8 @@ import '../features/devices/presentation/temperature_status_page.dart';
 import '../features/devices/presentation/touch_settings_page.dart';
 import '../features/devices/presentation/vibration_settings_page.dart';
 import '../features/devices/presentation/water_status_page.dart';
+import '../features/devtools/debug_tools_config.dart';
+import '../features/devtools/presentation/tuya_debug_page.dart';
 import '../features/profile/presentation/about_page.dart';
 import '../features/profile/presentation/account_security_page.dart';
 import '../features/profile/presentation/help_page.dart';
@@ -79,11 +81,22 @@ abstract final class AppRoutes {
   static const agreement = '/legal/agreement';
   static const about = '/about';
 
+  /// Tuya SDK console. Reachable before login and only while
+  /// [DebugToolsConfig.enabled].
+  static const tuyaDebug = '/devtools/tuya';
+
   static Route<dynamic> onGenerateRoute(
     RouteSettings settings, {
     required bool authenticated,
   }) {
-    final public = <String>{auth, register, password, privacy, agreement};
+    final public = <String>{
+      auth,
+      register,
+      password,
+      privacy,
+      agreement,
+      if (DebugToolsConfig.enabled) tuyaDebug,
+    };
     final requested = settings.name ?? root;
     final name =
         !authenticated && requested != root && !public.contains(requested)
@@ -172,6 +185,7 @@ abstract final class AppRoutes {
       privacy => const LegalPage(privacy: true),
       agreement => const LegalPage(privacy: false),
       about => const AboutPage(),
+      tuyaDebug when DebugToolsConfig.enabled => const TuyaDebugPage(),
       _ => const AuthPage(),
     };
     return MaterialPageRoute<dynamic>(

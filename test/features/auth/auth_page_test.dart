@@ -144,6 +144,21 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the SDK console entry sits next to the demo shortcut', (
+    tester,
+  ) async {
+    await _pumpAuthPage(tester, const Size(375, 812));
+
+    final entry = find.byKey(const Key('tuya-debug-entry'));
+    await tester.ensureVisible(entry);
+    await tester.pump();
+
+    expect(entry, findsOneWidget);
+    expect(find.text('涂鸦 SDK 联调'), findsOneWidget);
+    expect(find.text('体验模式'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('login requires accepting the agreements', (tester) async {
     await _pumpAuthPage(tester, const Size(375, 812));
 

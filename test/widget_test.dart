@@ -107,6 +107,37 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the login page opens the Tuya SDK console', (tester) async {
+    await _pumpApp(tester, const Size(375, 812));
+
+    final entry = find.byKey(const Key('tuya-debug-entry'));
+    await tester.ensureVisible(entry);
+    await tester.pumpAndSettle();
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+
+    expect(find.text('运行环境'), findsOneWidget);
+    expect(find.text('账号参数'), findsOneWidget);
+    expect(find.byKey(const Key('tuya-debug-enter-app')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the profile tab reopens the SDK console after signing in', (
+    tester,
+  ) async {
+    await _pumpApp(tester, const Size(375, 812));
+    await _signIn(tester);
+
+    await tester.tap(_tabLabel('我的'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mine-tuya-debug-entry')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('运行环境'), findsOneWidget);
+    expect(find.text('账号参数'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('home remains usable on a compact 320x568 viewport', (
     tester,
   ) async {
