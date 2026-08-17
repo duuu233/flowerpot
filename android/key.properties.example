@@ -1,0 +1,14 @@
+# Copy to android/key.properties (git-ignored) and fill in real values.
+#
+# Debug, profile and release all sign with this certificate so the running app
+# matches the SHA-256 registered for com.common.yikaltd on the Tuya Developer
+# Platform. Without this file debug/profile fall back to Android's default debug
+# keystore: the UI and the mock backend still run, but real Tuya calls fail with
+# security_component_mismatch. Release builds refuse to run without it.
+#
+# storeFile accepts an absolute path or a path relative to android/app/.
+
+storeFile=/absolute/path/to/release.jks
+keyAlias=YOUR_KEY_ALIAS
+keyPassword=YOUR_KEY_PASSWORD
+storePassword=YOUR_STORE_PASSWORD

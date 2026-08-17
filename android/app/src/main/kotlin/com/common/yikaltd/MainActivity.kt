@@ -3,19 +3,15 @@ package com.common.yikaltd
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.Bundle
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
-import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import java.util.concurrent.atomic.AtomicBoolean
-
-private const val tuyaLogTag = "FlowerpotTuya"
 
 class MainActivity : FlutterActivity() {
     private lateinit var bridge: TuyaSdkBridge
@@ -69,7 +65,7 @@ class MainActivity : FlutterActivity() {
         val pending = pendingPair
         pendingPair = null
         if (pending == null) return
-        if (grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
+        if (grantResults.isEmpty() || grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
             pending.second.error("permission_denied", "配网需要附近设备与定位权限", null)
         } else {
             bridge.handle(pending.first, pending.second)
@@ -83,25 +79,29 @@ class MainActivity : FlutterActivity() {
  * security-algorithm.aar is placed in app/libs, Gradle links Home SDK 7.5.1
  * and Expansion SDK 7.8.0, and the same implementation starts calling the
  * real classes without source changes.
+ *
+ * SDK callbacks are never resolved by guessing interface names: every helper
+ * looks the target method up first and builds the proxy from the callback
+ * parameter type that method actually declares. That keeps the bridge working
+ * across SDK versions that rename or split callback interfaces.
  */
 private class TuyaSdkBridge(private val activity: FlutterActivity) {
-    private val sdkClassName = "com.thingclips.smart.home.sdk.ThingHomeSdk"
-    private val optimusSdkClassName = "com.thingclips.smart.optimus.sdk.ThingOptimusSdk"
     private var homeId: Long? = null
     private var activator: Any? = null
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
+            if (!ensureReady(result)) return
             when (call.method) {
-                "initialize" -> initialize(result)
+                "initialize" -> result.success(true)
                 "currentUser" -> currentUser(result)
                 "sendVerificationCode" -> sendCode(call, result)
                 "login" -> login(call, result)
                 "register" -> register(call, result)
                 "resetPassword" -> resetPassword(call, result)
                 "updateNickname" -> updateNickname(call, result)
-                "logout" -> simpleUserCallback("logout", result)
-                "cancelAccount" -> simpleUserCallback("cancelAccount", result)
+                "logout" -> userAction("logout", result)
+                "cancelAccount" -> userAction("cancelAccount", result)
                 "getDevices" -> withHome(result) { home -> loadHomeDevices(home, result) }
                 "pairWifiDevice" -> pairWifi(call, result)
                 "publishDps" -> deviceAction(call, result, "publishDps")
@@ -128,28 +128,18 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
     }
 
-    private fun initialize(result: MethodChannel.Result) {
-        val sdk = sdkClass()
-        val metadata = activity.packageManager
-            .getApplicationInfo(activity.packageName, PackageManager.GET_META_DATA)
-            .metaData
-        val key = metadata?.getString("THING_SMART_APPKEY").orEmpty()
-        val secret = metadata?.getString("THING_SMART_SECRET").orEmpty()
-        if (key.isBlank() || secret.isBlank()) {
-            result.error("credentials_missing", "请在 android/local.properties 配置涂鸦 AppKey 与 AppSecret", null)
-            return
-        }
-        invokeStatic(sdk, "init", activity.application)
-        Log.i(tuyaLogTag, "ThingHomeSdk.init returned successfully")
-        val optimusSdk = runCatching { Class.forName(optimusSdkClassName) }.getOrNull()
-        if (optimusSdk == null) {
-            Log.w(tuyaLogTag, "ThingOptimusSdk is unavailable")
-        } else {
-            invokeStatic(optimusSdk, "init", activity.application)
-            Log.i(tuyaLogTag, "ThingOptimusSdk.init returned successfully")
-        }
-        runCatching { invokeStatic(sdk, "setDebugMode", isDebugBuild()) }
-        result.success(true)
+    /**
+     * The SDK is initialized in [FlowerpotApplication]; this only surfaces the
+     * recorded reason when that initialization did not complete.
+     */
+    private fun ensureReady(result: MethodChannel.Result): Boolean {
+        if (TuyaSdkInitializer.ensureInitialized(activity.application)) return true
+        result.error(
+            TuyaSdkInitializer.failureCode ?: "sdk_unavailable",
+            TuyaSdkInitializer.failureMessage ?: "涂鸦 SDK 不可用",
+            null,
+        )
+        return false
     }
 
     private fun currentUser(result: MethodChannel.Result) {
@@ -164,100 +154,87 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     private fun sendCode(call: MethodCall, result: MethodChannel.Result) {
-        val account = call.argument<String>("account").orEmpty()
-        val countryCode = call.argument<String>("countryCode").orEmpty()
-        val type = call.argument<Int>("type") ?: 2
-        val callback = resultCallback(result)
-        invoke(userInstance(), "sendVerifyCodeWithUserName", account, "", countryCode, type, callback)
+        invokeWithCallback(
+            userInstance(),
+            "sendVerifyCodeWithUserName",
+            call.argument<String>("account").orEmpty(),
+            "",
+            call.argument<String>("countryCode").orEmpty(),
+            call.argument<Int>("type") ?: 2,
+            onSuccess = { success(result, null) },
+            onError = { code, message -> error(result, code, message) },
+        )
     }
 
     private fun login(call: MethodCall, result: MethodChannel.Result) {
-        val account = call.argument<String>("account").orEmpty()
-        val credential = call.argument<String>("credential").orEmpty()
-        val countryCode = call.argument<String>("countryCode").orEmpty()
         val email = call.argument<Boolean>("email") ?: false
         val codeLogin = call.argument<Boolean>("verificationCode") ?: false
-        val callback = callbackProxy(
-            interfaces = listOf("com.thingclips.smart.android.user.api.ILoginCallback"),
-            onSuccess = { value -> success(result, userMap(value)) },
-            onError = { code, message -> error(result, code, message) },
-        )
         val method = when {
             email -> "loginWithEmail"
             codeLogin -> "loginWithPhone"
             else -> "loginWithPhonePassword"
         }
-        invoke(userInstance(), method, countryCode, account, credential, callback)
+        invokeWithCallback(
+            userInstance(),
+            method,
+            call.argument<String>("countryCode").orEmpty(),
+            call.argument<String>("account").orEmpty(),
+            call.argument<String>("credential").orEmpty(),
+            onSuccess = { value -> success(result, value?.let(::userMap)) },
+            onError = { code, message -> error(result, code, message) },
+        )
     }
 
     private fun register(call: MethodCall, result: MethodChannel.Result) {
-        val account = call.argument<String>("account").orEmpty()
-        val password = call.argument<String>("password").orEmpty()
-        val code = call.argument<String>("code").orEmpty()
-        val countryCode = call.argument<String>("countryCode").orEmpty()
         val email = call.argument<Boolean>("email") ?: false
-        val callback = callbackProxy(
-            interfaces = listOf("com.thingclips.smart.android.user.api.IRegisterCallback"),
-            onSuccess = { value -> success(result, userMap(value)) },
-            onError = { errorCode, message -> error(result, errorCode, message) },
-        )
-        invoke(
+        invokeWithCallback(
             userInstance(),
             if (email) "registerAccountWithEmail" else "registerAccountWithPhone",
-            countryCode,
-            account,
-            password,
-            code,
-            callback,
+            call.argument<String>("countryCode").orEmpty(),
+            call.argument<String>("account").orEmpty(),
+            call.argument<String>("password").orEmpty(),
+            call.argument<String>("code").orEmpty(),
+            onSuccess = { value -> success(result, value?.let(::userMap)) },
+            onError = { code, message -> error(result, code, message) },
         )
     }
 
     private fun resetPassword(call: MethodCall, result: MethodChannel.Result) {
-        val account = call.argument<String>("account").orEmpty()
-        val newPassword = call.argument<String>("newPassword").orEmpty()
-        val code = call.argument<String>("code").orEmpty()
-        val countryCode = call.argument<String>("countryCode").orEmpty()
         val email = call.argument<Boolean>("email") ?: false
-        val callback = callbackProxy(
-            interfaces = listOf("com.thingclips.smart.android.user.api.IResetPasswordCallback"),
-            onSuccess = { success(result, null) },
-            onError = { errorCode, message -> error(result, errorCode, message) },
-        )
-        invoke(
+        invokeWithCallback(
             userInstance(),
             if (email) "resetEmailPassword" else "resetPhonePassword",
-            countryCode,
-            account,
-            code,
-            newPassword,
-            callback,
+            call.argument<String>("countryCode").orEmpty(),
+            call.argument<String>("account").orEmpty(),
+            call.argument<String>("code").orEmpty(),
+            call.argument<String>("newPassword").orEmpty(),
+            onSuccess = { success(result, null) },
+            onError = { code, message -> error(result, code, message) },
         )
     }
 
     private fun updateNickname(call: MethodCall, result: MethodChannel.Result) {
-        val callback = callbackProxy(
-            interfaces = listOf("com.thingclips.smart.android.user.api.IReNickNameCallback"),
-            onSuccess = { success(result, null) },
-            onError = { errorCode, message -> error(result, errorCode, message) },
-        )
-        invoke(
+        invokeWithCallback(
             userInstance(),
             "updateNickName",
             call.argument<String>("nickname").orEmpty(),
-            callback,
-        )
-    }
-
-    private fun simpleUserCallback(method: String, result: MethodChannel.Result) {
-        val callback = callbackProxy(
-            interfaces = listOf(
-                "com.thingclips.smart.android.user.api.ILogoutCallback",
-                "com.thingclips.smart.sdk.api.IResultCallback",
-            ),
             onSuccess = { success(result, null) },
             onError = { code, message -> error(result, code, message) },
         )
-        invoke(userInstance(), method, callback)
+    }
+
+    /**
+     * `logout` takes ILogoutCallback while `cancelAccount` takes
+     * IResultCallback; the proxy type is read from the resolved method so both
+     * keep working from one call site.
+     */
+    private fun userAction(method: String, result: MethodChannel.Result) {
+        invokeWithCallback(
+            userInstance(),
+            method,
+            onSuccess = { success(result, null) },
+            onError = { code, message -> error(result, code, message) },
+        )
     }
 
     private fun withHome(result: MethodChannel.Result, ready: (Long) -> Unit) {
@@ -267,12 +244,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
         val manager = invokeStatic(sdkClass(), "getHomeManagerInstance")
             ?: throw IllegalStateException("无法获取家庭管理实例")
-        val callback = callbackProxy(
-            interfaces = listOf("com.thingclips.smart.home.sdk.callback.IThingGetHomeListCallback"),
+        invokeWithCallback(
+            manager,
+            "queryHomeList",
             onSuccess = { value ->
                 val homes = value as? List<*> ?: emptyList<Any>()
-                if (homes.isNotEmpty()) {
-                    val id = number(getter(homes.first()!!, "getHomeId"))
+                val first = homes.filterNotNull().firstOrNull()
+                if (first != null) {
+                    val id = number(getter(first, "getHomeId"))
                     homeId = id
                     ready(id)
                 } else {
@@ -281,46 +260,55 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             },
             onError = { code, message -> error(result, code, message) },
         )
-        invoke(manager, "queryHomeList", callback)
     }
 
     private fun createHome(manager: Any, result: MethodChannel.Result, ready: (Long) -> Unit) {
-        val callback = callbackProxy(
-            interfaces = listOf("com.thingclips.smart.home.sdk.callback.IThingHomeResultCallback"),
+        invokeWithCallback(
+            manager,
+            "createHome",
+            "我的花园",
+            0.0,
+            0.0,
+            "",
+            emptyList<String>(),
             onSuccess = { value ->
-                val id = number(getter(value, "getHomeId"))
-                homeId = id
-                ready(id)
+                if (value == null) {
+                    error(result, "home_missing", "创建家庭未返回家庭信息")
+                } else {
+                    val id = number(getter(value, "getHomeId"))
+                    homeId = id
+                    ready(id)
+                }
             },
             onError = { code, message -> error(result, code, message) },
         )
-        invoke(manager, "createHome", "我的花园", 0.0, 0.0, "", emptyList<String>(), callback)
     }
 
     private fun loadHomeDevices(id: Long, result: MethodChannel.Result) {
         val home = invokeStatic(sdkClass(), "newHomeInstance", id)
             ?: throw IllegalStateException("无法创建家庭实例")
-        val callback = callbackProxy(
-            interfaces = listOf("com.thingclips.smart.home.sdk.callback.IThingHomeResultCallback"),
+        invokeWithCallback(
+            home,
+            "getHomeDetail",
             onSuccess = { value ->
-                val devices = getter(value, "getDeviceList") as? List<*> ?: emptyList<Any>()
-                success(result, devices.filterNotNull().map(::deviceMap))
+                val devices = value?.let { optionalGetter(it, "getDeviceList") } as? List<*>
+                success(result, devices.orEmpty().filterNotNull().map(::deviceMap))
             },
             onError = { code, message -> error(result, code, message) },
         )
-        invoke(home, "getHomeDetail", callback)
     }
 
     private fun pairWifi(call: MethodCall, result: MethodChannel.Result) {
         withHome(result) { id ->
-            val tokenCallback = callbackProxy(
-                interfaces = listOf("com.thingclips.smart.sdk.api.IThingActivatorGetToken"),
-                onSuccess = { token -> startActivator(call, result, token.toString()) },
-                onError = { code, message -> error(result, code, message) },
-            )
             val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
                 ?: throw IllegalStateException("无法获取配网实例")
-            invoke(activatorApi, "getActivatorToken", id, tokenCallback)
+            invokeWithCallback(
+                activatorApi,
+                "getActivatorToken",
+                id,
+                onSuccess = { token -> startActivator(call, result, token?.toString().orEmpty()) },
+                onError = { code, message -> error(result, code, message) },
+            )
         }
     }
 
@@ -332,14 +320,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             "com.thingclips.smart.sdk.builder.ThingActivatorBuilder",
         )
         val builder = builderClass.getDeclaredConstructor().newInstance()
-        val listener = callbackProxy(
-            interfaces = listOf("com.thingclips.smart.sdk.api.IThingSmartActivatorListener"),
-            onSuccess = { value ->
-                activator?.let { runCatching { invoke(it, "stop") } }
-                success(result, deviceMap(value))
-            },
-            onError = { code, message -> error(result, code, message) },
-        )
         val enumClass = firstClass("com.thingclips.smart.sdk.enums.ActivatorModelEnum")
         @Suppress("UNCHECKED_CAST")
         val enumType = enumClass as Class<out Enum<*>>
@@ -351,44 +331,79 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         invoke(builder, "setActivatorModel", mode)
         invoke(builder, "setTimeOut", 120L)
         invoke(builder, "setToken", token)
-        invoke(builder, "setListener", listener)
+        invokeWithCallback(
+            builder,
+            "setListener",
+            onSuccess = { value ->
+                stopActivator()
+                if (value == null) {
+                    error(result, "pair_failed", "配网未返回设备信息")
+                } else {
+                    success(result, deviceMap(value))
+                }
+            },
+            onError = { code, message ->
+                stopActivator()
+                error(result, code, message)
+            },
+        )
         activator = invoke(activatorApi, "newMultiActivator", builder)
         invoke(activator!!, "start")
+    }
+
+    private fun stopActivator() {
+        activator?.let { runCatching { invoke(it, "stop") } }
+        activator = null
     }
 
     private fun deviceAction(call: MethodCall, result: MethodChannel.Result, method: String) {
         val deviceId = call.argument<String>("deviceId").orEmpty()
         val device = invokeStatic(sdkClass(), "newDeviceInstance", deviceId)
             ?: throw IllegalStateException("无法创建设备实例")
-        val callback = resultCallback(result)
+        val onSuccess: (Any?) -> Unit = { success(result, null) }
+        val onError: (String, String) -> Unit = { code, message -> error(result, code, message) }
         when (method) {
             "publishDps" -> {
                 val dps = call.argument<Map<String, Any?>>("dps") ?: emptyMap()
-                invoke(device, method, JSONObject(dps).toString(), callback)
+                invokeWithCallback(
+                    device,
+                    method,
+                    JSONObject(dps).toString(),
+                    onSuccess = onSuccess,
+                    onError = onError,
+                )
             }
-            "renameDevice" -> invoke(device, method, call.argument<String>("name").orEmpty(), callback)
-            else -> invoke(device, method, callback)
+            "renameDevice" -> invokeWithCallback(
+                device,
+                method,
+                call.argument<String>("name").orEmpty(),
+                onSuccess = onSuccess,
+                onError = onError,
+            )
+            else -> invokeWithCallback(device, method, onSuccess = onSuccess, onError = onError)
         }
     }
 
     private fun createShareLink(call: MethodCall, result: MethodChannel.Result) {
-        // Device share is delivered by the Expansion SDK. Class and API names
-        // are resolved dynamically to keep the pre-credential build runnable.
-        val managerClass = firstClass(
-            "com.thingclips.smart.extension.device.share.ThingDeviceShareManager",
-            "com.thingclips.smart.bizbundle.device.share.ThingDeviceShareManager",
-        )
+        // Link-based sharing is delivered by the Expansion SDK, whose manager
+        // class moved between packages. Nothing is guessed silently: when no
+        // known entry point resolves, Dart gets an actionable error instead.
+        val managerClass = runCatching {
+            firstClass(
+                "com.thingclips.smart.extension.device.share.ThingDeviceShareManager",
+                "com.thingclips.smart.bizbundle.device.share.ThingDeviceShareManager",
+            )
+        }.getOrNull()
+        if (managerClass == null) {
+            error(
+                result,
+                "share_service_unavailable",
+                "当前业务拓展 SDK 未提供设备分享链接能力，请在涂鸦平台开通设备分享后核对接口",
+            )
+            return
+        }
         val manager = managerClass.getDeclaredConstructor().newInstance()
-        val callback = callbackProxy(
-            interfaces = listOf("com.thingclips.smart.sdk.api.IThingResultCallback"),
-            onSuccess = { value ->
-                val link = runCatching { getter(value, "getUrl").toString() }
-                    .getOrElse { value.toString() }
-                success(result, link)
-            },
-            onError = { code, message -> error(result, code, message) },
-        )
-        invoke(
+        invokeWithCallback(
             manager,
             "createShareInfo",
             call.argument<String>("deviceId").orEmpty(),
@@ -396,72 +411,68 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             homeId ?: 0L,
             0,
             1,
-            callback,
+            onSuccess = { value ->
+                val link = value?.let { shared ->
+                    optionalGetter(shared, "getUrl")?.toString() ?: shared.toString()
+                }
+                success(result, link.orEmpty())
+            },
+            onError = { code, message -> error(result, code, message) },
         )
     }
 
     private fun checkFirmware(call: MethodCall, result: MethodChannel.Result) {
-        val deviceId = call.argument<String>("deviceId").orEmpty()
-        val ota = invokeStatic(sdkClass(), "newOTAInstance", deviceId)
-            ?: throw IllegalStateException("当前 SDK 未提供 OTA 实例")
-        val callback = callbackProxy(
-            interfaces = listOf("com.thingclips.smart.sdk.api.IThingOtaInfoCallback"),
+        invokeWithCallback(
+            otaInstance(call),
+            "getOtaInfo",
             onSuccess = { value ->
                 val list = value as? List<*> ?: emptyList<Any>()
-                val version = list.firstOrNull()?.let { runCatching { getter(it, "getVersion").toString() }.getOrNull() }
+                val version = list.filterNotNull().firstOrNull()?.let {
+                    optionalGetter(it, "getVersion")?.toString()
+                }
                 success(result, version)
             },
             onError = { code, message -> error(result, code, message) },
         )
-        invoke(ota, "getOtaInfo", callback)
     }
 
     private fun startFirmwareUpgrade(call: MethodCall, result: MethodChannel.Result) {
-        val deviceId = call.argument<String>("deviceId").orEmpty()
-        val ota = invokeStatic(sdkClass(), "newOTAInstance", deviceId)
-            ?: throw IllegalStateException("当前 SDK 未提供 OTA 实例")
-        val callback = resultCallback(result)
-        invoke(ota, "startOta", callback)
-    }
-
-    private fun resultCallback(result: MethodChannel.Result): Any = callbackProxy(
-        interfaces = listOf("com.thingclips.smart.sdk.api.IResultCallback"),
-        onSuccess = { success(result, null) },
-        onError = { code, message -> error(result, code, message) },
-    )
-
-    private fun callbackProxy(
-        interfaces: List<String>,
-        onSuccess: (Any) -> Unit,
-        onError: (String, String) -> Unit,
-    ): Any {
-        val callbackClass = interfaces.firstNotNullOfOrNull { name ->
-            runCatching { Class.forName(name) }.getOrNull()
-        } ?: throw ClassNotFoundException("SDK callback not found: $interfaces")
-        val delivered = AtomicBoolean(false)
-        return Proxy.newProxyInstance(callbackClass.classLoader, arrayOf(callbackClass)) { _, method, args ->
-            when (method.name) {
-                "onSuccess", "onActiveSuccess" -> if (delivered.compareAndSet(false, true)) {
-                    onSuccess(args?.firstOrNull() ?: Unit)
-                }
-                "onError", "onFailure" -> if (delivered.compareAndSet(false, true)) {
-                    onError(args?.getOrNull(0)?.toString() ?: "sdk_error", args?.getOrNull(1)?.toString() ?: "SDK 调用失败")
-                }
-            }
-            defaultValue(method.returnType)
+        val ota = otaInstance(call)
+        val onSuccess: (Any?) -> Unit = { success(result, null) }
+        val onError: (String, String) -> Unit = { code, message -> error(result, code, message) }
+        // 7.x reports progress through a listener and starts with a no-arg call;
+        // older builds accept the callback directly on startOta.
+        val listenerMethod =
+            optionalCallbackMethod(ota.javaClass, "setOtaListener", emptyArray<Any?>())
+        if (listenerMethod != null) {
+            listenerMethod.invoke(
+                ota,
+                callbackProxy(listenerMethod.parameterTypes.last(), onSuccess, onError),
+            )
+            invoke(ota, "startOta")
+            return
         }
+        invokeWithCallback(ota, "startOta", onSuccess = onSuccess, onError = onError)
     }
+
+    private fun otaInstance(call: MethodCall): Any =
+        invokeStatic(sdkClass(), "newOTAInstance", call.argument<String>("deviceId").orEmpty())
+            ?: throw IllegalStateException("当前 SDK 未提供 OTA 实例")
 
     private fun userMap(user: Any): Map<String, Any?> = mapOf(
         "uid" to optionalGetter(user, "getUid"),
         "nickname" to (optionalGetter(user, "getNickName") ?: optionalGetter(user, "getNickname")),
-        "account" to (optionalGetter(user, "getUsername") ?: optionalGetter(user, "getMobile") ?: optionalGetter(user, "getEmail")),
+        "account" to (
+            optionalGetter(user, "getUsername")
+                ?: optionalGetter(user, "getMobile")
+                ?: optionalGetter(user, "getEmail")
+            ),
         "avatarUrl" to (optionalGetter(user, "getHeadPic") ?: optionalGetter(user, "getIconUrl")),
     )
 
     private fun deviceMap(device: Any): Map<String, Any?> = mapOf(
         "deviceId" to (optionalGetter(device, "getDevId") ?: optionalGetter(device, "getDeviceId")),
-        "productId" to (optionalGetter(device, "getProductId") ?: optionalGetter(device, "getProductId")),
+        "productId" to (optionalGetter(device, "getProductId") ?: optionalGetter(device, "getPid")),
         "name" to optionalGetter(device, "getName"),
         "online" to (optionalGetter(device, "getIsOnline") ?: optionalGetter(device, "isOnline")),
         "signal" to (optionalGetter(device, "getSignal") ?: 0),
@@ -474,7 +485,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private fun userInstance(): Any = invokeStatic(sdkClass(), "getUserInstance")
         ?: throw IllegalStateException("无法获取涂鸦用户实例")
 
-    private fun sdkClass(): Class<*> = Class.forName(sdkClassName)
+    private fun sdkClass(): Class<*> = TuyaSdkInitializer.homeSdkClass()
+        ?: throw ClassNotFoundException("com.thingclips.smart.home.sdk.ThingHomeSdk")
 
     private fun firstClass(vararg names: String): Class<*> = names.firstNotNullOfOrNull { name ->
         runCatching { Class.forName(name) }.getOrNull()
@@ -486,19 +498,91 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private fun invoke(target: Any, name: String, vararg args: Any?): Any? =
         findMethod(target.javaClass, name, args).invoke(target, *args)
 
+    /**
+     * Calls [name] with [args] plus an SDK callback appended. The callback
+     * interface is taken from the resolved method signature, so no SDK
+     * interface name is hard-coded.
+     */
+    private fun invokeWithCallback(
+        target: Any,
+        name: String,
+        vararg args: Any?,
+        onSuccess: (Any?) -> Unit,
+        onError: (String, String) -> Unit,
+    ): Any? {
+        val method = findCallbackMethod(target.javaClass, name, args)
+        val callback = callbackProxy(method.parameterTypes.last(), onSuccess, onError)
+        return method.invoke(target, *(args.toList() + callback).toTypedArray())
+    }
+
+    private fun callbackProxy(
+        callbackType: Class<*>,
+        onSuccess: (Any?) -> Unit,
+        onError: (String, String) -> Unit,
+    ): Any {
+        val delivered = AtomicBoolean(false)
+        val loader = callbackType.classLoader ?: activity.classLoader
+        return Proxy.newProxyInstance(loader, arrayOf(callbackType)) { proxy, method, args ->
+            when (method.name) {
+                "equals" -> proxy === args?.firstOrNull()
+                "hashCode" -> System.identityHashCode(proxy)
+                "toString" -> "TuyaCallback(${callbackType.simpleName})"
+                "onSuccess", "onActiveSuccess" -> {
+                    if (delivered.compareAndSet(false, true)) onSuccess(args?.firstOrNull())
+                    defaultValue(method.returnType)
+                }
+                // Signatures differ per interface (onError(code, msg),
+                // onFailure(otaType, code, msg), ...), so the human-readable
+                // pair is picked from the String arguments.
+                "onError", "onFailure" -> {
+                    if (delivered.compareAndSet(false, true)) {
+                        val texts = args?.filterIsInstance<String>().orEmpty()
+                        onError(
+                            texts.firstOrNull() ?: "sdk_error",
+                            texts.getOrNull(1) ?: texts.firstOrNull() ?: "SDK 调用失败",
+                        )
+                    }
+                    defaultValue(method.returnType)
+                }
+                else -> defaultValue(method.returnType)
+            }
+        }
+    }
+
     private fun getter(target: Any, name: String): Any =
         invoke(target, name) ?: throw IllegalStateException("$name returned null")
 
-    private fun optionalGetter(target: Any, name: String): Any? = runCatching { invoke(target, name) }.getOrNull()
+    private fun optionalGetter(target: Any, name: String): Any? =
+        runCatching { invoke(target, name) }.getOrNull()
 
-    private fun findMethod(clazz: Class<*>, name: String, args: Array<out Any?>): Method {
-        val methods = (clazz.methods + clazz.declaredMethods).distinct()
-        return methods.firstOrNull { method ->
+    private fun findMethod(clazz: Class<*>, name: String, args: Array<out Any?>): Method =
+        candidates(clazz).firstOrNull { method ->
             method.name == name && method.parameterTypes.size == args.size &&
-                method.parameterTypes.zip(args).all { (type, value) -> compatible(type, value) }
+                method.parameterTypes.zip(args.toList()).all { (type, value) -> compatible(type, value) }
         }?.apply { isAccessible = true }
-            ?: throw NoSuchMethodException("${clazz.name}.$name(${args.joinToString { it?.javaClass?.simpleName ?: "null" }})")
-    }
+            ?: throw NoSuchMethodException(
+                "${clazz.name}.$name(${args.joinToString { it?.javaClass?.simpleName ?: "null" }})",
+            )
+
+    private fun findCallbackMethod(clazz: Class<*>, name: String, args: Array<out Any?>): Method =
+        optionalCallbackMethod(clazz, name, args)
+            ?: throw NoSuchMethodException(
+                "${clazz.name}.$name(${args.joinToString { it?.javaClass?.simpleName ?: "null" }}, callback)",
+            )
+
+    private fun optionalCallbackMethod(
+        clazz: Class<*>,
+        name: String,
+        args: Array<out Any?>,
+    ): Method? = candidates(clazz).firstOrNull { method ->
+        method.name == name && method.parameterTypes.size == args.size + 1 &&
+            method.parameterTypes.last().isInterface &&
+            method.parameterTypes.dropLast(1).zip(args.toList())
+                .all { (type, value) -> compatible(type, value) }
+    }?.apply { isAccessible = true }
+
+    private fun candidates(clazz: Class<*>): List<Method> =
+        (clazz.methods + clazz.declaredMethods).distinct()
 
     private fun compatible(type: Class<*>, value: Any?): Boolean {
         if (value == null) return !type.isPrimitive
@@ -534,21 +618,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     private fun fail(result: MethodChannel.Result, throwable: Throwable) {
-        val cause = if (throwable is InvocationTargetException) throwable.targetException else throwable
-        Log.e(tuyaLogTag, "Tuya SDK call failed: ${cause.javaClass.simpleName}")
-        when (cause) {
-            is ClassNotFoundException -> error(result, "sdk_unavailable", cause.message ?: "涂鸦 SDK 不可用")
-            is javax.crypto.AEADBadTagException -> error(
-                result,
-                "security_component_mismatch",
-                "涂鸦安全组件与 AppKey、AppSecret、包名或签名不匹配，请核对平台配置后重新下载安全组件",
-            )
-            else -> error(result, "native_error", cause.message ?: cause.javaClass.simpleName)
-        }
+        val cause = TuyaSdkInitializer.unwrap(throwable)
+        Log.e(TUYA_LOG_TAG, "Tuya SDK call failed: ${cause.javaClass.simpleName}")
+        val (code, message) = TuyaSdkInitializer.describe(cause)
+        error(result, code, message)
     }
-
-    private fun isDebugBuild(): Boolean = runCatching {
-        val clazz = Class.forName("${activity.packageName}.BuildConfig")
-        clazz.getField("DEBUG").getBoolean(null)
-    }.getOrDefault(false)
 }

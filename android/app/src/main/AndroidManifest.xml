@@ -12,9 +12,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Smart Life App SDK must be initialized from Application.onCreate, so the
+         app declares its own Application class instead of Flutter's
+         applicationName placeholder. FlowerpotApplication extends
+         android.app.Application, which is what that placeholder resolves to for
+         the v2 embedding. -->
     <application
         android:label="智能花盆"
-        android:name="${applicationName}"
+        android:name=".FlowerpotApplication"
         android:icon="@mipmap/ic_launcher">
         <meta-data android:name="THING_SMART_APPKEY" android:value="${tuyaAppKey}" />
         <meta-data android:name="THING_SMART_SECRET" android:value="${tuyaAppSecret}" />
