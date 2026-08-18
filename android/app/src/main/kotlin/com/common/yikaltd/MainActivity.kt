@@ -16,6 +16,17 @@ import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * Provisioning-mode constants, newest spelling first.
+ *
+ * Tuya renamed `ActivatorModelEnum`'s constants from `TY_*` to `THING_*` during
+ * 7.x — 7.5.1 offers `THING_AP, THING_EZ, THING_4G_GATEWAY, THING_STATIC_IP,
+ * THING_QR` and no `TY_*` at all. The old names stay as a fallback so the
+ * bridge also works against an older SDK drop.
+ */
+private val EZ_MODE_NAMES = listOf("THING_EZ", "TY_EZ")
+private val AP_MODE_NAMES = listOf("THING_AP", "TY_AP")
+
 class MainActivity : FlutterActivity() {
     private lateinit var bridge: TuyaSdkBridge
     private var pendingPair: PendingPair? = null
@@ -497,7 +508,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             .newInstance()
         val mode = activatorMode(
             builder,
-            if (call.argument<String>("mode") == "ez") "TY_EZ" else "TY_AP",
+            if (call.argument<String>("mode") == "ez") EZ_MODE_NAMES else AP_MODE_NAMES,
         )
         invoke(builder, "setContext", activity)
         invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
@@ -564,10 +575,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         .ifEmpty { "无" }
 
     /**
-     * Resolves the `TY_EZ` / `TY_AP` constant from the setter's parameter type,
-     * so the enum's package name does not have to be hard-coded either.
+     * Resolves the EZ / AP constant from the setter's parameter type, so the
+     * enum's package name does not have to be hard-coded either.
+     *
+     * [modeNames] is a preference list rather than one name: Tuya renamed these
+     * constants from `TY_*` to `THING_*` during 7.x (7.5.1 ships only the
+     * latter), and the bridge should work against either generation.
      */
-    private fun activatorMode(builder: Any, modeName: String): Any {
+    private fun activatorMode(builder: Any, modeNames: List<String>): Any {
         val setter = candidates(builder.javaClass).firstOrNull { method ->
             method.name == "setActivatorModel" &&
                 method.parameterTypes.size == 1 &&
@@ -577,11 +592,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         )
         val constants = (setter.parameterTypes.single().enumConstants ?: emptyArray())
             .filterIsInstance<Enum<*>>()
-        return constants.firstOrNull { it.name == modeName }
-            ?: throw IllegalStateException(
-                "SDK 未提供配网模式 $modeName，可用：" +
-                    constants.joinToString { it.name }.ifEmpty { "无" },
-            )
+        return modeNames.firstNotNullOfOrNull { name ->
+            constants.firstOrNull { it.name == name }
+        } ?: throw IllegalStateException(
+            "SDK 未提供配网模式 ${modeNames.joinToString("/")}，可用：" +
+                constants.joinToString { it.name }.ifEmpty { "无" },
+        )
     }
 
     private fun stopActivator() {

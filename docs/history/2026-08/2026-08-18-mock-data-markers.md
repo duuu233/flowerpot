@@ -71,6 +71,14 @@ com.thingclips.smart.sdk.builder.ActivatorBuilder, com.thingclips.smart.sdk.buil
 
 本机没有涂鸦 AAR（构建在 Windows 上），无法离线确认真实类名，这也是选择签名反查而不是再猜一个名字的直接原因。
 
+真机复测验证了这套做法：Builder 一次解析成功，改报下一层的问题——
+
+```
+[native_error] SDK 未提供配网模式 TY_EZ，可用：THING_AP, THING_EZ, THING_4G_GATEWAY, THING_STATIC_IP, THING_QR
+```
+
+即枚举常量也被改过名，7.5.1 只有 `THING_*` 一代。因为异常消息里带了实际常量清单，这一步不需要再猜。改为按优先级列表匹配：`EZ_MODE_NAMES = ["THING_EZ", "TY_EZ"]`、`AP_MODE_NAMES = ["THING_AP", "TY_AP"]`，新名在前、旧名兜底，两代 SDK 都能用。「让失败自带清单」这个设计本身就是这次少跑一轮真机的原因，后续加配网能力时保持。
+
 ## 关键决策
 
 - 只改会流入真实 SDK 的假数据（预填 Wi-Fi 凭据、只读输入框），不动纯展示性的模拟行为（雷达动画、600ms 假连接）。
