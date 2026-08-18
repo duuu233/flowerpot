@@ -19,11 +19,21 @@ void main() {
     expect(find.text('仅支持2.4GHz Wi-Fi网络'), findsOneWidget);
     expect(find.text('请确保设备连接的是稳定的2.4GHz网络'), findsOneWidget);
     expect(find.text('Wi-Fi名称'), findsOneWidget);
-    expect(find.text('Home_2.4G'), findsOneWidget);
+    // Nothing is prefilled: a placeholder SSID/password would be sent to the
+    // SDK as-is on a real pairing attempt.
+    expect(find.text('输入 2.4G 名称'), findsOneWidget);
+    final ssidField = tester.widget<TextField>(
+      find.byKey(const Key('pairing-ssid-field')),
+    );
+    expect(ssidField.controller?.text, isEmpty);
+    expect(ssidField.readOnly, isFalse);
     expect(find.text('切换'), findsOneWidget);
     expect(find.text('Wi-Fi密码'), findsOneWidget);
     expect(find.text('连接过程中请保持设备靠近路由器'), findsOneWidget);
     expect(find.text('开始配网'), findsOneWidget);
+    // Debug builds expose the provisioning mode and default to AP.
+    expect(find.text('真实 SDK · AP 配网'), findsOneWidget);
+    expect(find.byKey(const Key('pairing-mode-switch')), findsOneWidget);
     expect(
       findAssetImage(AppAssets.pairingWifiSetupIllustration),
       findsOneWidget,
@@ -61,7 +71,10 @@ void main() {
     expect(find.byKey(const Key('wifi-option-Home_2.4G')), findsOneWidget);
     expect(find.byKey(const Key('wifi-option-TP-LINK_2.4G')), findsOneWidget);
     expect(find.byKey(const Key('wifi-option-Xiaomi_2.4G')), findsOneWidget);
-    expect(find.byKey(const Key('wifi-selected-check')), findsOneWidget);
+    expect(find.text('模拟网络列表'), findsOneWidget);
+    // Nothing is selected until the user picks one, because the field starts
+    // empty rather than on a placeholder network.
+    expect(find.byKey(const Key('wifi-selected-check')), findsNothing);
 
     await tester.tap(find.byKey(const Key('wifi-option-TP-LINK_2.4G')));
     await tester.pump();
@@ -118,6 +131,7 @@ void main() {
       onSuccessArguments: (value) => successArguments = value,
     );
 
+    await _enterCredentials(tester);
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
@@ -138,14 +152,27 @@ void main() {
       onFailureArguments: (value) => failureArguments = value,
     );
 
+    await _enterCredentials(tester);
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pumpAndSettle();
 
     expect(find.text('pairing-failure-target'), findsOneWidget);
     final request = failureArguments! as PairingRequest;
-    expect(request.ssid, 'Home_2.4G');
+    expect(request.ssid, 'TP-LINK_2.4G');
     expect(tester.takeException(), isNull);
   });
+}
+
+Future<void> _enterCredentials(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const Key('pairing-ssid-field')),
+    'TP-LINK_2.4G',
+  );
+  await tester.enterText(
+    find.byKey(const Key('pairing-password-field')),
+    'wifi-password',
+  );
+  await tester.pump();
 }
 
 Future<FlowerpotState> _pumpPairingPage(

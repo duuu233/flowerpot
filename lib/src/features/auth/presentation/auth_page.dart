@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../core/config/debug_tools_config.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
-import '../../devtools/debug_tools_config.dart';
 import '../../preview/preview_config.dart';
 import 'password_page.dart';
 import 'verification_code_countdown.dart';
@@ -391,12 +391,18 @@ class _LoginPanel extends StatelessWidget {
                 const SizedBox(height: 24),
                 Wrap(
                   alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: AppSpacing.xs,
                   children: <Widget>[
                     TextButton.icon(
                       onPressed: onDemo,
                       icon: const Icon(Icons.eco_outlined, size: 18),
                       label: const Text('体验模式'),
                     ),
+                    // This button swaps the live bridge for the mock backend at
+                    // runtime, which is otherwise invisible inside a
+                    // TUYA_ENABLED build.
+                    const MockDataBadge(label: '切到假数据'),
                     if (onSdkDebug != null)
                       TextButton.icon(
                         key: const Key('tuya-debug-entry'),

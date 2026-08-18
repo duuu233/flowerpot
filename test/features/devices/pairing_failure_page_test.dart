@@ -1,5 +1,6 @@
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_failure_page.dart';
+import 'package:flowerpot/src/features/devices/presentation/pairing_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flutter/material.dart';
@@ -46,13 +47,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('retry returns to Wi-Fi pairing', (tester) async {
-    await _pumpFailurePage(tester, const Size(375, 812), withRoutes: true);
+  testWidgets('retry returns to Wi-Fi pairing with the previous attempt', (
+    tester,
+  ) async {
+    Object? pairingArguments;
+    await _pumpFailurePage(
+      tester,
+      const Size(375, 812),
+      withRoutes: true,
+      onPairingArguments: (value) => pairingArguments = value,
+    );
 
     await tester.tap(find.byKey(const Key('retry-pairing-button')));
     await tester.pumpAndSettle();
 
     expect(find.text('pairing-target'), findsOneWidget);
+    // The Wi-Fi page starts blank now, so the retry has to carry the
+    // credentials back or they are lost on every failure.
+    expect(pairingArguments, isA<PairingArguments>());
+    final request = (pairingArguments! as PairingArguments).request;
+    expect(request?.ssid, 'Home_2.4G');
+    expect(request?.password, '12345678');
     expect(tester.takeException(), isNull);
   });
 
@@ -82,6 +97,7 @@ Future<void> _pumpFailurePage(
   Size size, {
   bool withRoutes = false,
   ValueChanged<Object?>? onSelectionArguments,
+  ValueChanged<Object?>? onPairingArguments,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -94,6 +110,7 @@ Future<void> _pumpFailurePage(
       onGenerateRoute: withRoutes
           ? (settings) {
               if (settings.name == AppRoutes.pairing) {
+                onPairingArguments?.call(settings.arguments);
                 return MaterialPageRoute<void>(
                   builder: (_) => const Scaffold(
                     body: Center(child: Text('pairing-target')),

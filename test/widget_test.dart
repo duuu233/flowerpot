@@ -66,6 +66,17 @@ void main() {
     expect(find.text('连接Wi-Fi'), findsOneWidget);
     expect(find.byKey(const Key('pairing-connected-device')), findsOneWidget);
 
+    // Credentials are no longer prefilled with placeholder values.
+    await tester.enterText(
+      find.byKey(const Key('pairing-ssid-field')),
+      'TP-LINK_2.4G',
+    );
+    await tester.enterText(
+      find.byKey(const Key('pairing-password-field')),
+      'wifi-password',
+    );
+    await tester.pump();
+
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();

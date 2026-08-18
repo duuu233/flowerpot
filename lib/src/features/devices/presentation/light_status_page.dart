@@ -57,6 +57,10 @@ class _LightStatusPageState extends State<LightStatusPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
+                  const MockDataBanner(
+                    title: '部分内容为占位',
+                    message: '切换日期不会重新取数，坐标轴刻度与养护建议是固定文案。',
+                  ),
                   LightStatusSummaryCard(model: summaryModel),
                   const SizedBox(height: AppSpacing.md),
                   TimeRangeSelector<ReportRange>(

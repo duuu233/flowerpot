@@ -248,7 +248,24 @@ flutter build apk --release --split-per-abi --dart-define=TUYA_DEBUG_TOOLS=true 
 - `uploadAnimation` → `product_protocol_required`：动画同步需要 PID 对应的文件传输协议。
 - `createShareLink` → `share_service_unavailable`：分享链接由业务拓展 SDK 提供，管理类包名需要在开通设备分享后核对。
 
-还未实现的能力：设备 DP 实时上报。当前只在 `getDevices` 时读取一次 `dps`，下发后 UI 不会收到设备主动推送的变化。接入时需要注册 `IDevListener` 并新增一条 Flutter 事件通道，同时扩展 `TuyaRepository` 契约。
+还未实现的能力：
+
+- 设备 DP 实时上报。当前只在 `getDevices` 时读取一次 `dps`，下发后 UI 不会收到设备主动推送的变化。接入时需要注册 `IDevListener` 并新增一条 Flutter 事件通道，同时扩展 `TuyaRepository` 契约。
+- **设备发现（蓝牙或 Wi-Fi 扫描）**。桥接里没有任何扫描接口，`TuyaRepository` 也没有对应契约。配网动线中只有最后一步是真实的：
+
+| 页面 | 现状 |
+| --- | --- |
+| `DeviceSearchPage`（搜索设备） | 纯动画，2 秒定时器后直接跳到选择页，不做任何扫描。 |
+| `DeviceSelectionPage`（选择设备） | 写死的 `YSplanter-01/02/03` 与信号格；「连接」是 600ms 延时动画，不建立任何连接。选中的名字只作为文案传给下一页，不会进入 `PairingRequest`。 |
+| `PairingPage`（连接 Wi-Fi） | **真实**：`pairWifiDevice` → `getActivatorToken` + `newMultiActivator`，当前固定 `TY_AP`。「切换」弹窗里的网络名同样是写死的示例。 |
+
+因此真机配网必须手动输入设备实际所在的 2.4G Wi-Fi 名称和密码。默认仍是 AP 模式，需要先让手机连到设备热点；debug 构建在 Wi-Fi 页的「真实 SDK」标识旁提供 AP/EZ 选择器，可直接切到 EZ 快连再试，release 不显示该选择器。接入真实设备发现时，需要新增 `TuyaRepository` 契约、桥接扫描接口与事件通道，并替换上面两页的模拟实现。
+
+### 6.1 模拟数据标识
+
+`lib/src/design_system/widgets/feedback/mock_data_marker.dart` 提供三个开发期标识：`MockDataBanner`（整页或整块为模拟）、`MockDataBadge`（单个值为模拟）、`LiveDataBadge`（确实走了原生桥接）。它们与 SDK 联调入口共用 `DebugToolsConfig`：debug/profile 常显，release 需 `--dart-define=TUYA_DEBUG_TOOLS=true`，否则完全不渲染。
+
+已标注的位置包括：配网三页、`AppShell`（Mock 后端时置顶横幅）、首页养护文案、设备列表、设备信息、五个状态页、设备设置与其他设置、植物选择与详情、动画、账号与安全、帮助、协议、关于、登录页的「体验模式」。新增页面时，只要数据不是来自真实 SDK 调用就应加上对应标识，不要让占位值以正常样式出现。
 
 ## 7. 发布前检查
 

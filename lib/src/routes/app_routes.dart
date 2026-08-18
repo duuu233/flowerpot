@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/config/debug_tools_config.dart';
 import '../features/auth/presentation/auth_page.dart';
 import '../features/auth/presentation/password_page.dart';
 import '../features/auth/presentation/register_page.dart';
@@ -27,7 +28,6 @@ import '../features/devices/presentation/temperature_status_page.dart';
 import '../features/devices/presentation/touch_settings_page.dart';
 import '../features/devices/presentation/vibration_settings_page.dart';
 import '../features/devices/presentation/water_status_page.dart';
-import '../features/devtools/debug_tools_config.dart';
 import '../features/devtools/presentation/tuya_debug_page.dart';
 import '../features/profile/presentation/about_page.dart';
 import '../features/profile/presentation/account_security_page.dart';

@@ -19,6 +19,7 @@ void main() {
 
     expect(find.text('选择设备'), findsOneWidget);
     expect(find.text('请选择需要连接的设备'), findsOneWidget);
+    expect(find.text('模拟设备列表'), findsOneWidget);
     expect(find.text('YSplanter-01'), findsOneWidget);
     expect(find.text('YSplanter-02'), findsOneWidget);
     expect(find.text('YSplanter-03'), findsOneWidget);

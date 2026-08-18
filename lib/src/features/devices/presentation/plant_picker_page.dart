@@ -122,6 +122,11 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
+                      const MockDataBanner(
+                        title: '模拟植物库',
+                        message: '植物列表与配图是写死的示例数据；选择结果只留在本地会话，'
+                            '不会同步到涂鸦。',
+                      ),
                       _PlantSearchField(
                         controller: searchController,
                         onChanged: (value) => setState(() => query = value),

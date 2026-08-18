@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../core/config/debug_tools_config.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
-import '../../devtools/debug_tools_config.dart';
 import '../models/mine_page_model.dart';
 import 'widgets/mine_menu_list.dart';
 import 'widgets/mine_profile_header.dart';
@@ -73,7 +73,7 @@ class MinePage extends StatelessWidget {
                     child: MineMenuList(
                       items: model.menuItems,
                       height: panelHeight,
-                      onItemTap: (kind) => _openItem(context, kind, model),
+                      onItemTap: (kind) => _openItem(context, kind),
                     ),
                   ),
                 ),
@@ -85,7 +85,7 @@ class MinePage extends StatelessWidget {
     );
   }
 
-  void _openItem(BuildContext context, MineMenuKind kind, MinePageModel model) {
+  void _openItem(BuildContext context, MineMenuKind kind) {
     final route = switch (kind) {
       MineMenuKind.personalInfo => AppRoutes.profile,
       MineMenuKind.accountSecurity => AppRoutes.settings,
@@ -99,13 +99,8 @@ class MinePage extends StatelessWidget {
       Navigator.pushNamed(context, route);
       return;
     }
-    final email = model.menuItems
-        .firstWhere((item) => item.kind == MineMenuKind.feedback)
-        .trailingValue;
-    showAppMessage(
-      context,
-      '请发送反馈至 ${email ?? '客服邮箱'}',
-      tone: AppMessageTone.info,
-    );
+    // No real feedback address exists yet; showing the placeholder as if it
+    // were a mailbox is worse than saying so.
+    showAppMessage(context, '意见反馈渠道尚未配置', tone: AppMessageTone.info);
   }
 }

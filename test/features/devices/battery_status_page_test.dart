@@ -17,7 +17,7 @@ void main() {
     expect(find.text('充电中'), findsOneWidget);
     expect(find.text('94 %'), findsOneWidget);
     expect(find.text('当前电池状态'), findsOneWidget);
-    expect(find.text('相对湿度变化'), findsOneWidget);
+    expect(find.text('电池电量变化'), findsOneWidget);
     expect(find.byType(ChargingBatteryBadge), findsNWidgets(2));
     expect(find.text('建议'), findsNothing);
     expect(tester.takeException(), isNull);

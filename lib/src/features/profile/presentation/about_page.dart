@@ -28,6 +28,10 @@ class AboutPage extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(20, compact ? 78 : 110, 20, 48),
           child: Column(
             children: <Widget>[
+              const MockDataBanner(
+                title: '占位内容',
+                message: '版本号、更新状态与版本说明都是写死的，未接入版本服务。',
+              ),
               AboutBrandLockup(model: model),
               const SizedBox(height: 32),
               AboutVersionCard(

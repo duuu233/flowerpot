@@ -29,6 +29,11 @@ class PlantDetailPage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              const MockDataBanner(
+                title: '示例养护数据',
+                message: '适宜温湿度、光照需求、难度、浇水频率与养护建议都是按阈值推导的'
+                    '占位内容，不是植物库数据。',
+              ),
               _PlantSummaryCard(
                 plant: arguments.plant,
                 data: data,

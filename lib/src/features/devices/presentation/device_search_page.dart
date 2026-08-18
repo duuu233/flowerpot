@@ -63,7 +63,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
               key: const Key('device-search-content'),
               children: <Widget>[
                 Positioned(
-                  top: compact ? 54 : 84,
+                  top: compact ? 44 : 84,
                   left: 12,
                   right: 12,
                   child: Column(
@@ -101,7 +101,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                   left: 20,
                   right: 20,
                   bottom: compact ? 10 : 18,
-                  child: const _SearchTipCard(),
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      MockDataBanner(
+                        title: '模拟搜索',
+                        message: '没有接入蓝牙或设备发现，雷达只是动画，2 秒后直接进入列表。',
+                        padding: EdgeInsets.only(bottom: AppSpacing.sm),
+                      ),
+                      _SearchTipCard(),
+                    ],
+                  ),
                 ),
               ],
             );

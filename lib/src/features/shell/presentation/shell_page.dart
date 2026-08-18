@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../core/config/debug_tools_config.dart';
 import '../../../design_system/design_system.dart';
 import '../../devices/presentation/device_list_page.dart';
 import '../../home/presentation/home_page.dart';
@@ -29,15 +30,49 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
+    // Mock mode is called out at the shell level because every number the tabs
+    // below render is simulated, which is invisible once a page shows it as a
+    // sensor reading.
+    final mockBackend = DebugToolsConfig.enabled && state.usingMockBackend;
+    final tabs = IndexedStack(
+      index: _index,
+      children: <Widget>[
+        state.devices.isEmpty
+            ? HomePage(onOpenProfile: _openProfileTab)
+            : DeviceListPage(onOpenProfile: _openProfileTab),
+        const MinePage(showBackButton: false),
+      ],
+    );
     return Scaffold(
       backgroundColor: AppColors.canvas,
-      body: IndexedStack(
-        index: _index,
+      body: Column(
         children: <Widget>[
-          state.devices.isEmpty
-              ? HomePage(onOpenProfile: _openProfileTab)
-              : DeviceListPage(onOpenProfile: _openProfileTab),
-          const MinePage(showBackButton: false),
+          if (mockBackend)
+            SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                child: MockDataBanner(
+                  key: const Key('shell-mock-backend-ribbon'),
+                  title: state.demoMode
+                      ? '体验模式 · Mock 后端'
+                      : 'Mock 后端（未启用 TUYA_ENABLED）',
+                  message: '设备、传感器、报表和固件信息都由本地模拟数据生成，不代表真实设备。',
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+            ),
+          // The ribbon already consumed the status-bar inset; without this the
+          // tab pages would add it a second time under their own SafeArea.
+          Expanded(
+            child: mockBackend
+                ? MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    child: tabs,
+                  )
+                : tabs,
+          ),
         ],
       ),
       bottomNavigationBar: AppBottomNavigation(

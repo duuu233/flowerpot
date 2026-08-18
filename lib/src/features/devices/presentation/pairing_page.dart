@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../core/config/debug_tools_config.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
@@ -27,12 +28,20 @@ class PairingPage extends StatefulWidget {
 }
 
 class _PairingPageState extends State<PairingPage> {
+  // Only a retry pre-fills these. A placeholder SSID/password would be handed
+  // to the SDK verbatim on the first real pairing attempt, so a fresh start
+  // asks for the network the phone is actually on.
   late final ssidController = TextEditingController(
-    text: widget.arguments?.request?.ssid ?? 'Home_2.4G',
+    text: widget.arguments?.request?.ssid ?? '',
   );
   late final passwordController = TextEditingController(
-    text: widget.arguments?.request?.password ?? '12345678',
+    text: widget.arguments?.request?.password ?? '',
   );
+
+  /// Provisioning mode sent to the SDK. The product UI always uses AP; debug
+  /// builds can switch to EZ, which is usually the quicker one to bring up on
+  /// a bench device.
+  late String mode = widget.arguments?.request?.mode ?? 'ap';
 
   @override
   void dispose() {
@@ -64,7 +73,7 @@ class _PairingPageState extends State<PairingPage> {
     final request = PairingRequest(
       ssid: ssidController.text.trim(),
       password: passwordController.text,
-      mode: 'ap',
+      mode: mode,
     );
     final result = await state.pairDevice(request);
     if (!mounted) return;
@@ -113,6 +122,8 @@ class _PairingPageState extends State<PairingPage> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+                    const SizedBox(height: 6),
+                    const Center(child: MockDataBadge(label: '模拟设备名')),
                     const SizedBox(height: 8),
                   ],
                   const Text(
@@ -132,7 +143,27 @@ class _PairingPageState extends State<PairingPage> {
                     passwordController: passwordController,
                     onSwitchWifi: _switchWifi,
                   ),
-                  const SizedBox(height: 38),
+                  const SizedBox(height: 18),
+                  Center(
+                    child: Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.xs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: <Widget>[
+                        LiveDataBadge(
+                          label: mode == 'ap'
+                              ? '真实 SDK · AP 配网'
+                              : '真实 SDK · EZ 快连',
+                        ),
+                        if (DebugToolsConfig.enabled)
+                          _PairingModeSwitch(
+                            mode: mode,
+                            onChanged: (value) => setState(() => mode = value),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 22),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
@@ -188,6 +219,33 @@ class _PairingPageState extends State<PairingPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Debug-only switch between the two Wi-Fi provisioning modes the bridge
+/// supports, so a bench test does not have to be rebuilt to try the other one.
+class _PairingModeSwitch extends StatelessWidget {
+  const _PairingModeSwitch({required this.mode, required this.onChanged});
+
+  final String mode;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<String>(
+      key: const Key('pairing-mode-switch'),
+      segments: const <ButtonSegment<String>>[
+        ButtonSegment<String>(value: 'ap', label: Text('AP')),
+        ButtonSegment<String>(value: 'ez', label: Text('EZ')),
+      ],
+      selected: <String>{mode},
+      showSelectedIcon: false,
+      style: const ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      onSelectionChanged: (value) => onChanged(value.first),
     );
   }
 }
@@ -327,16 +385,17 @@ class _WifiCredentialsCard extends StatelessWidget {
                         ),
                         SizedBox(
                           height: 24,
+                          // Editable: the switcher only offers placeholder
+                          // names, so the real network has to be typable.
                           child: TextField(
                             key: const Key('pairing-ssid-field'),
                             controller: ssidController,
-                            readOnly: true,
                             style: const TextStyle(
                               color: AppColors.textPrimary,
                               fontSize: 15,
                             ),
                             decoration: const InputDecoration.collapsed(
-                              hintText: '请选择 Wi-Fi',
+                              hintText: '输入 2.4G 名称',
                             ),
                           ),
                         ),
@@ -434,7 +493,7 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
   late String selected = widget.current;
 
   List<String> get networks => <String>[
-    widget.current,
+    if (widget.current.isNotEmpty) widget.current,
     if (widget.current != 'Home_2.4G') 'Home_2.4G',
     if (widget.current != 'TP-LINK_2.4G') 'TP-LINK_2.4G',
     if (widget.current != 'Xiaomi_2.4G') 'Xiaomi_2.4G',
@@ -446,6 +505,8 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
       color: AppColors.surface,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       clipBehavior: Clip.antiAlias,
+      // Fixed height with a scrolling list: keep the header short, since the
+      // non-scrolling part has no room to grow at large text scales.
       child: SizedBox(
         height: 360,
         child: SafeArea(
@@ -512,7 +573,16 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
                 '仅显示可用的2.4GHzWi-Fi网络',
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: MockDataBanner(
+                  title: '模拟网络列表',
+                  message: '未扫描手机 Wi-Fi，以下为示例名称，请返回手动输入。',
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              const SizedBox(height: 10),
               Expanded(
                 child: ListView.separated(
                   padding: const EdgeInsets.symmetric(horizontal: 36),

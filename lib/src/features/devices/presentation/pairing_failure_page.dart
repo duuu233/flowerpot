@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import 'pairing_page.dart';
 
 class PairingFailurePage extends StatelessWidget {
   const PairingFailurePage({super.key, this.request});
@@ -10,7 +11,13 @@ class PairingFailurePage extends StatelessWidget {
   final PairingRequest? request;
 
   void _retry(BuildContext context) {
-    Navigator.pushReplacementNamed(context, AppRoutes.pairing);
+    // The Wi-Fi page no longer pre-fills placeholder credentials, so a retry
+    // has to carry the previous attempt back or the form arrives blank.
+    Navigator.pushReplacementNamed(
+      context,
+      AppRoutes.pairing,
+      arguments: PairingArguments(request: request),
+    );
   }
 
   void _returnToDevices(BuildContext context) {

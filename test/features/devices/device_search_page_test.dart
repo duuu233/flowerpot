@@ -19,6 +19,8 @@ void main() {
     expect(find.text('请保持手机蓝牙和Wi-Fi已开启，并让设备处于配网状态'), findsOneWidget);
     expect(find.text('小提示'), findsOneWidget);
     expect(find.text('若长时间未搜索到设备，请确认设备已开机\n请将手机靠近设备'), findsOneWidget);
+    // The radar is an animation, not a scan; debug builds must say so.
+    expect(find.text('模拟搜索'), findsOneWidget);
     expect(
       findAssetImage(AppAssets.pairingDeviceSearchIllustration),
       findsOneWidget,

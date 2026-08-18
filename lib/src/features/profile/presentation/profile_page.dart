@@ -52,17 +52,28 @@ class _ProfilePageState extends State<ProfilePage> {
             child: ResponsiveContent(
               maxWidth: 375,
               padding: const EdgeInsets.fromLTRB(20, 84, 20, 0),
-              child: PersonalInfoCard(
-                model: model,
-                avatarImage: avatarImage,
-                onAvatarTap: state.busy ? null : _pickAvatar,
-                onNicknameTap: state.busy ? null : _editNickname,
-                onPhoneTap: state.busy
-                    ? null
-                    : () => Navigator.pushNamed(context, AppRoutes.settings),
-                onAccountIdTap: state.busy
-                    ? null
-                    : () => _copyAccountId(model.accountId),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  const MockDataBanner(
+                    title: '缺省值为占位',
+                    message: '涂鸦没有返回昵称、手机号或账号 ID 时，这里分别显示'
+                        '「用户」「未绑定手机」「—」；头像只保存在本机。',
+                  ),
+                  PersonalInfoCard(
+                    model: model,
+                    avatarImage: avatarImage,
+                    onAvatarTap: state.busy ? null : _pickAvatar,
+                    onNicknameTap: state.busy ? null : _editNickname,
+                    onPhoneTap: state.busy
+                        ? null
+                        : () =>
+                              Navigator.pushNamed(context, AppRoutes.settings),
+                    onAccountIdTap: state.busy
+                        ? null
+                        : () => _copyAccountId(model.accountId),
+                  ),
+                ],
               ),
             ),
           ),

@@ -42,6 +42,11 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
+                  const MockDataBanner(
+                    title: '部分能力未接入',
+                    message: '固件版本缺失时显示 V--，系统文件更新仍是占位入口；'
+                        '温标、时钟与校准依赖尚未确认的 DP 编号。',
+                  ),
                   _GeneralSettingsCard(
                     device: device,
                     updatingFirmware: _updatingFirmware,

@@ -24,7 +24,7 @@ class BatteryTrendChartCard extends StatelessWidget {
         filterQuality: FilterQuality.high,
         excludeFromSemantics: true,
       ),
-      title: '相对湿度变化',
+      title: '电池电量变化',
       unit: '%',
       height: 188,
       titleStyle: AppTypography.body,

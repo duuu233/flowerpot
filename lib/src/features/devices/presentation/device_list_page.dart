@@ -67,20 +67,40 @@ class DeviceListPage extends StatelessWidget {
           padding: EdgeInsets.zero,
           child: items.isEmpty
               ? const _EmptyDeviceList()
-              : ListView.separated(
-                  key: const Key('device-list-view'),
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(20, 35, 20, 24),
-                  itemCount: items.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final device = items[index];
-                    return _DeviceListCard(
-                      key: Key('device-list-item-${device.id}'),
-                      device: device,
-                      onTap: () => _openDevice(context, state, device),
-                    );
-                  },
+              : Column(
+                  children: <Widget>[
+                    // The scaffold draws the body behind a transparent app
+                    // bar, and this banner sits outside the scroll view, so it
+                    // has to clear the toolbar itself.
+                    const MockDataBanner(
+                      title: '植物信息为占位',
+                      message: '设备没有返回 plantId 时统一显示植物库第一项；'
+                          '选择的植物只保存在本地会话，不会同步到涂鸦。',
+                      padding: EdgeInsets.fromLTRB(
+                        20,
+                        kToolbarHeight + 8,
+                        20,
+                        0,
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.separated(
+                        key: const Key('device-list-view'),
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(20, 35, 20, 24),
+                        itemCount: items.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final device = items[index];
+                          return _DeviceListCard(
+                            key: Key('device-list-item-${device.id}'),
+                            device: device,
+                            onTap: () => _openDevice(context, state, device),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
         ),
       ),
