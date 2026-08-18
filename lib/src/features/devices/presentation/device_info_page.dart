@@ -46,7 +46,6 @@ class DeviceInfoPage extends StatelessWidget {
         slivers: <Widget>[
           SliverToBoxAdapter(
             child: ResponsiveContent(
-              maxWidth: 375,
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
                 37,

@@ -51,11 +51,10 @@ class MinePage extends StatelessWidget {
             slivers: <Widget>[
               SliverToBoxAdapter(
                 child: ResponsiveContent(
-                  maxWidth: 375,
                   padding: const EdgeInsets.fromLTRB(
-                    20,
+                    AppSpacing.pageMargin,
                     AppSpacing.xxxl,
-                    20,
+                    AppSpacing.pageMargin,
                     16,
                   ),
                   child: MineProfileHeader(
@@ -68,8 +67,8 @@ class MinePage extends StatelessWidget {
               SliverToBoxAdapter(
                 child: Align(
                   alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 375),
+                  child: SizedBox(
+                    width: double.infinity,
                     child: MineMenuList(
                       items: model.menuItems,
                       height: panelHeight,

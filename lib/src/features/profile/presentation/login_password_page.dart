@@ -92,7 +92,6 @@ class _LoginPasswordPageState extends State<LoginPasswordPage> {
         key: const Key('login-password-scroll-view'),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         child: ResponsiveContent(
-          maxWidth: 375,
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
             28,

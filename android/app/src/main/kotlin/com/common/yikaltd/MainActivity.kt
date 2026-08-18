@@ -484,23 +484,21 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private fun startActivator(call: MethodCall, result: MethodChannel.Result, token: String) {
         val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
             ?: throw IllegalStateException("无法获取配网实例")
-        val builderClass = firstClass(
-            "com.thingclips.smart.sdk.builder.ActivatorBuilder",
-            "com.thingclips.smart.sdk.builder.ThingActivatorBuilder",
+        // The builder's fully-qualified name is not hard-coded: Tuya has moved
+        // it between packages across 7.x, and a stale name here fails as a bare
+        // ClassNotFoundException that says nothing about the real cause. The
+        // factory method takes the builder as its only argument, so the type is
+        // read off that signature instead — the same trick invokeWithCallback
+        // already uses for callback interfaces.
+        val factory = activatorFactory(activatorApi)
+        val builderClass = factory.parameterTypes.single()
+        val builder = builderClass.getDeclaredConstructor()
+            .apply { isAccessible = true }
+            .newInstance()
+        val mode = activatorMode(
+            builder,
+            if (call.argument<String>("mode") == "ez") "TY_EZ" else "TY_AP",
         )
-        val builder = builderClass.getDeclaredConstructor().newInstance()
-        val enumClass = firstClass("com.thingclips.smart.sdk.enums.ActivatorModelEnum")
-        @Suppress("UNCHECKED_CAST")
-        val enumType = enumClass as Class<out Enum<*>>
-        val modeName = if (call.argument<String>("mode") == "ez") "TY_EZ" else "TY_AP"
-        // `first` would throw NoSuchElementException if the SDK renamed the
-        // constant; report the names it does have instead, which is the one
-        // thing that makes such a mismatch diagnosable from the console log.
-        val mode = enumType.enumConstants.firstOrNull { it.name == modeName }
-            ?: throw IllegalStateException(
-                "SDK 未提供配网模式 $modeName，可用：" +
-                    enumType.enumConstants.joinToString { it.name },
-            )
         invoke(builder, "setContext", activity)
         invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
         invoke(builder, "setPassword", call.argument<String>("password").orEmpty())
@@ -525,8 +523,65 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 error(result, code, message)
             },
         )
-        activator = invoke(activatorApi, "newMultiActivator", builder)
+        activator = factory.invoke(activatorApi, builder)
+            ?: throw IllegalStateException("${factory.name} 未返回配网实例")
         invoke(activator!!, "start")
+    }
+
+    /**
+     * The activator factory on `IThingActivator`.
+     *
+     * `newMultiActivator` keeps one session open for several devices and is
+     * preferred; `newActivator` is the single-device fallback for builds that
+     * do not ship it. Both take the builder as their only argument, which is
+     * how [startActivator] learns the builder's type.
+     */
+    private fun activatorFactory(activatorApi: Any): Method {
+        val factories = candidates(activatorApi.javaClass)
+            .filter { it.name == "newMultiActivator" || it.name == "newActivator" }
+        return factories
+            .filter { method ->
+                method.parameterTypes.size == 1 &&
+                    method.parameterTypes.single().simpleName.endsWith("Builder")
+            }
+            // Ties are broken by name, not by declaration order: reflection does
+            // not promise a stable order across runs.
+            .minByOrNull { if (it.name == "newMultiActivator") 0 else 1 }
+            ?.apply { isAccessible = true }
+            ?: throw NoSuchMethodException(
+                "${activatorApi.javaClass.name} 未提供 newMultiActivator/newActivator(Builder)，" +
+                    "该类的工厂方法：" + describeFactories(activatorApi.javaClass),
+            )
+    }
+
+    /** Signatures of the `new*` methods, so a rename is diagnosable from the log. */
+    private fun describeFactories(clazz: Class<*>): String = candidates(clazz)
+        .filter { it.name.startsWith("new") }
+        .joinToString { method ->
+            val params = method.parameterTypes.joinToString { it.simpleName }
+            "${method.name}($params)"
+        }
+        .ifEmpty { "无" }
+
+    /**
+     * Resolves the `TY_EZ` / `TY_AP` constant from the setter's parameter type,
+     * so the enum's package name does not have to be hard-coded either.
+     */
+    private fun activatorMode(builder: Any, modeName: String): Any {
+        val setter = candidates(builder.javaClass).firstOrNull { method ->
+            method.name == "setActivatorModel" &&
+                method.parameterTypes.size == 1 &&
+                method.parameterTypes.single().isEnum
+        } ?: throw NoSuchMethodException(
+            "${builder.javaClass.name}.setActivatorModel(枚举) 不存在",
+        )
+        val constants = (setter.parameterTypes.single().enumConstants ?: emptyArray())
+            .filterIsInstance<Enum<*>>()
+        return constants.firstOrNull { it.name == modeName }
+            ?: throw IllegalStateException(
+                "SDK 未提供配网模式 $modeName，可用：" +
+                    constants.joinToString { it.name }.ifEmpty { "无" },
+            )
     }
 
     private fun stopActivator() {

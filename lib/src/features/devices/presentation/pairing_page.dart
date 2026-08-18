@@ -118,7 +118,6 @@ class _PairingPageState extends State<PairingPage> {
             key: const Key('pairing-scroll-view'),
             padding: const EdgeInsets.only(bottom: 92),
             child: ResponsiveContent(
-              maxWidth: 375,
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
                 88,

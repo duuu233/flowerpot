@@ -129,7 +129,6 @@ class _AuthPageState extends State<AuthPage> {
           builder: (context, constraints) {
             return SingleChildScrollView(
               child: ResponsiveContent(
-                maxWidth: 375,
                 padding: EdgeInsets.zero,
                 child: ConstrainedBox(
                   constraints: BoxConstraints(minHeight: constraints.maxHeight),

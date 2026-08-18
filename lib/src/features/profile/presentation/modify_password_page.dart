@@ -117,7 +117,6 @@ class _ModifyPasswordPageState extends State<ModifyPasswordPage> {
         key: const Key('modify-password-scroll-view'),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         child: ResponsiveContent(
-          maxWidth: 375,
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
             28,

@@ -58,6 +58,17 @@
 - **页面边距**：设计稿标注左右各 20，实际渲染偏宽。新增 `AppSpacing.pageMargin`（当前 18）作为唯一来源，25 个页面的 `ResponsiveContent` 内边距、浮动按钮的 `left/right` 以及登录面板的水平内边距都改为引用它，页面里不再写死 20。卡片内部的行内边距（如设置项 `contentPadding`）不属于页面边距，保持不变。以后整体调宽调窄只改这一个常量。
 - **高清素材**：`smart_planter_with_plant.png` 只有 100×129，assets 里另有一张同画面的 264×340（ChatGPT 导出的默认文件名，从未被引用），已替换为同名资源。设计稿里的示例头像 `image 4745.png` 改名 `demo_user_avatar.png` 并接给演示账号。
 
+### 启动页与宽屏适配
+
+- 新增 `lib/src/features/splash/presentation/splash_page.dart`：全屏铺 `bg01.png`（加载失败回落到渐变），居中淡入品牌图标、字标和一句「您的智能花盆贴心伴侣」。结构、动画时长与曲线照搬隔壁 BoltStar 项目的 `splash_page.dart`（700ms `easeOut` 淡入、图与文之间 16 间距、slogan 15px / w400 / letterSpacing 1 / height 1.2），只把单张 `logo.png` 换成本项目的图标 + 字标两件套，取色换成 `AppColors` 令牌。
+- `FlowerpotApp` 用 `Future.wait([延时, state.initialize()])` 控制闪屏：最少显示 1800ms（与 BoltStar 同值），且必须等会话恢复完成才切走，避免老用户先闪一下登录页再跳首页。首屏改为 `home:` + `AnimatedSwitcher`（闪屏 → 登录页/主壳层），推入式路由仍走 `AppRoutes`。`splashDuration` 可注入，测试传 `Duration.zero`。
+- 闪屏的背景不自己画，直接用 `AppPageScaffold(background: AppPageBackground.home)`——和主壳层是同一套绘制（渐变打底 + `bg01.png` 按 `fitWidth` 顶部对齐）。最初写成 `BoxFit.cover` 是错的：项目里 `bg01.png` 一律 `fitWidth` + `topCenter`，两种画法叠在交叉淡入里会让底图那圈轨道明显位移。
+- **原生启动窗口**：`launch_background.xml`（含 `drawable-v21`）从 `@android:color/white` 改成与 `AppPageBackground.home` 同色的 `<shape>` 线性渐变（`angle=315`，`#F8FBFB → #EFF7F8 → #FAFAFA`），冷启动不再先白闪一下再进薄荷色。刻意不画 `bg01.png`：layer-list 的 `<bitmap>` 只能 `fill`（拉伸）或 `center`，都无法表达 Flutter 的 `fitWidth` + 顶部对齐，轨道图位移比让它随首帧淡入更扎眼。`values/styles.xml` 与 `values-night/styles.xml` 补齐状态栏/导航栏颜色与 `windowLightStatusBar`，与 `main.dart` 的 `SystemUiOverlayStyle` 对齐（导航栏沿用同一个 `#F4F7F1`），首帧图标不会先白后黑地跳一次；`values-night` 的 parent 从 `Theme.Black.NoTitleBar` 改为 `Theme.Light.NoTitleBar`，因为 `buildAppTheme()` 只有浅色一套，深色模式下黑色启动窗会闪。
+- **根节点切换动效与 BoltStar 对齐**：不用默认的纯 crossfade，改成同款 fade-through 两段接力——`kRootTransitionDuration = 1100ms`，`switchInCurve` 为 `Interval(0.35, 1, easeOutCubic)`、`switchOutCurve` 为 `Interval(0.65, 1, easeInCubic)`，前 35% 旧页淡出、后 65% 新页淡入，配合 `1.04 → 1.0` 的 `ScaleTransition`（出场动画反向跑，自动变成「推远退场」）。缩放取 >1 而不是 Material 标准的 0.92：这几页都全屏铺底图，从小于 1 进场会在四周露出下层底图形成一圈边缝。另外用 `layoutBuilder` 在两页**之下**垫一层 `_RootTransitionBackdrop`，否则两页各自半透明时合成覆盖率不足 1，会透出引擎黑底、切换中间整体压暗一下；该层只在 `previousChildren.isNotEmpty`（即正在切换）时构建，稳态零开销。
+
+  这层**只画渐变、不画贴图**，和 BoltStar 那边不同，原因是两个项目的资源关系不一样：BoltStar 的闪屏与登录页铺的是同一张 `bg01.png`，垫同一张图天然对齐；本项目闪屏/主壳层用 `AppPageBackground.home`（`bg01.png`），登录页用 `.account`（`auth_background.png`），**贴图不同但渐变完全相同**。同色渐变按任意 alpha 混合仍是原色，所以垫渐变能让背景在整个切换过程恒定，只有贴图在交叉淡入；反过来若把 `bg01.png` 也垫进去，闪屏→登录页时那圈轨道会在退场图之外再叠一份，中途反而更重。`splash_page_test` 里加了一条断言盯着「`home` 与 `account` 的渐变相等」这个前提。
+- **去掉全局 375 宽度上限**：37 处 `ResponsiveContent(maxWidth: 375)` 与「我的」页的 `ConstrainedBox(maxWidth: 375)` 把内容宽度硬顶在设计稿的 375。Galaxy A51 这类 411dp 宽的机型上，多出的 36dp 被平分到两侧，叠加 18 的页面边距后卡片离屏幕边缘 36dp、整体比屏幕窄一圈。隔壁 BoltStar 项目全项目没有任何宽度上限（只用固定内边距），同机型没有这个问题，因此按同样方案移除。移除后 `ResponsiveContent` 回落到 `AppBreakpoints.contentMaxWidth`：手机全宽，600dp 以上才收窄，平板不会被拉伸。375 宽的测试环境结果不变，现有几何断言全部继续成立。
+
 ## 关键决策
 
 - 植物目录只保留一套。选择页维护自己的列表会让「选出来的植物」和「设备上的植物」对不上，且新增图片时要改两处。
@@ -72,6 +83,8 @@
 ## 验证结果
 
 - 本环境没有 Flutter/Dart，`dart format`、`flutter analyze`、`flutter test` 均未执行，只做了人工核对。
+- 新增 `test/features/splash/splash_page_test.dart`：四条用例分别断言 `home` 与 `account` 渐变相等（垫底层成立的前提）、闪屏内容（底图 / 图标 / 字标 / slogan）、冷启动先闪屏后登录页、以及切换中途两页共存且 `AnimatedSwitcher.duration == kRootTransitionDuration`（硬切会让最后一条失败）。注意最后一条断的是「两页都还挂在树上」而不是「都可见」：两段接力的设计就是让它们的不透明度不重叠。
+- 复查发现并修掉的两处自身缺陷：字标 `Image.asset` 只给了 `width`，解码完成前 `RenderImage` 按 0 高度参与布局，居中的 Column 会在首帧跳一下，补上 `height: 42`（200 × 78/372）；`Future.wait(...).whenComplete(...)` 在 `initialize()` 抛出时会把异常抛进未捕获区，改成 `try/catch/finally` 的 `_dismissSplashWhenReady()`，异常走 `FlutterError.reportError` 上报，`finally` 仍然收起闪屏——卡在启动页是用户唯一无法自救的结局。
 - 受影响的测试已同步：植物选择页新增「豆瓣绿/春羽 不存在」「卡片渲染真实图片」断言；植物详情页断言从占位色块改为 `plant-detail-image`；`widget_test` 去掉底部 Tab 相关断言与辅助函数，改为断言无 `NavigationBar`、并通过左上角头像进入「我的」再返回。
 
 ## 未完成项与风险

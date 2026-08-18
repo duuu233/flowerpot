@@ -72,7 +72,6 @@ class _TouchSettingsPageState extends State<TouchSettingsPage> {
       body: SingleChildScrollView(
         key: const Key('touch-settings-scroll-view'),
         child: ResponsiveContent(
-          maxWidth: 375,
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
             37,

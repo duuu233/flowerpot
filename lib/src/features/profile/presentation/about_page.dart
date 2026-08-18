@@ -24,7 +24,6 @@ class AboutPage extends StatelessWidget {
       body: SingleChildScrollView(
         key: const Key('about-scroll-view'),
         child: ResponsiveContent(
-          maxWidth: 375,
           padding: EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
             compact ? 78 : 110,

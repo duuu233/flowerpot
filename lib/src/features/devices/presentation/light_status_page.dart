@@ -52,7 +52,6 @@ class _LightStatusPageState extends State<LightStatusPage> {
         slivers: <Widget>[
           SliverToBoxAdapter(
             child: ResponsiveContent(
-              maxWidth: 375,
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
                 AppSpacing.xxxl,

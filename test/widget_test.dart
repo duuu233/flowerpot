@@ -174,6 +174,8 @@ Future<void> _pumpApp(
   SharedPreferences.setMockInitialValues(<String, Object>{});
   await tester.pumpWidget(
     FlowerpotApp(
+      // Skip the cold-start screen; it is covered by its own test.
+      splashDuration: Duration.zero,
       repository: MockTuyaRepository(
         latency: Duration.zero,
         seedDevice: seedDevice,

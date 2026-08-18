@@ -29,6 +29,7 @@ lib/
         │   └── presentation/
         ├── home/presentation/
         ├── shell/presentation/
+        ├── splash/presentation/splash_page.dart
         ├── devices/presentation/
         ├── devtools/presentation/tuya_debug_page.dart
         └── profile/presentation/

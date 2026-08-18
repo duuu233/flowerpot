@@ -46,7 +46,6 @@ class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
       body: SingleChildScrollView(
         key: const Key('vibration-settings-scroll-view'),
         child: ResponsiveContent(
-          maxWidth: 375,
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
             37,

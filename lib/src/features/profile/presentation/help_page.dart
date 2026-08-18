@@ -43,7 +43,6 @@ class _HelpPageState extends State<HelpPage> {
         slivers: <Widget>[
           SliverToBoxAdapter(
             child: ResponsiveContent(
-              maxWidth: 375,
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
                 AppSpacing.lg,

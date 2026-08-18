@@ -105,7 +105,6 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
       body: SingleChildScrollView(
         key: const Key('behavior-settings-scroll-view'),
         child: ResponsiveContent(
-          maxWidth: 375,
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
             37,

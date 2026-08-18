@@ -54,7 +54,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       appBar: const AppPageHeader(title: '搜索设备', leading: AppBackButton()),
       background: AppPageBackground.account,
       body: ResponsiveContent(
-        maxWidth: 375,
         padding: EdgeInsets.zero,
         child: LayoutBuilder(
           builder: (context, constraints) {

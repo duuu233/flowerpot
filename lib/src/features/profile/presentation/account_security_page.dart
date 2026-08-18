@@ -26,7 +26,6 @@ class AccountSecurityPage extends StatelessWidget {
       body: SingleChildScrollView(
         key: const Key('account-security-scroll-view'),
         child: ResponsiveContent(
-          maxWidth: 375,
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
             32,

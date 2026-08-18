@@ -41,7 +41,6 @@ class HomeUnplantedContent extends StatelessWidget {
                 child: SizedBox(
                   height: contentHeight,
                   child: ResponsiveContent(
-                    maxWidth: 375,
                     padding: EdgeInsets.fromLTRB(
                       horizontalPadding,
                       AppSpacing.xl,

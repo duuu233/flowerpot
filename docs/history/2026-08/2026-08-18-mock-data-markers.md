@@ -53,6 +53,24 @@
 - 新增 `onMain(result) { … }`：把回调体切回主线程并捕获异常，失败转成错误码返回而不是抛出。家庭查询、建家、设备列表、令牌回调、配网结果回调全部改走它。
 - 配网模式枚举查找从 `first` 改为 `firstOrNull`，找不到时抛出带「可用枚举名列表」的说明，`describe` 会把它转成 `native_error` 显示在联调页日志里。
 
+## 配网 Builder 类名解析
+
+上面的防护生效后，真机不再闪退，改为在联调页报出干净的错误：
+
+```
+com.thingclips.smart.sdk.builder.ActivatorBuilder, com.thingclips.smart.sdk.builder.ThingActivatorBuilder
+```
+
+这是 `firstClass()` 的 `ClassNotFoundException(names.joinToString())`，意思是这两个候选全限定名在 APK 里都不存在。注意这条报错出现的位置已经很靠后：`startActivator` 只在 `getActivatorToken` 成功回调里执行，所以 SDK 初始化、登录会话、家庭 ID、`getActivatorInstance()`、向云端换配网令牌**全部已经跑通**，卡住的仅仅是最后一步取 Builder 类。涂鸦在 7.x 内部挪过这个类的包名（`com.thingclips.smart.sdk.builder` 与 `com.thingclips.smart.home.sdk.builder` 都出现过），而 `ActivatorModelEnum` 留在 `com.thingclips.smart.sdk.enums`，当初照抄枚举的包名去拼 Builder 的包名就错了。
+
+不再补候选名单，改为从方法签名反查类型（与 `invokeWithCallback` 取回调接口同一套做法）：
+
+- 新增 `activatorFactory(activatorApi)`：在 activator 实例上找 `newMultiActivator` / `newActivator` 里参数唯一且类型名以 `Builder` 结尾的那个，优先 `newMultiActivator`；Builder 类型直接取 `parameterTypes.single()`，全限定名不再出现在代码里。
+- 新增 `activatorMode(builder, name)`：模式枚举取 `setActivatorModel` 的参数类型，再按常量名找 `TY_EZ` / `TY_AP`，枚举包名同样不再硬编码。
+- 两处解析失败都抛带清单的异常——前者附 `describeFactories()` 列出该类所有 `new*` 方法签名，后者列出实际枚举常量名——落到联调页日志里就是可直接行动的信息，不用再翻 AAR。
+
+本机没有涂鸦 AAR（构建在 Windows 上），无法离线确认真实类名，这也是选择签名反查而不是再猜一个名字的直接原因。
+
 ## 关键决策
 
 - 只改会流入真实 SDK 的假数据（预填 Wi-Fi 凭据、只读输入框），不动纯展示性的模拟行为（雷达动画、600ms 假连接）。

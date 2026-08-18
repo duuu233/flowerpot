@@ -66,7 +66,6 @@ class DeviceListPage extends StatelessWidget {
         color: AppColors.brandPrimary,
         onRefresh: state.refreshDevices,
         child: ResponsiveContent(
-          maxWidth: 375,
           padding: EdgeInsets.zero,
           child: items.isEmpty
               ? const _EmptyDeviceList()

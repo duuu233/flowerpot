@@ -48,7 +48,6 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
       appBar: const AppPageHeader(title: '选择设备', leading: AppBackButton()),
       background: AppPageBackground.account,
       body: ResponsiveContent(
-        maxWidth: 375,
         padding: EdgeInsets.zero,
         child: LayoutBuilder(
           builder: (context, constraints) {

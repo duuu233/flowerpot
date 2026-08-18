@@ -268,7 +268,18 @@ flutter build apk --release --split-per-abi --dart-define=TUYA_DEBUG_TOOLS=true 
 
 因此真机配网必须手动输入设备实际所在的 2.4G Wi-Fi 名称和密码。默认仍是 AP 模式，需要先让手机连到设备热点；debug 构建在 Wi-Fi 页的「真实 SDK」标识旁提供 AP/EZ 选择器，可直接切到 EZ 快连再试，release 不显示该选择器。接入真实设备发现时，需要新增 `TuyaRepository` 契约、桥接扫描接口与事件通道，并替换上面两页的模拟实现。
 
-### 6.1 界面上的占位数据
+### 6.1 配网相关类名不要硬编码
+
+`startActivator` 里的 `ActivatorBuilder` 和 `ActivatorModelEnum` **不再按全限定名 `Class.forName`**。涂鸦在 7.x 内部挪过这两个类的包名（曾出现过 `com.thingclips.smart.sdk.builder.ActivatorBuilder` 与 `com.thingclips.smart.home.sdk.builder.ActivatorBuilder` 两种写法），名字写错时只会抛一个光秃秃的 `ClassNotFoundException`，从错误码上完全看不出真正原因——而此时 `getActivatorInstance()` 和 `getActivatorToken()` 其实都已经成功了，问题只出在最后一步取类。
+
+现在改成从方法签名反查类型，和 `invokeWithCallback` 取回调接口是同一套做法：
+
+- Builder 类型 = `IThingActivator.newMultiActivator(...)`（缺失时退到 `newActivator(...)`）的唯一参数类型；
+- 模式枚举 = 该 Builder 上 `setActivatorModel(...)` 的参数类型，再按常量名找 `TY_EZ` / `TY_AP`。
+
+两处解析失败时抛出的异常都会把 SDK 实际提供的方法签名或枚举常量名列进消息里，联调页日志能直接看到，无需再翻 AAR。新增其它配网能力时沿用这个思路，不要再往桥接里塞全限定名。
+
+### 6.2 界面上的占位数据
 
 界面不再标注占位数据，判断某个值是否真实要回到源码：设备与传感器值来自 `TuyaRepository`（Mock 模式全部是模拟值，真实模式在 DP 缺失时回落到默认值）；养护建议、坐标轴刻度、植物库、帮助中心、协议正文、关于页版本号等则始终是写死的文案。真实链路验证以 SDK 联调页的调用日志为准，不要以页面上显示的数字为准。
 

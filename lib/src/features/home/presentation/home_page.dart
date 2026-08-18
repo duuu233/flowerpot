@@ -102,7 +102,6 @@ class HomePage extends StatelessWidget {
                     slivers: <Widget>[
                       SliverToBoxAdapter(
                         child: ResponsiveContent(
-                          maxWidth: 375,
                           padding: EdgeInsets.fromLTRB(
                             horizontalPadding,
                             AppSpacing.xl,

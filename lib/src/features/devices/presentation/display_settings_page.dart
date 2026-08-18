@@ -46,7 +46,6 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
       body: SingleChildScrollView(
         key: const Key('display-settings-scroll-view'),
         child: ResponsiveContent(
-          maxWidth: 375,
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
             37,
