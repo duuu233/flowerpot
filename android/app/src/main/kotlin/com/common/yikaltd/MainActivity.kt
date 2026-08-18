@@ -15,7 +15,15 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : FlutterActivity() {
     private lateinit var bridge: TuyaSdkBridge
-    private var pendingPair: Pair<MethodCall, MethodChannel.Result>? = null
+    private var pendingPair: PendingPair? = null
+
+    /** A provisioning call parked while its permissions are requested. */
+    private class PendingPair(
+        val call: MethodCall,
+        val result: MethodChannel.Result,
+        /** Denying any of these makes provisioning impossible. */
+        val required: Set<String>,
+    )
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -31,26 +39,35 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /**
+     * The planter is provisioned over 2.4 GHz Wi-Fi (EZ/AP) and has no BLE
+     * pairing, so only Wi-Fi permissions are requested. Asking for
+     * BLUETOOTH_SCAN/CONNECT here used to let a reasonable "deny" on a prompt
+     * the product never needs block provisioning outright.
+     */
     private fun requestPairingPermissions(
         call: MethodCall,
         result: MethodChannel.Result,
     ): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
-        val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions += Manifest.permission.BLUETOOTH_SCAN
-            permissions += Manifest.permission.BLUETOOTH_CONNECT
-        }
+        val required = mutableSetOf<String>()
+        val requested = mutableSetOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions += Manifest.permission.NEARBY_WIFI_DEVICES
+            required += Manifest.permission.NEARBY_WIFI_DEVICES
+            // Still asked for: several SDK paths read the current SSID through
+            // location, but provisioning is not blocked when it is refused.
+            requested += Manifest.permission.ACCESS_FINE_LOCATION
+        } else {
+            required += Manifest.permission.ACCESS_FINE_LOCATION
         }
-        val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        requested += required
+        val missing = requested.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isEmpty()) return false
         if (pendingPair != null) {
             result.error("busy", "已有配网权限请求正在进行", null)
             return true
         }
-        pendingPair = call to result
+        pendingPair = PendingPair(call, result, required)
         requestPermissions(missing.toTypedArray(), 7101)
         return true
     }
@@ -65,10 +82,18 @@ class MainActivity : FlutterActivity() {
         val pending = pendingPair
         pendingPair = null
         if (pending == null) return
-        if (grantResults.isEmpty() || grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
-            pending.second.error("permission_denied", "配网需要附近设备与定位权限", null)
+        val deniedRequired = permissions.filterIndexed { index, name ->
+            name in pending.required &&
+                grantResults.getOrNull(index) != PackageManager.PERMISSION_GRANTED
+        }
+        if (grantResults.isEmpty() || deniedRequired.isNotEmpty()) {
+            pending.result.error(
+                "permission_denied",
+                "配网需要定位或附近 Wi-Fi 设备权限",
+                null,
+            )
         } else {
-            bridge.handle(pending.first, pending.second)
+            bridge.handle(pending.call, pending.result)
         }
     }
 }

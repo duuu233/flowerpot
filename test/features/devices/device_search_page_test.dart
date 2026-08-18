@@ -16,7 +16,8 @@ void main() {
 
     expect(find.text('搜索设备'), findsOneWidget);
     expect(find.text('搜索附近设备…'), findsOneWidget);
-    expect(find.text('请保持手机蓝牙和Wi-Fi已开启，并让设备处于配网状态'), findsOneWidget);
+    // The planter provisions over 2.4G Wi-Fi only; no Bluetooth is involved.
+    expect(find.text('请让设备进入配网状态，并确认手机连接的是2.4GHz Wi-Fi'), findsOneWidget);
     expect(find.text('小提示'), findsOneWidget);
     expect(find.text('若长时间未搜索到设备，请确认设备已开机\n请将手机靠近设备'), findsOneWidget);
     // The radar is an animation, not a scan; debug builds must say so.

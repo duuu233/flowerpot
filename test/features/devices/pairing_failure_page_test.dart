@@ -71,6 +71,28 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('debug builds show the SDK failure code', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: const PairingFailurePage(
+          request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
+          code: 'pair_failed',
+          message: '配网超时',
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final subtitle = tester.widget<Text>(
+      find.byKey(const Key('pairing-failure-subtitle')),
+    );
+    expect(subtitle.data, contains('[pair_failed] 配网超时'));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('return keeps the request and opens device selection', (
     tester,
   ) async {

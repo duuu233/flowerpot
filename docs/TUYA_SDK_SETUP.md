@@ -223,7 +223,8 @@ flutter run --dart-define=TUYA_ENABLED=true
 - 账号参数：手机号（国家码 86）或邮箱（国家码 1），对应桥接的手机与邮箱接口。
 - 注册：发送注册验证码（type 1）与「注册并登录」；注册成功后 SDK 直接持有会话，不需要再登录。
 - 登录：发送登录验证码（type 2）、验证码登录、密码登录。
-- 会话与设备：初始化自检、查询会话、拉取设备列表、退出登录。「拉取设备列表」会先查询家庭并在没有家庭时自动建家，是配网前必须先跑通的一步。
+- 会话与设备：初始化自检、查询会话、拉取设备列表、退出登录。「拉取设备列表」会先查询家庭并在没有家庭时自动建家，是配网前必须先跑通的一步；返回 0 台说明链路通了、账号下还没有绑定设备。
+- 配网：Wi-Fi 名称、密码与 EZ/AP 模式，直接调用 `pairWifiDevice`（超时 120 秒）。失败只写进日志并带原始错误码，不跳转到配网失败页，便于连续重试和对照错误码。
 - 调用日志：时间、结果、失败码与脱敏账号，可复制或清空。页面与日志只显示脱敏账号，不显示密码、验证码或密钥。
 
 已登录时冷启动会直接进入 `AppShell`，因此「我的」页标题栏右侧同样有一个联调图标入口，不需要退出登录就能回到该页。
@@ -251,13 +252,15 @@ flutter build apk --release --split-per-abi --dart-define=TUYA_DEBUG_TOOLS=true 
 还未实现的能力：
 
 - 设备 DP 实时上报。当前只在 `getDevices` 时读取一次 `dps`，下发后 UI 不会收到设备主动推送的变化。接入时需要注册 `IDevListener` 并新增一条 Flutter 事件通道，同时扩展 `TuyaRepository` 契约。
-- **设备发现（蓝牙或 Wi-Fi 扫描）**。桥接里没有任何扫描接口，`TuyaRepository` 也没有对应契约。配网动线中只有最后一步是真实的：
+- **设备发现**。桥接里没有任何扫描接口，`TuyaRepository` 也没有对应契约。**产品确认设备只支持 2.4GHz Wi-Fi 配网，没有蓝牙配网**，因此这里不应该去实现 BLE 扫描：EZ/AP 配网本来就没有「先扫描再选设备」这一步，设备是否在配网状态只能由用户看指示灯确认。配网动线中只有最后一步是真实的：
 
 | 页面 | 现状 |
 | --- | --- |
 | `DeviceSearchPage`（搜索设备） | 纯动画，2 秒定时器后直接跳到选择页，不做任何扫描。 |
 | `DeviceSelectionPage`（选择设备） | 写死的 `YSplanter-01/02/03` 与信号格；「连接」是 600ms 延时动画，不建立任何连接。选中的名字只作为文案传给下一页，不会进入 `PairingRequest`。 |
 | `PairingPage`（连接 Wi-Fi） | **真实**：`pairWifiDevice` → `getActivatorToken` + `newMultiActivator`，当前固定 `TY_AP`。「切换」弹窗里的网络名同样是写死的示例。 |
+
+配网前的运行时权限只申请 Wi-Fi 相关项：API 33 以下要求 `ACCESS_FINE_LOCATION`，API 33 及以上要求 `NEARBY_WIFI_DEVICES`（同时申请但不强制 `ACCESS_FINE_LOCATION`）。不要再把 `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT` 加进配网前置检查：设备没有蓝牙配网，而这两项被拒绝会让整个配网直接返回 `permission_denied`。Manifest 中仍保留蓝牙声明（涂鸦 SDK 自身可能合并同名权限），但 App 不会主动申请。
 
 因此真机配网必须手动输入设备实际所在的 2.4G Wi-Fi 名称和密码。默认仍是 AP 模式，需要先让手机连到设备热点；debug 构建在 Wi-Fi 页的「真实 SDK」标识旁提供 AP/EZ 选择器，可直接切到 EZ 快连再试，release 不显示该选择器。接入真实设备发现时，需要新增 `TuyaRepository` 契约、桥接扫描接口与事件通道，并替换上面两页的模拟实现。
 

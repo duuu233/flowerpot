@@ -30,14 +30,19 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
   final accountController = TextEditingController();
   final passwordController = TextEditingController();
   final codeController = TextEditingController();
+  final ssidController = TextEditingController();
+  final wifiPasswordController = TextEditingController();
   final List<_CallLog> log = <_CallLog>[];
   LoginRegion region = LoginRegion.domestic;
+  String pairMode = 'ez';
 
   @override
   void dispose() {
     accountController.dispose();
     passwordController.dispose();
     codeController.dispose();
+    ssidController.dispose();
+    wifiPasswordController.dispose();
     super.dispose();
   }
 
@@ -405,6 +410,74 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                                 (_) => false,
                               )
                             : null,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              AppSection(
+                title: '配网',
+                child: AppSurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Text(
+                        '直接调用 pairWifiDevice（超时 120 秒），失败只写进下面的日志并带原始'
+                        '错误码，不会跳到配网失败页。EZ 需要手机连在同一个 2.4G 网络；'
+                        'AP 需要先把手机连到设备热点。',
+                        style: AppTypography.smallBody.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      AppTextField(
+                        key: const Key('tuya-debug-ssid'),
+                        controller: ssidController,
+                        label: 'Wi-Fi 名称',
+                        hintText: '设备要连的 2.4G 网络',
+                        prefixIcon: const Icon(Icons.wifi_outlined),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      AppPasswordField(
+                        key: const Key('tuya-debug-wifi-password'),
+                        controller: wifiPasswordController,
+                        label: 'Wi-Fi 密码',
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      SegmentedButton<String>(
+                        key: const Key('tuya-debug-pair-mode'),
+                        segments: const <ButtonSegment<String>>[
+                          ButtonSegment<String>(
+                            value: 'ez',
+                            label: Text('EZ 快连'),
+                          ),
+                          ButtonSegment<String>(
+                            value: 'ap',
+                            label: Text('AP 热点'),
+                          ),
+                        ],
+                        selected: <String>{pairMode},
+                        showSelectedIcon: false,
+                        onSelectionChanged: (value) =>
+                            setState(() => pairMode = value.first),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      _action(
+                        key: const Key('tuya-debug-pair'),
+                        label: '开始配网',
+                        busy: busy,
+                        primary: true,
+                        onPressed: () => _run(
+                          '配网 ${pairMode.toUpperCase()}',
+                          () => state.pairDevice(
+                            PairingRequest(
+                              ssid: ssidController.text.trim(),
+                              password: wifiPasswordController.text,
+                              mode: pairMode,
+                            ),
+                          ),
+                          usesAccount: false,
+                        ),
                       ),
                     ],
                   ),

@@ -125,9 +125,7 @@ abstract final class AppRoutes {
       pairing => PairingPage(
         arguments: settings.arguments as PairingArguments?,
       ),
-      pairingFailure => PairingFailurePage(
-        request: settings.arguments as PairingRequest?,
-      ),
+      pairingFailure => _pairingFailurePage(settings.arguments),
       pairingSuccess => PairingSuccessPage(
         deviceId: settings.arguments! as String,
       ),
@@ -192,6 +190,19 @@ abstract final class AppRoutes {
       builder: (_) => page,
       settings: RouteSettings(name: name, arguments: settings.arguments),
     );
+  }
+
+  /// Accepts the richer failure arguments, and still the bare request that the
+  /// retry path and older call sites pass.
+  static Widget _pairingFailurePage(Object? arguments) {
+    if (arguments is PairingFailureArguments) {
+      return PairingFailurePage(
+        request: arguments.request,
+        code: arguments.code,
+        message: arguments.message,
+      );
+    }
+    return PairingFailurePage(request: arguments as PairingRequest?);
   }
 
   static Widget _deviceHomePage(Object? arguments) {

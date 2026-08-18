@@ -157,8 +157,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('pairing-failure-target'), findsOneWidget);
-    final request = failureArguments! as PairingRequest;
-    expect(request.ssid, 'TP-LINK_2.4G');
+    final failure = failureArguments! as PairingFailureArguments;
+    expect(failure.request?.ssid, 'TP-LINK_2.4G');
+    // The SDK reason has to reach the failure screen, not just the request.
+    expect(failure.code, 'pair_failed');
+    expect(failure.message, '配网失败');
     expect(tester.takeException(), isNull);
   });
 }

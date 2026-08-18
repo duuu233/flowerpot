@@ -1,14 +1,27 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/config/debug_tools_config.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import 'pairing_page.dart';
 
 class PairingFailurePage extends StatelessWidget {
-  const PairingFailurePage({super.key, this.request});
+  const PairingFailurePage({super.key, this.request, this.code, this.message});
 
   final PairingRequest? request;
+
+  /// Raw SDK failure, surfaced only in debug builds: the product copy alone
+  /// cannot tell a timeout apart from a wrong password or an already-bound
+  /// device.
+  final String? code;
+  final String? message;
+
+  String get _subtitle {
+    const generic = '设备未能成功连接到当前Wi-Fi网络';
+    if (!DebugToolsConfig.enabled || code == null) return generic;
+    return '$generic\n[$code] ${message ?? ''}'.trimRight();
+  }
 
   void _retry(BuildContext context) {
     // The Wi-Fi page no longer pre-fills placeholder credentials, so a retry
@@ -70,14 +83,17 @@ class PairingFailurePage extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const Positioned(
+                    Positioned(
                       top: 362,
                       left: 16,
                       right: 16,
                       child: Text(
-                        '设备未能成功连接到当前Wi-Fi网络',
+                        _subtitle,
+                        key: const Key('pairing-failure-subtitle'),
                         textAlign: TextAlign.center,
-                        style: TextStyle(
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 14,
                           height: 1.5,

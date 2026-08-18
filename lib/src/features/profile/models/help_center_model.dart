@@ -36,12 +36,12 @@ class HelpCenterPageModel {
       HelpCenterFaqItem(
         id: 'wifi-pairing',
         question: 'Wi-Fi配网问题',
-        answer: '请确认手机已连接2.4GHz Wi-Fi，并已开启蓝牙和定位权限。输入正确的Wi-Fi密码后，将手机靠近智能花盆重新配网。',
+        answer: '请确认手机已连接2.4GHz Wi-Fi（不能是5GHz），并已开启定位权限。输入正确的Wi-Fi密码后，将手机靠近智能花盆重新配网。',
       ),
       HelpCenterFaqItem(
         id: 'device-not-found',
         question: '为什么搜索不到设备？',
-        answer: '请确认设备已开机并处于待绑定状态，同时保持手机蓝牙开启。若仍无法发现设备，请为花盆充电后重新搜索。',
+        answer: '请确认设备已开机并处于配网状态（指示灯闪烁）。若指示灯没有闪烁，请长按复位键让设备重新进入配网模式，必要时先为花盆充电。',
       ),
       HelpCenterFaqItem(
         id: 'device-offline',

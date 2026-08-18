@@ -18,6 +18,16 @@ class PairingArguments {
   final PairingRequest? request;
 }
 
+/// Route arguments for the failure screen. The reason is carried so a debug
+/// build can show the SDK's own code instead of only the generic copy.
+class PairingFailureArguments {
+  const PairingFailureArguments({this.request, this.code, this.message});
+
+  final PairingRequest? request;
+  final String? code;
+  final String? message;
+}
+
 class PairingPage extends StatefulWidget {
   const PairingPage({super.key, this.arguments});
 
@@ -81,7 +91,11 @@ class _PairingPageState extends State<PairingPage> {
       Navigator.pushReplacementNamed(
         context,
         AppRoutes.pairingFailure,
-        arguments: request,
+        arguments: PairingFailureArguments(
+          request: request,
+          code: result.code,
+          message: result.message,
+        ),
       );
       return;
     }

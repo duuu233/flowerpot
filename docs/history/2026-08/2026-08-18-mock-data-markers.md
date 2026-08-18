@@ -25,11 +25,21 @@
 - 新增 `lib/src/design_system/widgets/feedback/mock_data_marker.dart`：`MockDataBanner`（整页或整块模拟）、`MockDataBadge`（单值模拟）、`LiveDataBadge`（确实走桥接），由 `DebugToolsConfig` 统一开关，release 未显式开启时完全不渲染。
 - 把 `DebugToolsConfig` 从 `features/devtools/` 移到 `lib/src/core/config/debug_tools_config.dart`，避免 `design_system` 反向依赖 feature；同步更新 `AppRoutes`、登录页与「我的」页的引用。
 - 配网三页加标识：搜索页说明雷达是动画、选择页说明设备列表写死、Wi-Fi 弹窗说明网络名是示例，Wi-Fi 页对「已连接 X」加「模拟设备名」、对开始配网一步加「真实 SDK · AP 配网」。
+- SDK 联调页新增「配网」一节：Wi-Fi 名称、密码、EZ/AP 模式加一个直接调用 `pairWifiDevice` 的按钮，结果连同原始错误码写进调用日志，不跳转失败页。
+- 配网失败页新增 `PairingFailureArguments`，把 `ActionResult` 的 `code` 与 `message` 带过去，debug 构建在副标题里显示 `[code] message`；release 仍只显示原文案。路由同时兼容旧的 `PairingRequest` 参数。
 - 配网模式改为可切换：`PairingRequest.mode` 由页面状态提供，默认仍是 `ap`，debug 构建在「真实 SDK」标识旁多一个 AP/EZ 选择器（`Key('pairing-mode-switch')`），从失败页返回时沿用上一次的模式。release 不显示该选择器，行为与之前一致。
 - `AppShell` 在 `usingMockBackend` 为真时置顶横幅，区分「体验模式切换」与「未启用 TUYA_ENABLED」两种来源。
 - 其余标识：首页养护文案、设备列表植物占位、设备信息占位字段、五个状态页、设备设置与其他设置、植物选择与详情、动画、个人信息、账号与安全、帮助、协议、关于、登录页「体验模式」。
 - 修正 `BatteryTrendChartCard` 的标题：原本写成「相对湿度变化」，实际画的是电量。
 - `MinePageModel` 的意见反馈邮箱标为占位。
+
+## 产品确认：只支持 2.4GHz Wi-Fi 配网
+
+联调过程中产品确认设备没有蓝牙配网能力，只走 2.4GHz Wi-Fi。据此追加处理：
+
+- `MainActivity` 配网前置权限去掉 `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT`。原实现要求这两项必须授予，用户在蓝牙弹窗上点拒绝会让配网直接返回 `permission_denied`，而设备根本用不到蓝牙。现在 API 33 以下只要求 `ACCESS_FINE_LOCATION`，API 33 及以上要求 `NEARBY_WIFI_DEVICES` 并附带申请（但不强制）`ACCESS_FINE_LOCATION`；只有必需项被拒才失败。
+- 搜索页、选择页、帮助中心和隐私政策里让用户「开启蓝牙」的文案全部改成 2.4GHz Wi-Fi 口径。
+- Manifest 保留蓝牙声明不动：涂鸦 SDK 自身可能合并同名权限，本机无法构建验证合并结果。
 
 ## 关键决策
 

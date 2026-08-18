@@ -86,7 +86,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        '请保持手机蓝牙和Wi-Fi已开启，并让设备处于配网状态',
+                        '请让设备进入配网状态，并确认手机连接的是2.4GHz Wi-Fi',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: AppColors.textSecondary,
@@ -106,7 +106,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                     children: <Widget>[
                       MockDataBanner(
                         title: '模拟搜索',
-                        message: '没有接入蓝牙或设备发现，雷达只是动画，2 秒后直接进入列表。',
+                        message: '设备只支持 2.4G Wi-Fi 配网，没有设备发现这一步；'
+                            '雷达只是动画，2 秒后直接进入列表。',
                         padding: EdgeInsets.only(bottom: AppSpacing.sm),
                       ),
                       _SearchTipCard(),
