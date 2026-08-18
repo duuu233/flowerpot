@@ -27,8 +27,8 @@ void main() {
     expect(find.text('80%'), findsOneWidget);
     expect(findAssetImage(AppAssets.hearingWaveformSymbol), findsOneWidget);
     final card = find.byType(HearingSettingsCard);
-    expect(tester.getSize(card), const Size(335, 425));
-    expect(tester.getTopLeft(card), const Offset(20, 93));
+    expect(tester.getSize(card), const Size(339, 425));
+    expect(tester.getTopLeft(card), const Offset(18, 93));
     expect(tester.takeException(), isNull);
   });
 

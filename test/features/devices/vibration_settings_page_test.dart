@@ -25,8 +25,8 @@ void main() {
     expect(find.text('提醒等情况自动触发振动。'), findsOneWidget);
     expect(findAssetImage(AppAssets.vibrationSymbol), findsOneWidget);
     final card = find.byType(VibrationSettingsCard);
-    expect(tester.getSize(card), const Size(335, 339));
-    expect(tester.getTopLeft(card), const Offset(20, 93));
+    expect(tester.getSize(card), const Size(339, 339));
+    expect(tester.getTopLeft(card), const Offset(18, 93));
     expect(tester.takeException(), isNull);
   });
 

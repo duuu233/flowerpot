@@ -65,10 +65,12 @@ void main() {
       expect(field.decoration?.prefixIconConstraints?.minWidth, 56);
     }
     expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+    // Page margin is AppSpacing.pageMargin (18) on both sides of the 375pt
+    // content column.
     final panelRect = tester.getRect(find.byKey(const Key('login-panel')));
-    expect(panelRect.left, 20);
-    expect(panelRect.right, 355);
-    expect(panelRect.width, 335);
+    expect(panelRect.left, 18);
+    expect(panelRect.right, 357);
+    expect(panelRect.width, 339);
     expect(tester.takeException(), isNull);
   });
 

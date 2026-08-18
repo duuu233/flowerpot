@@ -73,7 +73,12 @@ class DeviceListPage extends StatelessWidget {
               : ListView.separated(
                   key: const Key('device-list-view'),
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(20, 35, 20, 24),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.pageMargin,
+                    35,
+                    AppSpacing.pageMargin,
+                    24,
+                  ),
                   itemCount: items.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
@@ -265,7 +270,12 @@ class _EmptyDeviceList extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 180, 20, 24),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.pageMargin,
+        180,
+        AppSpacing.pageMargin,
+        24,
+      ),
       children: <Widget>[
         Image.asset(
           AppAssets.devicePlanterIcon,

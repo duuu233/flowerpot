@@ -119,7 +119,12 @@ class _PairingPageState extends State<PairingPage> {
             padding: const EdgeInsets.only(bottom: 92),
             child: ResponsiveContent(
               maxWidth: 375,
-              padding: const EdgeInsets.fromLTRB(20, 88, 20, 24),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageMargin,
+                88,
+                AppSpacing.pageMargin,
+                24,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -191,8 +196,8 @@ class _PairingPageState extends State<PairingPage> {
             ),
           ),
           Positioned(
-            left: 20,
-            right: 20,
+            left: AppSpacing.pageMargin,
+            right: AppSpacing.pageMargin,
             bottom: 8,
             child: FilledButton(
               key: const Key('start-pairing-button'),

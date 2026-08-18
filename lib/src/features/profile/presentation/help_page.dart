@@ -44,7 +44,12 @@ class _HelpPageState extends State<HelpPage> {
           SliverToBoxAdapter(
             child: ResponsiveContent(
               maxWidth: 375,
-              padding: const EdgeInsets.fromLTRB(20, AppSpacing.lg, 20, 40),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageMargin,
+                AppSpacing.lg,
+                AppSpacing.pageMargin,
+                40,
+              ),
               child: HelpCenterFaqList(
                 items: _model.items,
                 expandedIds: _expandedIds,

@@ -27,15 +27,15 @@ void main() {
     expect(find.byType(TextField), findsNWidgets(2));
     final accountCard = find.byType(LoginPasswordAccountCard);
     final saveButton = find.byKey(const Key('save-login-password'));
-    expect(tester.getSize(accountCard), const Size(335, 90));
-    expect(tester.getTopLeft(accountCard), const Offset(20, 84));
+    expect(tester.getSize(accountCard), const Size(339, 90));
+    expect(tester.getTopLeft(accountCard), const Offset(18, 84));
     expect(
       tester.getSize(find.byType(AccountPasswordFormCard)),
-      const Size(335, 153),
+      const Size(339, 153),
     );
-    expect(tester.getSize(find.byType(LoginPasswordAdviceCard)).width, 319);
-    expect(tester.getSize(saveButton), const Size(335, 50));
-    expect(tester.getTopLeft(saveButton), const Offset(20, 520));
+    expect(tester.getSize(find.byType(LoginPasswordAdviceCard)).width, 323);
+    expect(tester.getSize(saveButton), const Size(339, 50));
+    expect(tester.getTopLeft(saveButton), const Offset(18, 520));
     expect(tester.takeException(), isNull);
   });
 

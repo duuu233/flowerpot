@@ -25,7 +25,12 @@ class PlantDetailPage extends StatelessWidget {
         key: const Key('plant-detail-scroll-view'),
         child: ResponsiveContent(
           maxWidth: 375,
-          padding: const EdgeInsets.fromLTRB(20, 32, 20, 28),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.pageMargin,
+            32,
+            AppSpacing.pageMargin,
+            28,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[

@@ -93,7 +93,12 @@ class _LoginPasswordPageState extends State<LoginPasswordPage> {
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         child: ResponsiveContent(
           maxWidth: 375,
-          padding: const EdgeInsets.fromLTRB(20, 28, 20, 40),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.pageMargin,
+            28,
+            AppSpacing.pageMargin,
+            40,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[

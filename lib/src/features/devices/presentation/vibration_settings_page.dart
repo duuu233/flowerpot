@@ -47,7 +47,12 @@ class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
         key: const Key('vibration-settings-scroll-view'),
         child: ResponsiveContent(
           maxWidth: 375,
-          padding: const EdgeInsets.fromLTRB(20, 37, 20, 40),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.pageMargin,
+            37,
+            AppSpacing.pageMargin,
+            40,
+          ),
           child: VibrationSettingsCard(
             model: model,
             updating: updating,

@@ -51,7 +51,12 @@ class _ProfilePageState extends State<ProfilePage> {
           SliverToBoxAdapter(
             child: ResponsiveContent(
               maxWidth: 375,
-              padding: const EdgeInsets.fromLTRB(20, 32, 20, 0),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageMargin,
+                32,
+                AppSpacing.pageMargin,
+                0,
+              ),
               child: PersonalInfoCard(
                 model: model,
                 avatarImage: avatarImage,

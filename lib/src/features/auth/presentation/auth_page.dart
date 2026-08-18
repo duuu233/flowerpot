@@ -151,7 +151,9 @@ class _AuthPageState extends State<AuthPage> {
                       ),
                       const SizedBox(height: 22),
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.pageMargin,
+                        ),
                         child: _LoginPanel(
                           accountController: accountController,
                           credentialController: credentialController,

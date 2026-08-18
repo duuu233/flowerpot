@@ -51,7 +51,12 @@ class AnimationsPage extends StatelessWidget {
           SliverToBoxAdapter(
             child: ResponsiveContent(
               maxWidth: 375,
-              padding: const EdgeInsets.fromLTRB(20, AppSpacing.xxxl, 20, 40),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageMargin,
+                AppSpacing.xxxl,
+                AppSpacing.pageMargin,
+                40,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[

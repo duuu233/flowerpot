@@ -44,7 +44,7 @@ void main() {
     expect(background.fit, BoxFit.fitWidth);
     expect(
       tester.getSize(find.byKey(const Key('wifi-connection-illustration'))),
-      const Size(335, 270),
+      const Size(339, 270),
     );
     final noticeCard = tester.widget<DecoratedBox>(
       find.byKey(const Key('wifi-notice-card')),

@@ -38,7 +38,12 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
           SliverToBoxAdapter(
             child: ResponsiveContent(
               maxWidth: 375,
-              padding: const EdgeInsets.fromLTRB(20, AppSpacing.xl, 20, 40),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageMargin,
+                AppSpacing.xl,
+                AppSpacing.pageMargin,
+                40,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -305,7 +310,12 @@ class _SettingsChoiceSheetState extends State<_SettingsChoiceSheet> {
       key: Key('${widget.keyPrefix}-sheet'),
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.pageMargin,
+          10,
+          AppSpacing.pageMargin,
+          18,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[

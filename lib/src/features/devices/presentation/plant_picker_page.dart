@@ -118,7 +118,12 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
               SliverToBoxAdapter(
                 child: ResponsiveContent(
                   maxWidth: 375,
-                  padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.pageMargin,
+                    28,
+                    AppSpacing.pageMargin,
+                    0,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
@@ -137,7 +142,12 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
                 const SliverToBoxAdapter(child: _EmptySearchResult())
               else
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 112),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.pageMargin,
+                    0,
+                    AppSpacing.pageMargin,
+                    112,
+                  ),
                   sliver: SliverGrid.builder(
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
@@ -172,8 +182,8 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
             ],
           ),
           Positioned(
-            left: 20,
-            right: 20,
+            left: AppSpacing.pageMargin,
+            right: AppSpacing.pageMargin,
             bottom: 8,
             child: FilledButton(
               key: const Key('confirm-plant-selection'),

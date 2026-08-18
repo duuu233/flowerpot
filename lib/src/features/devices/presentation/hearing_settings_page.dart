@@ -73,7 +73,12 @@ class _HearingSettingsPageState extends State<HearingSettingsPage> {
         key: const Key('hearing-settings-scroll-view'),
         child: ResponsiveContent(
           maxWidth: 375,
-          padding: const EdgeInsets.fromLTRB(20, 37, 20, 40),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.pageMargin,
+            37,
+            AppSpacing.pageMargin,
+            40,
+          ),
           child: HearingSettingsCard(
             model: model,
             sensitivity: pendingSensitivity ?? model.sensitivity.toDouble(),

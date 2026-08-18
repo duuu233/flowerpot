@@ -25,7 +25,12 @@ class AboutPage extends StatelessWidget {
         key: const Key('about-scroll-view'),
         child: ResponsiveContent(
           maxWidth: 375,
-          padding: EdgeInsets.fromLTRB(20, compact ? 78 : 110, 20, 48),
+          padding: EdgeInsets.fromLTRB(
+            AppSpacing.pageMargin,
+            compact ? 78 : 110,
+            AppSpacing.pageMargin,
+            48,
+          ),
           child: Column(
             children: <Widget>[
               AboutBrandLockup(model: model),

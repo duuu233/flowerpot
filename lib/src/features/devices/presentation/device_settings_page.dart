@@ -46,7 +46,12 @@ class DeviceSettingsPage extends StatelessWidget {
           SliverToBoxAdapter(
             child: ResponsiveContent(
               maxWidth: 375,
-              padding: const EdgeInsets.fromLTRB(20, 37, 20, 40),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageMargin,
+                37,
+                AppSpacing.pageMargin,
+                40,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[

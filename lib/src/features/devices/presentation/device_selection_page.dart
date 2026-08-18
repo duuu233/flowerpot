@@ -55,7 +55,12 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
             final compact = constraints.maxHeight < 650;
             return SingleChildScrollView(
               key: const Key('device-selection-scroll-view'),
-              padding: EdgeInsets.fromLTRB(20, compact ? 50 : 70, 20, 24),
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.pageMargin,
+                compact ? 50 : 70,
+                AppSpacing.pageMargin,
+                24,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[

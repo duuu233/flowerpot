@@ -27,7 +27,12 @@ class AccountSecurityPage extends StatelessWidget {
         key: const Key('account-security-scroll-view'),
         child: ResponsiveContent(
           maxWidth: 375,
-          padding: const EdgeInsets.fromLTRB(20, 32, 20, 40),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.pageMargin,
+            32,
+            AppSpacing.pageMargin,
+            40,
+          ),
           child: AccountSecurityCard(
             model: model,
             onPhoneTap: state.busy

@@ -13,7 +13,16 @@ abstract final class AppSpacing {
   static const double xxxl = 32;
   static const double huge = 40;
 
-  static const EdgeInsets pagePadding = EdgeInsets.symmetric(horizontal: xl);
+  /// Horizontal margin between page content and the screen edge.
+  ///
+  /// The Figma frames measure 20; 18 reads better at runtime because the
+  /// cards' shadows add visible width on top of it. Change this one value to
+  /// retune every page.
+  static const double pageMargin = 18;
+
+  static const EdgeInsets pagePadding = EdgeInsets.symmetric(
+    horizontal: pageMargin,
+  );
   static const EdgeInsets cardPadding = EdgeInsets.all(lg);
   static const EdgeInsets compactCardPadding = EdgeInsets.all(md);
   static const EdgeInsets listTilePadding = EdgeInsets.symmetric(

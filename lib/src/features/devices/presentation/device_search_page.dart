@@ -98,8 +98,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                   ),
                 ),
                 Positioned(
-                  left: 20,
-                  right: 20,
+                  left: AppSpacing.pageMargin,
+                  right: AppSpacing.pageMargin,
                   bottom: compact ? 10 : 18,
                   child: const _SearchTipCard(),
                 ),
