@@ -54,7 +54,7 @@ class MineProfileHeader extends StatelessWidget {
             ),
             const SizedBox(width: AppSpacing.xs),
             AppIconButton(
-              assetPath: AppAssets.profileEditIcon,
+              assetPath: AppAssets.editIcon,
               tooltip: '编辑个人信息',
               size: 32,
               onPressed: onEdit,

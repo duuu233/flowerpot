@@ -25,7 +25,6 @@ export 'feedback/app_load_state_view.dart';
 export 'feedback/app_loading.dart';
 export 'feedback/app_result_view.dart';
 export 'feedback/app_snackbar.dart';
-export 'feedback/mock_data_marker.dart';
 export 'forms/app_checkbox.dart';
 export 'forms/app_code_field.dart';
 export 'forms/app_form_section.dart';

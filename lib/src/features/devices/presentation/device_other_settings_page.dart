@@ -42,11 +42,6 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  const MockDataBanner(
-                    title: '部分能力未接入',
-                    message: '固件版本缺失时显示 V--，系统文件更新仍是占位入口；'
-                        '温标、时钟与校准依赖尚未确认的 DP 编号。',
-                  ),
                   _GeneralSettingsCard(
                     device: device,
                     updatingFirmware: _updatingFirmware,
@@ -150,7 +145,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
   }
 
   void _showSystemFileMessage() {
-    showAppMessage(context, '系统文件更新功能暂未接入，可在后续替换为文件选择流程。');
+    showAppMessage(context, '系统文件更新暂未开放');
   }
 
   Future<void> _checkFirmware(SmartPlanterDevice device) async {
@@ -638,7 +633,7 @@ class _SystemFileNotice extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Image.asset(
-            AppAssets.warningIcon,
+            AppAssets.infoOutlineIcon,
             width: 18,
             height: 18,
             fit: BoxFit.contain,

@@ -27,39 +27,29 @@ class AccountSecurityPage extends StatelessWidget {
         key: const Key('account-security-scroll-view'),
         child: ResponsiveContent(
           maxWidth: 375,
-          padding: const EdgeInsets.fromLTRB(20, 84, 20, 40),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              const MockDataBanner(
-                title: '状态为推断值',
-                message: '「登录密码」只按账号是否存在推断，没有查询涂鸦；'
-                    '修改手机号与设置密码目前是占位入口。',
-              ),
-              AccountSecurityCard(
-                model: model,
-                onPhoneTap: state.busy
-                    ? null
-                    : () => showAppMessage(
-                        context,
-                        '手机号修改功能暂未开放',
-                        tone: AppMessageTone.info,
-                      ),
-                onLoginPasswordTap: state.busy
-                    ? null
-                    : () => _openLoginPasswordPage(context),
-                onChangePasswordTap: state.busy
-                    ? null
-                    : () => _openModifyPasswordPage(context),
-                onForgotPasswordTap: state.busy
-                    ? null
-                    : () => _openPasswordPage(
-                        context,
-                        title: '忘记密码',
-                        returnToLoginOnSuccess: true,
-                      ),
-              ),
-            ],
+          padding: const EdgeInsets.fromLTRB(20, 32, 20, 40),
+          child: AccountSecurityCard(
+            model: model,
+            onPhoneTap: state.busy
+                ? null
+                : () => showAppMessage(
+                    context,
+                    '手机号修改功能暂未开放',
+                    tone: AppMessageTone.info,
+                  ),
+            onLoginPasswordTap: state.busy
+                ? null
+                : () => _openLoginPasswordPage(context),
+            onChangePasswordTap: state.busy
+                ? null
+                : () => _openModifyPasswordPage(context),
+            onForgotPasswordTap: state.busy
+                ? null
+                : () => _openPasswordPage(
+                    context,
+                    title: '忘记密码',
+                    returnToLoginOnSuccess: true,
+                  ),
           ),
         ),
       ),

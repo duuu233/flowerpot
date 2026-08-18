@@ -105,7 +105,7 @@ class HomePage extends StatelessWidget {
                           maxWidth: 375,
                           padding: EdgeInsets.fromLTRB(
                             horizontalPadding,
-                            AppSpacing.huge,
+                            AppSpacing.xl,
                             horizontalPadding,
                             24,
                           ),
@@ -140,13 +140,6 @@ class HomePage extends StatelessWidget {
                                 height: model.showCompanionSummary ? 18 : 9,
                               ),
                               HomeCareBanner(message: model.careMessage),
-                              const Padding(
-                                padding: EdgeInsets.only(top: 6),
-                                child: Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: MockDataBadge(label: '固定文案'),
-                                ),
-                              ),
                               const SizedBox(height: 12),
                               HomeQuickActions(
                                 actions: model.actions,

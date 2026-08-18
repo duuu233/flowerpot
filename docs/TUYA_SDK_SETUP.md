@@ -264,11 +264,9 @@ flutter build apk --release --split-per-abi --dart-define=TUYA_DEBUG_TOOLS=true 
 
 因此真机配网必须手动输入设备实际所在的 2.4G Wi-Fi 名称和密码。默认仍是 AP 模式，需要先让手机连到设备热点；debug 构建在 Wi-Fi 页的「真实 SDK」标识旁提供 AP/EZ 选择器，可直接切到 EZ 快连再试，release 不显示该选择器。接入真实设备发现时，需要新增 `TuyaRepository` 契约、桥接扫描接口与事件通道，并替换上面两页的模拟实现。
 
-### 6.1 模拟数据标识
+### 6.1 界面上的占位数据
 
-`lib/src/design_system/widgets/feedback/mock_data_marker.dart` 提供三个开发期标识：`MockDataBanner`（整页或整块为模拟）、`MockDataBadge`（单个值为模拟）、`LiveDataBadge`（确实走了原生桥接）。它们与 SDK 联调入口共用 `DebugToolsConfig`：debug/profile 常显，release 需 `--dart-define=TUYA_DEBUG_TOOLS=true`，否则完全不渲染。
-
-已标注的位置包括：配网三页、`AppShell`（Mock 后端时置顶横幅）、首页养护文案、设备列表、设备信息、五个状态页、设备设置与其他设置、植物选择与详情、动画、账号与安全、帮助、协议、关于、登录页的「体验模式」。新增页面时，只要数据不是来自真实 SDK 调用就应加上对应标识，不要让占位值以正常样式出现。
+界面不再标注占位数据，判断某个值是否真实要回到源码：设备与传感器值来自 `TuyaRepository`（Mock 模式全部是模拟值，真实模式在 DP 缺失时回落到默认值）；养护建议、坐标轴刻度、植物库、帮助中心、协议正文、关于页版本号等则始终是写死的文案。真实链路验证以 SDK 联调页的调用日志为准，不要以页面上显示的数字为准。
 
 ## 7. 发布前检查
 

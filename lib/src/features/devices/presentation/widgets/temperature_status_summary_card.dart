@@ -35,8 +35,8 @@ class TemperatureStatusSummaryCard extends StatelessWidget {
                           assetPath: AppAssets.statusTemperatureIcon,
                           semanticLabel: '空气温度状态',
                           backgroundColor: Colors.transparent,
-                          size: 40,
-                          iconSize: 40,
+                          size: 27,
+                          iconSize: 27,
                         ),
                         const SizedBox(width: AppSpacing.md),
                         Flexible(

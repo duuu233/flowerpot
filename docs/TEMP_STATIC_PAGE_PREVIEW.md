@@ -9,26 +9,28 @@
 
 ## 演示动线
 
-1. **登录页**：输入任意手机号 + 任意验证码，勾选协议后登录（Mock 仓库不校验手机号格式）。
-2. **登录后无设备**：底部菜单出现「首页 / 我的」；首页 Tab 在无设备时显示该页。
+1. **登录页**：输入任意手机号 + 任意验证码，勾选协议后登录。两个输入框都不能为空，除此之外不做校验：即使真实 SDK 拒绝，也会退回演示会话并提示「未通过涂鸦验证，已进入演示会话」，此后所有数据都来自 Mock 后端。
+
+   登录页当前只保留手机验证码入口。密码登录、支付宝快捷登录由 `lib/src/features/auth/login_entry_config.dart` 关闭（对应平台参数尚未具备），微信入口保留但参数待配置，底部的「涂鸦 SDK 联调」入口保留用于真实链路验证。要恢复某个入口，把 `LoginEntryConfig` 里对应的常量改回 `true` 即可。
+2. **登录后无设备**：没有底部菜单，首页直接是设备列表；无设备时显示「暂无设备」页。
 3. **添加设备**：搜索设备 → 选择设备 → 连接 Wi-Fi → 连接成功（「已完成」回到首页）。
-4. **设备列表**：绑定设备后首页 Tab 即为设备列表；左上角是个人中心入口，右上角是添加设备。
+4. **设备列表**：绑定设备后首页即设备列表；左上角头像进入「我的」（普通路由，可返回），右上角是添加设备。
 5. **设备详情**：点击设备先进入「未添加植物」，选择植物后进入详情页；两页左上角都是返回按钮。
 
 ## 页面归属
 
 | 位置 | 页面 |
 | --- | --- |
-| 底部 Tab「首页」（无设备） | `HomePage` → `HomeEmptyDeviceContent` |
-| 底部 Tab「首页」（有设备） | `DeviceListPage` |
-| 底部 Tab「我的」 | `MinePage(showBackButton: false)` |
+| 首页（无设备） | `HomePage` → `HomeEmptyDeviceContent` |
+| 首页（有设备） | `DeviceListPage` |
+| 我的（左上角头像推入） | `MinePage` |
 | 设备页（未添加植物） | `HomePage(scene: withoutPlant, showBackButton: true)` |
 | 设备页（详情） | `HomePage(scene: withCompanionSummary, showBackButton: true)` |
 
 ## 相关文件
 
 - `lib/src/features/preview/preview_config.dart`：演示模式开关。
-- `lib/src/features/shell/presentation/shell_page.dart`：底部菜单与首页 Tab 分流。
+- `lib/src/features/shell/presentation/shell_page.dart`：首页在「无设备」与设备列表之间分流。
 - `lib/src/features/home/presentation/home_page.dart`：三种首页/设备页形态与 `HomeDeviceArguments`。
 - `lib/src/features/home/presentation/widgets/home_header.dart`：左上角个人中心入口与返回按钮的切换。
 - `lib/src/routes/app_routes.dart`：命名路由，含 `deviceHome`。

@@ -4,7 +4,6 @@ import '../../../../design_system/design_system.dart';
 import '../../models/home_dashboard_model.dart';
 import 'home_companion_badge.dart';
 import 'home_header.dart';
-import 'home_orbit_decoration.dart';
 
 class HomeUnplantedContent extends StatelessWidget {
   const HomeUnplantedContent({
@@ -45,7 +44,7 @@ class HomeUnplantedContent extends StatelessWidget {
                     maxWidth: 375,
                     padding: EdgeInsets.fromLTRB(
                       horizontalPadding,
-                      AppSpacing.huge,
+                      AppSpacing.xl,
                       horizontalPadding,
                       74,
                     ),
@@ -110,11 +109,6 @@ class _UnplantedHero extends StatelessWidget {
         builder: (context, constraints) {
           return Stack(
             children: <Widget>[
-              Positioned(
-                top: 0,
-                left: (constraints.maxWidth - 252) / 2,
-                child: const HomeOrbitDecoration(),
-              ),
               Positioned(
                 top: 78,
                 left: (constraints.maxWidth - 106) / 2,

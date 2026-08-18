@@ -22,10 +22,8 @@ void main() {
     expect(find.text('Pilea cadierei'), findsOneWidget);
     expect(find.text('银脉冷水花'), findsOneWidget);
     expect(find.text('养护建议'), findsOneWidget);
-    expect(
-      find.byKey(const Key('plant-detail-image-placeholder')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('plant-detail-image')), findsOneWidget);
+    expect(findAssetImage(AppAssets.plantImage('pilea_cadierei')), findsOneWidget);
     expect(findAssetImage(AppAssets.selectPlantIcon), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

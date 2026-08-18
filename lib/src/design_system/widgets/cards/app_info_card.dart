@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../tokens/app_assets.dart';
 import '../../tokens/app_colors.dart';
 import '../../tokens/app_radius.dart';
 import '../../tokens/app_spacing.dart';
@@ -24,6 +25,20 @@ class AppInfoCard extends StatelessWidget {
   final Widget? trailing;
   final bool emphasized;
 
+  /// The default advice mark has real artwork, so it is drawn from the asset
+  /// rather than a Material glyph; callers passing an [icon] keep the glyph.
+  Widget _leading(Color color, double size) {
+    if (icon != null) return Icon(icon, color: color, size: size);
+    return Image.asset(
+      AppAssets.plantCareTipIcon,
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      excludeFromSemantics: true,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = _colors(tone);
@@ -41,16 +56,12 @@ class AppInfoCard extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: SizedBox.square(
-                  dimension: 48,
-                  child: Icon(
-                    icon ?? Icons.lightbulb_outline_rounded,
-                    color: colors.$1,
-                    size: 28,
-                  ),
+                  dimension: 37,
+                  child: Center(child: _leading(colors.$1, 22)),
                 ),
               )
             else
-              Icon(icon ?? Icons.lightbulb_outline_rounded, color: colors.$1),
+              _leading(colors.$1, 24),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(

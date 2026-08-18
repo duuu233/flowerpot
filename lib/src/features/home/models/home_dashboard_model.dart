@@ -58,9 +58,9 @@ class HomeDashboardModel {
     return HomeDashboardModel(
       userLabel: userLabel,
       deviceId: device?.id,
-      companionDays: scene == HomeDashboardScene.withoutPlant
-          ? 1
-          : device?.companionDays ?? 52,
+      // The same device must not read "已陪伴1天" here and "已陪伴127天" one
+      // tap later, so both scenes use the bound date.
+      companionDays: device?.companionDays ?? 52,
       battery: device?.battery ?? 80,
       metrics: <HomeMetricData>[
         HomeMetricData(
@@ -96,7 +96,11 @@ class HomeDashboardModel {
           },
         ),
       ],
-      careMessage: '今天状态良好，傍晚可适度通风',
+      careMessage: _careMessage(
+        soilMoisture: soilMoisture,
+        illuminance: illuminance,
+        humidity: humidity,
+      ),
       actions: const <HomeActionData>[
         HomeActionData(kind: HomeActionKind.animation, label: '定制动画'),
         HomeActionData(kind: HomeActionKind.battery, label: '电池状态'),
@@ -109,6 +113,22 @@ class HomeDashboardModel {
       ],
       scene: scene,
     );
+  }
+
+  /// Advice that follows the readings shown right above it. A constant line
+  /// read as "今天状态良好" while the cards said 偏湿 and 偏弱.
+  static String _careMessage({
+    required int soilMoisture,
+    required int illuminance,
+    required int humidity,
+  }) {
+    if (soilMoisture < 40) return '土壤偏干，建议今天补一次水';
+    if (soilMoisture > 75) return '土壤偏湿，先暂停浇水并保持通风';
+    if (illuminance < 500) return '光照偏弱，可以把花盆挪到更明亮的位置';
+    if (illuminance > 1200) return '光照偏强，注意避开正午的直射阳光';
+    if (humidity < 40) return '空气偏干，可在附近放一杯水提高湿度';
+    if (humidity > 70) return '空气偏潮，注意通风避免闷根';
+    return '今天状态良好，傍晚可适度通风';
   }
 
   final String userLabel;

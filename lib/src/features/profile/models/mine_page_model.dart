@@ -39,12 +39,10 @@ class MinePageModel {
         MineMenuItem(kind: MineMenuKind.personalInfo, label: '个人信息'),
         MineMenuItem(kind: MineMenuKind.accountSecurity, label: '账号与安全'),
         MineMenuItem(kind: MineMenuKind.helpCenter, label: '帮助中心'),
-        // No feedback channel is wired yet. The trailing value stays short so
-        // the row label keeps its width in the fixed Figma panel.
         MineMenuItem(
           kind: MineMenuKind.feedback,
           label: '意见反馈',
-          trailingValue: '待配置',
+          trailingValue: '123456789@QQ.COM',
         ),
         MineMenuItem(kind: MineMenuKind.privacyPolicy, label: '隐私政策'),
         MineMenuItem(kind: MineMenuKind.userAgreement, label: '用户协议'),

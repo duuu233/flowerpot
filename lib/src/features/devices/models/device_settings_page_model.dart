@@ -64,6 +64,7 @@ class DeviceSettingsPageModel {
           label: '震动设置',
           value: settings.vibration ? '已启用' : '已禁用',
         ),
+        // The design leaves these two rows with a chevron and no value.
         const DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.behavior,
           label: '行为',

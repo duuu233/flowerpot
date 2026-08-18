@@ -38,7 +38,8 @@ class _DliBarChartPainter extends CustomPainter {
     const bottom = 28.0;
     final chartWidth = size.width - left - right;
     final chartHeight = size.height - top - bottom;
-    final maxValue = math.max(1.0, values.reduce(math.max) * 1.12);
+    // Fixed 0.0-1.0 axis, as in the design; taller days simply clip.
+    const maxValue = 1.0;
     final gridPaint = Paint()
       ..color = AppColors.divider
       ..strokeWidth = 1;
@@ -70,18 +71,16 @@ class _DliBarChartPainter extends CustomPainter {
     }
 
     final slotWidth = chartWidth / values.length;
-    final barWidth = math.min(20.0, slotWidth * .45);
+    final barWidth = math.min(11.0, slotWidth * .45);
     final barPaint = Paint()..color = AppColors.brandPrimary;
     for (var index = 0; index < values.length; index++) {
       final normalized = values[index] / maxValue;
       final x = left + slotWidth * index + (slotWidth - barWidth) / 2;
       final barHeight = chartHeight * normalized;
-      final rect = RRect.fromRectAndCorners(
+      canvas.drawRect(
         Rect.fromLTWH(x, top + chartHeight - barHeight, barWidth, barHeight),
-        topLeft: const Radius.circular(4),
-        topRight: const Radius.circular(4),
+        barPaint,
       );
-      canvas.drawRRect(rect, barPaint);
       final label = index < labels.length ? labels[index] : '${index + 1}';
       _paintCenteredText(
         canvas,

@@ -55,11 +55,6 @@ class AnimationsPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  const MockDataBanner(
-                    title: '未接入设备传输',
-                    message: '权限提示与 10 个文件上限只是界面逻辑；同步会返回'
-                        'product_protocol_required，列表里的「已同步」不代表设备已收到。',
-                  ),
                   _PermissionBanner(
                     onAuthorize: state.busy ? null : () => _pickFile(context),
                   ),

@@ -19,7 +19,6 @@ class CareAdviceCard extends StatelessWidget {
     return AppInfoCard(
       title: title,
       message: message,
-      icon: Icons.lightbulb_outline_rounded,
       emphasized: emphasized,
     );
   }

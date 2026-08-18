@@ -29,20 +29,36 @@ class FlowerpotState extends ChangeNotifier {
   /// cannot be derived from the device itself; a freshly bound planter stays
   /// unplanted until the user confirms a choice in the plant picker.
   final Set<String> _plantedDevices = <String>{};
+
+  /// Plant and control changes the backend cannot persist yet: the mock keeps
+  /// its own copies and `publishDps` is a no-op, so a refresh would otherwise
+  /// undo the plant the user just picked and every toggle they flipped.
+  final Map<String, PlantProfile> _plantOverrides = <String, PlantProfile>{};
+  final Map<String, DeviceControlSettings> _settingsOverrides =
+      <String, DeviceControlSettings>{};
+  /// Seeded so the animation page has something to show. The list filters out
+  /// `builtin://` paths, so these carry file-like paths and are visible.
   final List<AnimationAsset> _animations = <AnimationAsset>[
     AnimationAsset(
       id: 'welcome',
-      name: '清晨问候',
-      path: 'builtin://morning',
-      createdAt: DateTime(2026),
+      name: '清晨问候.gif',
+      path: '/storage/emulated/0/YSplanter/清晨问候.gif',
+      createdAt: DateTime(2026, 8, 12, 9, 20),
       synced: true,
     ),
     AnimationAsset(
       id: 'rain',
-      name: '下雨啦',
-      path: 'builtin://rain',
-      createdAt: DateTime(2026, 1, 2),
+      name: '下雨啦.gif',
+      path: '/storage/emulated/0/YSplanter/下雨啦.gif',
+      createdAt: DateTime(2026, 8, 14, 18, 5),
       synced: true,
+    ),
+    AnimationAsset(
+      id: 'sleepy',
+      name: '晚安打盹.gif',
+      path: '/storage/emulated/0/YSplanter/晚安打盹.gif',
+      createdAt: DateTime(2026, 8, 16, 22, 40),
+      synced: false,
     ),
   ];
 
@@ -284,6 +300,7 @@ class FlowerpotState extends ChangeNotifier {
   Future<ActionResult> selectPlant(String id, PlantProfile plant) =>
       _guard(() async {
         _plantedDevices.add(id);
+        _plantOverrides[id] = plant;
         _replaceDevice(id, (device) => device.copyWith(plant: plant));
         return ActionResult(true, '已选择${plant.name}');
       });
@@ -314,6 +331,7 @@ class FlowerpotState extends ChangeNotifier {
         'clockFormat' => current.copyWith(clockFormat: value as String),
         _ => current,
       };
+      _settingsOverrides[id] = next;
       return device.copyWith(settings: next);
     });
     return const ActionResult(true, '设置已同步');
@@ -460,7 +478,7 @@ class FlowerpotState extends ChangeNotifier {
     try {
       final devices = await _repository.getDevices();
       if (epoch != _sessionEpoch) return;
-      _devices = devices;
+      _devices = devices.map(_withLocalOverrides).toList();
       if (_devices.isEmpty) {
         _selectedDeviceId = null;
       } else if (_devices.every((item) => item.id != _selectedDeviceId)) {
@@ -472,11 +490,20 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
+  SmartPlanterDevice _withLocalOverrides(SmartPlanterDevice device) {
+    final plant = _plantOverrides[device.id];
+    final settings = _settingsOverrides[device.id];
+    if (plant == null && settings == null) return device;
+    return device.copyWith(plant: plant, settings: settings);
+  }
+
   void _clearLocalSession() {
     _sessionEpoch++;
     _user = null;
     _devices = <SmartPlanterDevice>[];
     _plantedDevices.clear();
+    _plantOverrides.clear();
+    _settingsOverrides.clear();
     _selectedDeviceId = null;
     _demoMode = false;
     ImageCacheCleanup.clearAll();

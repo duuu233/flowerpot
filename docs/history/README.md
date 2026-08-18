@@ -44,4 +44,5 @@
 - [`2026-08/2026-08-17-tuya-sdk-debug-console.md`](2026-08/2026-08-17-tuya-sdk-debug-console.md)：在登录页增加涂鸦 SDK 联调入口，直接调用注册与登录并暴露原始失败码，为配网联调准备起点。
 - [`2026-08/2026-08-18-tuya-debug-arm64-apk-rebuild.md`](2026-08/2026-08-18-tuya-debug-arm64-apk-rebuild.md)：清理 Flutter 构建产物后重新生成真实涂鸦 arm64 Debug APK，并验证 ABI、签名与 SDK 联调页。
 - [`2026-08/2026-08-18-android-local-config-handoff.md`](2026-08/2026-08-18-android-local-config-handoff.md)：区分可进入 Git 的 Android 固定配置与必须本机输入的涂鸦、签名材料，并补充新电脑配置清单和模板。
-- [`2026-08/2026-08-18-mock-data-markers.md`](2026-08/2026-08-18-mock-data-markers.md)：核查配网动线只有 Wi-Fi 一步是真实调用，清掉预填的假 Wi-Fi 凭据，并为全项目模拟数据加统一标识。
+- [`2026-08/2026-08-18-mock-data-markers.md`](2026-08/2026-08-18-mock-data-markers.md)：核查配网动线只有 Wi-Fi 一步是真实调用，清掉预填的假 Wi-Fi 凭据与配网前置的蓝牙权限，透传配网失败码，并收敛登录页入口。
+- [`2026-08/2026-08-18-demo-flow-polish.md`](2026-08/2026-08-18-demo-flow-polish.md)：统一植物目录并接入植物图片，去掉底部 Tab 导航改为头像进入「我的」，并补齐演示数据。

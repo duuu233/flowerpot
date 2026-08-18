@@ -51,11 +51,6 @@ class DeviceInfoPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  const MockDataBanner(
-                    title: '部分字段为占位',
-                    message: 'APP版本、硬件版本、设备UUID 与花托UUID 未接入真实来源；'
-                        '固件版本和 MAC 缺失时显示 --。',
-                  ),
                   _DeviceInfoHero(
                     device: device,
                     onRename: () => _rename(context, device),

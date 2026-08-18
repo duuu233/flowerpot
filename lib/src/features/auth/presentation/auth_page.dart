@@ -6,6 +6,7 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../preview/preview_config.dart';
+import '../login_entry_config.dart';
 import 'password_page.dart';
 import 'verification_code_countdown.dart';
 import 'widgets/auth_asset_icon.dart';
@@ -30,7 +31,7 @@ class _AuthPageState extends State<AuthPage> {
   @override
   void initState() {
     super.initState();
-    codeLogin = widget.initialCodeLogin;
+    codeLogin = LoginEntryConfig.passwordLogin ? widget.initialCodeLogin : true;
     codeCountdown.addListener(_refreshCountdown);
   }
 
@@ -51,18 +52,38 @@ class _AuthPageState extends State<AuthPage> {
       showAppMessage(context, '请先阅读并同意用户协议与隐私政策', tone: AppMessageTone.error);
       return;
     }
+    if (accountController.text.trim().isEmpty ||
+        credentialController.text.trim().isEmpty) {
+      showAppMessage(
+        context,
+        codeLogin ? '请输入手机号和验证码' : '请输入手机号和密码',
+        tone: AppMessageTone.error,
+      );
+      return;
+    }
     final state = FlowerpotScope.of(context);
-    final result = await state.login(
+    var result = await state.login(
       account: accountController.text,
       credential: credentialController.text,
       region: LoginRegion.domestic,
       verificationCode: codeLogin,
     );
+    var fellBack = false;
+    if (!result.success &&
+        codeLogin &&
+        LoginEntryConfig.acceptAnyVerificationCode) {
+      // The demo flow must reach the app with any non-empty input. The real
+      // login above still runs first, so a real account keeps a real session.
+      result = await state.enterDemo(seedDevice: !StaticPreviewConfig.enabled);
+      fellBack = result.success;
+    }
     if (!mounted) return;
     showAppMessage(
       context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+      fellBack ? '未通过涂鸦验证，已进入演示会话' : result.message,
+      tone: result.success
+          ? (fellBack ? AppMessageTone.info : AppMessageTone.success)
+          : AppMessageTone.error,
     );
     if (result.success) {
       Navigator.pushNamedAndRemoveUntil(context, AppRoutes.shell, (_) => false);
@@ -368,17 +389,21 @@ class _LoginPanel extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
-                    _SocialButton(
-                      label: '微信登录',
-                      assetPath: AppAssets.wechatLoginIcon,
-                      onTap: onWechat,
-                    ),
-                    const SizedBox(width: 32),
-                    _SocialButton(
-                      label: '支付宝登录',
-                      assetPath: AppAssets.alipayLoginIcon,
-                      onTap: onAlipay,
-                    ),
+                    if (LoginEntryConfig.wechatLogin)
+                      _SocialButton(
+                        label: '微信登录',
+                        assetPath: AppAssets.wechatLoginIcon,
+                        onTap: onWechat,
+                      ),
+                    if (LoginEntryConfig.wechatLogin &&
+                        LoginEntryConfig.alipayLogin)
+                      const SizedBox(width: 32),
+                    if (LoginEntryConfig.alipayLogin)
+                      _SocialButton(
+                        label: '支付宝登录',
+                        assetPath: AppAssets.alipayLoginIcon,
+                        onTap: onAlipay,
+                      ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.lg),
@@ -399,10 +424,6 @@ class _LoginPanel extends StatelessWidget {
                       icon: const Icon(Icons.eco_outlined, size: 18),
                       label: const Text('体验模式'),
                     ),
-                    // This button swaps the live bridge for the mock backend at
-                    // runtime, which is otherwise invisible inside a
-                    // TUYA_ENABLED build.
-                    const MockDataBadge(label: '切到假数据'),
                     if (onSdkDebug != null)
                       TextButton.icon(
                         key: const Key('tuya-debug-entry'),
@@ -441,12 +462,16 @@ class _LoginTabs extends StatelessWidget {
               onTap: () => onChanged(true),
             ),
           ),
+          // The panel keeps its two-column shape so the notch behind the tab
+          // still reads correctly with password login hidden.
           Expanded(
-            child: _LoginTab(
-              label: '密码登录',
-              selected: !codeLogin,
-              onTap: () => onChanged(false),
-            ),
+            child: LoginEntryConfig.passwordLogin
+                ? _LoginTab(
+                    label: '密码登录',
+                    selected: !codeLogin,
+                    onTap: () => onChanged(false),
+                  )
+                : const SizedBox.shrink(),
           ),
         ],
       ),

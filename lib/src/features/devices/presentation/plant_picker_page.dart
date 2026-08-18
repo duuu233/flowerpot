@@ -44,7 +44,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
         ? widget.mode == PlantPickerMode.add
         : !planted;
     final current = planted ? state.deviceById(widget.deviceId)?.plant : null;
-    selectedId = current?.id ?? _plants.first.profile.id;
+    selectedId = current?.id ?? PlantCatalog.items.first.id;
     initialized = true;
   }
 
@@ -54,27 +54,27 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
     super.dispose();
   }
 
-  List<_PlantChoice> get visiblePlants {
+  List<PlantProfile> get visiblePlants {
     final keyword = query.trim().toLowerCase();
-    if (keyword.isEmpty) return _plants;
-    return _plants
+    if (keyword.isEmpty) return PlantCatalog.items;
+    return PlantCatalog.items
         .where(
           (item) =>
-              item.profile.name.contains(keyword) ||
-              item.profile.latinName.toLowerCase().contains(keyword),
+              item.name.contains(keyword) ||
+              item.latinName.toLowerCase().contains(keyword),
         )
         .toList();
   }
 
-  _PlantChoice get selected => _plants.firstWhere(
-    (item) => item.profile.id == selectedId,
-    orElse: () => _plants.first,
+  PlantProfile get selected => PlantCatalog.items.firstWhere(
+    (item) => item.id == selectedId,
+    orElse: () => PlantCatalog.items.first,
   );
 
   Future<void> _confirmSelection() async {
     final result = await FlowerpotScope.of(
       context,
-    ).selectPlant(widget.deviceId, selected.profile);
+    ).selectPlant(widget.deviceId, selected);
     if (!mounted) return;
     showAppMessage(
       context,
@@ -118,15 +118,10 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
               SliverToBoxAdapter(
                 child: ResponsiveContent(
                   maxWidth: 375,
-                  padding: const EdgeInsets.fromLTRB(20, 80, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      const MockDataBanner(
-                        title: '模拟植物库',
-                        message: '植物列表与配图是写死的示例数据；选择结果只留在本地会话，'
-                            '不会同步到涂鸦。',
-                      ),
                       _PlantSearchField(
                         controller: searchController,
                         onChanged: (value) => setState(() => query = value),
@@ -155,19 +150,19 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
                     itemBuilder: (context, index) {
                       final plant = plants[index];
                       return _PlantCard(
-                        key: Key('plant-card-${plant.profile.id}'),
+                        key: Key('plant-card-${plant.id}'),
                         plant: plant,
-                        selected: selectedId == plant.profile.id,
+                        selected: selectedId == plant.id,
                         onTap: () =>
-                            setState(() => selectedId = plant.profile.id),
+                            setState(() => selectedId = plant.id),
                         onDetails: () => Navigator.pushNamed(
                           context,
                           AppRoutes.plantDetail,
                           arguments: PlantDetailArguments(
-                            plant: plant.profile,
+                            plant: plant,
                             bound:
                                 state.deviceById(widget.deviceId)?.plant.id ==
-                                plant.profile.id,
+                                plant.id,
                           ),
                         ),
                       );
@@ -318,13 +313,25 @@ class _TipIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Image.asset(
-      AppAssets.plantCareTipIcon,
-      width: 40,
-      height: 40,
-      fit: BoxFit.contain,
-      filterQuality: FilterQuality.high,
-      semanticLabel: '植物选择提示',
+    // The design seats the bulb on a white disc.
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        shape: BoxShape.circle,
+      ),
+      child: SizedBox.square(
+        dimension: 36,
+        child: Center(
+          child: Image.asset(
+            AppAssets.plantCareTipIcon,
+            width: 22,
+            height: 22,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            semanticLabel: '植物选择提示',
+          ),
+        ),
+      ),
     );
   }
 }
@@ -338,7 +345,7 @@ class _PlantCard extends StatelessWidget {
     super.key,
   });
 
-  final _PlantChoice plant;
+  final PlantProfile plant;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onDetails;
@@ -362,16 +369,27 @@ class _PlantCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Expanded(
-                  child: ColoredBox(
-                    key: Key('plant-image-placeholder-${plant.profile.id}'),
-                    color: plant.profile.color.withValues(alpha: .14),
+                  child: Padding(
+                    // The artwork ranges from 146x172 to 388x368, so it is
+                    // contained rather than cropped to keep the grid even.
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    child: Image.asset(
+                      AppAssets.plantImage(plant.id),
+                      key: Key('plant-image-${plant.id}'),
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
+                      semanticLabel: plant.name,
+                    ),
                   ),
                 ),
                 if (selected)
                   Material(
                     color: AppColors.brandPrimary,
                     child: InkWell(
-                      key: Key('plant-details-${plant.profile.id}'),
+                      key: Key('plant-details-${plant.id}'),
                       onTap: onDetails,
                       child: const SizedBox(
                         height: 28,
@@ -393,7 +411,7 @@ class _PlantCard extends StatelessWidget {
                     height: 35,
                     child: Center(
                       child: Text(
-                        plant.profile.name,
+                        plant.name,
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 16,
@@ -418,13 +436,31 @@ class _SelectedBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Image.asset(
-      AppAssets.plantSelectionBadgeIcon,
-      width: 23,
-      height: 23,
-      fit: BoxFit.contain,
-      filterQuality: FilterQuality.high,
-      semanticLabel: '已选择',
+    // The design's mark is a white tick on a solid brand disc. There is no
+    // such asset, so the disc is a plain coloured circle carrying the existing
+    // tick artwork rather than a redrawn icon.
+    return Semantics(
+      label: '已选择',
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          color: AppColors.brandPrimary,
+          shape: BoxShape.circle,
+        ),
+        child: SizedBox.square(
+          dimension: 23,
+          child: Center(
+            child: Image.asset(
+              AppAssets.checkmarkIcon,
+              width: 13,
+              height: 13,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              color: AppColors.surface,
+              excludeFromSemantics: true,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -446,99 +482,3 @@ class _EmptySearchResult extends StatelessWidget {
   }
 }
 
-class _PlantChoice {
-  const _PlantChoice({required this.profile});
-
-  final PlantProfile profile;
-}
-
-const _plants = <_PlantChoice>[
-  _PlantChoice(
-    profile: PlantProfile(
-      id: 'pilea_cadierei',
-      name: '冷水花',
-      latinName: 'Pilea cadierei',
-      color: Color(0xFF4D8B55),
-      moistureTarget: 68,
-      lightTarget: 120,
-      tip: '喜湿润明亮环境，适合室内桌面或半阴环境栽培。',
-    ),
-  ),
-  _PlantChoice(
-    profile: PlantProfile(
-      id: 'pothos',
-      name: '绿萝',
-      latinName: 'Epipremnum aureum',
-      color: Color(0xFF65A765),
-      moistureTarget: 62,
-      lightTarget: 100,
-      tip: '耐阴但不耐积水，保持通风有助于新叶生长。',
-    ),
-  ),
-  _PlantChoice(
-    profile: PlantProfile(
-      id: 'ivy',
-      name: '常春藤',
-      latinName: 'Hedera helix',
-      color: Color(0xFF527B48),
-      moistureTarget: 58,
-      lightTarget: 150,
-      tip: '适合明亮散射光，保持盆土微润并注意通风。',
-    ),
-  ),
-  _PlantChoice(
-    profile: PlantProfile(
-      id: 'monstera',
-      name: '龟背竹',
-      latinName: 'Monstera deliciosa',
-      color: Color(0xFF2F7D5D),
-      moistureTarget: 58,
-      lightTarget: 140,
-      tip: '喜欢明亮散射光，表层土壤微干后再浇水。',
-    ),
-  ),
-  _PlantChoice(
-    profile: PlantProfile(
-      id: 'bird_of_paradise',
-      name: '天堂鸟',
-      latinName: 'Strelitzia reginae',
-      color: Color(0xFF4F8C54),
-      moistureTarget: 55,
-      lightTarget: 260,
-      tip: '需要充足的柔和光照，生长期保持土壤均匀湿润。',
-    ),
-  ),
-  _PlantChoice(
-    profile: PlantProfile(
-      id: 'china_doll',
-      name: '幸福树',
-      latinName: 'Radermachera sinica',
-      color: Color(0xFF367C46),
-      moistureTarget: 60,
-      lightTarget: 180,
-      tip: '喜温暖明亮环境，避免积水和长时间强光直射。',
-    ),
-  ),
-  _PlantChoice(
-    profile: PlantProfile(
-      id: 'pepperomia',
-      name: '豆瓣绿',
-      latinName: 'Peperomia tetraphylla',
-      color: Color(0xFF5E9664),
-      moistureTarget: 50,
-      lightTarget: 130,
-      tip: '保持明亮散射光，等表层土壤干燥后再补水。',
-    ),
-  ),
-  _PlantChoice(
-    profile: PlantProfile(
-      id: 'philodendron',
-      name: '春羽',
-      latinName: 'Philodendron selloum',
-      color: Color(0xFF36765A),
-      moistureTarget: 60,
-      lightTarget: 150,
-      tip: '适合温暖湿润的散射光环境，注意避免低温。',
-    ),
-  ),
-];

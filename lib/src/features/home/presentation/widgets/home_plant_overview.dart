@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../../design_system/design_system.dart';
 import '../../models/home_dashboard_model.dart';
 import 'home_companion_badge.dart';
-import 'home_orbit_decoration.dart';
 
 class HomePlantOverview extends StatelessWidget {
   const HomePlantOverview({
@@ -26,11 +25,6 @@ class HomePlantOverview extends StatelessWidget {
           return Stack(
             clipBehavior: Clip.none,
             children: <Widget>[
-              Positioned(
-                top: 6,
-                left: (width - 252) / 2,
-                child: const HomeOrbitDecoration(),
-              ),
               Positioned(
                 top: 34,
                 left: (width - 132) / 2,
@@ -112,10 +106,10 @@ class _HomeMetricCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final assetPath = switch (data.kind) {
-      HomeMetricKind.water => AppAssets.metricWaterIcon,
+      HomeMetricKind.water => AppAssets.waterStatusIcon,
       HomeMetricKind.light => AppAssets.metricLightIcon,
       HomeMetricKind.temperature => AppAssets.metricTemperatureIcon,
-      HomeMetricKind.humidity => AppAssets.metricWaterIcon,
+      HomeMetricKind.humidity => AppAssets.statusHumidityIcon,
     };
     return AppSurfaceCard(
       onTap: () => onTap(data.kind),

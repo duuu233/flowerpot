@@ -136,8 +136,6 @@ class _PairingPageState extends State<PairingPage> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    const Center(child: MockDataBadge(label: '模拟设备名')),
                     const SizedBox(height: 8),
                   ],
                   const Text(
@@ -157,27 +155,17 @@ class _PairingPageState extends State<PairingPage> {
                     passwordController: passwordController,
                     onSwitchWifi: _switchWifi,
                   ),
-                  const SizedBox(height: 18),
-                  Center(
-                    child: Wrap(
-                      spacing: AppSpacing.sm,
-                      runSpacing: AppSpacing.xs,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: <Widget>[
-                        LiveDataBadge(
-                          label: mode == 'ap'
-                              ? '真实 SDK · AP 配网'
-                              : '真实 SDK · EZ 快连',
-                        ),
-                        if (DebugToolsConfig.enabled)
-                          _PairingModeSwitch(
-                            mode: mode,
-                            onChanged: (value) => setState(() => mode = value),
-                          ),
-                      ],
+                  if (DebugToolsConfig.enabled) ...<Widget>[
+                    const SizedBox(height: 18),
+                    Center(
+                      child: _PairingModeSwitch(
+                        mode: mode,
+                        onChanged: (value) => setState(() => mode = value),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 22),
+                    const SizedBox(height: 22),
+                  ] else
+                    const SizedBox(height: 38),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
@@ -587,16 +575,7 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
                 '仅显示可用的2.4GHzWi-Fi网络',
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
               ),
-              const SizedBox(height: 10),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20),
-                child: MockDataBanner(
-                  title: '模拟网络列表',
-                  message: '未扫描手机 Wi-Fi，以下为示例名称，请返回手动输入。',
-                  padding: EdgeInsets.zero,
-                ),
-              ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 14),
               Expanded(
                 child: ListView.separated(
                   padding: const EdgeInsets.symmetric(horizontal: 36),

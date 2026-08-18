@@ -31,7 +31,7 @@ class HumidityStatusSummaryCard extends StatelessWidget {
                   children: <Widget>[
                     Row(
                       children: <Widget>[
-                        const _HumidityBadge(size: 40),
+                        const _HumidityBadge(size: 27),
                         const SizedBox(width: AppSpacing.md),
                         Flexible(
                           child: Text(
@@ -63,7 +63,7 @@ class HumidityStatusSummaryCard extends StatelessWidget {
           Row(
             children: <Widget>[
               const SizedBox(width: 28),
-              const _HumidityBadge(size: 48),
+              const _HumidityBadge(size: 32),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(

@@ -33,7 +33,7 @@ class LoginPasswordAccountCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    '设置登录密码后，可使用“手机号+密码”\n登录YSplanter账号',
+                    '设置登录密码后，可使用“手机号+密码”\n登录YSplanter 账号',
                     style: AppTypography.body.copyWith(
                       color: AppColors.textPrimary,
                       fontSize: 13,

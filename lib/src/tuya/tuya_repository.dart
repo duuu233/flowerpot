@@ -382,6 +382,9 @@ class MockTuyaRepository implements TuyaRepository {
       id: 'mock-user',
       nickname: '植物守护者',
       account: account.trim(),
+      // Bundled demo portrait, so the header and profile page are not an empty
+      // grey circle during a walkthrough.
+      avatarUrl: 'assets/images/demo_user_avatar.png',
     );
   }
 
@@ -468,58 +471,102 @@ class MockTuyaRepository implements TuyaRepository {
     ReportRange range,
   ) async {
     await _wait();
-    if (metric == SensorMetric.dli) {
-      return switch (range) {
-        ReportRange.day => List<double>.generate(
-          24,
-          (index) => index < 7 || index > 18
-              ? 0
-              : 0.04 + math.sin((index - 7) / 11 * math.pi) * 0.11,
-        ),
-        ReportRange.week => const <double>[
-          0.74,
-          0.67,
-          0.58,
-          0.61,
-          0.90,
-          0.63,
-          0.45,
-        ],
-        ReportRange.month => List<double>.generate(
-          30,
-          (index) => 0.62 + math.sin(index * 0.72) * 0.18,
-        ),
-      };
-    }
-    if (range == ReportRange.day) {
-      if (metric == SensorMetric.waterLevel) {
-        return const <double>[76, 76, 85, 73, 80, 85, 68, 68];
-      }
-      if (metric == SensorMetric.soilMoisture) {
-        return const <double>[91, 91, 100, 88, 97, 100, 82, 82];
-      }
-      if (metric == SensorMetric.temperature) {
-        return const <double>[25, 25, 30, 24, 26.9, 30, 21, 21];
-      }
-      if (metric == SensorMetric.humidity) {
-        return const <double>[50, 50, 60, 48, 52, 60, 42, 42];
-      }
-      if (metric == SensorMetric.battery) {
-        return const <double>[90, 90, 100, 88, 94, 100, 82, 82];
-      }
-    }
     final count = switch (range) {
       ReportRange.day => 24,
       ReportRange.week => 7,
       ReportRange.month => 30,
     };
-    final base = _devices.first.sensors.valueFor(metric);
+    if (metric == SensorMetric.dli) return _dliSeries(count);
+    // Each metric gets its own shape. A single rescaled waveform made every
+    // status page look like a copy of the previous one.
+    final device = _devices.firstWhere(
+      (item) => item.id == deviceId,
+      orElse: () => _devices.isEmpty ? _demoDevice() : _devices.first,
+    );
+    final current = device.sensors.valueFor(metric);
+    return switch (metric) {
+      SensorMetric.waterLevel => _series(
+        count,
+        // A watering top-up part way through the window, then slow uptake.
+        (progress) => progress < .38
+            ? 62 + progress * 24
+            : 88 - (progress - .38) * 26,
+        jitter: 1.4,
+        minimum: 30,
+        maximum: 100,
+      ),
+      SensorMetric.soilMoisture => _series(
+        count,
+        (progress) => 66 + math.sin(progress * math.pi * 1.6) * 7,
+        jitter: 1.2,
+        minimum: 35,
+        maximum: 96,
+      ),
+      SensorMetric.temperature => _series(
+        count,
+        // Cool before dawn, peak mid-afternoon.
+        (progress) => 23.4 + math.sin((progress - .22) * math.pi * 1.7) * 4.2,
+        jitter: .35,
+        minimum: 16,
+        maximum: 34,
+      ),
+      SensorMetric.humidity => _series(
+        count,
+        (progress) => 54 - math.sin((progress - .2) * math.pi * 1.7) * 9,
+        jitter: 1,
+        minimum: 30,
+        maximum: 85,
+      ),
+      SensorMetric.battery => _series(
+        count,
+        // The demo planter is charging, so the curve climbs and levels off.
+        (progress) => 62 + math.min(progress * 1.35, 1.0) * 32,
+        jitter: .6,
+        minimum: 20,
+        maximum: 100,
+      ),
+      SensorMetric.light => _series(
+        count,
+        (progress) => 120 + math.sin(progress * math.pi) * 260,
+        jitter: 12,
+        minimum: 0,
+        maximum: 900,
+      ),
+      SensorMetric.ppfd => _series(
+        count,
+        (progress) => 1.8 + math.sin(progress * math.pi) * 5.4,
+        jitter: .18,
+        minimum: 0,
+        maximum: 12,
+      ),
+      SensorMetric.dli => <double>[current],
+    };
+  }
+
+  /// Daily light integral, in the 0.5–1.3 range the bar chart can actually
+  /// draw: its axis is floored at 1.0, so a peak below that renders as an
+  /// empty card.
+  static List<double> _dliSeries(int count) => _series(
+    count,
+    (progress) => .72 + math.sin(progress * math.pi * 1.3) * .34,
+    jitter: .05,
+    minimum: .18,
+    maximum: 1.3,
+  );
+
+  /// Builds [count] points from a 0→1 shape, with a small repeatable jitter so
+  /// the line looks measured rather than drawn.
+  static List<double> _series(
+    int count,
+    double Function(double progress) shape, {
+    required double jitter,
+    required double minimum,
+    required double maximum,
+  }) {
     return List<double>.generate(count, (index) {
-      final wave =
-          math.sin(index / math.max(2, count / 6) * math.pi) *
-          math.max(2, base * .1);
-      final drift = math.cos(index * 1.7) * math.max(1, base * .035);
-      return math.max(0, base + wave + drift);
+      final progress = count == 1 ? 0.0 : index / (count - 1);
+      final noise = math.sin(index * 2.399) * jitter;
+      return (shape(progress) + noise).clamp(minimum, maximum);
     });
   }
 
@@ -544,9 +591,12 @@ class MockTuyaRepository implements TuyaRepository {
   Future<void> uploadAnimation(String deviceId, AnimationAsset asset) =>
       _wait();
 
+  /// Readings are picked to land in the "healthy" band of every status page:
+  /// soil at 97 read as 偏湿 on the home card while the water page called the
+  /// same value 适宜, and it clamped above the 0–100 chart axis.
   static SmartPlanterDevice _demoDevice() => SmartPlanterDevice(
-    id: 'planter-demo-01',
-    productId: 'pid-smart-planter',
+    id: 'vdevo17235508413621',
+    productId: 'ysp8k2mqrbvz4nx1',
     name: '客厅的绿意',
     online: true,
     signal: 86,
@@ -555,12 +605,12 @@ class MockTuyaRepository implements TuyaRepository {
     boundAt: DateTime.now().subtract(const Duration(days: 126)),
     plant: PlantCatalog.items.first,
     sensors: const SensorSnapshot(
-      waterLevel: 80,
-      soilMoisture: 97,
-      illuminance: 305,
-      ppfd: 5.642,
-      airTemperature: 26.9,
-      relativeHumidity: 52,
+      waterLevel: 78,
+      soilMoisture: 65,
+      illuminance: 620,
+      ppfd: 6.4,
+      airTemperature: 24.6,
+      relativeHumidity: 56,
     ),
     settings: const DeviceControlSettings(),
     firmwareVersion: '1.0.8',

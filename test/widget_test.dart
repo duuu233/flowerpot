@@ -1,4 +1,5 @@
 import 'package:flowerpot/src/app/flowerpot_app.dart';
+import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,25 +25,26 @@ void main() {
 
     expect(find.text('暂无设备'), findsOneWidget);
     expect(find.byKey(const Key('add-device-button')), findsOneWidget);
-    expect(find.byType(NavigationBar), findsOneWidget);
-    expect(_tabLabel('首页'), findsOneWidget);
-    expect(_tabLabel('我的'), findsOneWidget);
+    // The home screen carries no bottom tab bar.
+    expect(find.byType(NavigationBar), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the bottom tab bar switches to the profile centre', (
-    tester,
-  ) async {
-    await _pumpApp(tester, const Size(375, 812));
+  testWidgets('the header avatar opens the profile page', (tester) async {
+    await _pumpApp(tester, const Size(375, 812), seedDevice: true);
     await _signIn(tester);
 
-    expect(_selectedTab(tester), 0);
-
-    await tester.tap(_tabLabel('我的'));
+    await tester.tap(find.byKey(const Key('device-list-profile-button')));
     await tester.pumpAndSettle();
 
-    expect(_selectedTab(tester), 1);
     expect(find.text('个人信息'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+
+    // The profile page is a pushed route now, so it can be popped back.
+    await tester.tap(find.byType(AppBackButton).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('设备列表'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -87,7 +89,7 @@ void main() {
     await tester.tap(find.byKey(const Key('success-return-home-button')));
     await tester.pumpAndSettle();
     expect(find.text('设备列表'), findsOneWidget);
-    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -100,7 +102,9 @@ void main() {
     expect(find.text('设备列表'), findsOneWidget);
     expect(find.byKey(const Key('device-list-profile-button')), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('device-list-item-planter-demo-01')));
+    await tester.tap(
+      find.byKey(const Key('device-list-item-vdevo17235508413621')),
+    );
     await tester.pumpAndSettle();
     expect(find.text('还未添加植物'), findsOneWidget);
     expect(find.byKey(const Key('home-back-button')), findsOneWidget);
@@ -133,13 +137,13 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the profile tab reopens the SDK console after signing in', (
+  testWidgets('the profile page reopens the SDK console after signing in', (
     tester,
   ) async {
-    await _pumpApp(tester, const Size(375, 812));
+    await _pumpApp(tester, const Size(375, 812), seedDevice: true);
     await _signIn(tester);
 
-    await tester.tap(_tabLabel('我的'));
+    await tester.tap(find.byKey(const Key('device-list-profile-button')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('mine-tuya-debug-entry')));
     await tester.pumpAndSettle();
@@ -159,16 +163,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 }
-
-/// The shell keeps both tabs in an [IndexedStack], so tab labels have to be
-/// matched inside the [NavigationBar] rather than anywhere in the tree.
-Finder _tabLabel(String label) => find.descendant(
-  of: find.byType(NavigationBar),
-  matching: find.text(label),
-);
-
-int _selectedTab(WidgetTester tester) =>
-    tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex;
 
 Future<void> _pumpApp(
   WidgetTester tester,

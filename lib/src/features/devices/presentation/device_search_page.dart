@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -16,18 +15,12 @@ class DeviceSearchPage extends StatefulWidget {
   State<DeviceSearchPage> createState() => _DeviceSearchPageState();
 }
 
-class _DeviceSearchPageState extends State<DeviceSearchPage>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _radarController;
+class _DeviceSearchPageState extends State<DeviceSearchPage> {
   Timer? _discoveryTimer;
 
   @override
   void initState() {
     super.initState();
-    _radarController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 4),
-    )..repeat();
     // Discovery is the first pairing step now, so the scan always advances to
     // the device list; Wi-Fi credentials are collected after a device is
     // connected.
@@ -44,7 +37,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   @override
   void dispose() {
     _discoveryTimer?.cancel();
-    _radarController.dispose();
     super.dispose();
   }
 
@@ -63,15 +55,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
               key: const Key('device-search-content'),
               children: <Widget>[
                 Positioned(
-                  top: compact ? 44 : 84,
+                  top: compact ? 54 : 84,
                   left: 12,
                   right: 12,
                   child: Column(
                     children: <Widget>[
-                      _SearchRadar(
-                        animation: _radarController,
-                        size: compact ? 224 : 286,
-                      ),
+                      _SearchRadar(size: compact ? 176 : 200),
                       SizedBox(height: compact ? 12 : 20),
                       Text(
                         '搜索附近设备…',
@@ -101,18 +90,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                   left: 20,
                   right: 20,
                   bottom: compact ? 10 : 18,
-                  child: const Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      MockDataBanner(
-                        title: '模拟搜索',
-                        message: '设备只支持 2.4G Wi-Fi 配网，没有设备发现这一步；'
-                            '雷达只是动画，2 秒后直接进入列表。',
-                        padding: EdgeInsets.only(bottom: AppSpacing.sm),
-                      ),
-                      _SearchTipCard(),
-                    ],
-                  ),
+                  child: const _SearchTipCard(),
                 ),
               ],
             );
@@ -124,70 +102,23 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 }
 
 class _SearchRadar extends StatelessWidget {
-  const _SearchRadar({required this.animation, required this.size});
+  const _SearchRadar({required this.size});
 
-  final Animation<double> animation;
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: SizedBox.square(
-        dimension: size,
-        child: Stack(
-          alignment: Alignment.center,
-          children: <Widget>[
-            Positioned.fill(
-              child: Image.asset(
-                AppAssets.pairingDeviceSearchIllustration,
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.high,
-                excludeFromSemantics: true,
-              ),
-            ),
-            Positioned.fill(
-              child: AnimatedBuilder(
-                animation: animation,
-                builder: (context, _) => CustomPaint(
-                  painter: _RadarPainter(progress: animation.value),
-                ),
-              ),
-            ),
-          ],
-        ),
+    // The artwork already carries the radar arcs; no sweep is painted on top.
+    return SizedBox.square(
+      dimension: size,
+      child: Image.asset(
+        AppAssets.pairingDeviceSearchIllustration,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        excludeFromSemantics: true,
       ),
     );
   }
-}
-
-class _RadarPainter extends CustomPainter {
-  const _RadarPainter({required this.progress});
-
-  final double progress;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
-    final radius = size.shortestSide * .43;
-    final angle = -math.pi / 2 + progress * math.pi * 2;
-    final sweep = Path()
-      ..moveTo(center.dx, center.dy)
-      ..arcTo(
-        Rect.fromCircle(center: center, radius: radius * 1.08),
-        angle - .28,
-        .56,
-        false,
-      )
-      ..close();
-    canvas.drawPath(
-      sweep,
-      Paint()..color = AppColors.brandPrimary.withValues(alpha: .12),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_RadarPainter oldDelegate) =>
-      oldDelegate.progress != progress;
 }
 
 class _SearchTipCard extends StatelessWidget {

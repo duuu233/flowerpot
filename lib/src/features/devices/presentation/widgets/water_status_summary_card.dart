@@ -35,8 +35,8 @@ class WaterStatusSummaryCard extends StatelessWidget {
                           assetPath: AppAssets.statusWaterIcon,
                           semanticLabel: '需水状态',
                           backgroundColor: Colors.transparent,
-                          size: 40,
-                          iconSize: 40,
+                          size: 27,
+                          iconSize: 27,
                         ),
                         const SizedBox(width: AppSpacing.md),
                         Flexible(
@@ -117,8 +117,8 @@ class _WaterMetric extends StatelessWidget {
         AppIconBadge(
           assetPath: assetPath,
           backgroundColor: Colors.transparent,
-          size: 48,
-          iconSize: 48,
+          size: 32,
+          iconSize: 32,
         ),
         const SizedBox(width: AppSpacing.sm),
         Flexible(

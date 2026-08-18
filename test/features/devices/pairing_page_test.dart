@@ -31,8 +31,7 @@ void main() {
     expect(find.text('Wi-Fi密码'), findsOneWidget);
     expect(find.text('连接过程中请保持设备靠近路由器'), findsOneWidget);
     expect(find.text('开始配网'), findsOneWidget);
-    // Debug builds expose the provisioning mode and default to AP.
-    expect(find.text('真实 SDK · AP 配网'), findsOneWidget);
+    // Debug builds expose the provisioning mode switch and default to AP.
     expect(find.byKey(const Key('pairing-mode-switch')), findsOneWidget);
     expect(
       findAssetImage(AppAssets.pairingWifiSetupIllustration),
@@ -71,7 +70,6 @@ void main() {
     expect(find.byKey(const Key('wifi-option-Home_2.4G')), findsOneWidget);
     expect(find.byKey(const Key('wifi-option-TP-LINK_2.4G')), findsOneWidget);
     expect(find.byKey(const Key('wifi-option-Xiaomi_2.4G')), findsOneWidget);
-    expect(find.text('模拟网络列表'), findsOneWidget);
     // Nothing is selected until the user picks one, because the field starts
     // empty rather than on a placeholder network.
     expect(find.byKey(const Key('wifi-selected-check')), findsNothing);
@@ -138,7 +136,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('pairing-success-target'), findsOneWidget);
-    expect(successArguments, 'planter-demo-01');
+    expect(successArguments, 'vdevo17235508413621');
     expect(state.devices, hasLength(1));
     expect(tester.takeException(), isNull);
   });

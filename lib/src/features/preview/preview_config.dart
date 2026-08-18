@@ -6,5 +6,5 @@
 /// state. Set it to `false` to restore the production data seeding.
 abstract final class StaticPreviewConfig {
   static const bool enabled = true;
-  static const String demoDeviceId = 'planter-demo-01';
+  static const String demoDeviceId = 'vdevo17235508413621';
 }

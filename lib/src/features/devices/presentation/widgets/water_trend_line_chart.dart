@@ -193,12 +193,12 @@ class _WaterTrendPainter extends CustomPainter {
   void _paintSelection(Canvas canvas, Size size, Offset point, double value) {
     canvas.drawCircle(
       point,
-      5.5,
+      3.5,
       Paint()
         ..color = AppColors.surface
         ..style = PaintingStyle.fill,
     );
-    canvas.drawCircle(point, 4.5, Paint()..color = AppColors.brandPrimary);
+    canvas.drawCircle(point, 2.6, Paint()..color = AppColors.brandPrimary);
 
     final text = '${value.toStringAsFixed(fractionDigits)}$unit';
     final textPainter = TextPainter(
@@ -213,7 +213,7 @@ class _WaterTrendPainter extends CustomPainter {
       maxLines: 1,
     )..layout();
     final bubbleWidth = math.max(54.0, textPainter.width + 18).toDouble();
-    const bubbleHeight = 29.0;
+    const bubbleHeight = 18.0;
     final leftEdge = (point.dx - bubbleWidth / 2)
         .clamp(left, math.max(left, size.width - right - bubbleWidth))
         .toDouble();

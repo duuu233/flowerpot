@@ -44,5 +44,4 @@ lib/
 4. AppKey、AppSecret 和安全组件不进入 Git；Android 使用 `local.properties`，iOS 使用未跟踪的 `Tuya.xcconfig`。
 5. REST 请求统一经过 `core/network/ApiClient`，页面不得直接发起 HTTP 请求。
 6. 设备图片同步依赖硬件 PID 的文件传输协议；统计报表依赖涂鸦设备数据统计服务或自有后端，未开通时返回明确配置错误。
-7. `features/devtools/` 只服务于 SDK 联调，不属于产品动线；它同样经过 `FlowerpotState` 与 `TuyaRepository`，只是额外展示失败码。开关放在 `core/config/debug_tools_config.dart`，`design_system` 的模拟数据标识共用同一个开关。
-8. 页面上不是来自真实 SDK 调用的内容必须带 `MockDataBanner` / `MockDataBadge` 标识；确实走了原生桥接的关键步骤用 `LiveDataBadge` 标出。
+7. `features/devtools/` 只服务于 SDK 联调，不属于产品动线；它同样经过 `FlowerpotState` 与 `TuyaRepository`，只是额外展示失败码。开关放在 `core/config/debug_tools_config.dart`，配网页的 AP/EZ 选择器共用同一个开关。

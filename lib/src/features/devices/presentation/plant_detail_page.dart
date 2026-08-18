@@ -25,15 +25,10 @@ class PlantDetailPage extends StatelessWidget {
         key: const Key('plant-detail-scroll-view'),
         child: ResponsiveContent(
           maxWidth: 375,
-          padding: const EdgeInsets.fromLTRB(20, 88, 20, 28),
+          padding: const EdgeInsets.fromLTRB(20, 32, 20, 28),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const MockDataBanner(
-                title: '示例养护数据',
-                message: '适宜温湿度、光照需求、难度、浇水频率与养护建议都是按阈值推导的'
-                    '占位内容，不是植物库数据。',
-              ),
               _PlantSummaryCard(
                 plant: arguments.plant,
                 data: data,
@@ -85,9 +80,32 @@ class _PlantSummaryCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: <Widget>[
                         Expanded(
-                          child: ColoredBox(
-                            key: const Key('plant-detail-image-placeholder'),
-                            color: plant.color.withValues(alpha: .14),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: <Widget>[
+                              // Soft round backdrop, as in the design; the pot
+                              // is allowed to overflow it.
+                              FractionallySizedBox(
+                                widthFactor: .82,
+                                heightFactor: .72,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: plant.color.withValues(alpha: .10),
+                                  ),
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Image.asset(
+                                  AppAssets.plantImage(plant.id),
+                                  key: const Key('plant-detail-image'),
+                                  fit: BoxFit.contain,
+                                  filterQuality: FilterQuality.high,
+                                  semanticLabel: plant.name,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -473,7 +491,7 @@ class _RatingStars extends StatelessWidget {
       children: List<Widget>.generate(
         5,
         (index) => Icon(
-          index < rating ? Icons.star_rounded : Icons.star_outline_rounded,
+          index < rating ? Icons.star : Icons.star_outline,
           color: color,
           size: size,
         ),
@@ -505,8 +523,22 @@ class _PlantDetailData {
   final String growth;
   final List<String> careAdvice;
 
-  factory _PlantDetailData.fromProfile(PlantProfile plant) {
-    if (plant.id == 'pilea_cadierei') return pilea;
+  /// Written per plant. The generic fallback produced near-identical cards —
+  /// same temperature range, same three tips, and `别名` echoing the plant's
+  /// own name — so every plant read the same in the picker.
+  factory _PlantDetailData.fromProfile(PlantProfile plant) =>
+      _byId[plant.id] ?? _generic(plant);
+
+  static const _byId = <String, _PlantDetailData>{
+    'pilea_cadierei': pilea,
+    'pothos': pothos,
+    'ivy': ivy,
+    'monstera': monstera,
+    'bird_of_paradise': birdOfParadise,
+    'china_doll': chinaDoll,
+  };
+
+  static _PlantDetailData _generic(PlantProfile plant) {
     final highMoisture = plant.moistureTarget >= 60;
     final highLight = plant.lightTarget >= 220;
     return _PlantDetailData(
@@ -514,7 +546,7 @@ class _PlantDetailData {
       humidity: highMoisture ? '55-75%' : '45-65%',
       lightRating: highLight ? 4 : 3,
       summary: plant.tip,
-      alias: plant.name,
+      alias: plant.latinName,
       difficulty: 3,
       watering: highMoisture ? '生长期每周2-3次，冬季适当减少' : '表土干燥后浇透，避免盆内积水',
       growth: '适合室内明亮散射光环境，保持良好通风可促进健康生长。',
@@ -525,6 +557,86 @@ class _PlantDetailData {
       ],
     );
   }
+
+  static const pothos = _PlantDetailData(
+    temperature: '15-30°C',
+    humidity: '50-70%',
+    lightRating: 2,
+    summary: '藤蔓下垂生长，叶片心形油亮，耐阴好养，是最适合新手的室内绿植之一。',
+    alias: '黄金葛',
+    difficulty: 1,
+    watering: '春夏每周1-2次，冬季10-15天一次，宁干勿涝',
+    growth: '生长速度快，可水培也可土培，攀爬或垂吊都有观赏性，耐阴性极强。',
+    careAdvice: <String>[
+      '放在有散射光的位置即可，长期全黑会让叶片斑纹变淡。',
+      '盆土表面干透再浇，冬季减少浇水，避免烂根。',
+      '藤蔓过长时随时修剪，剪下的枝条插水里就能生根。',
+    ],
+  );
+
+  static const ivy = _PlantDetailData(
+    temperature: '10-25°C',
+    humidity: '55-75%',
+    lightRating: 3,
+    summary: '枝叶纤细成串垂落，耐寒耐阴，适合放在书架或窗台边营造层次感。',
+    alias: '洋常春藤',
+    difficulty: 2,
+    watering: '春秋每周1-2次，夏季保持土壤微润，冬季控水',
+    growth: '喜凉爽湿润，怕闷热，通风不良时容易生红蜘蛛，夏季需注意降温。',
+    careAdvice: <String>[
+      '避开正午直射光，明亮散射光下叶色最好。',
+      '天气干燥时向叶片喷水，既增湿也能减少虫害。',
+      '每年春季换盆一次，同时修剪过密的枝条。',
+    ],
+  );
+
+  static const monstera = _PlantDetailData(
+    temperature: '18-30°C',
+    humidity: '55-75%',
+    lightRating: 3,
+    summary: '叶片宽大并自然开裂，造型感强，是室内最上镜的观叶植物之一。',
+    alias: '蓬莱蕉',
+    difficulty: 2,
+    watering: '春夏每周1次浇透，冬季2周1次，表土干2-3厘米再浇',
+    growth: '生长期长得快，叶片会随成熟度增加裂口，成株需要支撑柱引导攀爬。',
+    careAdvice: <String>[
+      '明亮散射光处开裂最漂亮，光照太弱新叶会不开裂。',
+      '定期用湿布擦拭叶面，保持光泽也利于呼吸。',
+      '气生根不要剪掉，可以引导入土帮助吸收养分。',
+    ],
+  );
+
+  static const birdOfParadise = _PlantDetailData(
+    temperature: '18-30°C',
+    humidity: '45-65%',
+    lightRating: 5,
+    summary: '叶片挺拔如扇，株型大气，光照充足时可开出形似飞鸟的橙蓝色花朵。',
+    alias: '鹤望兰',
+    difficulty: 3,
+    watering: '生长期每周1-2次浇透，冬季减半，忌盆内积水',
+    growth: '喜光耐旱，光照越足株型越紧凑；室内养护建议放在南向窗边。',
+    careAdvice: <String>[
+      '每天至少4小时明亮光照，长期光照不足很难开花。',
+      '叶片易被风吹裂属正常现象，不影响健康。',
+      '生长期每月补一次磷钾肥，有助于孕蕾。',
+    ],
+  );
+
+  static const chinaDoll = _PlantDetailData(
+    temperature: '18-28°C',
+    humidity: '50-70%',
+    lightRating: 4,
+    summary: '羽状复叶层层展开，新叶嫩绿明快，寓意好，常作为乔迁与开业的礼物。',
+    alias: '菜豆树',
+    difficulty: 3,
+    watering: '春夏每周2次，秋冬每周1次，保持土壤微润',
+    growth: '喜温暖湿润和充足散射光，环境突变时容易落叶，缓苗后会重新萌发。',
+    careAdvice: <String>[
+      '刚搬回家掉叶属于正常缓苗，先固定位置不要频繁挪动。',
+      '空气干燥时向周围喷雾，避免叶尖发黄干枯。',
+      '每年春季修剪徒长枝，保持树形紧凑。',
+    ],
+  );
 
   static const pilea = _PlantDetailData(
     temperature: '18-28°C',

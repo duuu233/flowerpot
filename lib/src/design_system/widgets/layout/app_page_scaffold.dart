@@ -45,13 +45,15 @@ class AppPageScaffold extends StatelessWidget {
               Image.asset(
                 background.assetPath!,
                 key: const Key('app-page-background-image'),
-                fit: BoxFit.cover,
+                fit: BoxFit.fitWidth,
                 alignment: Alignment.topCenter,
                 filterQuality: FilterQuality.high,
                 excludeFromSemantics: true,
               )
-            else if (background != AppPageBackground.plain &&
-                background != AppPageBackground.white) ...<Widget>[
+            // Corner glows belong to the warm variant only. On a sub-page they
+            // tint the top-right and bottom-left, which the flat mint-to-white
+            // frames do not have.
+            else if (background == AppPageBackground.warm) ...<Widget>[
               const Positioned(
                 top: -96,
                 right: -72,
@@ -82,14 +84,25 @@ enum AppPageBackground {
   plain,
   white;
 
+  /// Only the home screen carries the orbit artwork. Sub-pages used to render
+  /// it too, which put the ring and its pedestal glow behind every settings
+  /// and status page.
   String? get assetPath => switch (this) {
-    standard || home => AppAssets.homeBackground,
+    home => AppAssets.homeBackground,
     account => AppAssets.accountBackground,
     _ => null,
   };
 
   LinearGradient get gradient => switch (this) {
-    standard || home || account => const LinearGradient(
+    // Sub-pages: a mint wash under the status bar fading to near-white, which
+    // is what the Figma frames show.
+    standard => const LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: <Color>[Color(0xFFE7F1F2), Color(0xFFF6F8F8), AppColors.canvas],
+      stops: <double>[0, .42, 1],
+    ),
+    home || account => const LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: <Color>[Color(0xFFF8FBFB), Color(0xFFEFF7F8), AppColors.canvas],

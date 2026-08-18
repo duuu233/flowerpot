@@ -31,7 +31,7 @@ class BatteryStatusSummaryCard extends StatelessWidget {
                   children: <Widget>[
                     Row(
                       children: <Widget>[
-                        const ChargingBatteryBadge(size: 40),
+                        const ChargingBatteryBadge(size: 27),
                         const SizedBox(width: AppSpacing.md),
                         Flexible(
                           child: Text(
@@ -63,7 +63,7 @@ class BatteryStatusSummaryCard extends StatelessWidget {
           Row(
             children: <Widget>[
               const SizedBox(width: 28),
-              const ChargingBatteryBadge(size: 48),
+              const ChargingBatteryBadge(size: 32, metric: true),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Column(
@@ -124,14 +124,22 @@ class BatteryStatusSummaryCard extends StatelessWidget {
 }
 
 class ChargingBatteryBadge extends StatelessWidget {
-  const ChargingBatteryBadge({required this.size, super.key});
+  const ChargingBatteryBadge({
+    required this.size,
+    super.key,
+    this.metric = false,
+  });
 
   final double size;
+
+  /// The metric row uses the pale-mint disc; the header uses the teal
+  /// squircle, as in the design.
+  final bool metric;
 
   @override
   Widget build(BuildContext context) {
     return Image.asset(
-      AppAssets.batteryIcon,
+      metric ? AppAssets.batteryStatusIcon : AppAssets.batteryIcon,
       width: size,
       height: size,
       fit: BoxFit.contain,

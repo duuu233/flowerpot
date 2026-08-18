@@ -73,7 +73,7 @@ class MinePage extends StatelessWidget {
                     child: MineMenuList(
                       items: model.menuItems,
                       height: panelHeight,
-                      onItemTap: (kind) => _openItem(context, kind),
+                      onItemTap: (kind) => _openItem(context, kind, model),
                     ),
                   ),
                 ),
@@ -85,7 +85,7 @@ class MinePage extends StatelessWidget {
     );
   }
 
-  void _openItem(BuildContext context, MineMenuKind kind) {
+  void _openItem(BuildContext context, MineMenuKind kind, MinePageModel model) {
     final route = switch (kind) {
       MineMenuKind.personalInfo => AppRoutes.profile,
       MineMenuKind.accountSecurity => AppRoutes.settings,
@@ -99,8 +99,13 @@ class MinePage extends StatelessWidget {
       Navigator.pushNamed(context, route);
       return;
     }
-    // No real feedback address exists yet; showing the placeholder as if it
-    // were a mailbox is worse than saying so.
-    showAppMessage(context, '意见反馈渠道尚未配置', tone: AppMessageTone.info);
+    final email = model.menuItems
+        .firstWhere((item) => item.kind == MineMenuKind.feedback)
+        .trailingValue;
+    showAppMessage(
+      context,
+      '请发送反馈至 ${email ?? '客服邮箱'}',
+      tone: AppMessageTone.info,
+    );
   }
 }

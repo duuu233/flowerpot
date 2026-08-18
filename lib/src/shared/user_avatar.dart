@@ -10,6 +10,8 @@ import 'package:flutter/widgets.dart';
 ImageProvider<Object>? resolveUserAvatar(String? path) {
   final value = path?.trim();
   if (value == null || value.isEmpty) return null;
+  // Bundled artwork, used by the demo account.
+  if (value.startsWith('assets/')) return AssetImage(value);
   final file = File(value);
   if (file.existsSync()) return FileImage(file);
   final uri = Uri.tryParse(value);

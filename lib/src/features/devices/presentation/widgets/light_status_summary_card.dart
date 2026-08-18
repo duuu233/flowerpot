@@ -35,8 +35,8 @@ class LightStatusSummaryCard extends StatelessWidget {
                           assetPath: AppAssets.statusLightIcon,
                           semanticLabel: '光照状态',
                           backgroundColor: Colors.transparent,
-                          size: 40,
-                          iconSize: 40,
+                          size: 27,
+                          iconSize: 27,
                         ),
                         const SizedBox(width: AppSpacing.md),
                         Text(
@@ -111,8 +111,8 @@ class _LightMetric extends StatelessWidget {
         AppIconBadge(
           assetPath: assetPath,
           backgroundColor: Colors.transparent,
-          size: 48,
-          iconSize: 48,
+          size: 32,
+          iconSize: 32,
         ),
         const SizedBox(width: AppSpacing.sm),
         Flexible(

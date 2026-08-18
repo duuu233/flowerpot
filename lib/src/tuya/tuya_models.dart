@@ -56,16 +56,21 @@ class PlantProfile {
   final String tip;
 }
 
+/// The plants the app can offer.
+///
+/// Every entry has artwork in `AppAssets.plantImages`; a plant without artwork
+/// is not listed, because the picker shows the image as the card. Keep the two
+/// in step when adding one.
 abstract final class PlantCatalog {
   static const items = <PlantProfile>[
     PlantProfile(
-      id: 'monstera',
-      name: '龟背竹',
-      latinName: 'Monstera deliciosa',
-      color: Color(0xFF2F7D5D),
-      moistureTarget: 58,
-      lightTarget: 140,
-      tip: '喜欢明亮散射光，表层土壤微干后再浇水。',
+      id: 'pilea_cadierei',
+      name: '冷水花',
+      latinName: 'Pilea cadierei',
+      color: Color(0xFF4D8B55),
+      moistureTarget: 68,
+      lightTarget: 120,
+      tip: '喜湿润明亮环境，适合室内桌面或半阴环境栽培。',
     ),
     PlantProfile(
       id: 'pothos',
@@ -77,40 +82,40 @@ abstract final class PlantCatalog {
       tip: '耐阴但不耐积水，保持通风有助于新叶生长。',
     ),
     PlantProfile(
-      id: 'rosemary',
-      name: '迷迭香',
-      latinName: 'Salvia rosmarinus',
-      color: Color(0xFF6D8B74),
-      moistureTarget: 38,
-      lightTarget: 320,
-      tip: '偏爱充足光照和干爽土壤，避免频繁浇水。',
+      id: 'ivy',
+      name: '常春藤',
+      latinName: 'Hedera helix',
+      color: Color(0xFF527B48),
+      moistureTarget: 58,
+      lightTarget: 150,
+      tip: '适合明亮散射光，保持盆土微润并注意通风。',
     ),
     PlantProfile(
-      id: 'basil',
-      name: '罗勒',
-      latinName: 'Ocimum basilicum',
-      color: Color(0xFF78A957),
-      moistureTarget: 66,
-      lightTarget: 240,
-      tip: '生长期需稳定水分和较长光照，及时摘心。',
+      id: 'monstera',
+      name: '龟背竹',
+      latinName: 'Monstera deliciosa',
+      color: Color(0xFF2F7D5D),
+      moistureTarget: 58,
+      lightTarget: 140,
+      tip: '喜欢明亮散射光，表层土壤微干后再浇水。',
     ),
     PlantProfile(
-      id: 'succulent',
-      name: '多肉',
-      latinName: 'Echeveria',
-      color: Color(0xFF90A98F),
-      moistureTarget: 25,
-      lightTarget: 280,
-      tip: '浇透后充分干燥，避免叶心长期积水。',
+      id: 'bird_of_paradise',
+      name: '天堂鸟',
+      latinName: 'Strelitzia reginae',
+      color: Color(0xFF4F8C54),
+      moistureTarget: 55,
+      lightTarget: 260,
+      tip: '需要充足的柔和光照，生长期保持土壤均匀湿润。',
     ),
     PlantProfile(
-      id: 'mint',
-      name: '薄荷',
-      latinName: 'Mentha canadensis',
-      color: Color(0xFF4C9B70),
-      moistureTarget: 70,
-      lightTarget: 200,
-      tip: '保持土壤湿润并定期修剪，可促进分枝。',
+      id: 'china_doll',
+      name: '幸福树',
+      latinName: 'Radermachera sinica',
+      color: Color(0xFF367C46),
+      moistureTarget: 60,
+      lightTarget: 180,
+      tip: '喜温暖明亮环境，避免积水和长时间强光直射。',
     ),
   ];
 

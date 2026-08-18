@@ -21,7 +21,12 @@ void main() {
     expect(find.text('添加设备'), findsOneWidget);
     expect(find.text('小提示'), findsOneWidget);
     expect(find.text('1. 打开设备电源\n2. 请将设备放在手机附近'), findsOneWidget);
-    expect(findAssetImage(AppAssets.settingOrbitBackground), findsOneWidget);
+    // The design's empty state shows the radar-with-router artwork, which the
+    // plain orbit blob does not contain.
+    expect(
+      findAssetImage(AppAssets.pairingDeviceSearchIllustration),
+      findsOneWidget,
+    );
     final title = tester.widget<Text>(find.text('暂无设备'));
     expect(title.style?.fontSize, 24);
     final buttonBottom = tester

@@ -10,6 +10,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/asset_finder.dart';
+
 void main() {
   testWidgets('plant picker exposes the Figma content', (tester) async {
     await _pumpPlantPicker(tester, const Size(375, 812));
@@ -24,6 +26,14 @@ void main() {
     expect(find.text('天堂鸟'), findsOneWidget);
     expect(find.text('幸福树'), findsOneWidget);
     expect(find.text('确认添加'), findsOneWidget);
+    // Only plants with artwork are offered, and each card shows it.
+    expect(find.text('豆瓣绿'), findsNothing);
+    expect(find.text('春羽'), findsNothing);
+    expect(find.byKey(const Key('plant-image-monstera')), findsOneWidget);
+    expect(
+      findAssetImage(AppAssets.plantImage('monstera')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

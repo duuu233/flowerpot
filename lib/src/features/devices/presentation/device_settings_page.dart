@@ -50,11 +50,6 @@ class DeviceSettingsPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  const MockDataBanner(
-                    title: 'DP 映射未确认',
-                    message: 'TuyaConfig.dp 的 101–123 仍是占位编号。设备缺少对应 DP 时'
-                        '这里显示默认值，下发也可能落到错误的功能点。',
-                  ),
                   DeviceSettingsSummaryCard(
                     model: model,
                     onMore: () => _showMore(context, device),

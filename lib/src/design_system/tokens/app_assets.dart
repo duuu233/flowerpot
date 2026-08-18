@@ -37,6 +37,23 @@ abstract final class AppAssets {
   static const String addIcon = 'assets/images/add_icon.png';
   static const String infoOutlineIcon = 'assets/images/info_outline_icon.png';
 
+  /// Plant artwork, keyed by `PlantProfile.id`.
+  ///
+  /// The catalogue only offers plants that appear here, so a picker card never
+  /// falls back to a coloured box. Add the artwork and the entry together.
+  static const Map<String, String> plantImages = <String, String>{
+    'pilea_cadierei': 'assets/images/plant_pilea.png',
+    'pothos': 'assets/images/plant_pothos.png',
+    'ivy': 'assets/images/plant_ivy.png',
+    'monstera': 'assets/images/plant_monstera.png',
+    'bird_of_paradise': 'assets/images/plant_bird_of_paradise.png',
+    'china_doll': 'assets/images/plant_china_doll.png',
+  };
+
+  /// Falls back to the generic plant icon so an unexpected id degrades to a
+  /// small glyph instead of crashing the card.
+  static String plantImage(String id) => plantImages[id] ?? plantIcon;
+
   // Device and plant imagery.
   static const String smartPlanterWithPlant =
       'assets/images/smart_planter_with_plant.png';

@@ -28,17 +28,8 @@ class LegalPage extends StatelessWidget {
         key: const Key('legal-document-scroll-view'),
         child: ResponsiveContent(
           maxWidth: 375,
-          padding: const EdgeInsets.fromLTRB(23, 79, 23, 30),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              const MockDataBanner(
-                title: '占位文案',
-                message: '正文与生效日期是示例内容，上线前需替换为正式版本。',
-              ),
-              LegalDocumentCard(model: model),
-            ],
-          ),
+          padding: const EdgeInsets.fromLTRB(23, 28, 23, 30),
+          child: LegalDocumentCard(model: model),
         ),
       ),
     );

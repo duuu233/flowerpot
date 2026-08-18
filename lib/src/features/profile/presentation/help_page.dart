@@ -45,19 +45,10 @@ class _HelpPageState extends State<HelpPage> {
             child: ResponsiveContent(
               maxWidth: 375,
               padding: const EdgeInsets.fromLTRB(20, AppSpacing.lg, 20, 40),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  const MockDataBanner(
-                    title: '占位内容',
-                    message: '常见问题是写死在代码里的示例，未接入帮助中心服务。',
-                  ),
-                  HelpCenterFaqList(
-                    items: _model.items,
-                    expandedIds: _expandedIds,
-                    onToggle: _toggleFaq,
-                  ),
-                ],
+              child: HelpCenterFaqList(
+                items: _model.items,
+                expandedIds: _expandedIds,
+                onToggle: _toggleFaq,
               ),
             ),
           ),

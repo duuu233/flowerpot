@@ -2,6 +2,7 @@ import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/auth/presentation/auth_page.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,18 +35,21 @@ void main() {
       ),
       findsOneWidget,
     );
+    // Alipay quick login and password login are hidden until their platform
+    // parameters exist.
     expect(
       find.byKey(
         const ValueKey<String>(
           'auth-social-icon:assets/images/alipay_login_icon.png',
         ),
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(find.byKey(const Key('app-page-background-image')), findsOneWidget);
     expect(find.text('登录账号，连接和管理你的智能设备'), findsOneWidget);
     expect(find.text('验证码登录'), findsOneWidget);
-    expect(find.text('密码登录'), findsOneWidget);
+    expect(find.text('密码登录'), findsNothing);
+    expect(find.text('忘记密码?'), findsNothing);
     expect(find.text('请输入手机号'), findsOneWidget);
     expect(find.text('请输入验证码'), findsOneWidget);
     expect(find.text('获取验证码'), findsOneWidget);
@@ -76,58 +80,54 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('login tabs switch to the password field', (tester) async {
-    await _pumpAuthPage(tester, const Size(375, 812));
+  testWidgets('password mode cannot be reached while it is hidden', (
+    tester,
+  ) async {
+    await _pumpAuthPage(tester, const Size(375, 812), initialCodeLogin: false);
 
-    await tester.tap(find.text('密码登录'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('请输入密码'), findsOneWidget);
-    expect(
-      find.byKey(
-        const ValueKey<String>(
-          'auth-asset-icon:assets/images/password_icon.png',
-        ),
-      ),
-      findsOneWidget,
-    );
-    final passwordIcon = tester.widget<Image>(
-      find.byKey(
-        const ValueKey<String>(
-          'auth-asset-icon:assets/images/password_icon.png',
-        ),
-      ),
-    );
-    expect(passwordIcon.width, 20);
-    expect(passwordIcon.height, 20);
-    expect(find.text('获取验证码'), findsNothing);
-    expect(find.text('忘记密码?'), findsOneWidget);
-    expect(
-      find.byKey(const Key('forgot-password-link')).hitTestable(),
-      findsOneWidget,
-    );
-    expect(find.byKey(const Key('password-visibility-toggle')), findsOneWidget);
-    var fields = tester.widgetList<TextField>(find.byType(TextField)).toList();
-    expect(fields.last.obscureText, isTrue);
-
-    await tester.tap(find.byKey(const Key('password-visibility-toggle')));
-    await tester.pump();
-
-    fields = tester.widgetList<TextField>(find.byType(TextField)).toList();
-    expect(fields.last.obscureText, isFalse);
+    expect(find.text('请输入验证码'), findsOneWidget);
+    expect(find.text('请输入密码'), findsNothing);
+    expect(find.text('获取验证码'), findsOneWidget);
+    expect(find.byKey(const Key('forgot-password-link')), findsNothing);
+    expect(find.byKey(const Key('password-visibility-toggle')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('auth page can initialize in password mode', (tester) async {
-    await _pumpAuthPage(tester, const Size(375, 812), initialCodeLogin: false);
+  testWidgets('any non-empty phone and code sign in', (tester) async {
+    final state = await _pumpAuthPage(tester, const Size(375, 812));
 
-    expect(find.text('请输入密码'), findsOneWidget);
-    expect(find.text('忘记密码?'), findsOneWidget);
-    expect(
-      find.byKey(const Key('forgot-password-link')).hitTestable(),
-      findsOneWidget,
+    await tester.enterText(find.byType(TextField).first, '1');
+    await tester.enterText(find.byType(TextField).at(1), '1');
+    await _acceptAndSubmit(tester);
+
+    expect(state.authenticated, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a rejected code still reaches the demo session', (tester) async {
+    final state = await _pumpAuthPage(
+      tester,
+      const Size(375, 812),
+      repository: _RejectingRepository(),
     );
-    expect(find.text('获取验证码'), findsNothing);
+
+    await tester.enterText(find.byType(TextField).first, '13800138000');
+    await tester.enterText(find.byType(TextField).at(1), '000000');
+    await _acceptAndSubmit(tester);
+
+    expect(find.text('未通过涂鸦验证，已进入演示会话'), findsOneWidget);
+    expect(state.authenticated, isTrue);
+    expect(state.demoMode, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('empty input is rejected before any call', (tester) async {
+    final state = await _pumpAuthPage(tester, const Size(375, 812));
+
+    await _acceptAndSubmit(tester);
+
+    expect(find.text('请输入手机号和验证码'), findsOneWidget);
+    expect(state.authenticated, isFalse);
     expect(tester.takeException(), isNull);
   });
 
@@ -170,15 +170,31 @@ void main() {
   });
 }
 
-Future<void> _pumpAuthPage(
+/// Ticks the agreement box and submits, which every sign-in path needs.
+Future<void> _acceptAndSubmit(WidgetTester tester) async {
+  final agreement = find.byType(Checkbox);
+  await tester.ensureVisible(agreement);
+  await tester.pumpAndSettle();
+  await tester.tap(agreement);
+  await tester.pumpAndSettle();
+
+  final login = find.widgetWithText(FilledButton, '登录');
+  await tester.ensureVisible(login);
+  await tester.pumpAndSettle();
+  await tester.tap(login);
+  await tester.pumpAndSettle();
+}
+
+Future<FlowerpotState> _pumpAuthPage(
   WidgetTester tester,
   Size size, {
   bool initialCodeLogin = true,
+  TuyaRepository? repository,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final state = FlowerpotState(
-    repository: MockTuyaRepository(latency: Duration.zero),
+    repository: repository ?? MockTuyaRepository(latency: Duration.zero),
   );
   addTearDown(state.dispose);
   await tester.pumpWidget(
@@ -191,4 +207,21 @@ Future<void> _pumpAuthPage(
     ),
   );
   await tester.pump();
+  return state;
+}
+
+/// Stands in for the native bridge refusing a code, so the demo fallback is
+/// exercised instead of the mock backend's permissive login.
+class _RejectingRepository extends MockTuyaRepository {
+  _RejectingRepository() : super(latency: Duration.zero);
+
+  @override
+  Future<AppUser> login({
+    required String account,
+    required String credential,
+    required LoginRegion region,
+    required bool verificationCode,
+  }) async {
+    throw const TuyaException('USER_MOBILE_CODE_ERROR', '验证码错误');
+  }
 }

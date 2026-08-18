@@ -71,11 +71,6 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  const MockDataBanner(
-                    title: '模拟设备列表',
-                    message: '下面三台是写死的示例设备。设备只支持 2.4G Wi-Fi 配网，'
-                        '没有可扫描的设备列表，选哪一台都只是带个名字给下一页。',
-                  ),
                   _DeviceListCard(
                     devices: _devices,
                     connectingIndex: _connectingIndex,

@@ -85,13 +85,12 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 ## 5. 当前核心模块
 
 - 账号：国内手机号、海外邮箱、验证码/密码、注册、找回密码、退出和注销。
-- 首页与设备：底部菜单（首页/我的）、设备列表即首页、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网动线中只有 Wi-Fi 那一步是真实 SDK 调用，搜索与选择设备都是模拟，详见 `docs/TUYA_SDK_SETUP.md` 第 6 节。
+- 首页与设备：无底部菜单，设备列表即首页、左上角头像进入「我的」、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网动线中只有 Wi-Fi 那一步是真实 SDK 调用，搜索与选择设备都是模拟，详见 `docs/TUYA_SDK_SETUP.md` 第 6 节。
 - 设备控制：显示、听觉、触觉、振动、行为时段、温标、时钟、校准与系统修复。
 - 内容与维护：动画资源、设备分享、解绑、恢复出厂和 OTA。
 - 个人中心：资料、账号安全、帮助、协议、隐私、关于与偏好。
 - 设计系统：统一色彩、间距、资源、页面骨架和公共 Widget。
 - 联调工具：登录页「涂鸦 SDK 联调」与「我的」页标题栏图标都指向 `/devtools/tuya`，直接调用注册、登录、会话与设备列表并显示原始失败码，配网联调前先在该页确认平台配置；debug/profile 常开，release 需 `--dart-define=TUYA_DEBUG_TOOLS=true`。
-- 模拟数据标识：`MockDataBanner` / `MockDataBadge` / `LiveDataBadge`（`design_system/widgets/feedback/mock_data_marker.dart`）标出页面上不是来自真实 SDK 的内容，开关同为 `DebugToolsConfig`。新页面出现占位数据时必须一起加标识。
 
 功能完成度以 [`docs/PRD_IMPLEMENTATION.md`](docs/PRD_IMPLEMENTATION.md) 为跟踪入口，UI 实施要求以 [`docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`](docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md) 为准。
 
@@ -101,7 +100,7 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 2. `TuyaConfig.dp` 是 UI 读写与产品 PID 功能点之间的契约；变更必须与固件、涂鸦平台和测试一起核对。
 3. `TUYA_ENABLED` 只是选择真实 Repository 的编译期开关；平台安全组件、AppKey/AppSecret、包名和签名仍必须匹配，且运行环境必须真正按 `arm64-v8a` 或 `armeabi-v7a` 启动应用（涂鸦原生库不提供 x86/x86_64）。部分 x86_64 模拟器即使 ABI 列表包含 ARM，通用 APK 仍会优先以 x86_64 运行；显式 arm64 构建与安装方法见 `docs/TUYA_SDK_SETUP.md`。Mock 业务模式不依赖涂鸦调用；本机已有安全 AAR 时 Application 仍会尽力初始化 SDK，但失败不阻止 Mock UI。
 4. 当前 `StaticPreviewConfig.enabled` 为 `true`，只表示 Mock 后端不预置演示设备；启动入口、鉴权分流和页面导航与正式流程一致（登录页 → `AppShell`）。真机链路仍需单独验证会话恢复和真实设备流程。
-5. 新 UI 优先复用 `design_system` 和 `shared` 组件，遵循项目自己的 YSplanter 视觉规范，不复制参考项目的产品 UI。页面上任何不是来自真实 SDK 的内容都要带模拟数据标识。
+5. 新 UI 优先复用 `design_system` 和 `shared` 组件，遵循项目自己的 YSplanter 视觉规范，不复制参考项目的产品 UI。界面不标注占位数据，真假以源码和 SDK 联调页的调用日志为准。
 6. 命名路由与参数类型集中在 `AppRoutes`；修改路由前用 CodeGraph 检查页面和测试调用方。
 7. CodeGraph 描述当前源码结构；Markdown 负责产品契约、平台配置、操作方法、设计决策和历史。
 

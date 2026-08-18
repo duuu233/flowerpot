@@ -45,7 +45,7 @@ class HomeEmptyDeviceContent extends StatelessWidget {
                     child: Stack(
                       children: <Widget>[
                         Positioned(
-                          top: AppSpacing.huge,
+                          top: AppSpacing.xl,
                           left: horizontalPadding,
                           right: horizontalPadding,
                           child: HomeHeader(
@@ -134,7 +134,7 @@ class _EmptyDeviceRadar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Image.asset(
-      AppAssets.settingOrbitBackground,
+      AppAssets.pairingDeviceSearchIllustration,
       width: 244,
       height: 244,
       fit: BoxFit.contain,
