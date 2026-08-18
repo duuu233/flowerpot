@@ -567,15 +567,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // factory method takes the builder as its only argument, so the type is
         // read off that signature instead — the same trick invokeWithCallback
         // already uses for callback interfaces.
-        val factory = activatorFactory(activatorApi)
+        val ez = call.argument<String>("mode") == "ez"
+        val factory = activatorFactory(activatorApi, allowMulti = ez)
         val builderClass = factory.parameterTypes.single()
         val builder = builderClass.getDeclaredConstructor()
             .apply { isAccessible = true }
             .newInstance()
-        val mode = activatorMode(
-            builder,
-            if (call.argument<String>("mode") == "ez") EZ_MODE_NAMES else AP_MODE_NAMES,
-        )
+        val mode = activatorMode(builder, if (ez) EZ_MODE_NAMES else AP_MODE_NAMES)
         invoke(builder, "setContext", activity)
         invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
         invoke(builder, "setPassword", call.argument<String>("password").orEmpty())
@@ -609,28 +607,36 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     /**
-     * The activator factory on `IThingActivator`.
+     * The activator factory on `IThingActivator`, chosen by mode.
      *
-     * `newMultiActivator` keeps one session open for several devices and is
-     * preferred; `newActivator` is the single-device fallback for builds that
-     * do not ship it. Both take the builder as their only argument, which is
-     * how [startActivator] learns the builder's type.
+     * `newMultiActivator` holds one session open for several devices, but it
+     * implements EZ only — handing it an AP builder fails at `start()` with
+     * `Multi Config don't support the AP Mode`. So AP is restricted to the
+     * single-device `newActivator`, while EZ prefers multi and falls back to
+     * single for builds that do not ship it.
+     *
+     * Both take the builder as their only argument, which is how
+     * [startActivator] learns the builder's type without naming it.
      */
-    private fun activatorFactory(activatorApi: Any): Method {
-        val factories = candidates(activatorApi.javaClass)
-            .filter { it.name == "newMultiActivator" || it.name == "newActivator" }
-        return factories
-            .filter { method ->
+    private fun activatorFactory(activatorApi: Any, allowMulti: Boolean): Method {
+        val preference = if (allowMulti) {
+            listOf("newMultiActivator", "newActivator")
+        } else {
+            listOf("newActivator")
+        }
+        val factories = candidates(activatorApi.javaClass).filter { method ->
+            method.name in preference &&
                 method.parameterTypes.size == 1 &&
-                    method.parameterTypes.single().simpleName.endsWith("Builder")
-            }
-            // Ties are broken by name, not by declaration order: reflection does
-            // not promise a stable order across runs.
-            .minByOrNull { if (it.name == "newMultiActivator") 0 else 1 }
+                method.parameterTypes.single().simpleName.endsWith("Builder")
+        }
+        // Walk the preference list rather than the reflected order, which is
+        // not promised to be stable across runs.
+        return preference
+            .firstNotNullOfOrNull { name -> factories.firstOrNull { it.name == name } }
             ?.apply { isAccessible = true }
             ?: throw NoSuchMethodException(
-                "${activatorApi.javaClass.name} 未提供 newMultiActivator/newActivator(Builder)，" +
-                    "该类的工厂方法：" + describeFactories(activatorApi.javaClass),
+                "${activatorApi.javaClass.name} 未提供 ${preference.joinToString("/")}" +
+                    "(Builder)，该类的工厂方法：" + describeFactories(activatorApi.javaClass),
             )
     }
 

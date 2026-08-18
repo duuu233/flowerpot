@@ -289,10 +289,12 @@ flutter build apk --release --split-per-abi --dart-define=TUYA_DEBUG_TOOLS=true 
 
 现在改成从方法签名反查类型，和 `invokeWithCallback` 取回调接口是同一套做法：
 
-- Builder 类型 = `IThingActivator.newMultiActivator(...)`（缺失时退到 `newActivator(...)`）的唯一参数类型；
+- Builder 类型 = 工厂方法的唯一参数类型；
 - 模式枚举 = 该 Builder 上 `setActivatorModel(...)` 的参数类型，再按常量名匹配。
 
 常量名同样被改过：**7.5.1 里是 `THING_AP` / `THING_EZ`（完整清单 `THING_AP, THING_EZ, THING_4G_GATEWAY, THING_STATIC_IP, THING_QR`），没有任何 `TY_*`**。`EZ_MODE_NAMES` / `AP_MODE_NAMES` 按「新名在前、旧名兜底」的顺序匹配，两代 SDK 都能用。
+
+**工厂方法要按模式选**：`newMultiActivator` 是多设备配网，只实现了 EZ，喂给它一个 AP 的 Builder 会在 `start()` 时报 `Multi Config don't support the AP Mode`。所以 AP 只允许 `newActivator`（单设备），EZ 优先 `newMultiActivator`、缺失时回落到 `newActivator`。这个约束在涂鸦的 API 签名上完全看不出来，只能从运行时报错知道。
 
 两处解析失败时抛出的异常都会把 SDK 实际提供的方法签名或枚举常量名列进消息里，联调页日志能直接看到，无需再翻 AAR。新增其它配网能力时沿用这个思路，不要再往桥接里塞全限定名。
 

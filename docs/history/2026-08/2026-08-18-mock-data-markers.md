@@ -93,6 +93,14 @@ com.thingclips.smart.sdk.builder.ActivatorBuilder, com.thingclips.smart.sdk.buil
 
 联调页的说明文案同步改掉了。原来只写「AP 需要先把手机连到设备热点」，漏了「而且要先取令牌」，正是这次踩坑的直接原因；现在按模式分两行写清顺序，并强调两种模式填的都是路由器的名称密码、不是热点的。
 
+## 工厂方法要按模式选
+
+取令牌打通后，AP 又报 `Multi Config don't support the AP Mode`。`newMultiActivator` 是多设备配网入口，**只实现了 EZ**；`activatorFactory` 原来无条件优先选它，AP 的 Builder 喂进去就在 `start()` 时被拒。
+
+改成按模式选：AP 只允许 `newActivator`（单设备），EZ 仍然优先 `newMultiActivator`、缺失时回落 `newActivator`。同时把原来的 `minByOrNull` 排序换成显式的优先级列表遍历，反射返回的方法顺序本来就不保证稳定。
+
+这个约束在涂鸦的 API 签名上完全看不出来——两个方法的参数类型和返回类型一模一样，只有运行时报错会说。记在这里以免下次又踩。
+
 ## 关键决策
 
 - 只改会流入真实 SDK 的假数据（预填 Wi-Fi 凭据、只读输入框），不动纯展示性的模拟行为（雷达动画、600ms 假连接）。
