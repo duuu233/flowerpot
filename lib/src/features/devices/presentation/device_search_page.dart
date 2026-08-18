@@ -70,7 +70,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                     children: <Widget>[
                       _SearchRadar(
                         animation: _radarController,
-                        size: compact ? 176 : 200,
+                        // Same artwork as the empty-device screen, so it is
+                        // rendered at the same size; the asset carries a lot of
+                        // transparent padding, which made 200 look undersized.
+                        size: compact ? 210 : 244,
                       ),
                       SizedBox(height: compact ? 12 : 20),
                       Text(

@@ -647,7 +647,13 @@ class _LoginField extends StatelessWidget {
             color: AppColors.textSecondary,
             fontSize: 15,
           ),
-          prefixIcon: AuthAssetIcon(assetPath: iconAsset, size: iconSize),
+          prefixIcon: AuthAssetIcon(
+            assetPath: iconAsset,
+            size: iconSize,
+            // Nudged right so the glyph sits centred over the field's rounded
+            // left edge rather than hugging it.
+            offsetX: 2,
+          ),
           prefixIconConstraints: const BoxConstraints(
             minWidth: 56,
             minHeight: 48,
