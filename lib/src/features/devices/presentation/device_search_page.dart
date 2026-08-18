@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -15,12 +16,18 @@ class DeviceSearchPage extends StatefulWidget {
   State<DeviceSearchPage> createState() => _DeviceSearchPageState();
 }
 
-class _DeviceSearchPageState extends State<DeviceSearchPage> {
+class _DeviceSearchPageState extends State<DeviceSearchPage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _radarController;
   Timer? _discoveryTimer;
 
   @override
   void initState() {
     super.initState();
+    _radarController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat();
     // Discovery is the first pairing step now, so the scan always advances to
     // the device list; Wi-Fi credentials are collected after a device is
     // connected.
@@ -37,6 +44,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
   @override
   void dispose() {
     _discoveryTimer?.cancel();
+    _radarController.dispose();
     super.dispose();
   }
 
@@ -60,10 +68,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
                   right: 12,
                   child: Column(
                     children: <Widget>[
-                      _SearchRadar(size: compact ? 176 : 200),
+                      _SearchRadar(
+                        animation: _radarController,
+                        size: compact ? 176 : 200,
+                      ),
                       SizedBox(height: compact ? 12 : 20),
                       Text(
-                        '搜索附近设备…',
+                        '搜索附近设备...',
                         key: const Key('searching-device-label'),
                         textAlign: TextAlign.center,
                         style: TextStyle(
@@ -102,23 +113,76 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
 }
 
 class _SearchRadar extends StatelessWidget {
-  const _SearchRadar({required this.size});
+  const _SearchRadar({required this.animation, required this.size});
 
+  final Animation<double> animation;
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    // The artwork already carries the radar arcs; no sweep is painted on top.
-    return SizedBox.square(
-      dimension: size,
-      child: Image.asset(
-        AppAssets.pairingDeviceSearchIllustration,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.high,
-        excludeFromSemantics: true,
+    return RepaintBoundary(
+      child: SizedBox.square(
+        dimension: size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            Positioned.fill(
+              child: Image.asset(
+                AppAssets.pairingDeviceSearchIllustration,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                excludeFromSemantics: true,
+              ),
+            ),
+            Positioned.fill(
+              child: AnimatedBuilder(
+                animation: animation,
+                builder: (context, _) => CustomPaint(
+                  painter: _RadarPainter(progress: animation.value),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+/// The sweeping wedge over the search artwork.
+///
+/// `docs/UI/搜索附近设备.png` shows this wedge, but it is not baked into
+/// `pairing_device_search_illustration.png`, so it has to be painted and
+/// animated here. It is motion, not an icon — keep it when reconciling this
+/// page against the Figma frame.
+class _RadarPainter extends CustomPainter {
+  const _RadarPainter({required this.progress});
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.shortestSide * .43;
+    final angle = -math.pi / 2 + progress * math.pi * 2;
+    final sweep = Path()
+      ..moveTo(center.dx, center.dy)
+      ..arcTo(
+        Rect.fromCircle(center: center, radius: radius * 1.08),
+        angle - .28,
+        .56,
+        false,
+      )
+      ..close();
+    canvas.drawPath(
+      sweep,
+      Paint()..color = AppColors.brandPrimary.withValues(alpha: .12),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RadarPainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }
 
 class _SearchTipCard extends StatelessWidget {

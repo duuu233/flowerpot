@@ -47,17 +47,17 @@ void main() {
     );
     expect(find.byKey(const Key('app-page-background-image')), findsOneWidget);
     expect(find.text('登录账号，连接和管理你的智能设备'), findsOneWidget);
-    // Only one login mode is offered, so the panel shows a heading instead of
-    // a tab strip with an empty half.
-    expect(find.text('手机号验证码登录'), findsOneWidget);
+    // Only one login mode is offered, so the tab strip is gone entirely.
     expect(find.text('验证码登录'), findsNothing);
     expect(find.text('密码登录'), findsNothing);
     expect(find.text('忘记密码?'), findsNothing);
     expect(find.text('请输入手机号'), findsOneWidget);
     expect(find.text('请输入验证码'), findsOneWidget);
     expect(find.text('获取验证码'), findsOneWidget);
-    expect(find.text('没有账户？'), findsOneWidget);
-    expect(find.text('去注册'), findsOneWidget);
+    // Registration happens implicitly on first login.
+    expect(find.text('没有账户？'), findsNothing);
+    expect(find.text('去注册'), findsNothing);
+    expect(find.text('输入验证码即登录，未注册手机将自动创建账户'), findsOneWidget);
     expect(find.text('其他登录方式'), findsOneWidget);
     expect(find.text('《用户协议》'), findsOneWidget);
     expect(find.text('《隐私政策》'), findsOneWidget);

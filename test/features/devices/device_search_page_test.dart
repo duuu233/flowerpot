@@ -15,7 +15,7 @@ void main() {
     await _pumpDeviceSearchPage(tester, const Size(375, 812));
 
     expect(find.text('搜索设备'), findsOneWidget);
-    expect(find.text('搜索附近设备…'), findsOneWidget);
+    expect(find.text('搜索附近设备...'), findsOneWidget);
     // The planter provisions over 2.4G Wi-Fi only; no Bluetooth is involved.
     expect(find.text('请让设备进入配网状态，并确认手机连接的是2.4GHz Wi-Fi'), findsOneWidget);
     expect(find.text('小提示'), findsOneWidget);
@@ -27,7 +27,8 @@ void main() {
     final background = tester.widget<Image>(
       findAssetImage(AppAssets.accountBackground),
     );
-    expect(background.fit, BoxFit.cover);
+    // Fitted to width and top-aligned, matching the Figma frames.
+    expect(background.fit, BoxFit.fitWidth);
     expect(tester.takeException(), isNull);
   });
 
@@ -37,7 +38,7 @@ void main() {
     await _pumpDeviceSearchPage(tester, const Size(320, 568));
 
     expect(find.byKey(const Key('device-search-content')), findsOneWidget);
-    expect(find.text('搜索附近设备…'), findsOneWidget);
+    expect(find.text('搜索附近设备...'), findsOneWidget);
     expect(find.text('小提示'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

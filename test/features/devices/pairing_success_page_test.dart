@@ -24,7 +24,8 @@ void main() {
     final background = tester.widget<Image>(
       findAssetImage(AppAssets.accountBackground),
     );
-    expect(background.fit, BoxFit.cover);
+    // Fitted to width and top-aligned, matching the Figma frames.
+    expect(background.fit, BoxFit.fitWidth);
     final title = tester.widget<Text>(
       find.byKey(const Key('pairing-success-title')),
     );

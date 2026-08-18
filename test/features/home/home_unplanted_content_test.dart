@@ -74,7 +74,7 @@ void main() {
 
     final background = findAssetImage(AppAssets.homeBackground);
     expect(background, findsOneWidget);
-    expect(tester.widget<Image>(background).fit, BoxFit.cover);
+    expect(tester.widget<Image>(background).fit, BoxFit.fitWidth);
     expect(tester.takeException(), isNull);
   });
 }

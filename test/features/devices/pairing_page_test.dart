@@ -40,7 +40,8 @@ void main() {
     final background = tester.widget<Image>(
       findAssetImage(AppAssets.accountBackground),
     );
-    expect(background.fit, BoxFit.cover);
+    // Fitted to width and top-aligned, matching the Figma frames.
+    expect(background.fit, BoxFit.fitWidth);
     expect(
       tester.getSize(find.byKey(const Key('wifi-connection-illustration'))),
       const Size(335, 270),

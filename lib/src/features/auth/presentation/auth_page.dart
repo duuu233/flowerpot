@@ -172,8 +172,6 @@ class _AuthPageState extends State<AuthPage> {
                               setState(() => accepted = value),
                           onSendCode: _sendCode,
                           onLogin: _login,
-                          onRegister: () =>
-                              Navigator.pushNamed(context, AppRoutes.register),
                           onAgreement: () =>
                               Navigator.pushNamed(context, AppRoutes.agreement),
                           onPrivacy: () =>
@@ -231,7 +229,6 @@ class _LoginPanel extends StatelessWidget {
     required this.onAcceptedChanged,
     required this.onSendCode,
     required this.onLogin,
-    required this.onRegister,
     required this.onAgreement,
     required this.onPrivacy,
     required this.onForgotPassword,
@@ -253,7 +250,6 @@ class _LoginPanel extends StatelessWidget {
   final ValueChanged<bool> onAcceptedChanged;
   final VoidCallback onSendCode;
   final VoidCallback onLogin;
-  final VoidCallback onRegister;
   final VoidCallback onAgreement;
   final VoidCallback onPrivacy;
   final VoidCallback onForgotPassword;
@@ -276,12 +272,10 @@ class _LoginPanel extends StatelessWidget {
       child: Column(
         children: <Widget>[
           // With password login switched off there is only one mode, so the
-          // two-tab strip would show one label beside an empty half. The tab
-          // widget stays in place for when the second mode returns.
+          // two-tab strip is skipped entirely rather than showing one label
+          // beside an empty half. It stays in place for when the mode returns.
           if (LoginEntryConfig.passwordLogin)
-            _LoginTabs(codeLogin: codeLogin, onChanged: onModeChanged)
-          else
-            const _LoginPanelTitle(),
+            _LoginTabs(codeLogin: codeLogin, onChanged: onModeChanged),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 32, 8, 0),
             child: Column(
@@ -372,25 +366,12 @@ class _LoginPanel extends StatelessWidget {
                       : const Text('登录'),
                 ),
                 const SizedBox(height: AppSpacing.lg),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    Text(
-                      '没有账户？',
-                      style: AppTypography.body.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    InkWell(
-                      onTap: onRegister,
-                      child: Text(
-                        '去注册',
-                        style: AppTypography.body.copyWith(
-                          color: AppColors.brandPrimary,
-                        ),
-                      ),
-                    ),
-                  ],
+                Text(
+                  '输入验证码即登录，未注册手机将自动创建账户',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.smallBody.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
                 const SizedBox(height: 34),
                 const _OtherLoginDivider(),
@@ -447,26 +428,6 @@ class _LoginPanel extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _LoginPanelTitle extends StatelessWidget {
-  const _LoginPanelTitle();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 44,
-      child: Center(
-        child: Text(
-          '手机号验证码登录',
-          style: AppTypography.pageTitle.copyWith(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
       ),
     );
   }

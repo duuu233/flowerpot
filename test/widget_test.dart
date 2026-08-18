@@ -12,7 +12,7 @@ void main() {
     await _pumpApp(tester, const Size(375, 812));
 
     expect(find.text('登录账号，连接和管理你的智能设备'), findsOneWidget);
-    expect(find.text('手机号验证码登录'), findsOneWidget);
+    expect(find.text('输入验证码即登录，未注册手机将自动创建账户'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -56,7 +56,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('add-device-button')));
     await tester.pumpAndSettle();
-    expect(find.text('搜索附近设备…'), findsOneWidget);
+    expect(find.text('搜索附近设备...'), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
