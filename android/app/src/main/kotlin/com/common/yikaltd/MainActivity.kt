@@ -1,7 +1,10 @@
 package com.common.yikaltd
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
@@ -32,7 +35,9 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             "com.common.yikaltd/tuya",
         ).setMethodCallHandler { call, result ->
-            if (call.method == "pairWifiDevice" && requestPairingPermissions(call, result)) {
+            val needsWifiPermissions =
+                call.method == "pairWifiDevice" || call.method == "scanWifi"
+            if (needsWifiPermissions && requestPairingPermissions(call, result)) {
                 return@setMethodCallHandler
             }
             bridge.handle(call, result)
@@ -116,6 +121,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
+            if (call.method == "scanWifi") {
+                scanWifi(result)
+                return
+            }
             if (!ensureReady(result)) return
             when (call.method) {
                 "initialize" -> result.success(true)
@@ -165,6 +174,80 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             null,
         )
         return false
+    }
+
+    /**
+     * Lists nearby access points and the network the phone is on.
+     *
+     * The planter provisions over 2.4 GHz Wi-Fi, so there is nothing to
+     * discover before provisioning starts — except in AP mode, where the
+     * device raises its own hotspot. Seeing that hotspot is the only reliable
+     * pre-pairing proof that the device is in provisioning state, and the
+     * current network tells you whether the phone sits on 2.4 GHz at all.
+     */
+    private fun scanWifi(result: MethodChannel.Result) {
+        val context = activity.applicationContext
+        val wifi = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        if (!wifi.isWifiEnabled) {
+            error(result, "wifi_disabled", "手机 Wi-Fi 未开启，无法扫描")
+            return
+        }
+        // Android 9-12 refuse to return scan results while the location
+        // toggle is off. From 13 the NEARBY_WIFI_DEVICES grant replaces that
+        // requirement, so the check would be a false alarm there.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU &&
+            !locationEnabled(context)
+        ) {
+            error(
+                result,
+                "location_disabled",
+                "系统定位未开启；Android 9-12 扫描 Wi-Fi 必须打开定位开关",
+            )
+            return
+        }
+        // Throttled since Android 9 (a few scans per two minutes). A refused
+        // start still leaves the last cached results, which is good enough.
+        runCatching { wifi.startScan() }
+        val networks = runCatching { wifi.scanResults }
+            .getOrDefault(emptyList())
+            .filter { !it.SSID.isNullOrBlank() }
+            .sortedByDescending { it.level }
+            .map { scan ->
+                mapOf(
+                    "ssid" to scan.SSID,
+                    "bssid" to scan.BSSID,
+                    "level" to scan.level,
+                    "frequency" to scan.frequency,
+                )
+            }
+        val current = runCatching {
+            @Suppress("DEPRECATION")
+            wifi.connectionInfo?.ssid?.trim('"')
+        }.getOrNull()
+        val currentFrequency = runCatching {
+            @Suppress("DEPRECATION")
+            wifi.connectionInfo?.frequency
+        }.getOrNull()
+        success(
+            result,
+            mapOf(
+                "current" to current?.takeIf { it != "<unknown ssid>" },
+                "currentFrequency" to currentFrequency,
+                "networks" to networks,
+            ),
+        )
+    }
+
+    private fun locationEnabled(context: Context): Boolean {
+        val manager =
+            context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            manager.isLocationEnabled
+        } else {
+            @Suppress("DEPRECATION")
+            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        }
     }
 
     private fun currentUser(result: MethodChannel.Result) {

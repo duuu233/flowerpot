@@ -462,6 +462,29 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                             setState(() => pairMode = value.first),
                       ),
                       const SizedBox(height: AppSpacing.md),
+                      _ActionRow(
+                        children: <Widget>[
+                          _action(
+                            key: const Key('tuya-debug-scan-wifi'),
+                            label: '扫描附近 Wi-Fi',
+                            busy: busy,
+                            onPressed: () => _run(
+                              '扫描 Wi-Fi',
+                              () => state.probeWifi(),
+                              usesAccount: false,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (state.wifiScan case final WifiScan scan) ...<Widget>[
+                        const SizedBox(height: AppSpacing.sm),
+                        _WifiScanResult(
+                          scan: scan,
+                          onPick: (ssid) =>
+                              setState(() => ssidController.text = ssid),
+                        ),
+                      ],
+                      const SizedBox(height: AppSpacing.md),
                       _action(
                         key: const Key('tuya-debug-pair'),
                         label: '开始配网',
@@ -632,6 +655,81 @@ class _CommandText extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Nearby networks from the last scan. Tapping one fills the SSID field, so a
+/// bench test cannot mistype the network the device has to join.
+class _WifiScanResult extends StatelessWidget {
+  const _WifiScanResult({required this.scan, required this.onPick});
+
+  final WifiScan scan;
+  final ValueChanged<String> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = scan.current;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        if (current != null)
+          Text(
+            '手机当前连接：$current'
+            '${switch (scan.currentIs24g) {
+              true => '（2.4G，可用于 EZ）',
+              false => '（5G，EZ 配网必须先切到 2.4G）',
+              null => '',
+            }}',
+            style: AppTypography.smallBody.copyWith(
+              color: scan.currentIs24g == false
+                  ? AppColors.danger
+                  : AppColors.textSecondary,
+            ),
+          ),
+        if (scan.networks.isEmpty)
+          Text(
+            '没有扫到任何网络。检查手机 Wi-Fi 与系统定位是否开启。',
+            style: AppTypography.smallBody.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          )
+        else
+          for (final network in scan.networks.take(12))
+            InkWell(
+              onTap: () => onPick(network.ssid),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        network.ssid,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.compactBody.copyWith(
+                          color: network.looksLikeDeviceHotspot
+                              ? AppColors.brandPrimary
+                              : AppColors.textPrimary,
+                          fontWeight: network.looksLikeDeviceHotspot
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${network.is24g ? '2.4G' : '5G'} · ${network.level}dBm',
+                      style: AppTypography.smallBody.copyWith(
+                        color: network.is24g
+                            ? AppColors.textSecondary
+                            : AppColors.textTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+      ],
     );
   }
 }

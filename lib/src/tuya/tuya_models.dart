@@ -315,6 +315,51 @@ class PairingRequest {
   final String mode;
 }
 
+/// One access point seen by the phone.
+class WifiNetwork {
+  const WifiNetwork({
+    required this.ssid,
+    required this.level,
+    required this.frequency,
+  });
+
+  final String ssid;
+
+  /// Signal strength in dBm, closer to 0 is stronger.
+  final int level;
+
+  /// Channel frequency in MHz. Tuya provisioning only works on 2.4 GHz.
+  final int frequency;
+
+  bool get is24g => frequency >= 2400 && frequency < 2500;
+
+  /// Access points a planter raises in AP provisioning mode.
+  bool get looksLikeDeviceHotspot {
+    final name = ssid.toLowerCase();
+    return name.startsWith('smartlife') ||
+        name.startsWith('ty_') ||
+        name.startsWith('ysplanter');
+  }
+}
+
+/// Result of a nearby-network scan, used to check whether the device hotspot
+/// is up and whether the phone itself sits on 2.4 GHz.
+class WifiScan {
+  const WifiScan({
+    required this.networks,
+    this.current,
+    this.currentFrequency,
+  });
+
+  final List<WifiNetwork> networks;
+  final String? current;
+  final int? currentFrequency;
+
+  bool? get currentIs24g => currentFrequency == null
+      ? null
+      : currentFrequency! >= 2400 && currentFrequency! < 2500;
+}
+
 class ActionResult {
   const ActionResult(this.success, this.message, {this.code});
 

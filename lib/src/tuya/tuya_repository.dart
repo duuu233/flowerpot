@@ -44,6 +44,10 @@ abstract class TuyaRepository {
   Future<void> deleteAccount();
   Future<List<SmartPlanterDevice>> getDevices();
   Future<SmartPlanterDevice> pair(PairingRequest request);
+
+  /// Nearby access points, used before provisioning to check that the phone is
+  /// on 2.4 GHz and — in AP mode — that the device hotspot is up.
+  Future<WifiScan> scanWifi();
   Future<void> publishDps(String deviceId, Map<int, Object> dps);
   Future<void> renameDevice(String deviceId, String name);
   Future<void> removeDevice(String deviceId, {required bool resetFactory});
@@ -177,6 +181,27 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     );
     if (raw == null) throw const TuyaException('pair_failed', '配网未返回设备信息');
     return _device(raw);
+  }
+
+  @override
+  Future<WifiScan> scanWifi() async {
+    final raw = await _invoke<Map<Object?, Object?>>('scanWifi');
+    if (raw == null) throw const TuyaException('scan_failed', 'Wi-Fi 扫描未返回结果');
+    final networks = (raw['networks'] as List<Object?>? ?? <Object?>[])
+        .whereType<Map<Object?, Object?>>()
+        .map(
+          (item) => WifiNetwork(
+            ssid: '${item['ssid'] ?? ''}',
+            level: (item['level'] as num?)?.toInt() ?? -100,
+            frequency: (item['frequency'] as num?)?.toInt() ?? 0,
+          ),
+        )
+        .toList();
+    return WifiScan(
+      networks: networks,
+      current: raw['current']?.toString(),
+      currentFrequency: (raw['currentFrequency'] as num?)?.toInt(),
+    );
   }
 
   @override
@@ -443,6 +468,21 @@ class MockTuyaRepository implements TuyaRepository {
     final device = _demoDevice().copyWith(name: '窗边的小花园');
     if (_devices.every((item) => item.id != device.id)) _devices.add(device);
     return device;
+  }
+
+  @override
+  Future<WifiScan> scanWifi() async {
+    await _wait();
+    return const WifiScan(
+      current: 'TP-LINK_2.4G',
+      currentFrequency: 2437,
+      networks: <WifiNetwork>[
+        WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+        WifiNetwork(ssid: 'SmartLife-A1B2', level: -58, frequency: 2412),
+        WifiNetwork(ssid: 'TP-LINK_5G', level: -52, frequency: 5180),
+        WifiNetwork(ssid: 'Xiaomi_2.4G', level: -71, frequency: 2462),
+      ],
+    );
   }
 
   @override

@@ -20,6 +20,7 @@ class FlowerpotState extends ChangeNotifier {
   int _sessionEpoch = 0;
   String _languageCode = 'zh';
   AppUser? _user;
+  WifiScan? _wifiScan;
   String? _selectedDeviceId;
   List<SmartPlanterDevice> _devices = <SmartPlanterDevice>[];
 
@@ -75,6 +76,9 @@ class FlowerpotState extends ChangeNotifier {
   bool get usingMockBackend => _repository is MockTuyaRepository;
   String get languageCode => _languageCode;
   AppUser? get user => _user;
+
+  /// Last nearby-network scan, populated by [probeWifi].
+  WifiScan? get wifiScan => _wifiScan;
   List<SmartPlanterDevice> get devices => List.unmodifiable(_devices);
   List<AnimationAsset> get animations => List.unmodifiable(_animations);
 
@@ -249,6 +253,27 @@ class FlowerpotState extends ChangeNotifier {
     _sessionEpoch++;
     await _refreshDevicesForSession(ignoreErrors: true);
     return ActionResult(true, '会话有效，设备 ${_devices.length} 台');
+  });
+
+  /// Nearby access points, for diagnosing provisioning: in AP mode the device
+  /// hotspot has to be visible, and EZ mode only works from a 2.4 GHz network.
+  /// Diagnostics-only state, read by the SDK console.
+  Future<ActionResult> probeWifi() => _guard(() async {
+    final scan = await _repository.scanWifi();
+    _wifiScan = scan;
+    final current = scan.current;
+    final band = switch (scan.currentIs24g) {
+      true => '2.4G',
+      false => '5G，EZ 配网需要切到 2.4G',
+      null => '频段未知',
+    };
+    final hotspots = scan.networks.where((n) => n.looksLikeDeviceHotspot).length;
+    return ActionResult(
+      true,
+      '扫描到 ${scan.networks.length} 个网络'
+      '${current == null ? '' : '，当前 $current（$band）'}'
+      '${hotspots == 0 ? '' : '，其中 $hotspots 个疑似设备热点'}',
+    );
   });
 
   /// Device refresh that reports home query, auto-create and device list
