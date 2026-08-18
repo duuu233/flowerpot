@@ -27,6 +27,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 private val EZ_MODE_NAMES = listOf("THING_EZ", "TY_EZ")
 private val AP_MODE_NAMES = listOf("THING_AP", "TY_AP")
 
+/**
+ * How long a cached provisioning token may be reused.
+ *
+ * Tuya issues them with a 10-minute validity; 8 leaves room for the user to
+ * switch networks and for the activator's own handshake.
+ */
+private const val ACTIVATOR_TOKEN_TTL_MS = 8L * 60 * 1000
+
 class MainActivity : FlutterActivity() {
     private lateinit var bridge: TuyaSdkBridge
     private var pendingPair: PendingPair? = null
@@ -158,6 +166,15 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private var homeId: Long? = null
     private var activator: Any? = null
 
+    /**
+     * Last provisioning token and when it was fetched.
+     *
+     * Kept here and never handed to Dart: it is a short-lived cloud credential
+     * and the debug console writes everything it receives into a visible log.
+     */
+    private var activatorToken: String? = null
+    private var activatorTokenAt: Long = 0L
+
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
             if (call.method == "scanWifi") {
@@ -176,6 +193,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "logout" -> userAction("logout", result)
                 "cancelAccount" -> userAction("cancelAccount", result)
                 "getDevices" -> withHome(result) { home -> loadHomeDevices(home, result) }
+                "prepareActivatorToken" -> prepareActivatorToken(result)
                 "pairWifiDevice" -> pairWifi(call, result)
                 "publishDps" -> deviceAction(call, result, "publishDps")
                 "renameDevice" -> deviceAction(call, result, "renameDevice")
@@ -474,21 +492,69 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         )
     }
 
-    private fun pairWifi(call: MethodCall, result: MethodChannel.Result) {
+    /**
+     * Fetches a provisioning token and caches it, without starting anything.
+     *
+     * AP mode needs this as its own step. Once the phone joins the device's
+     * hotspot it has no route to the internet, so a token fetch made at
+     * "start pairing" time fails with the SDK's `Network error please try it
+     * again` — the token has to be obtained while the phone is still on the
+     * router.
+     */
+    private fun prepareActivatorToken(result: MethodChannel.Result) {
         withHome(result) { id ->
-            val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
-                ?: throw IllegalStateException("无法获取配网实例")
-            invokeWithCallback(
-                activatorApi,
-                "getActivatorToken",
-                id,
-                onSuccess = { token ->
-                    onMain(result) {
-                        startActivator(call, result, token?.toString().orEmpty())
+            fetchActivatorToken(id, result) { success(result, null) }
+        }
+    }
+
+    /** Calls [onReady] on the main thread with a freshly cached token. */
+    private fun fetchActivatorToken(
+        homeId: Long,
+        result: MethodChannel.Result,
+        onReady: (String) -> Unit,
+    ) {
+        val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
+            ?: throw IllegalStateException("无法获取配网实例")
+        invokeWithCallback(
+            activatorApi,
+            "getActivatorToken",
+            homeId,
+            onSuccess = { value ->
+                onMain(result) {
+                    val token = value?.toString().orEmpty()
+                    if (token.isEmpty()) {
+                        error(result, "pair_failed", "云端未返回配网令牌")
+                    } else {
+                        activatorToken = token
+                        activatorTokenAt = System.currentTimeMillis()
+                        onReady(token)
                     }
-                },
-                onError = { code, message -> error(result, code, message) },
-            )
+                }
+            },
+            onError = { code, message -> error(result, code, message) },
+        )
+    }
+
+    /** The cached token while it is still inside [ACTIVATOR_TOKEN_TTL_MS]. */
+    private fun freshActivatorToken(): String? {
+        val token = activatorToken ?: return null
+        val age = System.currentTimeMillis() - activatorTokenAt
+        return token.takeIf { age in 0..ACTIVATOR_TOKEN_TTL_MS }
+    }
+
+    private fun pairWifi(call: MethodCall, result: MethodChannel.Result) {
+        // Reuse a pre-fetched token when there is one. This is what makes AP
+        // mode work at all: by the time this runs the phone is on the device's
+        // hotspot, so the cloud is unreachable. EZ keeps the phone on the
+        // router, so its fallback below is the normal path.
+        freshActivatorToken()?.let { token ->
+            startActivator(call, result, token)
+            return
+        }
+        withHome(result) { id ->
+            fetchActivatorToken(id, result) { token ->
+                startActivator(call, result, token)
+            }
         }
     }
 
@@ -522,6 +588,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             onSuccess = { value ->
                 onMain(result) {
                     stopActivator()
+                    // Tokens are single-use; keeping this one would make the
+                    // next pairing attempt fail with a stale-token error.
+                    activatorToken = null
                     if (value == null) {
                         error(result, "pair_failed", "配网未返回设备信息")
                     } else {

@@ -423,8 +423,12 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                     children: <Widget>[
                       Text(
                         '直接调用 pairWifiDevice（超时 120 秒），失败只写进下面的日志并带原始'
-                        '错误码，不会跳到配网失败页。EZ 需要手机连在同一个 2.4G 网络；'
-                        'AP 需要先把手机连到设备热点。',
+                        '错误码，不会跳到配网失败页。两种模式填的都是「设备要连的路由器」'
+                        '的名称和密码，不是设备热点的。\n'
+                        'EZ：手机保持连在同一个 2.4G 网络，直接点「开始配网」。\n'
+                        'AP：先点「获取配网令牌」（这一步要联网），再去系统设置连上设备'
+                        '热点，回来点「开始配网」。连上热点后手机就没有外网了，令牌必须'
+                        '提前取好。',
                         style: AppTypography.smallBody.copyWith(
                           color: AppColors.textSecondary,
                         ),
@@ -471,6 +475,16 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                             onPressed: () => _run(
                               '扫描 Wi-Fi',
                               () => state.probeWifi(),
+                              usesAccount: false,
+                            ),
+                          ),
+                          _action(
+                            key: const Key('tuya-debug-prepare-token'),
+                            label: '获取配网令牌',
+                            busy: busy,
+                            onPressed: () => _run(
+                              '获取配网令牌',
+                              () => state.prepareActivatorToken(),
                               usesAccount: false,
                             ),
                           ),

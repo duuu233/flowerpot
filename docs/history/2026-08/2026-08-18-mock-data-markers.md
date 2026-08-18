@@ -73,11 +73,25 @@ com.thingclips.smart.sdk.builder.ActivatorBuilder, com.thingclips.smart.sdk.buil
 
 真机复测验证了这套做法：Builder 一次解析成功，改报下一层的问题——
 
+
 ```
 [native_error] SDK 未提供配网模式 TY_EZ，可用：THING_AP, THING_EZ, THING_4G_GATEWAY, THING_STATIC_IP, THING_QR
 ```
 
 即枚举常量也被改过名，7.5.1 只有 `THING_*` 一代。因为异常消息里带了实际常量清单，这一步不需要再猜。改为按优先级列表匹配：`EZ_MODE_NAMES = ["THING_EZ", "TY_EZ"]`、`AP_MODE_NAMES = ["THING_AP", "TY_AP"]`，新名在前、旧名兜底，两代 SDK 都能用。「让失败自带清单」这个设计本身就是这次少跑一轮真机的原因，后续加配网能力时保持。
+
+## AP 配网的取令牌时机
+
+改完枚举后 AP 模式连试三次都是 `Network error please try it again`。这条与设备、与 Wi-Fi 密码都无关：`getActivatorToken` 是云端调用，而 AP 配网时手机已经连到设备热点、那条链路没有外网，等到点「开始配网」才去取令牌必然失败。原来的 `pairWifi` 把「取令牌」和「起配网」焊在一起，AP 模式下这个顺序天然走不通。
+
+拆开：
+
+- 新增桥接方法 `prepareActivatorToken` 与 Dart 侧 `TuyaRepository.prepareActivatorToken()` / `FlowerpotState.prepareActivatorToken()`，联调页「配网」区块多一个「获取配网令牌」按钮。
+- 原生层缓存令牌 8 分钟（涂鸦签发有效期 10 分钟，留 2 分钟给切网和握手）。令牌**不回传 Dart**——它是短时效云端凭据，而联调页会把收到的一切写进可见日志。
+- `pairWifiDevice` 优先复用缓存令牌，没有或过期才回落到云端取。EZ 全程连在路由器上，走的就是这条回落路径，因此 EZ 的操作方式完全不变。
+- 配网成功后立即清空缓存：涂鸦令牌是一次性的，留着会让下一次配网报令牌失效。
+
+联调页的说明文案同步改掉了。原来只写「AP 需要先把手机连到设备热点」，漏了「而且要先取令牌」，正是这次踩坑的直接原因；现在按模式分两行写清顺序，并强调两种模式填的都是路由器的名称密码、不是热点的。
 
 ## 关键决策
 

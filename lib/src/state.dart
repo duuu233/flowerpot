@@ -299,6 +299,14 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '账号已注销');
   });
 
+  /// Pre-fetches the provisioning token, which AP mode has to do before the
+  /// phone leaves the router for the device hotspot. See
+  /// [TuyaRepository.prepareActivatorToken].
+  Future<ActionResult> prepareActivatorToken() => _guard(() async {
+    await _repository.prepareActivatorToken();
+    return const ActionResult(true, '已获取配网令牌，8 分钟内有效，现在可以切到设备热点');
+  });
+
   Future<ActionResult> pairDevice(PairingRequest request) => _guard(() async {
     final device = await _repository.pair(request);
     _devices = <SmartPlanterDevice>[

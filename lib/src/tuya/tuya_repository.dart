@@ -45,6 +45,14 @@ abstract class TuyaRepository {
   Future<List<SmartPlanterDevice>> getDevices();
   Future<SmartPlanterDevice> pair(PairingRequest request);
 
+  /// Fetches and caches a provisioning token ahead of [pair].
+  ///
+  /// Only AP mode needs this called explicitly, and it has to happen while the
+  /// phone is still on a network with internet access: joining the device's
+  /// hotspot cuts off the cloud, and [pair] would otherwise try to fetch the
+  /// token from there and fail. The token stays in the native layer.
+  Future<void> prepareActivatorToken();
+
   /// Nearby access points, used before provisioning to check that the phone is
   /// on 2.4 GHz and — in AP mode — that the device hotspot is up.
   Future<WifiScan> scanWifi();
@@ -182,6 +190,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     if (raw == null) throw const TuyaException('pair_failed', '配网未返回设备信息');
     return _device(raw);
   }
+
+  @override
+  Future<void> prepareActivatorToken() =>
+      _invoke<void>('prepareActivatorToken');
 
   @override
   Future<WifiScan> scanWifi() async {
@@ -469,6 +481,9 @@ class MockTuyaRepository implements TuyaRepository {
     if (_devices.every((item) => item.id != device.id)) _devices.add(device);
     return device;
   }
+
+  @override
+  Future<void> prepareActivatorToken() => _wait();
 
   @override
   Future<WifiScan> scanWifi() async {
