@@ -34,7 +34,9 @@ class MainActivity : FlutterActivity() {
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.common.yikaltd/tuya",
-        ).setMethodCallHandler { call, result ->
+        ).setMethodCallHandler { call, rawResult ->
+            // Wrapped up front so the permission-retry path is covered too.
+            val result = SingleResult(rawResult)
             val needsWifiPermissions =
                 call.method == "pairWifiDevice" || call.method == "scanWifi"
             if (needsWifiPermissions && requestPairingPermissions(call, result)) {
@@ -104,6 +106,32 @@ class MainActivity : FlutterActivity() {
 }
 
 /**
+ * Guarantees a single reply per call.
+ *
+ * The provisioning chain reports through several SDK callbacks; if two of them
+ * fire, replying twice throws inside the Flutter engine and takes the process
+ * down.
+ */
+private class SingleResult(private val delegate: MethodChannel.Result) :
+    MethodChannel.Result {
+    private val replied = AtomicBoolean(false)
+
+    override fun success(result: Any?) {
+        if (replied.compareAndSet(false, true)) delegate.success(result)
+    }
+
+    override fun error(code: String, message: String?, details: Any?) {
+        if (replied.compareAndSet(false, true)) {
+            delegate.error(code, message, details)
+        }
+    }
+
+    override fun notImplemented() {
+        if (replied.compareAndSet(false, true)) delegate.notImplemented()
+    }
+}
+
+/**
  * Flutter-to-Tuya adapter. Reflection is deliberate: the app-specific Tuya
  * security component is not committed to source control. Once
  * security-algorithm.aar is placed in app/libs, Gradle links Home SDK 7.5.1
@@ -159,6 +187,25 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             }
         } catch (error: Throwable) {
             fail(result, error)
+        }
+    }
+
+    /**
+     * Runs [block] on the main thread and turns any failure into a Flutter
+     * error.
+     *
+     * SDK callbacks arrive on a background thread and outside the try/catch in
+     * [handle], so an exception there would reach the thread's default handler
+     * and kill the process. The Tuya activator also registers handlers and
+     * receivers, which requires a looper thread.
+     */
+    private fun onMain(result: MethodChannel.Result, block: () -> Unit) {
+        activity.runOnUiThread {
+            try {
+                block()
+            } catch (error: Throwable) {
+                fail(result, error)
+            }
         }
     }
 
@@ -356,14 +403,16 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             manager,
             "queryHomeList",
             onSuccess = { value ->
-                val homes = value as? List<*> ?: emptyList<Any>()
-                val first = homes.filterNotNull().firstOrNull()
-                if (first != null) {
-                    val id = number(getter(first, "getHomeId"))
-                    homeId = id
-                    ready(id)
-                } else {
-                    createHome(manager, result, ready)
+                onMain(result) {
+                    val homes = value as? List<*> ?: emptyList<Any>()
+                    val first = homes.filterNotNull().firstOrNull()
+                    if (first != null) {
+                        val id = number(getter(first, "getHomeId"))
+                        homeId = id
+                        ready(id)
+                    } else {
+                        createHome(manager, result, ready)
+                    }
                 }
             },
             onError = { code, message -> error(result, code, message) },
@@ -380,12 +429,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             "",
             emptyList<String>(),
             onSuccess = { value ->
-                if (value == null) {
-                    error(result, "home_missing", "创建家庭未返回家庭信息")
-                } else {
-                    val id = number(getter(value, "getHomeId"))
-                    homeId = id
-                    ready(id)
+                onMain(result) {
+                    if (value == null) {
+                        error(result, "home_missing", "创建家庭未返回家庭信息")
+                    } else {
+                        val id = number(getter(value, "getHomeId"))
+                        homeId = id
+                        ready(id)
+                    }
                 }
             },
             onError = { code, message -> error(result, code, message) },
@@ -399,8 +450,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             home,
             "getHomeDetail",
             onSuccess = { value ->
-                val devices = value?.let { optionalGetter(it, "getDeviceList") } as? List<*>
-                success(result, devices.orEmpty().filterNotNull().map(::deviceMap))
+                onMain(result) {
+                    val devices =
+                        value?.let { optionalGetter(it, "getDeviceList") } as? List<*>
+                    success(
+                        result,
+                        devices.orEmpty().filterNotNull().map(::deviceMap),
+                    )
+                }
             },
             onError = { code, message -> error(result, code, message) },
         )
@@ -414,7 +471,11 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 activatorApi,
                 "getActivatorToken",
                 id,
-                onSuccess = { token -> startActivator(call, result, token?.toString().orEmpty()) },
+                onSuccess = { token ->
+                    onMain(result) {
+                        startActivator(call, result, token?.toString().orEmpty())
+                    }
+                },
                 onError = { code, message -> error(result, code, message) },
             )
         }
@@ -432,7 +493,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         @Suppress("UNCHECKED_CAST")
         val enumType = enumClass as Class<out Enum<*>>
         val modeName = if (call.argument<String>("mode") == "ez") "TY_EZ" else "TY_AP"
-        val mode = enumType.enumConstants.first { it.name == modeName }
+        // `first` would throw NoSuchElementException if the SDK renamed the
+        // constant; report the names it does have instead, which is the one
+        // thing that makes such a mismatch diagnosable from the console log.
+        val mode = enumType.enumConstants.firstOrNull { it.name == modeName }
+            ?: throw IllegalStateException(
+                "SDK 未提供配网模式 $modeName，可用：" +
+                    enumType.enumConstants.joinToString { it.name },
+            )
         invoke(builder, "setContext", activity)
         invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
         invoke(builder, "setPassword", call.argument<String>("password").orEmpty())
@@ -443,11 +511,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             builder,
             "setListener",
             onSuccess = { value ->
-                stopActivator()
-                if (value == null) {
-                    error(result, "pair_failed", "配网未返回设备信息")
-                } else {
-                    success(result, deviceMap(value))
+                onMain(result) {
+                    stopActivator()
+                    if (value == null) {
+                        error(result, "pair_failed", "配网未返回设备信息")
+                    } else {
+                        success(result, deviceMap(value))
+                    }
                 }
             },
             onError = { code, message ->

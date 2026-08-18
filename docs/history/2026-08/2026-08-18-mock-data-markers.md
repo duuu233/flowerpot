@@ -39,6 +39,20 @@
 
 判断界面上的值是否真实，现在只能回到源码：设备与传感器值来自 `TuyaRepository`，养护建议、坐标轴刻度、植物库、帮助中心、协议正文、关于页版本号等始终是写死的文案。真实链路以 SDK 联调页的调用日志为准。
 
+## 配网崩溃与原生异步防护
+
+真机点「开始配网」后进程直接退出。原因在桥接的异步结构，不是某一次调用失败：
+
+- `handle()` 的 `try/catch` 只覆盖同步部分。配网链路是 `queryHomeList` 回调 → `getActivatorToken` 回调 → `startActivator`，后两段都跑在 SDK 的后台线程上、已经脱离那个 `try`。`startActivator` 全靠反射（类名、枚举、方法签名），任何一处对不上就抛异常到线程顶层，直接杀进程。其中 `enumConstants.first { it.name == modeName }` 最危险：SDK 换了枚举命名就必抛 `NoSuchElementException`。
+- activator 在后台线程创建并启动。涂鸦的 activator 内部要注册 Handler 与广播接收器，没有 Looper 的线程上会抛 `Can't create handler inside thread that has not called Looper.prepare()`。
+- 同一次调用可能回复两次（先 error 后 success），Flutter 引擎对重复回复会抛异常。
+
+处理：
+
+- 新增 `SingleResult` 包装，保证每次调用只回复一次；在 `setMethodCallHandler` 入口就包好，权限重试路径也覆盖到。
+- 新增 `onMain(result) { … }`：把回调体切回主线程并捕获异常，失败转成错误码返回而不是抛出。家庭查询、建家、设备列表、令牌回调、配网结果回调全部改走它。
+- 配网模式枚举查找从 `first` 改为 `firstOrNull`，找不到时抛出带「可用枚举名列表」的说明，`describe` 会把它转成 `native_error` 显示在联调页日志里。
+
 ## 关键决策
 
 - 只改会流入真实 SDK 的假数据（预填 Wi-Fi 凭据、只读输入框），不动纯展示性的模拟行为（雷达动画、600ms 假连接）。
