@@ -12,7 +12,7 @@ void main() {
     await _pumpApp(tester, const Size(375, 812));
 
     expect(find.text('登录账号，连接和管理你的智能设备'), findsOneWidget);
-    expect(find.text('验证码登录'), findsOneWidget);
+    expect(find.text('手机号验证码登录'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
     expect(tester.takeException(), isNull);
   });

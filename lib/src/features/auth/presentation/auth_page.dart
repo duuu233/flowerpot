@@ -269,10 +269,19 @@ class _LoginPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomPaint(
       key: const Key('login-panel'),
-      painter: _LoginPanelBackgroundPainter(codeLogin: codeLogin),
+      painter: _LoginPanelBackgroundPainter(
+        codeLogin: codeLogin,
+        tabbed: LoginEntryConfig.passwordLogin,
+      ),
       child: Column(
         children: <Widget>[
-          _LoginTabs(codeLogin: codeLogin, onChanged: onModeChanged),
+          // With password login switched off there is only one mode, so the
+          // two-tab strip would show one label beside an empty half. The tab
+          // widget stays in place for when the second mode returns.
+          if (LoginEntryConfig.passwordLogin)
+            _LoginTabs(codeLogin: codeLogin, onChanged: onModeChanged)
+          else
+            const _LoginPanelTitle(),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 32, 8, 0),
             child: Column(
@@ -443,6 +452,26 @@ class _LoginPanel extends StatelessWidget {
   }
 }
 
+class _LoginPanelTitle extends StatelessWidget {
+  const _LoginPanelTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 44,
+      child: Center(
+        child: Text(
+          '手机号验证码登录',
+          style: AppTypography.pageTitle.copyWith(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _LoginTabs extends StatelessWidget {
   const _LoginTabs({required this.codeLogin, required this.onChanged});
 
@@ -525,12 +554,19 @@ class _LoginTab extends StatelessWidget {
 }
 
 class _LoginPanelBackgroundPainter extends CustomPainter {
-  const _LoginPanelBackgroundPainter({required this.codeLogin});
+  const _LoginPanelBackgroundPainter({
+    required this.codeLogin,
+    required this.tabbed,
+  });
 
   static const double _cornerRadius = AppRadius.md;
   static const double _tabHeight = 44;
 
   final bool codeLogin;
+
+  /// Whether the panel carries the two-tab strip. Without it the notched
+  /// surface has nothing to point at, so the panel is a plain card.
+  final bool tabbed;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -538,6 +574,10 @@ class _LoginPanelBackgroundPainter extends CustomPainter {
       Offset.zero & size,
       const Radius.circular(_cornerRadius),
     );
+    if (!tabbed) {
+      canvas.drawRRect(panelBounds, Paint()..color = AppColors.surface);
+      return;
+    }
     canvas.drawRRect(panelBounds, Paint()..color = const Color(0x66FFFFFF));
     canvas.drawPath(_selectedSurface(size), Paint()..color = AppColors.surface);
     canvas.drawRRect(
@@ -607,7 +647,7 @@ class _LoginPanelBackgroundPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_LoginPanelBackgroundPainter oldDelegate) =>
-      oldDelegate.codeLogin != codeLogin;
+      oldDelegate.codeLogin != codeLogin || oldDelegate.tabbed != tabbed;
 }
 
 class _LoginField extends StatelessWidget {

@@ -47,7 +47,10 @@ void main() {
     );
     expect(find.byKey(const Key('app-page-background-image')), findsOneWidget);
     expect(find.text('登录账号，连接和管理你的智能设备'), findsOneWidget);
-    expect(find.text('验证码登录'), findsOneWidget);
+    // Only one login mode is offered, so the panel shows a heading instead of
+    // a tab strip with an empty half.
+    expect(find.text('手机号验证码登录'), findsOneWidget);
+    expect(find.text('验证码登录'), findsNothing);
     expect(find.text('密码登录'), findsNothing);
     expect(find.text('忘记密码?'), findsNothing);
     expect(find.text('请输入手机号'), findsOneWidget);
