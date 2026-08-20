@@ -42,7 +42,15 @@ class WaterStatusPageModel {
 
   factory WaterStatusPageModel.fromDevice(SmartPlanterDevice device) {
     final waterLevel = device.sensors.waterLevel;
-    final hasReservoirWater = waterLevel > 20;
+    // `water_needs_status` (DP 107) when the device has reported it, otherwise
+    // the app's own reservoir threshold. The device separates 喝水中 from
+    // 水分充足; both mean the reservoir still has water, which is the only
+    // distinction this page draws.
+    final hasReservoirWater = switch (device.status.waterNeeds) {
+      WaterNeedsStatus.shortage => false,
+      WaterNeedsStatus.drinking || WaterNeedsStatus.watery => true,
+      null => waterLevel > 20,
+    };
     return WaterStatusPageModel(
       deviceId: device.id,
       status: hasReservoirWater ? '喝水中' : '需要补水',

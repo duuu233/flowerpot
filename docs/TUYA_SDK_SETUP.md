@@ -179,13 +179,26 @@ THING_SMART_APPSECRET=YOUR_IOS_APP_SECRET
 
 ## 4. 产品 DP
 
-在 `lib/src/tuya/tuya_config.dart` 校正 `TuyaConfig.dp`。当前 101–123 是代码占位，不应直接发布：
+`lib/src/tuya/tuya_config.dart` 的 `TuyaConfig.dp` 是 PID `orhqsdjyigmh8bwa`（智能花盆test）在 2026-08-20 导出的功能点表，DP 101–150 共 50 条，键是涂鸦标识符本身，可以和平台导出逐行对照。原始导出件是 `assets/智能花盆test(orhqsdjyigmh8bwa)_08_20.xlsx`。换 PID 或改功能点后要重新导出替换整张表，不要手工改单行。
 
-- 传感器：水仓、土壤、照度、PPFD、温度、湿度、电池、充电。
-- 控制：亮度、声音、触摸、振动、灵敏度、定时行为、天气、温标、时钟。
-- 维护：水位校准、系统修复。
+App 侧的命名不再直接当 DP 键用，两层映射都在同一个文件里：
 
-同时确认值类型（bool/value/enum/string/raw）、范围、步进和倍率。DP 类型错误会导致指令被 SDK 或设备拒绝。
+- `TuyaConfig.setting`：可写设置 → 标识符；
+- `TuyaConfig.history`：历史曲线 → 三个窗口的 raw DP；
+- `TuyaConfig.settingDps(key, value)`：把一条设置编码成实际下发的 `Map<dpId, value>`，产品没有该功能点时返回 `null`，App 报 `unsupported_dp` 而不是发一条设备会拒绝的指令。
+
+需要注意的类型细节，写错会被 SDK 或设备直接拒：
+
+| 功能点 | 细节 |
+| --- | --- |
+| `air_temperature` (112)、`air_humidity` (114) | 倍数 1，设备传的是十倍整数。读除以 10、写乘以 10，映射在 `TuyaConfig.dpScale`。 |
+| `nap_*_time` (126/127)、`night_sleep_*_time` (129/130) | 一个作息 = 两条 value DP，单位是「当天第几分钟」。App 里仍是 `HH:MM-HH:MM`，在 `settingDps` 与设备解析处两头换算。 |
+| `temp_unit_convert` (146) | enum `C` / `F`，不是 `celsius` / `fahrenheit`。 |
+| `time_format` (147) | enum `24h` / `12h`，与 App 取值一致。 |
+| `water_level_calib` (140) | enum `step0`–`step5`，不是 bool；`step5` 是取消。 |
+| 131–139 | raw 历史包，格式见 `lib/src/tuya/tuya_history_codec.dart`。 |
+
+表里没有对应功能点、界面上又存在的两处：**天气服务**（已从设置模型中删除）和**修复系统文件**（改为提示「系统修复暂未开放」）。要做就得先在平台加 DP。
 
 ## 5. 运行
 
@@ -262,15 +275,17 @@ flutter build apk --release --split-per-abi --dart-define=TUYA_DEBUG_TOOLS=true 
 
 已接通：账号（验证码、登录、注册、找回密码、改昵称、退出、注销）、家庭查询与自动建家、AP/EZ 配网、设备列表、DP 下发、重命名、解绑、恢复出厂、OTA 查询与升级。
 
+传感器历史不再走云端统计服务：131–139 是设备自己上报的 raw 历史包，`getDevices` 读回 `dps` 时就地解码，`getHistory` 直接从这份快照取。原生侧的 `getStatistics` 分支因此不再被 Dart 调用，保留只是没必要为此改原生。
+
 尚未接通，调用会返回明确错误码而不是假数据：
 
-- `getStatistics` → `service_configuration_required`：报表历史数据需要在平台开通统计服务并接入统计 API。
-- `uploadAnimation` → `product_protocol_required`：动画同步需要 PID 对应的文件传输协议。
+- `uploadAnimation` → `product_protocol_required`：动画同步需要 PID 对应的文件传输协议。表里的 142/143/144（下载图片、显示图片、取消显示）是设备侧的图片链路，142 收的是 URL 而不是本地文件，接入前要先定下图片托管在哪里。
 - `createShareLink` → `share_service_unavailable`：分享链接由业务拓展 SDK 提供，管理类包名需要在开通设备分享后核对。
 
 还未实现的能力：
 
-- 设备 DP 实时上报。当前只在 `getDevices` 时读取一次 `dps`，下发后 UI 不会收到设备主动推送的变化。接入时需要注册 `IDevListener` 并新增一条 Flutter 事件通道，同时扩展 `TuyaRepository` 契约。
+- 设备 DP 实时上报。当前只在 `getDevices` 时读取一次 `dps`，下发后 UI 不会收到设备主动推送的变化。功能点表接进来之后这条更要紧：电量、水位、光照、五个状态枚举和全部历史包都是只上报（ro），不接上报就只能靠手动刷新。接入时需要注册 `IDevListener` 并新增一条 Flutter 事件通道，同时扩展 `TuyaRepository` 契约。
+- 温度、湿度、电量三条趋势曲线没有历史 DP：表里只有水仓水位、土壤湿度、光照各三个窗口。这三页在真实设备上会是空曲线，要么在平台补 DP，要么改成不画历史。
 - **设备发现**。桥接里没有任何扫描接口，`TuyaRepository` 也没有对应契约。**产品确认设备只支持 2.4GHz Wi-Fi 配网，没有蓝牙配网**，因此这里不应该去实现 BLE 扫描：EZ/AP 配网本来就没有「先扫描再选设备」这一步，设备是否在配网状态只能由用户看指示灯确认。配网动线中只有最后一步是真实的：
 
 | 页面 | 现状 |

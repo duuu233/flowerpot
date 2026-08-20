@@ -56,7 +56,7 @@ void main() {
       result.state.deviceById('device-01')?.settings.soundInteraction,
       isFalse,
     );
-    expect(result.repository.lastDps, <int, Object>{110: false});
+    expect(result.repository.lastDps, <int, Object>{118: false});
     expect(find.text('已关闭'), findsOneWidget);
     expect(
       tester
@@ -82,7 +82,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(result.state.deviceById('device-01')?.settings.soundSensitivity, 35);
-    expect(result.repository.lastDps, <int, Object>{111: 35});
+    expect(result.repository.lastDps, <int, Object>{119: 35});
     expect(find.text('35%'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

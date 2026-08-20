@@ -53,7 +53,7 @@ void main() {
       result.state.deviceById('device-01')?.settings.autoBrightness,
       isFalse,
     );
-    expect(result.repository.lastDps, <int, Object>{109: false});
+    expect(result.repository.lastDps, <int, Object>{117: false});
     expect(find.text('已关闭'), findsOneWidget);
     expect(
       tester

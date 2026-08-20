@@ -50,7 +50,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(result.state.deviceById('device-01')?.settings.vibration, isTrue);
-    expect(result.repository.lastDps, <int, Object>{114: true});
+    expect(result.repository.lastDps, <int, Object>{122: true});
     expect(find.text('已启用'), findsOneWidget);
     expect(
       tester.widget<Switch>(find.byKey(const Key('vibration-switch'))).value,

@@ -55,7 +55,7 @@ void main() {
       result.state.deviceById('device-01')?.settings.touchInteraction,
       isTrue,
     );
-    expect(result.repository.lastDps, <int, Object>{112: true});
+    expect(result.repository.lastDps, <int, Object>{120: true});
     expect(find.text('已启用'), findsOneWidget);
     expect(
       tester
@@ -81,7 +81,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(result.state.deviceById('device-01')?.settings.touchSensitivity, 45);
-    expect(result.repository.lastDps, <int, Object>{113: 45});
+    expect(result.repository.lastDps, <int, Object>{121: 45});
     expect(find.text('45%'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

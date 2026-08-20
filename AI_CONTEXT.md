@@ -77,7 +77,7 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 | `lib/src/design_system/` | Design Token、资源索引和公共视觉组件。 |
 | `lib/src/shared/` | 跨 Feature 复用组件。 |
 | `lib/src/core/network/` | REST 请求、会话、异常和重试。 |
-| `lib/src/tuya/` | 涂鸦配置、模型、Mock 与 MethodChannel Repository。 |
+| `lib/src/tuya/` | 涂鸦 DP 表与配置、模型、raw 历史解码、Mock 与 MethodChannel Repository。 |
 | `android/`、`ios/` | 平台工程、SDK 配置和桥接实现。 |
 | `test/` | 网络、配置、页面和公共组件测试。 |
 | `docs/` | 架构、UI、平台接入和冻结历史记录。 |

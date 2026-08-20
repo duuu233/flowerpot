@@ -54,11 +54,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
                     onCalibration: _calibrateWaterLevel,
                     onSystemFiles: _showSystemFileMessage,
                     onFirmware: () => _checkFirmware(device),
-                    onRepair: () => _runMaintenance(
-                      action: 'repairSystem',
-                      title: '修复系统文件',
-                      message: '修复过程中请保持设备在线并连接电源。',
-                    ),
+                    onRepair: _showRepairMessage,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _DeviceActionsCard(
@@ -110,46 +106,30 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
   }
 
   Future<void> _calibrateWaterLevel() async {
+    final scope = FlowerpotScope.of(context);
     await showWaterLevelCalibrationDialog(
       context,
-      onCalibrate: () async {
-        final result = await FlowerpotScope.of(
-          context,
-        ).runMaintenance(widget.deviceId, 'calibrateWaterLevel');
+      onCalibrate: (step) async {
+        final result = await scope.calibrateWaterLevel(widget.deviceId, step);
         if (!mounted) return false;
         if (!result.success) {
           showAppMessage(context, result.message, tone: AppMessageTone.error);
         }
         return result.success;
       },
-    );
-  }
-
-  Future<void> _runMaintenance({
-    required String action,
-    required String title,
-    required String message,
-  }) async {
-    final confirmed = await showAppConfirmDialog(
-      context,
-      title: title,
-      message: message,
-      confirmLabel: '开始',
-    );
-    if (!confirmed || !mounted) return;
-    final result = await FlowerpotScope.of(
-      context,
-    ).runMaintenance(widget.deviceId, action);
-    if (!mounted) return;
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+      onCancel: () => scope.cancelWaterLevelCalibration(widget.deviceId),
     );
   }
 
   void _showSystemFileMessage() {
     showAppMessage(context, '系统文件更新暂未开放');
+  }
+
+  /// The product has no repair DP: the exported function point table goes
+  /// straight from 水位校准 (140) to 恢复出厂设置 (141). Say so rather than
+  /// sending a command the device will reject.
+  void _showRepairMessage() {
+    showAppMessage(context, '系统修复暂未开放');
   }
 
   Future<void> _checkFirmware(SmartPlanterDevice device) async {

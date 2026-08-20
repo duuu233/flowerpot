@@ -343,9 +343,11 @@ class FlowerpotState extends ChangeNotifier {
     String key,
     Object value,
   ) => _guard(() async {
-    final dpId = TuyaConfig.dp[key];
-    if (dpId == null) throw TuyaException('unknown_dp', '未配置功能点：$key');
-    await _repository.publishDps(id, <int, Object>{dpId: value});
+    final dps = TuyaConfig.settingDps(key, value);
+    if (dps == null) {
+      throw TuyaException('unsupported_dp', '当前产品未提供该功能点：$key');
+    }
+    await _repository.publishDps(id, dps);
     _replaceDevice(id, (device) {
       final current = device.settings;
       final next = switch (key) {
@@ -355,11 +357,16 @@ class FlowerpotState extends ChangeNotifier {
         'touchInteraction' => current.copyWith(touchInteraction: value as bool),
         'touchSensitivity' => current.copyWith(touchSensitivity: value as int),
         'vibration' => current.copyWith(vibration: value as bool),
+        'touchKeyVibration' => current.copyWith(
+          touchKeyVibration: value as bool,
+        ),
+        'touchPlantVibration' => current.copyWith(
+          touchPlantVibration: value as bool,
+        ),
         'napEnabled' => current.copyWith(napEnabled: value as bool),
         'napPeriod' => current.copyWith(napPeriod: value as String),
         'nightEnabled' => current.copyWith(nightEnabled: value as bool),
         'nightPeriod' => current.copyWith(nightPeriod: value as String),
-        'weatherService' => current.copyWith(weatherService: value as bool),
         'temperatureUnit' => current.copyWith(temperatureUnit: value as String),
         'clockFormat' => current.copyWith(clockFormat: value as String),
         _ => current,
@@ -435,13 +442,35 @@ class FlowerpotState extends ChangeNotifier {
     },
   );
 
-  Future<ActionResult> runMaintenance(String id, String action) =>
+  /// Advances `water_level_calib` (DP 140) by one step.
+  ///
+  /// The DP is an enum of stages rather than a single "calibrate" command, so
+  /// the dialog reports which step the user just confirmed and the device
+  /// samples at that point.
+  Future<ActionResult> calibrateWaterLevel(String id, int step) =>
       _guard(() async {
-        final dpId = TuyaConfig.dp[action];
-        if (dpId == null) throw TuyaException('unknown_dp', '未配置维护功能点：$action');
-        await _repository.publishDps(id, <int, Object>{dpId: true});
+        if (step < 0 || step >= TuyaConfig.calibrationSteps.length) {
+          throw TuyaException('unknown_dp', '未知的校准步骤：$step');
+        }
+        await _publishCalibration(id, TuyaConfig.calibrationSteps[step]);
         return const ActionResult(true, '指令已发送，请保持设备在线');
       });
+
+  /// Leaves calibration mode when the user backs out part way through, so the
+  /// device does not sit waiting for the rest of the sequence.
+  Future<ActionResult> cancelWaterLevelCalibration(String id) =>
+      _guard(() async {
+        await _publishCalibration(id, TuyaConfig.calibrationCancel);
+        return const ActionResult(true, '已取消校准');
+      });
+
+  Future<void> _publishCalibration(String id, String step) async {
+    final dpId = TuyaConfig.dp['water_level_calib'];
+    if (dpId == null) {
+      throw const TuyaException('unsupported_dp', '当前产品未提供水位校准功能点');
+    }
+    await _repository.publishDps(id, <int, Object>{dpId: step});
+  }
 
   Future<ActionResult> removeDevice(String id, {required bool resetFactory}) =>
       _guard(() async {

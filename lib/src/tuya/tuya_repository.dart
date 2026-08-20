@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/services.dart';
 
 import 'tuya_config.dart';
+import 'tuya_history_codec.dart';
 import 'tuya_models.dart';
 
 abstract class TuyaRepository {
@@ -236,22 +237,20 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         <String, Object?>{'deviceId': deviceId},
       );
 
+  /// History decoded from the raw DPs in the most recent [getDevices]
+  /// snapshot, keyed by device id.
+  ///
+  /// The product reports its own history packets, so this no longer calls the
+  /// cloud statistics service — which needs a paid platform subscription the
+  /// account does not have.
+  final Map<String, DeviceHistory> _history = <String, DeviceHistory>{};
+
   @override
   Future<List<double>> getHistory(
     String deviceId,
     SensorMetric metric,
     ReportRange range,
-  ) async {
-    final raw = await _invoke<List<Object?>>('getStatistics', <String, Object?>{
-      'deviceId': deviceId,
-      'dpId': TuyaConfig.dp[_metricCode(metric)],
-      'range': range.name,
-    });
-    return (raw ?? <Object?>[])
-        .whereType<num>()
-        .map((value) => value.toDouble())
-        .toList();
-  }
+  ) async => _history[deviceId]?.series(metric, range) ?? const <double>[];
 
   @override
   Future<String> createShareLink(String deviceId) async =>
@@ -287,8 +286,11 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   SmartPlanterDevice _device(Map<Object?, Object?> raw) {
     final dps = (raw['dps'] as Map<Object?, Object?>?) ?? <Object?, Object?>{};
-    Object? dp(String code) {
-      final id = TuyaConfig.dp[code];
+
+    // DP values arrive keyed by id. Whether that id is a string or a number
+    // depends on how the platform channel encoded the map, so try both.
+    Object? dp(String identifier) {
+      final id = TuyaConfig.dp[identifier];
       return dps['$id'] ?? dps[id];
     }
 
@@ -311,29 +313,142 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       _ => fallback,
     };
 
-    final settings = DeviceControlSettings(
-      autoBrightness: boolean(dp('autoBrightness'), true),
-      soundInteraction: boolean(dp('soundInteraction'), true),
-      soundSensitivity: integer(dp('soundSensitivity'), 60),
-      touchInteraction: boolean(dp('touchInteraction'), true),
-      touchSensitivity: integer(dp('touchSensitivity'), 70),
-      vibration: boolean(dp('vibration'), true),
-      napEnabled: boolean(dp('napEnabled'), true),
-      napPeriod: '${dp('napPeriod') ?? '12:30-13:30'}',
-      nightEnabled: boolean(dp('nightEnabled'), true),
-      nightPeriod: '${dp('nightPeriod') ?? '23:00-07:00'}',
-      weatherService: boolean(dp('weatherService'), true),
-      temperatureUnit: '${dp('temperatureUnit') ?? 'celsius'}',
-      clockFormat: '${dp('clockFormat') ?? '24h'}',
+    // Reads a DP the device transmits as an integer multiplied by a power of
+    // ten. Sending the raw number straight to the UI is how 24.6 °C turns into
+    // 246 °C on the temperature card.
+    double scaled(String identifier, double fallback) {
+      final value = dp(identifier);
+      if (value == null) return fallback;
+      final scale = TuyaConfig.dpScale[identifier] ?? 1;
+      return decimal(value, fallback * scale) / scale;
+    }
+
+    // Joins the two minutes-past-midnight DPs behind a schedule into the
+    // `HH:MM-HH:MM` label every settings screen edits.
+    String period(
+      String startIdentifier,
+      String endIdentifier,
+      String fallback,
+    ) {
+      final start = dp(startIdentifier);
+      final end = dp(endIdentifier);
+      if (start == null || end == null) return fallback;
+      final startLabel = TuyaConfig.clockLabel(integer(start, -1));
+      final endLabel = TuyaConfig.clockLabel(integer(end, -1));
+      if (startLabel == null || endLabel == null) return fallback;
+      return '$startLabel-$endLabel';
+    }
+
+    // Null when the device has not reported the status DP yet, or reported a
+    // value the firmware added after this table was written. Callers fall back
+    // to their own thresholds rather than showing a blank.
+    T? reported<T>(String identifier, Map<String, T> values) {
+      final value = dp(identifier);
+      return value == null ? null : values['$value'];
+    }
+
+    DeviceHistory decodeHistory() {
+      final series = <String, List<double>>{};
+      TuyaConfig.history.forEach((metricKey, ranges) {
+        final metric = _historyMetric(metricKey);
+        final sampleBytes = TuyaConfig.historySampleBytes[metricKey] ?? 1;
+        ranges.forEach((rangeName, identifier) {
+          final range = ReportRange.values.byName(rangeName);
+          final decoded = TuyaHistoryCodec.decode(
+            dp(identifier),
+            range: range,
+            sampleBytes: sampleBytes,
+          );
+          if (decoded.isNotEmpty) {
+            series[DeviceHistory.key(metric, range)] = decoded;
+          }
+        });
+      });
+      return series.isEmpty ? DeviceHistory.empty : DeviceHistory(series);
+    }
+
+    final batteryStatus = reported(
+      'battery_status',
+      const <String, BatteryStatus>{
+        'shortage': BatteryStatus.shortage,
+        'good': BatteryStatus.good,
+        'charging': BatteryStatus.charging,
+      },
     );
+    final status = DeviceStatusReport(
+      battery: batteryStatus,
+      waterNeeds: reported(
+        'water_needs_status',
+        const <String, WaterNeedsStatus>{
+          'shortage': WaterNeedsStatus.shortage,
+          'drinking': WaterNeedsStatus.drinking,
+          'watery': WaterNeedsStatus.watery,
+        },
+      ),
+      lighting: reported(
+        'lighting_condition',
+        const <String, LightingCondition>{
+          'shortage': LightingCondition.shortage,
+          'good': LightingCondition.good,
+          'very_good': LightingCondition.veryGood,
+        },
+      ),
+      temperature: reported(
+        'air_temperature_status',
+        const <String, ComfortLevel>{
+          'cold': ComfortLevel.low,
+          'suitable': ComfortLevel.suitable,
+          'heat': ComfortLevel.high,
+        },
+      ),
+      humidity: reported('air_humidity_status', const <String, ComfortLevel>{
+        'dry': ComfortLevel.low,
+        'suitable': ComfortLevel.suitable,
+        'damp': ComfortLevel.high,
+      }),
+    );
+
+    final settings = DeviceControlSettings(
+      autoBrightness: boolean(dp('disp_brightness_switch'), true),
+      soundInteraction: boolean(dp('voice_interaction_switch'), true),
+      soundSensitivity: integer(dp('sound_sensitivity'), 60),
+      touchInteraction: boolean(dp('touch_interact_switch'), true),
+      touchSensitivity: integer(dp('touch_sense_sensitivity'), 70),
+      vibration: boolean(dp('vibration_switch'), true),
+      touchKeyVibration: boolean(dp('touch_vib_switch'), true),
+      touchPlantVibration: boolean(dp('touch_plant_vib_switch'), true),
+      napEnabled: boolean(dp('nap_time_switch'), true),
+      napPeriod: period('nap_start_time', 'nap_end_time', '12:30-13:30'),
+      nightEnabled: boolean(dp('night_sleep_switch'), true),
+      nightPeriod: period(
+        'night_sleep_start_time',
+        'night_sleep_end_time',
+        '23:00-07:00',
+      ),
+      temperatureUnit:
+          _temperatureUnits['${dp('temp_unit_convert')}'] ?? 'celsius',
+      clockFormat: '${dp('time_format') ?? '24h'}',
+    );
+
+    final deviceId = '${raw['deviceId'] ?? raw['devId'] ?? ''}';
+    final history = decodeHistory();
+    _history[deviceId] = history;
+
+    final reportedDays = dp('together_days');
+    // DP 148 is the firmware the device runs; `getPv` on the device bean is the
+    // protocol version, so it is only a fallback.
+    final firmware = dp('firmware_version') ?? raw['firmwareVersion'];
     return SmartPlanterDevice(
-      id: '${raw['deviceId'] ?? raw['devId'] ?? ''}',
+      id: deviceId,
       productId: '${raw['productId'] ?? raw['pid'] ?? ''}',
       name: '${raw['name'] ?? '智能花盆'}',
       online: boolean(raw['online'], false),
       signal: integer(raw['signal'], 0),
-      battery: integer(dp('battery'), 0),
-      charging: boolean(dp('charging'), false),
+      battery: integer(dp('battery_level'), 0),
+      charging: boolean(
+        dp('charge_status'),
+        batteryStatus == BatteryStatus.charging,
+      ),
       boundAt: DateTime.fromMillisecondsSinceEpoch(
         integer(
               raw['activeTime'],
@@ -343,27 +458,36 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       ),
       plant: PlantCatalog.byId(raw['plantId']?.toString()),
       sensors: SensorSnapshot(
-        waterLevel: integer(dp('waterLevel'), 0),
-        soilMoisture: integer(dp('soilMoisture'), 0),
-        illuminance: integer(dp('illuminance'), 0),
-        ppfd: decimal(dp('ppfd'), 0),
-        airTemperature: decimal(dp('airTemperature'), 0),
-        relativeHumidity: integer(dp('relativeHumidity'), 0),
+        waterLevel: integer(dp('water_level'), 0),
+        soilMoisture: integer(dp('soil_moist'), 0),
+        illuminance: integer(dp('light_intensity'), 0),
+        ppfd: decimal(dp('light_ppfd_value'), 0),
+        par: decimal(dp('light_par_value'), 0),
+        airTemperature: scaled('air_temperature', 0),
+        relativeHumidity: scaled('air_humidity', 0).round(),
       ),
       settings: settings,
-      firmwareVersion: '${raw['firmwareVersion'] ?? '--'}',
+      firmwareVersion: '${firmware ?? '--'}',
       macAddress: '${raw['mac'] ?? '--'}',
+      hardwareVersion: '${dp('hardware_version') ?? '--'}',
+      plantVariety: '${dp('plant_variety') ?? ''}',
+      deviceStatus: '${dp('device_status') ?? ''}',
+      reportedDays: reportedDays == null ? null : integer(reportedDays, 0),
+      status: status,
+      history: history,
     );
   }
 
-  static String _metricCode(SensorMetric metric) => switch (metric) {
-    SensorMetric.waterLevel => 'waterLevel',
-    SensorMetric.soilMoisture => 'soilMoisture',
-    SensorMetric.light => 'illuminance',
-    SensorMetric.ppfd || SensorMetric.dli => 'ppfd',
-    SensorMetric.temperature => 'airTemperature',
-    SensorMetric.humidity => 'relativeHumidity',
-    SensorMetric.battery => 'battery',
+  /// `temp_unit_convert` enum value back to the label the settings sheet uses.
+  static final Map<String, String> _temperatureUnits = <String, String>{
+    for (final entry in TuyaConfig.temperatureUnits.entries)
+      entry.value: entry.key,
+  };
+
+  static SensorMetric _historyMetric(String key) => switch (key) {
+    'waterLevel' => SensorMetric.waterLevel,
+    'soilMoisture' => SensorMetric.soilMoisture,
+    _ => SensorMetric.light,
   };
 }
 
@@ -670,6 +794,7 @@ class MockTuyaRepository implements TuyaRepository {
     settings: const DeviceControlSettings(),
     firmwareVersion: '1.0.8',
     macAddress: 'A4:C1:38:7B:2D:10',
+    hardwareVersion: '26',
   );
 }
 

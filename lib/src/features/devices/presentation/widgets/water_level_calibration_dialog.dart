@@ -5,25 +5,40 @@ import 'package:flutter/material.dart';
 import '../../../../design_system/design_system.dart';
 import '../../models/water_level_calibration_model.dart';
 
-typedef WaterLevelCalibrationCallback = Future<bool> Function();
+/// Reports the step the user just confirmed, and returns whether the device
+/// accepted it. `water_level_calib` is an enum of stages, not a single command,
+/// so the device has to be told about each one as it happens.
+typedef WaterLevelCalibrationCallback = Future<bool> Function(int step);
+
+/// Called when the user backs out before the sequence finishes.
+typedef WaterLevelCalibrationCancel = Future<void> Function();
 
 Future<bool> showWaterLevelCalibrationDialog(
   BuildContext context, {
   required WaterLevelCalibrationCallback onCalibrate,
+  required WaterLevelCalibrationCancel onCancel,
 }) async {
   return await showDialog<bool>(
         context: context,
         barrierDismissible: false,
         barrierColor: Colors.black.withValues(alpha: .42),
-        builder: (_) => WaterLevelCalibrationDialog(onCalibrate: onCalibrate),
+        builder: (_) => WaterLevelCalibrationDialog(
+          onCalibrate: onCalibrate,
+          onCancel: onCancel,
+        ),
       ) ??
       false;
 }
 
 class WaterLevelCalibrationDialog extends StatefulWidget {
-  const WaterLevelCalibrationDialog({required this.onCalibrate, super.key});
+  const WaterLevelCalibrationDialog({
+    required this.onCalibrate,
+    required this.onCancel,
+    super.key,
+  });
 
   final WaterLevelCalibrationCallback onCalibrate;
+  final WaterLevelCalibrationCancel onCancel;
 
   @override
   State<WaterLevelCalibrationDialog> createState() =>
@@ -37,6 +52,10 @@ class _WaterLevelCalibrationDialogState
 
   WaterLevelCalibrationStepModel get _step =>
       WaterLevelCalibrationModel.steps[_currentStep];
+
+  /// The closing "校准完成" card, which reports nothing to the device.
+  bool get _onSummaryStep =>
+      _currentStep == WaterLevelCalibrationModel.steps.length - 1;
 
   @override
   Widget build(BuildContext context) {
@@ -103,9 +122,7 @@ class _WaterLevelCalibrationDialogState
                       child: TextButton(
                         key: const Key('calibration-secondary-button'),
                         style: _actionStyle(AppColors.textSecondary),
-                        onPressed: _submitting
-                            ? null
-                            : () => Navigator.pop(context, false),
+                        onPressed: _submitting ? null : _handleSecondaryAction,
                         child: Text(
                           _step.secondaryActionLabel,
                           style: AppTypography.status.copyWith(
@@ -159,22 +176,26 @@ class _WaterLevelCalibrationDialogState
   }
 
   Future<void> _handlePrimaryAction() async {
-    if (_currentStep == WaterLevelCalibrationModel.steps.length - 1) {
+    if (_onSummaryStep) {
       Navigator.pop(context, true);
-      return;
-    }
-    if (_currentStep < WaterLevelCalibrationModel.steps.length - 2) {
-      setState(() => _currentStep += 1);
       return;
     }
 
     setState(() => _submitting = true);
-    final succeeded = await widget.onCalibrate();
+    final succeeded = await widget.onCalibrate(_currentStep);
     if (!mounted) return;
     setState(() {
       _submitting = false;
       if (succeeded) _currentStep += 1;
     });
+  }
+
+  Future<void> _handleSecondaryAction() async {
+    // On the summary card the sequence is already finished and the button
+    // reads 关闭, so there is nothing to cancel.
+    if (!_onSummaryStep) await widget.onCancel();
+    if (!mounted) return;
+    Navigator.pop(context, false);
   }
 }
 

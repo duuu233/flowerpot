@@ -167,7 +167,8 @@ class DeviceInfoData {
       appVersion: '1.0.0',
       firmwareVersion: device.firmwareVersion,
       mac: device.macAddress.replaceAll(':', ''),
-      hardwareVersion: '26',
+      // `hardware_version` (DP 149).
+      hardwareVersion: device.hardwareVersion,
       deviceDevId: device.id,
       deviceUuid: 'uuid$compactId',
       planterUuid: device.productId,

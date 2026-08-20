@@ -57,7 +57,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(result.state.deviceById('device-01')?.settings.napEnabled, isFalse);
-    expect(result.repository.lastDps, <int, Object>{115: false});
+    expect(result.repository.lastDps, <int, Object>{125: false});
     expect(
       tester.widget<Switch>(find.byKey(const Key('nap-switch'))).value,
       isFalse,
@@ -77,7 +77,7 @@ void main() {
       result.state.deviceById('device-01')?.settings.nightEnabled,
       isFalse,
     );
-    expect(result.repository.lastDps, <int, Object>{117: false});
+    expect(result.repository.lastDps, <int, Object>{128: false});
     expect(tester.takeException(), isNull);
   });
 
@@ -102,7 +102,7 @@ void main() {
       result.state.deviceById('device-01')?.settings.napPeriod,
       '11:45-13:30',
     );
-    expect(result.repository.lastDps, <int, Object>{116: '11:45-13:30'});
+    expect(result.repository.lastDps, <int, Object>{126: 705, 127: 810});
     expect(find.text('11:45'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -128,7 +128,7 @@ void main() {
       result.state.deviceById('device-01')?.settings.nightPeriod,
       '22:00-06:45',
     );
-    expect(result.repository.lastDps, <int, Object>{118: '22:00-06:45'});
+    expect(result.repository.lastDps, <int, Object>{129: 1320, 130: 405});
     expect(find.text('次日06:45'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

@@ -15,6 +15,58 @@ enum SensorMetric {
 
 enum ReportRange { day, week, month }
 
+/// Health readings the planter classifies itself, rather than the app deriving
+/// them from a threshold.
+///
+/// Every field is nullable: a freshly bound device has not reported the DP yet,
+/// and the status pages fall back to their own thresholds until it does.
+enum BatteryStatus { shortage, good, charging }
+
+enum WaterNeedsStatus { shortage, drinking, watery }
+
+enum LightingCondition { shortage, good, veryGood }
+
+/// Shared by `air_temperature_status` (cold/suitable/heat) and
+/// `air_humidity_status` (dry/suitable/damp), which differ only in wording.
+enum ComfortLevel { low, suitable, high }
+
+class DeviceStatusReport {
+  const DeviceStatusReport({
+    this.battery,
+    this.waterNeeds,
+    this.lighting,
+    this.temperature,
+    this.humidity,
+  });
+
+  final BatteryStatus? battery;
+  final WaterNeedsStatus? waterNeeds;
+  final LightingCondition? lighting;
+  final ComfortLevel? temperature;
+  final ComfortLevel? humidity;
+}
+
+/// Sensor history the device reports as raw DPs, already decoded into one
+/// series per metric and range.
+class DeviceHistory {
+  const DeviceHistory(this._series);
+
+  static const empty = DeviceHistory(<String, List<double>>{});
+
+  final Map<String, List<double>> _series;
+
+  static String key(SensorMetric metric, ReportRange range) =>
+      '${metric.name}.${range.name}';
+
+  /// Empty when the product has no history DP for [metric], or when the device
+  /// has not reported that window yet.
+  List<double> series(SensorMetric metric, ReportRange range) =>
+      _series[key(metric, range)] ?? const <double>[];
+
+  bool has(SensorMetric metric, ReportRange range) =>
+      (_series[key(metric, range)] ?? const <double>[]).isNotEmpty;
+}
+
 class AppUser {
   const AppUser({
     required this.id,
@@ -131,6 +183,7 @@ class SensorSnapshot {
     required this.ppfd,
     required this.airTemperature,
     required this.relativeHumidity,
+    this.par = 0,
   });
 
   final int waterLevel;
@@ -139,9 +192,14 @@ class SensorSnapshot {
 
   /// Photosynthetic photon flux density in μmol/m²/s.
   ///
-  /// The device reports fractional values (for example 5.642), so this must
-  /// remain a double all the way through the presentation layer.
+  /// `light_ppfd_value` is a whole number on the wire, but the mock backend and
+  /// the DLI derivation both work in fractions, so this stays a double all the
+  /// way through the presentation layer.
   final double ppfd;
+
+  /// Photosynthetically active radiation in μmol/m², from
+  /// `light_par_value`. Reported but not on any screen yet.
+  final double par;
   final double airTemperature;
   final int relativeHumidity;
 
@@ -165,11 +223,12 @@ class DeviceControlSettings {
     this.touchInteraction = true,
     this.touchSensitivity = 70,
     this.vibration = true,
+    this.touchKeyVibration = true,
+    this.touchPlantVibration = true,
     this.napEnabled = true,
     this.napPeriod = '12:30-13:30',
     this.nightEnabled = true,
     this.nightPeriod = '23:00-07:00',
-    this.weatherService = true,
     this.temperatureUnit = 'celsius',
     this.clockFormat = '24h',
   });
@@ -180,11 +239,20 @@ class DeviceControlSettings {
   final bool touchInteraction;
   final int touchSensitivity;
   final bool vibration;
+
+  /// `touch_vib_switch` and `touch_plant_vib_switch`: the device splits haptics
+  /// into the key press and the plant touch. Read and writable, but the
+  /// vibration page only draws the master switch so far.
+  final bool touchKeyVibration;
+  final bool touchPlantVibration;
   final bool napEnabled;
+
+  /// `HH:MM-HH:MM`. The device carries each end as its own minutes-past-
+  /// midnight DP; the pair is joined here because every screen edits them
+  /// together.
   final String napPeriod;
   final bool nightEnabled;
   final String nightPeriod;
-  final bool weatherService;
   final String temperatureUnit;
   final String clockFormat;
 
@@ -195,11 +263,12 @@ class DeviceControlSettings {
     bool? touchInteraction,
     int? touchSensitivity,
     bool? vibration,
+    bool? touchKeyVibration,
+    bool? touchPlantVibration,
     bool? napEnabled,
     String? napPeriod,
     bool? nightEnabled,
     String? nightPeriod,
-    bool? weatherService,
     String? temperatureUnit,
     String? clockFormat,
   }) => DeviceControlSettings(
@@ -209,11 +278,12 @@ class DeviceControlSettings {
     touchInteraction: touchInteraction ?? this.touchInteraction,
     touchSensitivity: touchSensitivity ?? this.touchSensitivity,
     vibration: vibration ?? this.vibration,
+    touchKeyVibration: touchKeyVibration ?? this.touchKeyVibration,
+    touchPlantVibration: touchPlantVibration ?? this.touchPlantVibration,
     napEnabled: napEnabled ?? this.napEnabled,
     napPeriod: napPeriod ?? this.napPeriod,
     nightEnabled: nightEnabled ?? this.nightEnabled,
     nightPeriod: nightPeriod ?? this.nightPeriod,
-    weatherService: weatherService ?? this.weatherService,
     temperatureUnit: temperatureUnit ?? this.temperatureUnit,
     clockFormat: clockFormat ?? this.clockFormat,
   );
@@ -234,6 +304,12 @@ class SmartPlanterDevice {
     required this.settings,
     required this.firmwareVersion,
     required this.macAddress,
+    this.hardwareVersion = '--',
+    this.plantVariety = '',
+    this.deviceStatus = '',
+    this.reportedDays,
+    this.status = const DeviceStatusReport(),
+    this.history = DeviceHistory.empty,
   });
 
   final String id;
@@ -250,7 +326,25 @@ class SmartPlanterDevice {
   final String firmwareVersion;
   final String macAddress;
 
-  int get companionDays => DateTime.now().difference(boundAt).inDays + 1;
+  /// `hardware_version`, reported as a plain number.
+  final String hardwareVersion;
+
+  /// `plant_variety`: the species identifier the device itself holds. The app
+  /// keeps its own [plant] choice, so this is only a cross-check for now.
+  final String plantVariety;
+
+  /// `device_status`, an opaque product-defined string.
+  final String deviceStatus;
+
+  /// `together_days`, pushed once a day at midnight. Null until the device has
+  /// reported it, which is why [companionDays] still has a local fallback.
+  final int? reportedDays;
+
+  final DeviceStatusReport status;
+  final DeviceHistory history;
+
+  int get companionDays =>
+      reportedDays ?? DateTime.now().difference(boundAt).inDays + 1;
 
   SmartPlanterDevice copyWith({
     String? name,
@@ -262,6 +356,8 @@ class SmartPlanterDevice {
     SensorSnapshot? sensors,
     DeviceControlSettings? settings,
     String? firmwareVersion,
+    DeviceStatusReport? status,
+    DeviceHistory? history,
   }) => SmartPlanterDevice(
     id: id,
     productId: productId,
@@ -276,6 +372,12 @@ class SmartPlanterDevice {
     settings: settings ?? this.settings,
     firmwareVersion: firmwareVersion ?? this.firmwareVersion,
     macAddress: macAddress,
+    hardwareVersion: hardwareVersion,
+    plantVariety: plantVariety,
+    deviceStatus: deviceStatus,
+    reportedDays: reportedDays,
+    status: status ?? this.status,
+    history: history ?? this.history,
   );
 }
 

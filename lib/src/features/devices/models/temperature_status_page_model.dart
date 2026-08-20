@@ -11,10 +11,17 @@ class TemperatureStatusPageModel {
 
   factory TemperatureStatusPageModel.fromDevice(SmartPlanterDevice device) {
     final temperature = device.sensors.airTemperature;
-    final status = switch (temperature) {
-      < 18 => '偏低',
-      > 28 => '偏高',
-      _ => '适宜',
+    // `air_temperature_status` (DP 113) when the device has reported it,
+    // otherwise the app's own thresholds.
+    final status = switch (device.status.temperature) {
+      ComfortLevel.low => '偏低',
+      ComfortLevel.suitable => '适宜',
+      ComfortLevel.high => '偏高',
+      null => switch (temperature) {
+        < 18 => '偏低',
+        > 28 => '偏高',
+        _ => '适宜',
+      },
     };
     final description = switch (status) {
       '偏低' => '当前空气温度偏低，请注意为植物保暖。',

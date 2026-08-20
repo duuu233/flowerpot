@@ -16,10 +16,17 @@ class LightStatusPageModel {
     List<double> dliValues = const <double>[],
   }) {
     final illuminance = device.sensors.illuminance;
-    final status = switch (illuminance) {
-      < 200 => '偏低',
-      > 1200 => '充足',
-      _ => '一般',
+    // `lighting_condition` (DP 108) when the device has reported it, otherwise
+    // the app's own lux thresholds.
+    final status = switch (device.status.lighting) {
+      LightingCondition.shortage => '偏低',
+      LightingCondition.good => '一般',
+      LightingCondition.veryGood => '充足',
+      null => switch (illuminance) {
+        < 200 => '偏低',
+        > 1200 => '充足',
+        _ => '一般',
+      },
     };
     final description = switch (status) {
       '偏低' => '当前光照低于植物光合作用补偿点，植物新陈代谢水平较低。',

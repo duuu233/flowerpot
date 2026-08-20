@@ -18,6 +18,7 @@ lib/
     │   └── network/
     ├── tuya/
     │   ├── tuya_config.dart
+    │   ├── tuya_history_codec.dart
     │   ├── tuya_models.dart
     │   └── tuya_repository.dart
     ├── shared/

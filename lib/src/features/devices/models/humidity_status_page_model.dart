@@ -11,10 +11,17 @@ class HumidityStatusPageModel {
 
   factory HumidityStatusPageModel.fromDevice(SmartPlanterDevice device) {
     final humidity = device.sensors.relativeHumidity;
-    final status = switch (humidity) {
-      < 40 => '偏低',
-      > 70 => '偏高',
-      _ => '适宜',
+    // `air_humidity_status` (DP 115) when the device has reported it, otherwise
+    // the app's own thresholds.
+    final status = switch (device.status.humidity) {
+      ComfortLevel.low => '偏低',
+      ComfortLevel.suitable => '适宜',
+      ComfortLevel.high => '偏高',
+      null => switch (humidity) {
+        < 40 => '偏低',
+        > 70 => '偏高',
+        _ => '适宜',
+      },
     };
     final description = switch (status) {
       '偏低' => '当前相对湿度偏低，请适当增加环境湿度。',
