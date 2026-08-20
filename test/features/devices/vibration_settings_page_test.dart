@@ -21,8 +21,8 @@ void main() {
     expect(find.text('震动设置'), findsOneWidget);
     expect(find.text('启动震动'), findsOneWidget);
     expect(find.text('已禁用'), findsOneWidget);
-    expect(find.text('开启后，YSplanter将在触摸操作、缺水警报及番茄钟'), findsOneWidget);
-    expect(find.text('提醒等情况自动触发振动。'), findsOneWidget);
+    expect(find.text('开启后，YSplanter将在触摸操作、缺水警报提醒'), findsOneWidget);
+    expect(find.text('等情况自动触发振动。'), findsOneWidget);
     expect(findAssetImage(AppAssets.vibrationSymbol), findsOneWidget);
     final card = find.byType(VibrationSettingsCard);
     expect(tester.getSize(card), const Size(339, 339));
@@ -33,7 +33,7 @@ void main() {
   testWidgets('vibration settings remain usable at 320x568', (tester) async {
     await _pumpVibrationSettings(tester, const Size(320, 568));
 
-    final description = find.text('提醒等情况自动触发振动。');
+    final description = find.text('等情况自动触发振动。');
     await tester.ensureVisible(description);
     await tester.pump();
 
