@@ -1,4 +1,5 @@
 import Flutter
+import NetworkExtension
 import UIKit
 
 #if canImport(ThingSmartHomeKit)
@@ -28,14 +29,39 @@ import ThingSmartHomeKit
     let bridge = FlowerpotTuyaBridge()
     tuyaBridge = bridge
     channel.setMethodCallHandler(bridge.handle)
+    // One-way channel for what the device reports on its own; mirrored by
+    // `TuyaConfig.eventChannelName` and by the Android bridge.
+    FlutterEventChannel(
+      name: "com.common.yikaltd/tuya_events",
+      binaryMessenger: registrar.messenger()
+    ).setStreamHandler(bridge)
   }
 }
 
 final class FlowerpotTuyaBridge: NSObject {
+  /// Dart's end of the event channel, or nil while nothing is listening.
+  fileprivate var eventSink: FlutterEventSink?
+
   #if canImport(ThingSmartHomeKit)
   private let homeManager = ThingSmartHomeManager()
   private var currentHome: ThingSmartHome?
   private var pairingResult: FlutterResult?
+
+  /// Devices with this bridge set as their delegate, keyed by device id.
+  ///
+  /// `ThingSmartDevice.delegate` is weak and the SDK does not retain the
+  /// instance, so dropping it here would silently stop the reports.
+  private var watched: [String: ThingSmartDevice] = [:]
+
+  /// Last provisioning token and when it was fetched. Never handed to Dart:
+  /// it is a short-lived cloud credential and the debug console logs whatever
+  /// it receives.
+  private var activatorToken: String?
+  private var activatorTokenAt: Date?
+
+  /// Tuya issues provisioning tokens with a 10-minute validity; 8 leaves room
+  /// for the user to switch networks and for the activator's handshake.
+  private static let activatorTokenTTL: TimeInterval = 8 * 60
   #endif
 
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -52,14 +78,20 @@ final class FlowerpotTuyaBridge: NSObject {
     case "logout": logout(result)
     case "cancelAccount": cancelAccount(result)
     case "getDevices": withHome(result) { [weak self] home in self?.loadDevices(home, result) }
+    case "scanWifi": scanWifi(result)
+    case "prepareActivatorToken": prepareActivatorToken(result)
     case "pairWifiDevice": pairWifi(args, result)
     case "publishDps": publishDps(args, result)
     case "renameDevice": renameDevice(args, result)
     case "removeDevice": removeDevice(args, reset: false, result)
     case "resetFactory": removeDevice(args, reset: true, result)
     case "getStatistics": sdkError(result, code: "service_configuration_required", message: "请在涂鸦平台开通设备数据统计服务")
-    case "createShareLink": sdkError(result, code: "service_configuration_required", message: "请在涂鸦平台配置设备分享渠道码与通用链接")
-    case "checkFirmware", "startFirmwareUpgrade": sdkError(result, code: "ota_configuration_required", message: "请先为产品 PID 配置固件 OTA 通道")
+    // The iOS Home SDK shares to an account (ThingSmartDeviceShare), not to a
+    // link: there is no iOS counterpart to the Expansion SDK call Android uses
+    // here. Wiring it up needs the share screen to collect a recipient first.
+    case "createShareLink": sdkError(result, code: "share_service_unavailable", message: "iOS 端设备分享需按账号分享，请先在分享页填写接收账号")
+    case "checkFirmware": checkFirmware(args, result)
+    case "startFirmwareUpgrade": startFirmwareUpgrade(args, result)
     case "uploadAnimation": sdkError(result, code: "product_protocol_required", message: "图片同步需要设备 PID 对应的文件传输协议")
     default: result(FlutterMethodNotImplemented)
     }
@@ -188,11 +220,25 @@ final class FlowerpotTuyaBridge: NSObject {
   }
 
   private func logout(_ result: @escaping FlutterResult) {
-    ThingSmartUser.sharedInstance()?.loginOut({ result(nil) }, failure: { error in self.fail(result, error) })
+    ThingSmartUser.sharedInstance()?.loginOut({ [weak self] in
+      self?.endSession()
+      result(nil)
+    }, failure: { error in self.fail(result, error) })
   }
 
   private func cancelAccount(_ result: @escaping FlutterResult) {
-    ThingSmartUser.sharedInstance()?.cancelAccount({ result(nil) }, failure: { error in self.fail(result, error) })
+    ThingSmartUser.sharedInstance()?.cancelAccount({ [weak self] in
+      self?.endSession()
+      result(nil)
+    }, failure: { error in self.fail(result, error) })
+  }
+
+  /// The devices and the home belong to the account that is going away.
+  private func endSession() {
+    releaseDeviceListeners()
+    currentHome = nil
+    activatorToken = nil
+    activatorTokenAt = nil
   }
 
   private func withHome(_ result: @escaping FlutterResult, ready: @escaping (ThingSmartHome) -> Void) {
@@ -224,27 +270,51 @@ final class FlowerpotTuyaBridge: NSObject {
   }
 
   private func loadDevices(_ home: ThingSmartHome, _ result: @escaping FlutterResult) {
-    home.getDetailWithSuccess({ _ in
-      result(home.deviceList.map(self.deviceMap))
+    home.getDetailWithSuccess({ [weak self] _ in
+      guard let self else { return }
+      let devices = home.deviceList ?? []
+      // The snapshot below is a point in time; the delegates registered here
+      // are what keep it current afterwards.
+      self.watchDevices(devices.map { $0.devId ?? "" })
+      result(devices.map(self.deviceMap))
     }, failure: { error in self.fail(result, error) })
   }
 
   private func pairWifi(_ args: [String: Any], _ result: @escaping FlutterResult) {
-    withHome(result) { [weak self] home in
-      guard let self, let activator = ThingSmartActivator.sharedInstance() else { return }
-      self.pairingResult = result
-      activator.delegate = self
-      activator.getTokenWithHomeId(home.homeModel.homeId, success: { token in
-        let mode = (args["mode"] as? String) == "ez" ? ThingActivatorModeEZ : ThingActivatorModeAP
-        activator.startConfigWiFi(
-          mode,
-          ssid: args["ssid"] as? String ?? "",
-          password: args["password"] as? String ?? "",
-          token: token,
-          timeout: 120
-        )
-      }, failure: { error in self.fail(result, error) })
+    // Reuse a pre-fetched token when there is one. This is what makes AP mode
+    // work at all: by the time this runs the phone is on the device's hotspot
+    // and the cloud is unreachable. EZ keeps the phone on the router, so the
+    // fetch below is its normal path.
+    if let token = freshActivatorToken() {
+      startActivator(args, result, token: token)
+      return
     }
+    withHome(result) { [weak self] home in
+      self?.fetchActivatorToken(home, result) { token in
+        self?.startActivator(args, result, token: token)
+      }
+    }
+  }
+
+  private func startActivator(
+    _ args: [String: Any],
+    _ result: @escaping FlutterResult,
+    token: String
+  ) {
+    guard let activator = ThingSmartActivator.sharedInstance() else {
+      sdkError(result, code: "sdk_unavailable", message: "无法获取配网实例")
+      return
+    }
+    pairingResult = result
+    activator.delegate = self
+    let mode = (args["mode"] as? String) == "ez" ? ThingActivatorModeEZ : ThingActivatorModeAP
+    activator.startConfigWiFi(
+      mode,
+      ssid: args["ssid"] as? String ?? "",
+      password: args["password"] as? String ?? "",
+      token: token,
+      timeout: 120
+    )
   }
 
   private func publishDps(_ args: [String: Any], _ result: @escaping FlutterResult) {
@@ -279,6 +349,153 @@ final class FlowerpotTuyaBridge: NSObject {
     }
   }
 
+  /// The network the phone is on. The list is always empty on iOS: there is no
+  /// public API to scan for nearby access points, so provisioning asks the
+  /// user to pick the network in Settings instead of offering a list.
+  ///
+  /// Reading even the current SSID needs the "Access WiFi Information"
+  /// capability and location permission; without them this reports nothing
+  /// rather than failing.
+  private func scanWifi(_ result: @escaping FlutterResult) {
+    guard #available(iOS 14.0, *) else {
+      result(currentNetwork(nil))
+      return
+    }
+    NEHotspotNetwork.fetchCurrent { network in
+      DispatchQueue.main.async { result(self.currentNetwork(network?.ssid)) }
+    }
+  }
+
+  /// The shape `WifiScan` decodes. The band is unknown on iOS, so the app
+  /// falls back to "频段未知" instead of claiming 2.4 GHz.
+  private func currentNetwork(_ ssid: String?) -> [String: Any?] {
+    return [
+      "networks": [Any](),
+      "current": ssid,
+      "currentFrequency": nil,
+    ]
+  }
+
+  /// Fetches a provisioning token and caches it, without starting anything.
+  ///
+  /// AP mode needs this as its own step: once the phone joins the device's
+  /// hotspot it has no route to the cloud, so the token has to be obtained
+  /// while it is still on the router.
+  private func prepareActivatorToken(_ result: @escaping FlutterResult) {
+    withHome(result) { [weak self] home in
+      self?.fetchActivatorToken(home, result) { _ in result(nil) }
+    }
+  }
+
+  private func fetchActivatorToken(
+    _ home: ThingSmartHome,
+    _ result: @escaping FlutterResult,
+    ready: @escaping (String) -> Void
+  ) {
+    ThingSmartActivator.sharedInstance()?.getTokenWithHomeId(
+      home.homeModel.homeId,
+      success: { [weak self] token in
+        guard let token else {
+          self?.sdkError(result, code: "token_missing", message: "配网令牌获取失败")
+          return
+        }
+        self?.activatorToken = token
+        self?.activatorTokenAt = Date()
+        ready(token)
+      },
+      failure: { [weak self] error in self?.fail(result, error) }
+    )
+  }
+
+  /// A cached token that is still inside its validity window.
+  private func freshActivatorToken() -> String? {
+    guard let token = activatorToken, let at = activatorTokenAt else { return nil }
+    return Date().timeIntervalSince(at) < Self.activatorTokenTTL ? token : nil
+  }
+
+  private func checkFirmware(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    guard let id = args["deviceId"] as? String, let device = ThingSmartDevice(deviceId: id) else {
+      sdkError(result, code: "bad_args", message: "设备参数错误")
+      return
+    }
+    device.getFirmwareUpgradeInfo({ models in
+      // One model per upgradable component; upgradeStatus 1 is "an update is
+      // waiting". Anything else means there is nothing to offer.
+      let pending = models?.first { $0.upgradeStatus == 1 }
+      result(pending?.version)
+    }, failure: { [weak self] error in self?.fail(result, error) })
+  }
+
+  private func startFirmwareUpgrade(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    guard let id = args["deviceId"] as? String, let device = ThingSmartDevice(deviceId: id) else {
+      sdkError(result, code: "bad_args", message: "设备参数错误")
+      return
+    }
+    // The upgrade is started per component, and the component type only comes
+    // from the upgrade info, so it is read first.
+    device.getFirmwareUpgradeInfo({ [weak self] models in
+      guard let self else { return }
+      guard let pending = models?.first(where: { $0.upgradeStatus == 1 }) else {
+        self.sdkError(result, code: "firmware_up_to_date", message: "当前固件已是最新版本")
+        return
+      }
+      device.upgradeFirmware(
+        pending.type,
+        success: { result(nil) },
+        failure: { error in self.fail(result, error) }
+      )
+    }, failure: { [weak self] error in self?.fail(result, error) })
+  }
+
+  /// Keeps a delegate registered for exactly [deviceIds].
+  private func watchDevices(_ deviceIds: [String]) {
+    let wanted = Set(deviceIds.filter { !$0.isEmpty })
+    // Snapshot the keys: unwatchDevice mutates the dictionary being read.
+    for id in Array(watched.keys) where !wanted.contains(id) {
+      unwatchDevice(id)
+    }
+    wanted.forEach(watchDevice)
+  }
+
+  /// Subscribes to one device's reports.
+  ///
+  /// This is the SDK's own push channel: with the account logged in and the
+  /// home loaded, the SDK keeps the MQTT/LAN link up and calls the delegate
+  /// for every DP the device reports. Nothing here polls.
+  private func watchDevice(_ deviceId: String) {
+    guard !deviceId.isEmpty, watched[deviceId] == nil,
+          let device = ThingSmartDevice(deviceId: deviceId) else { return }
+    device.delegate = self
+    watched[deviceId] = device
+  }
+
+  private func unwatchDevice(_ deviceId: String) {
+    guard let device = watched.removeValue(forKey: deviceId) else { return }
+    device.delegate = nil
+  }
+
+  fileprivate func releaseDeviceListeners() {
+    watched.values.forEach { $0.delegate = nil }
+    watched.removeAll()
+  }
+
+  /// DP ids arrive as dictionary keys of either type depending on the
+  /// transport; Dart reads them as strings.
+  fileprivate func dpMap(_ dps: [AnyHashable: Any]) -> [String: Any] {
+    var out: [String: Any] = [:]
+    for (key, value) in dps { out["\(key)"] = value }
+    return out
+  }
+
+  fileprivate func emit(_ event: [String: Any]) {
+    DispatchQueue.main.async { [weak self] in self?.eventSink?(event) }
+  }
+
+  fileprivate func deviceSnapshot(_ device: ThingSmartDevice) -> [String: Any?]? {
+    guard let model = device.deviceModel else { return nil }
+    return deviceMap(model)
+  }
+
   private func userMap(_ user: ThingSmartUser) -> [String: Any?] {
     return [
       "uid": user.uid,
@@ -311,6 +528,51 @@ final class FlowerpotTuyaBridge: NSObject {
   #endif
 }
 
+/// Everything the planter reports on its own reaches Dart through here.
+///
+/// `ThingSmartDeviceDelegate` is the iOS counterpart of Android's
+/// `IDevListener`; both are fed onto the same event channel in the same shape,
+/// so the Dart side has one decoder.
+#if canImport(ThingSmartHomeKit)
+extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
+  func device(_ device: ThingSmartDevice, dpsUpdate dps: [AnyHashable: Any]) {
+    guard let id = device.deviceModel?.devId else { return }
+    let changed = dpMap(dps)
+    if !changed.isEmpty { emit(["deviceId": id, "dps": changed]) }
+  }
+
+  /// Name, online flag and firmware version live on the model rather than in a
+  /// DP, so the whole snapshot goes over.
+  func deviceInfoUpdate(_ device: ThingSmartDevice) {
+    guard let id = device.deviceModel?.devId, let snapshot = deviceSnapshot(device) else {
+      return
+    }
+    emit(["deviceId": id, "device": snapshot])
+  }
+
+  func deviceRemoved(_ device: ThingSmartDevice) {
+    guard let id = device.deviceModel?.devId else { return }
+    emit(["deviceId": id, "removed": true])
+    DispatchQueue.main.async { [weak self] in self?.unwatchDevice(id) }
+  }
+}
+#endif
+
+extension FlowerpotTuyaBridge: FlutterStreamHandler {
+  func onListen(
+    withArguments arguments: Any?,
+    eventSink events: @escaping FlutterEventSink
+  ) -> FlutterError? {
+    eventSink = events
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    eventSink = nil
+    return nil
+  }
+}
+
 #if canImport(ThingSmartHomeKit)
 extension FlowerpotTuyaBridge: ThingSmartActivatorDelegate {
   func activator(
@@ -325,6 +587,11 @@ extension FlowerpotTuyaBridge: ThingSmartActivatorDelegate {
     if let error {
       fail(callback, error)
     } else if let deviceModel {
+      // Tokens are single-use; keeping this one would make the next attempt
+      // fail with a stale-token error.
+      activatorToken = nil
+      activatorTokenAt = nil
+      watchDevice(deviceModel.devId ?? "")
       callback(deviceMap(deviceModel))
     } else {
       callback(FlutterError(code: "pair_failed", message: "未发现设备", details: nil))

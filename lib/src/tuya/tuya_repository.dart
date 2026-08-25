@@ -69,13 +69,82 @@ abstract class TuyaRepository {
   Future<String?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
   Future<void> uploadAnimation(String deviceId, AnimationAsset asset);
+
+  /// Changes the devices push on their own: DP reports, online state and
+  /// unbinds that happened elsewhere.
+  ///
+  /// A broadcast stream — several screens may listen at once — that stays
+  /// silent rather than failing on a platform whose bridge does not push yet.
+  Stream<DeviceUpdate> get deviceUpdates;
 }
 
 class MethodChannelTuyaRepository implements TuyaRepository {
-  MethodChannelTuyaRepository({MethodChannel? channel})
-    : _channel = channel ?? const MethodChannel(TuyaConfig.channelName);
+  MethodChannelTuyaRepository({MethodChannel? channel, EventChannel? events})
+    : _channel = channel ?? const MethodChannel(TuyaConfig.channelName),
+      _events = events ?? const EventChannel(TuyaConfig.eventChannelName);
 
   final MethodChannel _channel;
+  final EventChannel _events;
+
+  /// Last raw device map per device id, as the native side sent it.
+  ///
+  /// A DP report carries only the points that changed, so it has to be merged
+  /// into something; this is that something. Filled by every [_device] decode,
+  /// which covers the device list, pairing and the merges themselves.
+  final Map<String, Map<Object?, Object?>> _snapshots =
+      <String, Map<Object?, Object?>>{};
+
+  @override
+  late final Stream<DeviceUpdate> deviceUpdates = _events
+      .receiveBroadcastStream()
+      // A platform that does not implement the event channel — iOS today —
+      // delivers one MissingPluginException and nothing else. Live updates
+      // stay off there instead of taking every listener down with them.
+      .handleError((Object _) {})
+      .map(_deviceUpdate)
+      .where((update) => update != null)
+      .cast<DeviceUpdate>();
+
+  /// Turns one native event into an update, or null when there is nothing to
+  /// report.
+  ///
+  /// Shape of the event is documented on the Android side's `devListenerProxy`:
+  /// always a `deviceId`, plus any of `dps`, `online`, `removed` and `device`.
+  DeviceUpdate? _deviceUpdate(Object? event) {
+    if (event is! Map) return null;
+    final deviceId = '${event['deviceId'] ?? ''}';
+    if (deviceId.isEmpty) return null;
+
+    if (event['removed'] == true) {
+      _snapshots.remove(deviceId);
+      _history.remove(deviceId);
+      return DeviceUpdate.removed(deviceId);
+    }
+
+    final snapshot = _snapshots[deviceId];
+    // A push for a device this session never listed. There is no snapshot to
+    // merge into, and inventing one would drop every field the event omits;
+    // the next device-list load picks it up in full.
+    if (snapshot == null) return null;
+
+    final merged = Map<Object?, Object?>.of(snapshot);
+    // A device-info change ships the whole bean, so it lands first and the DP
+    // delta is applied on top.
+    final device = event['device'];
+    if (device is Map) merged.addAll(device);
+    final dps = event['dps'];
+    if (dps is Map) {
+      final known = merged['dps'];
+      merged['dps'] = <Object?, Object?>{
+        if (known is Map) ...known,
+        ...dps,
+      };
+    }
+    final online = event['online'];
+    if (online is bool) merged['online'] = online;
+
+    return DeviceUpdate.changed(_device(merged));
+  }
 
   Future<T?> _invoke<T>(
     String method, [
@@ -174,7 +243,16 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<List<SmartPlanterDevice>> getDevices() async {
     final raw = await _invoke<List<Object?>>('getDevices') ?? <Object?>[];
-    return raw.whereType<Map<Object?, Object?>>().map(_device).toList();
+    final devices = raw
+        .whereType<Map<Object?, Object?>>()
+        .map(_device)
+        .toList();
+    // Devices the account no longer owns leave their snapshot and decoded
+    // history behind otherwise.
+    final owned = devices.map((device) => device.id).toSet();
+    _snapshots.removeWhere((id, _) => !owned.contains(id));
+    _history.removeWhere((id, _) => !owned.contains(id));
+    return devices;
   }
 
   @override
@@ -433,6 +511,8 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     final deviceId = '${raw['deviceId'] ?? raw['devId'] ?? ''}';
     final history = decodeHistory();
     _history[deviceId] = history;
+    // Kept so the next DP report has a full device to merge into.
+    _snapshots[deviceId] = raw;
 
     final reportedDays = dp('together_days');
     // DP 148 is the firmware the device runs; `getPv` on the device bean is the
@@ -498,6 +578,30 @@ class MockTuyaRepository implements TuyaRepository {
   });
 
   final Duration latency;
+
+  final StreamController<DeviceUpdate> _updates =
+      StreamController<DeviceUpdate>.broadcast();
+
+  /// Silent unless a caller pushes: the mock backend has no device behind it,
+  /// and inventing readings that drift on their own would make a demo look
+  /// like a live planter.
+  @override
+  Stream<DeviceUpdate> get deviceUpdates => _updates.stream;
+
+  /// Pushes a report the way a real planter would, for tests and for driving
+  /// the live-update path without hardware.
+  void pushDeviceUpdate(DeviceUpdate update) {
+    final device = update.device;
+    if (device != null) {
+      final index = _devices.indexWhere((item) => item.id == device.id);
+      if (index >= 0) _devices[index] = device;
+    }
+    final removedId = update.removedId;
+    if (removedId != null) {
+      _devices.removeWhere((item) => item.id == removedId);
+    }
+    _updates.add(update);
+  }
 
   /// Whether the account already owns a planter before any pairing runs.
   final bool seedDevice;

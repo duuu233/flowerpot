@@ -6,6 +6,7 @@ import '../../../tuya/tuya_models.dart';
 import '../models/light_status_page_model.dart';
 import 'widgets/light_dli_bar_chart.dart';
 import 'widgets/light_status_summary_card.dart';
+import 'widgets/metric_history_empty_card.dart';
 
 class LightStatusPage extends StatefulWidget {
   const LightStatusPage({required this.deviceId, super.key});
@@ -101,6 +102,11 @@ class _LightStatusPageState extends State<LightStatusPage> {
                         );
                       }
                       final values = snapshot.data!;
+                      // DLI is derived from PPFD, which has no history
+                      // function point; the product only reports光照 history.
+                      if (values.isEmpty) {
+                        return const MetricHistoryEmptyCard(title: '暂无 DLI 历史');
+                      }
                       return MetricChartCard(
                         leading: Image.asset(
                           AppAssets.infoIcon,

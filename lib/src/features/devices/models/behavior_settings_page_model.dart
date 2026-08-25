@@ -36,6 +36,7 @@ class BehaviorSchedulePageModel {
     required this.descriptionLines,
     required this.start,
     required this.end,
+    this.settings = const DeviceControlSettings(),
   });
 
   final BehaviorScheduleKind kind;
@@ -45,11 +46,20 @@ class BehaviorSchedulePageModel {
   final BehaviorClockTime start;
   final BehaviorClockTime end;
 
+  /// Carried so the labels can follow `time_format` (DP 147). The DPs behind a
+  /// schedule are minutes past midnight either way, so only the display
+  /// changes.
+  final DeviceControlSettings settings;
+
   String get status => enabled ? '已开启' : '已关闭';
   String get description => descriptionLines.join('\n');
-  String get startLabel => start.label;
-  String get endLabel =>
-      end.totalMinutes <= start.totalMinutes ? '次日${end.label}' : end.label;
+  String get startLabel => settings.formatClock(start.label);
+  String get endLabel => end.totalMinutes <= start.totalMinutes
+      ? '次日${settings.formatClock(end.label)}'
+      : settings.formatClock(end.label);
+
+  /// `HH:MM-HH:MM`, always 24-hour: this is what gets written back to the
+  /// device, not what is shown.
   String get period => '${start.label}-${end.label}';
 }
 
@@ -77,6 +87,7 @@ class BehaviorSettingsPageModel {
         descriptionLines: const <String>['让 YSplanter 在正午稍作休息，可自定义她的小憩时', '间。'],
         start: napPeriod.$1,
         end: napPeriod.$2,
+        settings: settings,
       ),
       night: BehaviorSchedulePageModel(
         kind: BehaviorScheduleKind.night,
@@ -85,6 +96,7 @@ class BehaviorSettingsPageModel {
         descriptionLines: const <String>['设定 YSplanter 的夜间作息选择她的入睡与醒来时间。'],
         start: nightPeriod.$1,
         end: nightPeriod.$2,
+        settings: settings,
       ),
     );
   }

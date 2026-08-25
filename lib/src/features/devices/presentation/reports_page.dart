@@ -49,7 +49,18 @@ class _ReportsPageState extends State<ReportsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final info = _MetricInfo.of(widget.arguments.metric);
+    // `temp_unit_convert` (DP 146) decides the unit the device reports in, so
+    // the temperature report is labelled from the device rather than fixed to
+    // Celsius. Readings are never converted here — only the app's own advice
+    // range is.
+    final settings =
+        FlowerpotScope.of(
+          context,
+        ).deviceById(widget.arguments.deviceId)?.settings ??
+        const DeviceControlSettings();
+    final info = _MetricInfo.of(
+      widget.arguments.metric,
+    ).withTemperatureUnit(settings);
     final ranges = switch (widget.arguments.metric) {
       SensorMetric.dli => const <ReportRange>[
         ReportRange.week,
@@ -104,9 +115,25 @@ class _ReportsPageState extends State<ReportsPage> {
                     );
                   }
                   final values = snapshot.data!;
-                  final average = values.isEmpty
-                      ? 0
-                      : values.reduce((a, b) => a + b) / values.length;
+                  // Only water level, soil moisture and light have history
+                  // function points; the rest have no data source yet and are
+                  // left empty rather than drawn from the current reading.
+                  if (values.isEmpty) {
+                    return GlassCard(
+                      child: SizedBox(
+                        height: 270,
+                        child: Center(
+                          child: Text(
+                            '设备还没有上报${info.title}历史数据。',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  final average =
+                      values.reduce((a, b) => a + b) / values.length;
                   return GlassCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -218,6 +245,20 @@ class _MetricInfo {
   final Color color;
   final String tip;
   final int decimals;
+
+  /// The temperature report in the device's own unit. Every other metric is
+  /// returned unchanged.
+  _MetricInfo withTemperatureUnit(DeviceControlSettings settings) {
+    if (unit != '°C') return this;
+    return _MetricInfo(
+      title,
+      settings.temperatureSymbol,
+      icon,
+      color,
+      '多数室内植物在 ${settings.formatCelsiusRange(18, 28)} 生长较舒适，避免温度骤变。',
+      decimals,
+    );
+  }
 
   static _MetricInfo of(SensorMetric metric) => switch (metric) {
     SensorMetric.waterLevel => const _MetricInfo(

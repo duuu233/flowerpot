@@ -59,6 +59,39 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the two touch vibration DPs have their own switches', (
+    tester,
+  ) async {
+    final result = await _pumpVibrationSettings(tester, const Size(375, 812));
+    final keySwitch = find.byKey(const Key('touch-key-vibration-switch'));
+    final plantSwitch = find.byKey(const Key('touch-plant-vibration-switch'));
+    await tester.ensureVisible(plantSwitch);
+    await tester.pump();
+
+    expect(find.text('触摸按键震动'), findsOneWidget);
+    expect(find.text('触摸植物震动'), findsOneWidget);
+    expect(tester.widget<Switch>(keySwitch).value, isTrue);
+
+    await tester.tap(keySwitch);
+    await tester.pumpAndSettle();
+
+    expect(result.repository.lastDps, <int, Object>{123: false});
+    expect(
+      result.state.deviceById('device-01')?.settings.touchKeyVibration,
+      isFalse,
+    );
+
+    await tester.tap(plantSwitch);
+    await tester.pumpAndSettle();
+
+    expect(result.repository.lastDps, <int, Object>{124: false});
+    expect(
+      result.state.deviceById('device-01')?.settings.touchPlantVibration,
+      isFalse,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('missing vibration device uses the shared error state', (
     tester,
   ) async {

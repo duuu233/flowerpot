@@ -30,11 +30,14 @@ target 'Runner' do
   # Download ios_core_sdk.tar.gz from the Tuya Developer Platform and put
   # ThingSmartCryption.podspec plus Build/ in ios/TuyaSDK. The real SDK is
   # linked automatically only after that app-specific security kit exists.
+  #
+  # The version follows the Podfile shipped alongside that download: the
+  # security component is built for one SDK line, and pairing it with another
+  # fails at runtime rather than at install time.
   tuya_sdk_path = File.join(__dir__, 'TuyaSDK')
   if File.exist?(File.join(tuya_sdk_path, 'ThingSmartCryption.podspec'))
     pod 'ThingSmartCryption', :path => tuya_sdk_path
-    pod 'ThingSmartHomeKit', '~> 7.5.0'
-    pod 'ThingSmartBusinessExtensionKit', '~> 7.5.0'
+    pod 'ThingSmartHomeKit', '~> 7.8.0'
   end
 
   target 'RunnerTests' do
@@ -43,7 +46,17 @@ target 'Runner' do
 end
 
 post_install do |installer|
+  tuya_linked = File.exist?(File.join(__dir__, 'TuyaSDK', 'ThingSmartCryption.podspec'))
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      # Tuya's own Podfile asks for this: parts of the SDK ship no arm64
+      # simulator slice, so a simulator build on Apple Silicon has to run
+      # under Rosetta. Applied only when the SDK is actually linked — forcing
+      # it otherwise would break plain Flutter simulator builds for no reason.
+      if tuya_linked
+        config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+      end
+    end
   end
 end

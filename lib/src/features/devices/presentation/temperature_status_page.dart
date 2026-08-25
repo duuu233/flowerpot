@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
 import '../models/temperature_status_page_model.dart';
+import 'widgets/metric_history_empty_card.dart';
 import 'widgets/temperature_status_summary_card.dart';
 import 'widgets/temperature_trend_chart_card.dart';
 
@@ -90,10 +91,15 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
                           ),
                         );
                       }
-                      final values = snapshot.data!.isEmpty
-                          ? <double>[summaryModel.temperature]
-                          : snapshot.data!;
+                      final values = snapshot.data!;
+                      // No temperature history function point in the DP table.
+                      if (values.isEmpty) {
+                        return const MetricHistoryEmptyCard(title: '暂无温度历史');
+                      }
                       return TemperatureTrendChartCard(
+                        unit: summaryModel.temperatureSymbol,
+                        // The axis follows the unit the device reports in.
+                        maxValue: device.settings.temperatureFromCelsius(50),
                         values: values,
                         labels: const <String>[
                           '00:00',

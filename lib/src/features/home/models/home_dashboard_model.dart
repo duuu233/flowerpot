@@ -84,7 +84,10 @@ class HomeDashboardModel {
         HomeMetricData(
           kind: HomeMetricKind.temperature,
           label: '空气温度',
-          value: '${(sensors?.airTemperature ?? 25.5).toStringAsFixed(1)}°C',
+          // The reading is already in the unit `temp_unit_convert` selects, so
+          // only the label follows the device.
+          value: (device?.settings ?? const DeviceControlSettings())
+              .formatTemperature(sensors?.airTemperature ?? 25.5),
         ),
         HomeMetricData(
           kind: HomeMetricKind.humidity,

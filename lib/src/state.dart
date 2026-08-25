@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -23,6 +25,9 @@ class FlowerpotState extends ChangeNotifier {
   WifiScan? _wifiScan;
   String? _selectedDeviceId;
   List<SmartPlanterDevice> _devices = <SmartPlanterDevice>[];
+
+  /// Live device reports. See [_applyDeviceUpdate].
+  StreamSubscription<DeviceUpdate>? _deviceUpdates;
 
   /// Devices whose plant has been picked in this session.
   ///
@@ -115,6 +120,7 @@ class FlowerpotState extends ChangeNotifier {
     } catch (_) {
       _sdkReady = false;
     }
+    _listenForDeviceUpdates();
     try {
       _user = await _repository.restoreSession();
       if (_user != null) {
@@ -215,6 +221,8 @@ class FlowerpotState extends ChangeNotifier {
       seedDevice: seedDevice,
     );
     await _repository.initialize();
+    // The old subscription belongs to the repository being replaced.
+    _listenForDeviceUpdates();
     return login(
       account: 'demo@flowerpot.local',
       credential: 'demo',
@@ -464,6 +472,25 @@ class FlowerpotState extends ChangeNotifier {
         return const ActionResult(true, '已取消校准');
       });
 
+  /// Tells the planter itself to reset (DP 141) before the SDK unbinds it.
+  ///
+  /// The SDK's `resetFactory` clears the cloud binding; the DP is what the
+  /// firmware acts on, so it goes first — after the unbind the app has no route
+  /// to the device. An offline or rejecting device does not block the unbind
+  /// the user asked for.
+  ///
+  /// Still to confirm with firmware: what the device does on receiving 141, and
+  /// whether it drops the binding on its own as well.
+  Future<void> _publishFactoryReset(String id) async {
+    final dpId = TuyaConfig.dp['factory_reset'];
+    if (dpId == null) return;
+    try {
+      await _repository.publishDps(id, <int, Object>{dpId: true});
+    } on TuyaException {
+      // Unreachable device: unbinding locally is still what was asked for.
+    }
+  }
+
   Future<void> _publishCalibration(String id, String step) async {
     final dpId = TuyaConfig.dp['water_level_calib'];
     if (dpId == null) {
@@ -474,6 +501,7 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<ActionResult> removeDevice(String id, {required bool resetFactory}) =>
       _guard(() async {
+        if (resetFactory) await _publishFactoryReset(id);
         await _repository.removeDevice(id, resetFactory: resetFactory);
         _devices.removeWhere((device) => device.id == id);
         _plantedDevices.remove(id);
@@ -506,6 +534,50 @@ class FlowerpotState extends ChangeNotifier {
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool('notificationsEnabled', enabled);
+  }
+
+  void _listenForDeviceUpdates() {
+    _deviceUpdates?.cancel();
+    _deviceUpdates = _repository.deviceUpdates.listen(_applyDeviceUpdate);
+  }
+
+  /// Applies a change the device pushed on its own.
+  ///
+  /// The device is authoritative here: the pushed snapshot already carries
+  /// every DP the app knew plus the ones that just changed, so the local
+  /// settings copy is refreshed from it rather than replayed over it — that
+  /// copy only exists because the mock backend cannot persist a write, and a
+  /// stale one would mask a switch pressed on the planter itself. The plant is
+  /// the exception: the app picks it, the device does not report it.
+  void _applyDeviceUpdate(DeviceUpdate update) {
+    final removedId = update.removedId;
+    if (removedId != null) {
+      if (_devices.every((device) => device.id != removedId)) return;
+      _devices = _devices.where((device) => device.id != removedId).toList();
+      _plantedDevices.remove(removedId);
+      _plantOverrides.remove(removedId);
+      _settingsOverrides.remove(removedId);
+      if (_selectedDeviceId == removedId) {
+        _selectedDeviceId = _devices.firstOrNull?.id;
+      }
+      notifyListeners();
+      return;
+    }
+    final device = update.device;
+    if (device == null) return;
+    final index = _devices.indexWhere((item) => item.id == device.id);
+    // A report for a device the session does not hold: the next list refresh
+    // is what introduces it.
+    if (index < 0) return;
+    _settingsOverrides[device.id] = device.settings;
+    _devices[index] = device.copyWith(plant: _plantOverrides[device.id]);
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _deviceUpdates?.cancel();
+    super.dispose();
   }
 
   void _replaceDevice(

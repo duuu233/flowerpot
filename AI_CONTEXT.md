@@ -61,6 +61,16 @@ lib/main.dart
                               → Android/iOS Smart Life SDK
 ```
 
+设备主动上报是反方向的一条单向链，不经过方法通道：
+
+```text
+Android IDevListener / iOS ThingSmartDeviceDelegate
+  → EventChannel com.common.yikaltd/tuya_events
+  → MethodChannelTuyaRepository（并入最近一次设备快照）
+  → TuyaRepository.deviceUpdates
+  → FlowerpotState → notifyListeners()
+```
+
 `ActionResult` 同时带回 `message` 与 `code`：产品页面只展示 `message`，SDK 联调页用 `code` 区分平台配置错误（`sdk_unavailable`、`credentials_missing`、`security_component_mismatch`）与账号错误。
 
 REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL` 读取服务地址，`ApiSession` 用 `SharedPreferences` 持久化 `userToken` 并统一处理鉴权失效。当前账号和设备主链仍以 `TuyaRepository` 为边界，业务页面不应直接发 HTTP 请求。
@@ -85,6 +95,7 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 ## 5. 当前核心模块
 
 - 账号：国内手机号、海外邮箱、验证码/密码、注册、找回密码、退出和注销。
+- 设备实时性：DP 上报、上下线和解绑由原生监听推给 Dart，页面自动刷新；温标（146）与时间格式（147）下发后 App 自身展示跟随。
 - 首页与设备：无底部菜单，设备列表即首页、左上角头像进入「我的」、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网动线中只有 Wi-Fi 那一步是真实 SDK 调用，搜索与选择设备都是模拟，详见 `docs/TUYA_SDK_SETUP.md` 第 6 节。
 - 设备控制：显示、听觉、触觉、振动、行为时段、温标、时钟、校准与系统修复。
 - 内容与维护：动画资源、设备分享、解绑、恢复出厂和 OTA。
@@ -137,6 +148,8 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 - 静态演示构建使用 Mock 后端与空设备列表，接口错误、超时和真实鉴权行为都不会在其中出现。
 - `FlowerpotState` 被大量页面调用，继续膨胀会扩大变更影响面；拆分前必须先分析调用链并保留行为。
 - DP 101–123 的最终映射、倍率、枚举、统计服务、动画传输、分享和 OTA 回调仍需平台/固件确认。
+- 温度、湿度、电量、PPFD、DLI 没有历史功能点，真机上这几条曲线是空态而不是曲线；142/143/144 图片下发链路等 Java 后端提供图片地址后再接。
+- iOS 桥接已补齐配网前置、DP 上报与 OTA，但 iOS 侧全部改动尚未经过 Xcode 编译或真机验证；`createShareLink` 在 iOS 上仍是明确错误码（Home SDK 只有按账号分享）。
 - Android/iOS 包名与桥接正在工作区中演进；不要根据旧历史文档恢复已删除的平台文件。
 - 当前工作区有大量未提交的 UI、资源、路由、平台与测试改动，任何任务都必须先识别所有权并避免覆盖。
 

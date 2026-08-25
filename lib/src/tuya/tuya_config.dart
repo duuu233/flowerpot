@@ -4,6 +4,10 @@ abstract final class TuyaConfig {
   static const enabled = bool.fromEnvironment('TUYA_ENABLED');
 
   static const channelName = 'com.common.yikaltd/tuya';
+
+  /// One-way channel the native side pushes device reports on: DP updates,
+  /// online state and unbind notices the app never asked for.
+  static const eventChannelName = 'com.common.yikaltd/tuya_events';
   static const defaultHomeName = '我的花园';
 
   /// PID the [dp] table below was exported from.

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/vibration_settings_page_model.dart';
+import 'widgets/vibration_scene_switches_card.dart';
 import 'widgets/vibration_settings_card.dart';
 
 class VibrationSettingsPage extends StatefulWidget {
@@ -16,6 +17,8 @@ class VibrationSettingsPage extends StatefulWidget {
 
 class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
   bool updating = false;
+  bool updatingKeyVibration = false;
+  bool updatingPlantVibration = false;
 
   Future<void> _setVibration(bool value) async {
     if (updating) return;
@@ -25,6 +28,32 @@ class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
     ).updateSetting(widget.deviceId, 'vibration', value);
     if (!mounted) return;
     setState(() => updating = false);
+    if (!result.success) {
+      showAppMessage(context, result.message, tone: AppMessageTone.error);
+    }
+  }
+
+  Future<void> _setKeyVibration(bool value) async {
+    if (updatingKeyVibration) return;
+    setState(() => updatingKeyVibration = true);
+    final result = await FlowerpotScope.of(
+      context,
+    ).updateSetting(widget.deviceId, 'touchKeyVibration', value);
+    if (!mounted) return;
+    setState(() => updatingKeyVibration = false);
+    if (!result.success) {
+      showAppMessage(context, result.message, tone: AppMessageTone.error);
+    }
+  }
+
+  Future<void> _setPlantVibration(bool value) async {
+    if (updatingPlantVibration) return;
+    setState(() => updatingPlantVibration = true);
+    final result = await FlowerpotScope.of(
+      context,
+    ).updateSetting(widget.deviceId, 'touchPlantVibration', value);
+    if (!mounted) return;
+    setState(() => updatingPlantVibration = false);
     if (!result.success) {
       showAppMessage(context, result.message, tone: AppMessageTone.error);
     }
@@ -52,10 +81,24 @@ class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
             AppSpacing.pageMargin,
             40,
           ),
-          child: VibrationSettingsCard(
-            model: model,
-            updating: updating,
-            onVibrationChanged: _setVibration,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              VibrationSettingsCard(
+                model: model,
+                updating: updating,
+                onVibrationChanged: _setVibration,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              VibrationSceneSwitchesCard(
+                keyVibration: model.keyVibrationEnabled,
+                plantVibration: model.plantVibrationEnabled,
+                updatingKeyVibration: updatingKeyVibration,
+                updatingPlantVibration: updatingPlantVibration,
+                onKeyVibrationChanged: _setKeyVibration,
+                onPlantVibrationChanged: _setPlantVibration,
+              ),
+            ],
           ),
         ),
       ),

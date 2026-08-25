@@ -10,12 +10,13 @@
 | 首页 | 已配网设备列表、在线/信号/电量/充电、添加和删除设备 | `features/home`、`features/devices` |
 | 配网 | 2.4 GHz Wi-Fi、Token、创建默认家庭（当前固定 AP 模式；搜索与选择设备两页仍是模拟，未接入设备发现） | `pairing_page.dart`、原生 Tuya bridge |
 | 首页与状态详情 | 植物、陪伴天数、天气、水位、土壤、光照/PPFD/DLI、温度、湿度、电池 | `features/home`、`features/devices/presentation/*_status_page.dart`、`reports_page.dart` |
-| 报表 | 水位/湿度日周月、PPFD 日、DLI 周月、温湿度/电池趋势 | `reports_page.dart` |
+| 报表 | 水位/土壤湿度/光照日周月来自设备上报的 raw 历史包；温度、湿度、电池、PPFD、DLI 没有历史功能点，真机上是空态 | `reports_page.dart` |
+| 设备实时性 | DP 上报、上下线、远端解绑由原生监听推送，页面自动刷新 | `tuya_repository.dart`、`state.dart`、两端桥接 |
 | 定制动画 | 图片列表、上传、同步、置顶、删除 | `animations_page.dart` |
 | 设备设置 | 名称、植物、硬件信息、OTA、分享/解绑/恢复出厂 | `device_settings_page.dart` |
 | 感知设置 | 自动亮度、声音/触摸开关与灵敏度、振动 | `device_settings_page.dart` |
 | 行为 | 中午小憩、夜间睡眠时间段和开关 | `device_settings_page.dart` |
-| 本地化 | 位置天气、重置位置、温标、12/24 小时 | `device_settings_page.dart` |
+| 本地化 | 温标与 12/24 小时既下发设备，App 自身展示也跟随（`DeviceControlSettings` 的格式化入口） | `device_other_settings_page.dart`、`tuya_models.dart` |
 | 维护 | 水位校准、修复系统文件、重新配网 | `device_settings_page.dart` |
 | 我的 | 中英文、消息开关、App 升级、帮助、隐私、协议、关于 | `features/profile` |
 
@@ -23,10 +24,11 @@
 
 - Android 本机已完成 AppKey、AppSecret、包名、证书 SHA-256、安全 AAR 与 Home/Expansion SDK 初始化验证；账号、家庭、配网和设备链仍需真机与真实账号联调。秘密与安全组件不入库，其他开发环境必须独立配置。联调起点是登录页的「涂鸦 SDK 联调」入口（见 `TUYA_SDK_SETUP.md` 5.3），它直接调用注册、登录、会话与设备列表并显示原始失败码。
 - 设备只支持 2.4GHz Wi-Fi 配网，没有蓝牙配网，因此不存在「扫描并选择设备」这一步。搜索页与选择页目前是模拟实现，建议改成「确认设备已进入配网状态」的引导页，而不是去实现设备发现。配网模式默认 AP，debug 构建可切 EZ；正式默认值需要产品确认。
-- iOS AppKey、AppSecret、Bundle ID、签名与安全组件仍需配置和验证。
+- iOS 安全组件已放入 `ios/TuyaSDK/`，Podfile 跟随其 SDK 线固定 `ThingSmartHomeKit ~> 7.8.0`；AppKey、AppSecret、Bundle ID、签名仍需在 Xcode 侧配置，且 iOS 全部改动尚未编译或真机验证。iOS 没有 Wi-Fi 扫描 API，分享只有按账号分享（见 `TUYA_SDK_SETUP.md` 第 3 节）。
 - 产品 PID 与 101–123 DP 的最终对应关系、数据缩放倍率和枚举定义。
 - 涂鸦设备数据统计服务的开通范围与统计 API。
-- 设备图片/动画文件传输协议、大小限制、格式以及硬件确认机制。
+- 设备图片/动画文件传输协议、大小限制、格式以及硬件确认机制：142/143/144 由 Java 后端提供设备可访问的图片地址后再接。
+- 恢复出厂（DP 141）：App 已在解绑前下发，固件收到后的具体行为与是否自行解绑待确认。
 - 分享渠道码、Universal Link/App Link。
 - OTA 固件通道、升级类型和进度回调。
 - 微信、支付宝快捷登录参数；国内手机号一键登录服务。

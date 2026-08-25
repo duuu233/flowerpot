@@ -67,6 +67,25 @@ class DeviceHistory {
       (_series[key(metric, range)] ?? const <double>[]).isNotEmpty;
 }
 
+/// A change the planter pushed on its own, rather than an answer to a call the
+/// app made.
+///
+/// The device reports DP 103–115 and the nine history packets whenever it has
+/// something new; the app only ever asks for the full list at login and on a
+/// pull-to-refresh, so without this every reading on screen would be as old as
+/// the last list load.
+class DeviceUpdate {
+  /// The device as it now stands, with the reported DPs already merged into
+  /// the last known snapshot.
+  const DeviceUpdate.changed(SmartPlanterDevice this.device) : removedId = null;
+
+  /// The device left the account — unbound from another phone, or reset.
+  const DeviceUpdate.removed(String this.removedId) : device = null;
+
+  final SmartPlanterDevice? device;
+  final String? removedId;
+}
+
 class AppUser {
   const AppUser({
     required this.id,
@@ -255,6 +274,56 @@ class DeviceControlSettings {
   final String nightPeriod;
   final String temperatureUnit;
   final String clockFormat;
+
+  /// Whether the device is currently set to Fahrenheit (`temp_unit_convert`).
+  bool get usesFahrenheit => temperatureUnit == 'fahrenheit';
+
+  String get temperatureSymbol => usesFahrenheit ? '°F' : '°C';
+
+  /// The device reports `air_temperature` in whatever unit
+  /// `temp_unit_convert` selects — the platform export gives DP 112's unit as
+  /// `°C/°F` — so a reading is never converted here, only labelled. What does
+  /// need converting is the app's own Celsius numbers: comfort thresholds,
+  /// advice ranges and chart bounds.
+  double temperatureFromCelsius(double celsius) =>
+      usesFahrenheit ? celsius * 9 / 5 + 32 : celsius;
+
+  /// A reading as the device reports it, with the unit it is in.
+  String formatTemperature(double value, {int fractionDigits = 1}) =>
+      '${value.toStringAsFixed(fractionDigits)}$temperatureSymbol';
+
+  /// A Celsius range from the app's own copy, in the device's unit.
+  String formatCelsiusRange(double low, double high, {int fractionDigits = 0}) =>
+      '${temperatureFromCelsius(low).toStringAsFixed(fractionDigits)}'
+      '$temperatureSymbol~'
+      '${temperatureFromCelsius(high).toStringAsFixed(fractionDigits)}'
+      '$temperatureSymbol';
+
+  /// Whether the device is set to a 12-hour clock (`time_format`).
+  bool get uses12HourClock => clockFormat == '12h';
+
+  /// An `HH:MM` label in the clock format the device is set to. Anything that
+  /// does not parse is returned unchanged, so a label that is already
+  /// formatted — or a placeholder — passes through.
+  String formatClock(String label) {
+    if (!uses12HourClock) return label;
+    final parts = label.split(':');
+    if (parts.length != 2) return label;
+    final hour = int.tryParse(parts.first);
+    final minute = int.tryParse(parts.last);
+    if (hour == null || minute == null) return label;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return label;
+    final meridiem = hour < 12 ? '上午' : '下午';
+    final twelve = hour % 12 == 0 ? 12 : hour % 12;
+    return '$meridiem $twelve:${minute.toString().padLeft(2, '0')}';
+  }
+
+  /// An `HH:MM-HH:MM` period in the device's clock format.
+  String formatPeriod(String period) {
+    final parts = period.split('-');
+    if (parts.length != 2) return period;
+    return '${formatClock(parts.first)}-${formatClock(parts.last)}';
+  }
 
   DeviceControlSettings copyWith({
     bool? autoBrightness,

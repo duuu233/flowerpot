@@ -160,8 +160,10 @@ flutter build apk --debug --split-per-abi --target-platform android-arm64 --dart
 
 ```text
 ios/TuyaSDK/ThingSmartCryption.podspec
-ios/TuyaSDK/Build/...
+ios/TuyaSDK/Build/ThingSmartCryption.xcframework/...
 ```
+
+`ios/TuyaSDK/` 已在 `.gitignore` 中：这份安全组件与 AppKey、AppSecret、Bundle ID 绑定，和密钥同等重要，不进 Git、不外发。
 
 复制配置模板并填写密钥：
 
@@ -176,6 +178,17 @@ cd ios && pod install
 THING_SMART_APPKEY=YOUR_IOS_APP_KEY
 THING_SMART_APPSECRET=YOUR_IOS_APP_SECRET
 ```
+
+Podfile 与 Android 一样是条件接入：只有 `ios/TuyaSDK/ThingSmartCryption.podspec` 存在时才声明涂鸦的 pod，否则工程仍能按 Mock 模式构建。版本跟随平台随安全组件一起下发的 Podfile——**当前是 `ThingSmartHomeKit ~> 7.8.0`**。安全组件是按某一条 SDK 线构建的，配错版本不会在 `pod install` 报错，而是在运行时失败。
+
+同一份 Podfile 的 `post_install` 只在 SDK 真的接入时设置 `EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64`（涂鸦官方 Podfile 的要求，部分组件没有 arm64 模拟器切片，Apple Silicon 上要走 Rosetta）。没有安全组件时不设置，避免无谓地破坏普通 Flutter 模拟器构建。
+
+两处 iOS 平台限制，接入前先知道：
+
+| 能力 | 状态 |
+| --- | --- |
+| 附近 Wi-Fi 列表 | iOS 没有公开的扫描 API。`scanWifi` 只回当前网络名（`NEHotspotNetwork.fetchCurrent`，iOS 14+），列表恒为空、频段恒为未知。要读到当前 SSID 还需要在 Xcode Target 打开 **Access WiFi Information** 能力并授予定位权限；没开只是读不到，不会报错。 |
+| 分享链接 | iOS Home SDK 的设备分享是**按账号分享**（`ThingSmartDeviceShare`），没有 Android 业务拓展 SDK 那种生成分享链接的接口。`createShareLink` 因此返回 `share_service_unavailable`，改造需要产品先决定分享页是否改成填写接收方账号。 |
 
 ## 4. 产品 DP
 
@@ -199,6 +212,12 @@ App 侧的命名不再直接当 DP 键用，两层映射都在同一个文件里
 | 131–139 | raw 历史包，格式见 `lib/src/tuya/tuya_history_codec.dart`。 |
 
 表里没有对应功能点、界面上又存在的两处：**天气服务**（已从设置模型中删除）和**修复系统文件**（改为提示「系统修复暂未开放」）。要做就得先在平台加 DP。
+
+三条产品口径，写在这里免得反复问：
+
+- **146 温度单位**：DP 112 的单位列写的是 `°C/°F`，设备切到华氏后**上报值本身就是华氏**。所以 App 只跟着换单位标签，绝不再做一次换算；需要换算的是 App 自己那套摄氏阈值（18–28 ℃ 的舒适区、坐标轴上限、养护建议文案），换算集中在 `DeviceControlSettings.temperatureFromCelsius`。
+- **147 时间格式**：下发之后 App 自身的时间展示跟随，`DeviceControlSettings.formatClock` 把 `HH:MM` 转成 12 小时制；写回设备的仍然是 24 小时制的 `HH:MM`，以及最终的「当天第几分钟」。趋势图的时间轴刻度仍固定 24 小时制。
+- **141 恢复出厂 / 150 重新配网**：恢复出厂会先向设备下发 141，再调 SDK 的 `resetFactory` 解绑（设备离线或拒绝时不阻断解绑）；设备收到 141 后的具体行为待固件确认。重新配网**不需要额外下发 150**，触发时让设备重新走一遍配网流程即可。
 
 ## 5. 运行
 
@@ -273,19 +292,45 @@ flutter build apk --release --split-per-abi --dart-define=TUYA_DEBUG_TOOLS=true 
 
 `android/app/src/main/kotlin/com/common/yikaltd/MainActivity.kt` 中的桥接不硬编码涂鸦回调接口名：先按方法名与参数个数解析目标方法，再用该方法声明的最后一个接口参数生成动态代理。因此 `logout`（`ILogoutCallback`）与 `cancelAccount`（`IResultCallback`）、`getOtaInfo`、`setOtaListener` 等签名不同的接口能共用同一套调用代码，SDK 升级改名也不会静默失效。Expansion SDK 7.8.0 的初始化声明为 `ThingOptimusSdk.init(Context)`；反射查找必须使用声明类型 `Context`，实际参数仍可传入 `Application`。
 
-已接通：账号（验证码、登录、注册、找回密码、改昵称、退出、注销）、家庭查询与自动建家、AP/EZ 配网、设备列表、DP 下发、重命名、解绑、恢复出厂、OTA 查询与升级。
+已接通：账号（验证码、登录、注册、找回密码、改昵称、退出、注销）、家庭查询与自动建家、AP/EZ 配网、设备列表、DP 下发、重命名、解绑、恢复出厂、OTA 查询与升级、**设备 DP 实时上报**。
+
+iOS 桥接（`ios/Runner/AppDelegate.swift`）现在覆盖同一组方法名：账号、家庭、设备列表、配网（含 `scanWifi` 与 `prepareActivatorToken`）、DP 下发、重命名、解绑、恢复出厂、DP 实时上报、OTA 查询与升级。两端方法名、参数名和错误码保持一致，Dart 侧只有一套 Repository。
+
+### 6.0 设备 DP 实时上报
+
+设备自己上报的东西不走方法通道，走一条单向事件通道 `com.common.yikaltd/tuya_events`（`TuyaConfig.eventChannelName`）。两端用各自 SDK 现成的监听：
+
+| 平台 | 入口 |
+| --- | --- |
+| Android | `ThingHomeSdk.newDeviceInstance(devId).registerDevListener(IDevListener)`，回调 `onDpUpdate` / `onStatusChanged` / `onNetworkStatusChanged` / `onRemoved` / `onDevInfoUpdate`。 |
+| iOS | `ThingSmartDevice(deviceId:).delegate`，回调 `device(_:dpsUpdate:)` / `deviceInfoUpdate(_:)` / `deviceRemoved(_:)`。 |
+
+监听在 `getDevices` 成功后按返回的设备 id 集合注册，配网成功后补一台，解绑、恢复出厂、退出登录和注销时释放；没有任何轮询。事件形状两端一致：
+
+```text
+deviceId : String     必有
+dps      : Map?       本次变化的功能点，键是 DP id 字符串
+online   : bool?      上下线，或手机网络变化
+removed  : bool?      设备已从账号移除
+device   : Map?       设备信息变化后的整份快照
+```
+
+Dart 侧 `MethodChannelTuyaRepository` 保留每台设备最近一次的原始 map，把增量合并进去后重新解码成 `SmartPlanterDevice`，通过 `TuyaRepository.deviceUpdates` 发出；`FlowerpotState` 订阅后替换设备并 `notifyListeners()`。因此 103–115、131–139、145 这些只上报的功能点会自己刷新，不再依赖手动下拉。合并是有状态的：只给某台设备推 DP、而这台设备本次会话从没出现在设备列表里时，事件会被丢弃，等下一次 `getDevices` 带回完整快照。
+
+设备回执同样走这条通道：下发开关后设备把新值报回来，`FlowerpotState` 会用设备值刷新本地那份设置副本，所以在设备上按实体键改的设置也能反映到界面。
+
+刷新范围有一处要知道：设备卡片和状态页的当前读数会自己变（`FlowerpotScope` 是 `InheritedNotifier`），但趋势图取的是 `historyFor` 返回的 `Future`，只在进入页面时求值一次——新到的历史包要重新进页面才会画出来。
 
 传感器历史不再走云端统计服务：131–139 是设备自己上报的 raw 历史包，`getDevices` 读回 `dps` 时就地解码，`getHistory` 直接从这份快照取。原生侧的 `getStatistics` 分支因此不再被 Dart 调用，保留只是没必要为此改原生。
 
 尚未接通，调用会返回明确错误码而不是假数据：
 
 - `uploadAnimation` → `product_protocol_required`：动画同步需要 PID 对应的文件传输协议。表里的 142/143/144（下载图片、显示图片、取消显示）是设备侧的图片链路，142 收的是 URL 而不是本地文件，接入前要先定下图片托管在哪里。
-- `createShareLink` → `share_service_unavailable`：分享链接由业务拓展 SDK 提供，管理类包名需要在开通设备分享后核对。
+- `createShareLink` → `share_service_unavailable`：Android 侧的分享链接由业务拓展 SDK 提供，管理类包名需要在开通设备分享后核对；iOS Home SDK 只有按账号分享，没有生成链接的接口（见第 3 节）。
 
 还未实现的能力：
 
-- 设备 DP 实时上报。当前只在 `getDevices` 时读取一次 `dps`，下发后 UI 不会收到设备主动推送的变化。功能点表接进来之后这条更要紧：电量、水位、光照、五个状态枚举和全部历史包都是只上报（ro），不接上报就只能靠手动刷新。接入时需要注册 `IDevListener` 并新增一条 Flutter 事件通道，同时扩展 `TuyaRepository` 契约。
-- 温度、湿度、电量三条趋势曲线没有历史 DP：表里只有水仓水位、土壤湿度、光照各三个窗口。这三页在真实设备上会是空曲线，要么在平台补 DP，要么改成不画历史。
+- 温度、湿度、电量、PPFD、DLI 五条趋势曲线没有历史 DP：表里只有水仓水位、土壤湿度、光照各三个窗口。这几页在真实设备上显示「暂无历史数据」空态——不再用当前读数画一个点冒充趋势。要出曲线得在平台补 DP 或自建后端。
 - **设备发现**。桥接里没有任何扫描接口，`TuyaRepository` 也没有对应契约。**产品确认设备只支持 2.4GHz Wi-Fi 配网，没有蓝牙配网**，因此这里不应该去实现 BLE 扫描：EZ/AP 配网本来就没有「先扫描再选设备」这一步，设备是否在配网状态只能由用户看指示灯确认。配网动线中只有最后一步是真实的：
 
 | 页面 | 现状 |

@@ -95,7 +95,7 @@ class TemperatureStatusSummaryCard extends StatelessWidget {
                               ),
                             ),
                             TextSpan(
-                              text: '°C',
+                              text: model.temperatureSymbol,
                               style: AppTypography.body.copyWith(
                                 color: AppColors.textSecondary,
                               ),

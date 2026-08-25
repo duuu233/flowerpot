@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
 import '../models/water_status_page_model.dart';
+import 'widgets/metric_history_empty_card.dart';
 import 'widgets/water_status_summary_card.dart';
 import 'widgets/water_trend_chart_card.dart';
 
@@ -112,9 +113,10 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
                           ),
                         );
                       }
-                      final values = snapshot.data!.isEmpty
-                          ? <double>[_currentValue(summaryModel)]
-                          : snapshot.data!;
+                      final values = snapshot.data!;
+                      if (values.isEmpty) {
+                        return const MetricHistoryEmptyCard(title: '暂无历史数据');
+                      }
                       return WaterTrendChartCard(
                         metric: metric,
                         values: values,
@@ -136,11 +138,6 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
       ),
     );
   }
-
-  double _currentValue(WaterStatusPageModel model) => switch (metric) {
-    WaterStatusMetric.waterLevel => model.waterLevel.toDouble(),
-    WaterStatusMetric.soilMoisture => model.soilMoisture.toDouble(),
-  };
 
   void _changeRange(ReportRange value) {
     if (value == range) return;

@@ -14,6 +14,7 @@
 | Widget | 文件 | 职责 |
 | --- | --- | --- |
 | `VibrationSettingsCard` | `presentation/widgets/vibration_settings_card.dart` | 组合震动设置页面的标题、状态、说明和开关参数 |
+| `VibrationSceneSwitchesCard` | `presentation/widgets/vibration_scene_switches_card.dart` | 主卡下方的两个场景开关：触摸按键震动、触摸植物震动 |
 | `DeviceToggleSettingsCard` | `presentation/widgets/device_toggle_settings_card.dart` | 显示与震动设置页面共用的半透明单开关卡片布局 |
 | `DeviceSettingOrbitIllustration` | `presentation/widgets/setting_orbit_illustration.dart` | 显示、听觉和震动页面共用的同心光晕插画，通过枚举绘制对应图标 |
 
@@ -23,7 +24,7 @@
 
 模型文件：`lib/src/features/devices/models/vibration_settings_page_model.dart`
 
-- `VibrationSettingsPageModel.fromSettings` 将 `DeviceControlSettings.vibration` 转为开关值、已启用/已禁用状态和设计说明文案。
+- `VibrationSettingsPageModel.fromSettings` 将 `DeviceControlSettings.vibration` 转为开关值、已启用/已禁用状态和设计说明文案，并带出 `touchKeyVibration`、`touchPlantVibration` 两个场景开关。
 - 更新中的临时禁用状态由 Page 管理，设备数据仍由状态层维护。
 
 ## 图片资源策略
@@ -33,7 +34,9 @@
 ## 交互与路由
 
 - 设备设置页的“震动设置”行进入本页，不再打开旧控制 Bottom Sheet。
-- 启动震动开关调用 `vibration` 功能点（DP 114）；更新期间禁用开关，失败时使用统一错误提示。
+- 启动震动开关调用 `vibration` 功能点（DP 122）；更新期间禁用开关，失败时使用统一错误提示。
+- 主卡下方是「触摸按键震动」（`touch_vib_switch`，DP 123）与「触摸植物震动」（`touch_plant_vib_switch`，DP 124）。功能点表把两者列为独立可写点，因此它们不随主开关联动置灰——固件是否把主开关当作总闸待确认。
+- 这两项不在 Figma 画板里，所以放在**独立的第二张卡**，主卡的画板尺寸（335×339）保持不变。
 - 找不到设备时复用 `AppErrorView`。
 
 ## 尺寸适配与测试
@@ -45,6 +48,7 @@
 ## 所属批次与校验状态
 
 - 所属批次：账户密码、显示与设备感知设置页面批次。
-- 页面级 Widget 测试：通过，共 5 项。
+- 页面级 Widget 测试：通过，共 5 项（记录于当时；2026-08-20 补的第 6 项「两个场景开关」尚未在本机执行，见下）。
 - `dart analyze lib test`：通过，无静态分析问题。
 - `flutter test --reporter compact`：通过，共 164 项测试。
+- 2026-08-20 补充 123/124 两个开关时，操作机没有 Flutter/Dart 工具链，格式化、静态分析与测试均未重新执行。

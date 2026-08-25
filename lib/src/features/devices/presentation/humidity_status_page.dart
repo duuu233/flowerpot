@@ -6,6 +6,7 @@ import '../../../tuya/tuya_models.dart';
 import '../models/humidity_status_page_model.dart';
 import 'widgets/humidity_status_summary_card.dart';
 import 'widgets/humidity_trend_chart_card.dart';
+import 'widgets/metric_history_empty_card.dart';
 
 class HumidityStatusPage extends StatefulWidget {
   const HumidityStatusPage({required this.deviceId, super.key});
@@ -90,9 +91,11 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
                           ),
                         );
                       }
-                      final values = snapshot.data!.isEmpty
-                          ? <double>[summaryModel.humidity.toDouble()]
-                          : snapshot.data!;
+                      final values = snapshot.data!;
+                      // No humidity history function point in the DP table.
+                      if (values.isEmpty) {
+                        return const MetricHistoryEmptyCard(title: '暂无湿度历史');
+                      }
                       return HumidityTrendChartCard(
                         values: values,
                         labels: const <String>[

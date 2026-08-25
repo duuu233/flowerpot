@@ -46,3 +46,4 @@
 - [`2026-08/2026-08-18-android-local-config-handoff.md`](2026-08/2026-08-18-android-local-config-handoff.md)：区分可进入 Git 的 Android 固定配置与必须本机输入的涂鸦、签名材料，并补充新电脑配置清单和模板。
 - [`2026-08/2026-08-18-mock-data-markers.md`](2026-08/2026-08-18-mock-data-markers.md)：核查配网动线只有 Wi-Fi 一步是真实调用，清掉预填的假 Wi-Fi 凭据与配网前置的蓝牙权限，透传配网失败码，并收敛登录页入口。
 - [`2026-08/2026-08-18-demo-flow-polish.md`](2026-08/2026-08-18-demo-flow-polish.md)：统一植物目录并接入植物图片，去掉底部 Tab 导航改为头像进入「我的」，并补齐演示数据。
+- [`2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md`](2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md)：接入设备 DP 实时上报（Android/iOS 监听 + 事件通道）、报表空态、温标与时间格式跟随、恢复出厂下发 141，并补齐 iOS 桥接与安全组件接入。

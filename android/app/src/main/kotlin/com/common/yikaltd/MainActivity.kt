@@ -9,11 +9,14 @@ import android.os.Build
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
 import org.json.JSONObject
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -35,6 +38,18 @@ private val AP_MODE_NAMES = listOf("THING_AP", "TY_AP")
  */
 private const val ACTIVATOR_TOKEN_TTL_MS = 8L * 60 * 1000
 
+/** Request/response channel; mirrored by `TuyaConfig.channelName`. */
+private const val METHOD_CHANNEL = "com.common.yikaltd/tuya"
+
+/**
+ * Device-push channel; mirrored by `TuyaConfig.eventChannelName`.
+ *
+ * Everything the device reports on its own — DP updates, online state, removal
+ * — travels here instead of over the method channel, which only ever answers
+ * the call the app made.
+ */
+private const val EVENT_CHANNEL = "com.common.yikaltd/tuya_events"
+
 class MainActivity : FlutterActivity() {
     private lateinit var bridge: TuyaSdkBridge
     private var pendingPair: PendingPair? = null
@@ -52,7 +67,7 @@ class MainActivity : FlutterActivity() {
         bridge = TuyaSdkBridge(this)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "com.common.yikaltd/tuya",
+            METHOD_CHANNEL,
         ).setMethodCallHandler { call, rawResult ->
             // Wrapped up front so the permission-retry path is covered too.
             val result = SingleResult(rawResult)
@@ -63,6 +78,30 @@ class MainActivity : FlutterActivity() {
             }
             bridge.handle(call, result)
         }
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            EVENT_CHANNEL,
+        ).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    bridge.attachEventSink(events)
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    bridge.attachEventSink(null)
+                }
+            },
+        )
+    }
+
+    /**
+     * Device listeners outlive the Flutter engine unless they are unregistered:
+     * the SDK holds the proxy, the proxy holds this activity.
+     */
+    override fun onDestroy() {
+        bridge.releaseDeviceListeners()
+        bridge.attachEventSink(null)
+        super.onDestroy()
     }
 
     /**
@@ -174,6 +213,31 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      */
     private var activatorToken: String? = null
     private var activatorTokenAt: Long = 0L
+
+    /**
+     * `IThingDevice` instances that currently hold a registered listener, keyed
+     * by device id. Written from the main thread, read from the SDK's callback
+     * threads.
+     */
+    private val watched = ConcurrentHashMap<String, Any>()
+
+    /** Dart's end of [EVENT_CHANNEL], or null while nothing is listening. */
+    @Volatile
+    private var events: EventChannel.EventSink? = null
+
+    fun attachEventSink(sink: EventChannel.EventSink?) {
+        events = sink
+    }
+
+    /**
+     * Drops every device listener. Safe to call when none are registered.
+     *
+     * The event sink is left attached: a logout ends the device subscriptions,
+     * not Dart's stream, and the next login registers listeners again.
+     */
+    fun releaseDeviceListeners() {
+        watched.keys.toList().forEach(::unwatchDevice)
+    }
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
@@ -416,7 +480,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         invokeWithCallback(
             userInstance(),
             method,
-            onSuccess = { success(result, null) },
+            onSuccess = {
+                // The devices belong to the account that is going away.
+                activity.runOnUiThread {
+                    releaseDeviceListeners()
+                    homeId = null
+                }
+                success(result, null)
+            },
             onError = { code, message -> error(result, code, message) },
         )
     }
@@ -482,10 +553,11 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 onMain(result) {
                     val devices =
                         value?.let { optionalGetter(it, "getDeviceList") } as? List<*>
-                    success(
-                        result,
-                        devices.orEmpty().filterNotNull().map(::deviceMap),
-                    )
+                    val beans = devices.orEmpty().filterNotNull()
+                    // The snapshot below is a point in time; the listeners are
+                    // what keep it current afterwards.
+                    watchDevices(beans.map(::deviceIdOf))
+                    success(result, beans.map(::deviceMap))
                 }
             },
             onError = { code, message -> error(result, code, message) },
@@ -592,6 +664,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     if (value == null) {
                         error(result, "pair_failed", "配网未返回设备信息")
                     } else {
+                        watchDevice(deviceIdOf(value))
                         success(result, deviceMap(value))
                     }
                 }
@@ -684,7 +757,11 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val deviceId = call.argument<String>("deviceId").orEmpty()
         val device = invokeStatic(sdkClass(), "newDeviceInstance", deviceId)
             ?: throw IllegalStateException("无法创建设备实例")
-        val onSuccess: (Any?) -> Unit = { success(result, null) }
+        val unbinds = method == "removeDevice" || method == "resetFactory"
+        val onSuccess: (Any?) -> Unit = {
+            if (unbinds) activity.runOnUiThread { unwatchDevice(deviceId) }
+            success(result, null)
+        }
         val onError: (String, String) -> Unit = { code, message -> error(result, code, message) }
         when (method) {
             "publishDps" -> {
@@ -750,11 +827,19 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             otaInstance(call),
             "getOtaInfo",
             onSuccess = { value ->
-                val list = value as? List<*> ?: emptyList<Any>()
-                val version = list.filterNotNull().firstOrNull()?.let {
-                    optionalGetter(it, "getVersion")?.toString()
+                val list = (value as? List<*>).orEmpty().filterNotNull()
+                // One entry per upgradable component. upgradeStatus 1 is "an
+                // update is waiting"; 0 is up to date and 2 is mid-upgrade, so
+                // reporting the first entry's version regardless would offer an
+                // upgrade that does not exist.
+                val statuses = list.map {
+                    (optionalGetter(it, "getUpgradeStatus") as? Number)?.toInt()
                 }
-                success(result, version)
+                val pending = list.zip(statuses).firstOrNull { it.second == 1 }?.first
+                    // An SDK drop without the field would otherwise never
+                    // offer an upgrade at all; fall back to the old behaviour.
+                    ?: list.firstOrNull().takeIf { statuses.all { status -> status == null } }
+                success(result, pending?.let { optionalGetter(it, "getVersion")?.toString() })
             },
             onError = { code, message -> error(result, code, message) },
         )
@@ -794,8 +879,148 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         "avatarUrl" to (optionalGetter(user, "getHeadPic") ?: optionalGetter(user, "getIconUrl")),
     )
 
+    /**
+     * Keeps a registered listener for exactly [deviceIds].
+     *
+     * Called after every device-list load, so a device removed from the account
+     * elsewhere stops being watched and a newly bound one starts.
+     */
+    private fun watchDevices(deviceIds: Collection<String>) {
+        val wanted = deviceIds.filter { it.isNotEmpty() }.toSet()
+        (watched.keys - wanted).forEach(::unwatchDevice)
+        wanted.forEach(::watchDevice)
+    }
+
+    /**
+     * Registers `IDevListener` on `ThingHomeSdk.newDeviceInstance(devId)`.
+     *
+     * This is the SDK's own push channel: once the account is logged in and the
+     * home is loaded, the SDK keeps the MQTT/LAN link up and calls the listener
+     * for every DP the device reports. Nothing here polls.
+     *
+     * The interface is taken from the resolved `registerDevListener` signature
+     * rather than named, for the same reason as every other callback in this
+     * bridge, and a failure is logged instead of thrown: losing live updates
+     * must not break the device list that triggered the registration.
+     */
+    private fun watchDevice(deviceId: String) {
+        if (deviceId.isEmpty() || watched.containsKey(deviceId)) return
+        runCatching {
+            val device = invokeStatic(sdkClass(), "newDeviceInstance", deviceId)
+                ?: throw IllegalStateException("newDeviceInstance 未返回设备实例")
+            val method = findCallbackMethod(
+                device.javaClass,
+                "registerDevListener",
+                emptyArray<Any?>(),
+            )
+            method.invoke(device, devListenerProxy(method.parameterTypes.last(), deviceId))
+            watched[deviceId] = device
+        }.onFailure { throwable ->
+            val cause = TuyaSdkInitializer.unwrap(throwable)
+            Log.w(
+                TUYA_LOG_TAG,
+                "registerDevListener failed for one device: ${cause.javaClass.simpleName}",
+            )
+        }
+    }
+
+    private fun unwatchDevice(deviceId: String) {
+        val device = watched.remove(deviceId) ?: return
+        runCatching { invoke(device, "unRegisterDevListener") }
+        // Releases the SDK-side control instance the listener was attached to.
+        runCatching { invoke(device, "onDestroy") }
+    }
+
+    /**
+     * `IDevListener`, as a proxy.
+     *
+     * Callbacks arrive on an SDK thread and are forwarded to Dart as one event
+     * shape:
+     *
+     * ```text
+     * deviceId : String        always present
+     * dps      : Map?          the DPs that just changed, ids as strings
+     * online   : Boolean?      online/offline or phone-network change
+     * removed  : Boolean?      the device left the account
+     * device   : Map?          full snapshot after a device-info change
+     * ```
+     */
+    private fun devListenerProxy(listenerType: Class<*>, deviceId: String): Any {
+        val loader = listenerType.classLoader ?: activity.classLoader
+        return Proxy.newProxyInstance(loader, arrayOf(listenerType)) { proxy, method, args ->
+            val id = args?.firstOrNull() as? String ?: deviceId
+            when (method.name) {
+                "equals" -> proxy === args?.firstOrNull()
+                "hashCode" -> System.identityHashCode(proxy)
+                "toString" -> "TuyaDevListener($deviceId)"
+                "onDpUpdate" -> {
+                    val dps = dpMap(args?.getOrNull(1))
+                    if (dps.isNotEmpty()) emit(mapOf("deviceId" to id, "dps" to dps))
+                    defaultValue(method.returnType)
+                }
+                // onStatusChanged is the device going on/offline;
+                // onNetworkStatusChanged is the phone losing the cloud. Either
+                // way the device can no longer be trusted to be reachable.
+                "onStatusChanged", "onNetworkStatusChanged" -> {
+                    val online = args?.getOrNull(1) as? Boolean
+                    if (online != null) emit(mapOf("deviceId" to id, "online" to online))
+                    defaultValue(method.returnType)
+                }
+                "onRemoved" -> {
+                    emit(mapOf("deviceId" to id, "removed" to true))
+                    // Deferred: unregistering from inside the callback would
+                    // release the instance the SDK is still calling through.
+                    activity.runOnUiThread { unwatchDevice(id) }
+                    defaultValue(method.returnType)
+                }
+                // Name, online flag and firmware version live on the bean, not
+                // in a DP, so the whole snapshot is re-read.
+                "onDevInfoUpdate" -> {
+                    deviceBean(id)?.let { emit(mapOf("deviceId" to id, "device" to deviceMap(it))) }
+                    defaultValue(method.returnType)
+                }
+                else -> defaultValue(method.returnType)
+            }
+        }
+    }
+
+    /** The SDK's cached bean for [deviceId], or null when it holds none. */
+    private fun deviceBean(deviceId: String): Any? = runCatching {
+        val data = invokeStatic(sdkClass(), "getDataInstance") ?: return@runCatching null
+        invoke(data, "getDeviceBean", deviceId)
+    }.getOrNull()
+
+    /**
+     * `IDevListener.onDpUpdate` delivers `{"101": true}` as a JSON string. Some
+     * SDK generations hand over a map instead, so both are accepted.
+     */
+    private fun dpMap(value: Any?): Map<String, Any?> = when (value) {
+        is Map<*, *> -> value.entries.associate { (key, item) -> "$key" to plainValue(item) }
+        is String -> runCatching {
+            val json = JSONObject(value)
+            json.keys().asSequence().associateWith { key -> plainValue(json.get(key)) }
+        }.getOrDefault(emptyMap())
+        else -> emptyMap()
+    }
+
+    /** Narrows a JSON value to something the method channel can encode. */
+    private fun plainValue(value: Any?): Any? = when {
+        value == null || value === JSONObject.NULL -> null
+        value is JSONObject || value is JSONArray -> value.toString()
+        else -> value
+    }
+
+    private fun emit(event: Map<String, Any?>) {
+        activity.runOnUiThread { events?.success(event) }
+    }
+
+    private fun deviceIdOf(device: Any): String =
+        (optionalGetter(device, "getDevId") ?: optionalGetter(device, "getDeviceId"))
+            ?.toString()
+            .orEmpty()
+
     private fun deviceMap(device: Any): Map<String, Any?> = mapOf(
-        "deviceId" to (optionalGetter(device, "getDevId") ?: optionalGetter(device, "getDeviceId")),
+        "deviceId" to deviceIdOf(device),
         "productId" to (optionalGetter(device, "getProductId") ?: optionalGetter(device, "getPid")),
         "name" to optionalGetter(device, "getName"),
         "online" to (optionalGetter(device, "getIsOnline") ?: optionalGetter(device, "isOnline")),

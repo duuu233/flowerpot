@@ -6,6 +6,7 @@ import '../../../tuya/tuya_models.dart';
 import '../models/battery_status_page_model.dart';
 import 'widgets/battery_status_summary_card.dart';
 import 'widgets/battery_trend_chart_card.dart';
+import 'widgets/metric_history_empty_card.dart';
 
 class BatteryStatusPage extends StatefulWidget {
   const BatteryStatusPage({required this.deviceId, super.key});
@@ -90,9 +91,13 @@ class _BatteryStatusPageState extends State<BatteryStatusPage> {
                           ),
                         );
                       }
-                      final values = snapshot.data!.isEmpty
-                          ? <double>[summaryModel.battery.toDouble()]
-                          : snapshot.data!;
+                      final values = snapshot.data!;
+                      // DP 103 reports the level, but the product has no
+                      // battery history function point, so this stays empty on
+                      // a real device.
+                      if (values.isEmpty) {
+                        return const MetricHistoryEmptyCard(title: '暂无电量历史');
+                      }
                       return BatteryTrendChartCard(
                         values: values,
                         labels: const <String>[

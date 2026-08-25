@@ -23,6 +23,7 @@
 | [`../PROJECT_STRUCTURE.md`](../PROJECT_STRUCTURE.md) | Active | 当前目录、分层和主要模块。 |
 | [`COMMON_MODULES.md`](COMMON_MODULES.md) | Active | 已复用的网络、会话、校验和共享能力及产品边界。 |
 | [`PRD_IMPLEMENTATION.md`](PRD_IMPLEMENTATION.md) | Tracking | PRD 功能落地和平台待联调项。 |
+| [`DP_GAP_REPORT.html`](DP_GAP_REPORT.html) | Tracking | 50 条产品功能点逐条对照当前实现，附缺口清单与待答复问题；由 [`../tool/build_dp_gap_report.py`](../tool/build_dp_gap_report.py) 生成，改状态请改脚本里的表再重跑。 |
 | [`TUYA_SDK_SETUP.md`](TUYA_SDK_SETUP.md) | Active Runbook | 涂鸦平台、Android/iOS SDK 和秘密管理要求。 |
 | [`FLUTTER_PROJECT_ARCHITECTURE.md`](FLUTTER_PROJECT_ARCHITECTURE.md) | Design Reference | 目标架构；与当前源码冲突时不作为实现事实。 |
 | [`UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`](UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md) | Active | 本项目 UI 页面和组件实施规范。 |
@@ -60,4 +61,4 @@ codegraph sync .
 
 记录路径为 `history/YYYY-MM/YYYY-MM-DD-topic.md`。一次集中修改对应一份记录，不维护无限增长的单文件日志。不得记录 Token、涂鸦密钥、安全组件、签名资料、Wi-Fi 密码、个人数据或完整本地配置。
 
-最近记录：[`history/2026-08/2026-08-20-tuya-dp-table-integration.md`](history/2026-08/2026-08-20-tuya-dp-table-integration.md)。
+最近记录：[`history/2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md`](history/2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md)。

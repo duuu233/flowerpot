@@ -8,10 +8,17 @@ class TemperatureTrendChartCard extends StatelessWidget {
     required this.values,
     required this.labels,
     super.key,
+    this.unit = '°C',
+    this.maxValue = 50,
   });
 
   final List<double> values;
   final List<String> labels;
+
+  /// Follows `temp_unit_convert`: the device reports in the unit it is set to,
+  /// so the axis only changes its label and its ceiling.
+  final String unit;
+  final double maxValue;
 
   @override
   Widget build(BuildContext context) {
@@ -25,15 +32,15 @@ class TemperatureTrendChartCard extends StatelessWidget {
         excludeFromSemantics: true,
       ),
       title: '空气温度变化',
-      unit: '°C',
+      unit: unit,
       height: 188,
       titleStyle: AppTypography.body,
       unitStyle: AppTypography.body.copyWith(color: AppColors.textSecondary),
       chart: WaterTrendLineChart(
         values: values,
         labels: labels,
-        unit: '°C',
-        maxValue: 50,
+        unit: unit,
+        maxValue: maxValue,
         fractionDigits: 1,
         semanticsName: '空气温度趋势图',
       ),
