@@ -2,7 +2,7 @@
 
 > 文档类型：文档治理入口
 > 状态：Active
-> 最后核验：2026-08-14
+> 最后核验：2026-08-25
 > 事实来源：当前源码、CodeGraph、项目配置与下列文档
 
 本文件是 `docs/` 的统一导航。根目录保留执行规则 `AGENTS.md`、当前 AI 快照 `AI_CONTEXT.md` 和现有的结构入口 `PROJECT_STRUCTURE.md`；其余知识、平台手册、UI 规范和历史记录统一从这里查找。
@@ -61,4 +61,4 @@ codegraph sync .
 
 记录路径为 `history/YYYY-MM/YYYY-MM-DD-topic.md`。一次集中修改对应一份记录，不维护无限增长的单文件日志。不得记录 Token、涂鸦密钥、安全组件、签名资料、Wi-Fi 密码、个人数据或完整本地配置。
 
-最近记录：[`history/2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md`](history/2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md)。
+最近记录：[`history/2026-08/2026-08-25-app-backend-plant-dp116-calibration.md`](history/2026-08/2026-08-25-app-backend-plant-dp116-calibration.md)。

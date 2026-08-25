@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
@@ -33,6 +36,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
   String? selectedId;
   bool initialized = false;
   bool addingPlant = true;
+  List<PlantProfile> plants = PlantCatalog.items;
 
   @override
   void didChangeDependencies() {
@@ -44,8 +48,48 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
         ? widget.mode == PlantPickerMode.add
         : !planted;
     final current = planted ? state.deviceById(widget.deviceId)?.plant : null;
-    selectedId = current?.id ?? PlantCatalog.items.first.id;
+    if (state.usingAppBackend) plants = const <PlantProfile>[];
+    selectedId = current?.id ?? plants.firstOrNull?.id;
     initialized = true;
+    unawaited(_loadPlants(current));
+  }
+
+  Future<void> _loadPlants(PlantProfile? current) async {
+    try {
+      final loaded = await FlowerpotScope.of(
+        context,
+      ).loadPlantCatalog(widget.deviceId);
+      if (!mounted) return;
+      setState(() {
+        plants = loaded;
+        if (plants.isEmpty) {
+          selectedId = null;
+          return;
+        }
+        final currentMatch = plants.where(
+          (plant) =>
+              (current?.productPlantId != null &&
+                  plant.productPlantId == current?.productPlantId) ||
+              (current?.tuyaIdentifier.isNotEmpty == true &&
+                  plant.tuyaIdentifier == current?.tuyaIdentifier) ||
+              plant.id == current?.id,
+        );
+        selectedId = currentMatch.firstOrNull?.id ?? plants.first.id;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      if (FlowerpotScope.of(context).usingAppBackend) {
+        setState(() {
+          plants = const <PlantProfile>[];
+          selectedId = null;
+        });
+      }
+      showAppMessage(
+        context,
+        '植物列表加载失败：${error.message}',
+        tone: AppMessageTone.error,
+      );
+    }
   }
 
   @override
@@ -56,8 +100,8 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
 
   List<PlantProfile> get visiblePlants {
     final keyword = query.trim().toLowerCase();
-    if (keyword.isEmpty) return PlantCatalog.items;
-    return PlantCatalog.items
+    if (keyword.isEmpty) return plants;
+    return plants
         .where(
           (item) =>
               item.name.contains(keyword) ||
@@ -66,15 +110,18 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
         .toList();
   }
 
-  PlantProfile get selected => PlantCatalog.items.firstWhere(
-    (item) => item.id == selectedId,
-    orElse: () => PlantCatalog.items.first,
-  );
+  PlantProfile? get selected =>
+      plants.where((item) => item.id == selectedId).firstOrNull;
 
   Future<void> _confirmSelection() async {
+    final selectedPlant = selected;
+    if (selectedPlant == null) {
+      showAppMessage(context, '暂无可添加的植物', tone: AppMessageTone.info);
+      return;
+    }
     final result = await FlowerpotScope.of(
       context,
-    ).selectPlant(widget.deviceId, selected);
+    ).selectPlant(widget.deviceId, selectedPlant);
     if (!mounted) return;
     showAppMessage(
       context,
@@ -162,8 +209,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
                         key: Key('plant-card-${plant.id}'),
                         plant: plant,
                         selected: selectedId == plant.id,
-                        onTap: () =>
-                            setState(() => selectedId = plant.id),
+                        onTap: () => setState(() => selectedId = plant.id),
                         onDetails: () => Navigator.pushNamed(
                           context,
                           AppRoutes.plantDetail,
@@ -186,7 +232,9 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
             bottom: 8,
             child: FilledButton(
               key: const Key('confirm-plant-selection'),
-              onPressed: state.busy ? null : _confirmSelection,
+              onPressed: state.busy || plants.isEmpty
+                  ? null
+                  : _confirmSelection,
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(50),
                 backgroundColor: AppColors.brandPrimary,
@@ -385,12 +433,9 @@ class _PlantCard extends StatelessWidget {
                       horizontal: 12,
                       vertical: 8,
                     ),
-                    child: Image.asset(
-                      AppAssets.plantImage(plant.id),
+                    child: _PlantArtwork(
+                      plant: plant,
                       key: Key('plant-image-${plant.id}'),
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.high,
-                      semanticLabel: plant.name,
                     ),
                   ),
                 ),
@@ -436,6 +481,36 @@ class _PlantCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PlantArtwork extends StatelessWidget {
+  const _PlantArtwork({required this.plant, super.key});
+
+  final PlantProfile plant;
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = plant.imageUrl?.trim();
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      return Image.network(
+        imageUrl,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        semanticLabel: plant.name,
+        errorBuilder: (_, _, _) => Image.asset(
+          AppAssets.plantImage(plant.id),
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+        ),
+      );
+    }
+    return Image.asset(
+      AppAssets.plantImage(plant.id),
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: plant.name,
     );
   }
 }
@@ -490,4 +565,3 @@ class _EmptySearchResult extends StatelessWidget {
     );
   }
 }
-

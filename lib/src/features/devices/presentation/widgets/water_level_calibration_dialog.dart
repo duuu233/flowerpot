@@ -53,7 +53,7 @@ class _WaterLevelCalibrationDialogState
   WaterLevelCalibrationStepModel get _step =>
       WaterLevelCalibrationModel.steps[_currentStep];
 
-  /// The closing "校准完成" card, which reports nothing to the device.
+  /// The closing "校准完成" card confirms and reports step 3.
   bool get _onSummaryStep =>
       _currentStep == WaterLevelCalibrationModel.steps.length - 1;
 
@@ -176,14 +176,13 @@ class _WaterLevelCalibrationDialogState
   }
 
   Future<void> _handlePrimaryAction() async {
-    if (_onSummaryStep) {
-      Navigator.pop(context, true);
-      return;
-    }
-
     setState(() => _submitting = true);
     final succeeded = await widget.onCalibrate(_currentStep);
     if (!mounted) return;
+    if (_onSummaryStep && succeeded) {
+      Navigator.pop(context, true);
+      return;
+    }
     setState(() {
       _submitting = false;
       if (succeeded) _currentStep += 1;
@@ -191,9 +190,10 @@ class _WaterLevelCalibrationDialogState
   }
 
   Future<void> _handleSecondaryAction() async {
-    // On the summary card the sequence is already finished and the button
-    // reads 关闭, so there is nothing to cancel.
-    if (!_onSummaryStep) await widget.onCancel();
+    // Step 3 is only confirmed by the summary card's primary “完成” action.
+    // Leaving through its secondary “关闭” action is therefore still an
+    // incomplete sequence and must release the firmware with cancel (step 5).
+    await widget.onCancel();
     if (!mounted) return;
     Navigator.pop(context, false);
   }

@@ -380,31 +380,31 @@ footer b { color: var(--ink-2); font-weight: 500; }
 <div class="page">
 
   <header class="masthead">
-    <div class="eyebrow"><span>PID orhqsdjyigmh8bwa</span><span>第二版 · 2026-08-20 复核</span><span>DP 101–150</span></div>
+    <div class="eyebrow"><span>PID orhqsdjyigmh8bwa</span><span>第三版 · 2026-08-25 复核</span><span>DP 101–150</span></div>
     <h1>智能花盆功能点落地差距</h1>
-    <p class="lede">上一版列了 14 项缺口，产品方逐条给了口径，能在 App 侧完成的都已经落地。这一版重新逐条核对 50 个功能点，并把仍然缺的东西按「能不能上真机」重排了一遍——最上面两项现在是<strong>验证</strong>，不是功能。</p>
+    <p class="lede">第三版把 APP 后端植物与设备图片链路纳入核对，并按最新产品口径关闭 DP 116 双向同步和 DP 140 校准序列缺口；仍未完成的事项继续按真机发布风险排序。</p>
     <div class="meta">
-      <span>核对基线 <b>main / 665ce5c + 未提交工作区</b></span>
-      <span>对照范围 <b>lib/src/tuya、features、android、ios</b></span>
+      <span>核对基线 <b>main / 9b057dc + 未提交工作区</b></span>
+      <span>对照范围 <b>lib/src/core/backend、tuya、features、android、ios</b></span>
       <span>功能点来源 <b>assets/智能花盆test(orhqsdjyigmh8bwa)_08_20.xlsx</b></span>
     </div>
   </header>
 
   <section>
     <div class="stats">
-      <div class="stat is-ok"><span class="figure">41</span><span class="caption">已接入并有界面</span></div>
-      <div class="stat is-cond"><span class="figure">3</span><span class="caption">有条件可用</span></div>
-      <div class="stat is-idle"><span class="figure">3</span><span class="caption">读到了没用上</span></div>
+      <div class="stat is-ok"><span class="figure">43</span><span class="caption">已接入并有界面</span></div>
+      <div class="stat is-cond"><span class="figure">2</span><span class="caption">有条件可用</span></div>
+      <div class="stat is-idle"><span class="figure">2</span><span class="caption">读到了没用上</span></div>
       <div class="stat is-none"><span class="figure">3</span><span class="caption">完全没接</span></div>
-      <div class="stat"><span class="figure">14</span><span class="caption">待办事项</span></div>
+      <div class="stat"><span class="figure">12</span><span class="caption">待办事项</span></div>
     </div>
   </section>
 
   <section>
     <div class="section-head">
       <span class="kicker">本轮已关闭</span>
-      <h2>按产品口径做完的七件事</h2>
-      <p>上一版 14 项里关掉 7 项。注意「关闭」指 App 侧按口径写完了，不等于在真机上跑通——见下面的 P0。</p>
+      <h2>按产品口径已经关闭的能力</h2>
+      <p>「关闭」指 App 侧契约、代码和定向测试已经对齐；真实后端、固件与跨平台真机验证仍单列为风险。</p>
     </div>
     <ul class="questions">
       <li><b>DP 实时上报已接通</b>Android <code>registerDevListener</code>、iOS <code>ThingSmartDeviceDelegate</code>，两端推同一条事件通道 <code>com.common.yikaltd/tuya_events</code>；Dart 把增量并进设备快照后刷新界面。没有轮询。</li>
@@ -414,6 +414,9 @@ footer b { color: var(--ink-2); font-weight: 500; }
       <li><b>两个震动场景开关补上界面</b><code>touch_vib_switch</code>（123）与 <code>touch_plant_vib_switch</code>（124）在震动设置页主卡下方独立成卡，主卡 Figma 尺寸不变。</li>
       <li><b>恢复出厂改为先下发 141</b>解绑前下发 DP 141，再调 SDK <code>resetFactory</code>；设备离线不阻断解绑。重新配网按口径不下发 150。</li>
       <li><b>OTA 两端对齐</b>iOS 补上 <code>getFirmwareUpgradeInfo</code> → <code>upgradeFirmware</code>；Android 改为只在 <code>upgradeStatus == 1</code> 时报新版本，不再无条件提示有升级。</li>
+      <li><b>植物品种双向链路已接通</b>后端植物 <code>tuYaRemark</code> 作为 DP 116 标识符；先绑定用户植物再下发，设备上报已知值会反向更新 App。</li>
+      <li><b>水位校准枚举已确认</b>四次确认严格发送 <code>step0</code>–<code>step3</code>，取消发送 <code>step5</code>，任何路径都不发送 <code>step4</code>。</li>
+      <li><b>Dart 代码已运行验证</b><code>dart analyze</code> 无编译错误，后端、DP 116、校准弹窗与相关页面定向测试已通过；真机链路仍单列为风险。</li>
     </ul>
   </section>
 
@@ -421,7 +424,7 @@ footer b { color: var(--ink-2); font-weight: 500; }
     <div class="section-head">
       <span class="kicker">DP 101 – 150 覆盖</span>
       <h2>五十条功能点的落地状态</h2>
-      <p>鼠标停在格子上看功能点名称。上一版有 14 个「有条件可用」，其中九个历史包和温标、时间格式已经转正——DP 实时上报接通之后，它们不再依赖手动刷新。剩下三个「有条件」是真的还在等固件或产品答复。</p>
+      <p>鼠标停在格子上看功能点名称。DP 实时上报、植物品种双向同步与校准序列已经落实；「有条件」和「未接入」仍表示需要固件、平台或真机验证。</p>
     </div>
     <ul class="strip">
 <li class="cell idle" title="101 设备状态上报 · device_status · 已读未用"><span class="cell-id">101</span></li>
@@ -439,7 +442,7 @@ footer b { color: var(--ink-2); font-weight: 500; }
 <li class="cell ok" title="113 空气温度状态 · air_temperature_status · 已接入"><span class="cell-id">113</span></li>
 <li class="cell ok" title="114 空气湿度 · air_humidity · 已接入"><span class="cell-id">114</span></li>
 <li class="cell ok" title="115 空气湿度状态 · air_humidity_status · 已接入"><span class="cell-id">115</span></li>
-<li class="cell idle" title="116 植物品种 · plant_variety · 已读未用"><span class="cell-id">116</span></li>
+<li class="cell ok" title="116 植物品种 · plant_variety · 已接入"><span class="cell-id">116</span></li>
 <li class="cell ok" title="117 显示屏幕亮度开关 · disp_brightness_switch · 已接入"><span class="cell-id">117</span></li>
 <li class="cell ok" title="118 声音互动开关 · voice_interaction_switch · 已接入"><span class="cell-id">118</span></li>
 <li class="cell ok" title="119 声音互动灵敏度 · sound_sensitivity · 已接入"><span class="cell-id">119</span></li>
@@ -463,7 +466,7 @@ footer b { color: var(--ink-2); font-weight: 500; }
 <li class="cell ok" title="137 光照历史日 · light_daily_hist · 已接入"><span class="cell-id">137</span></li>
 <li class="cell ok" title="138 光照历史周 · light_weekly_hist · 已接入"><span class="cell-id">138</span></li>
 <li class="cell ok" title="139 光照历史月 · light_monthly_hist · 已接入"><span class="cell-id">139</span></li>
-<li class="cell cond" title="140 水位校准动作 · water_level_calib · 有条件"><span class="cell-id">140</span></li>
+<li class="cell ok" title="140 水位校准动作 · water_level_calib · 已接入"><span class="cell-id">140</span></li>
 <li class="cell cond" title="141 恢复出厂设置 · factory_reset · 有条件"><span class="cell-id">141</span></li>
 <li class="cell none" title="142 下载图片 · dl_url · 未接入"><span class="cell-id">142</span></li>
 <li class="cell none" title="143 显示图片 · dl_show · 未接入"><span class="cell-id">143</span></li>
@@ -485,28 +488,28 @@ footer b { color: var(--ink-2); font-weight: 500; }
 
   <section>
     <div class="section-head">
-      <span class="kicker">缺口清单 · 14 项</span>
+      <span class="kicker">缺口清单 · 12 项</span>
       <h2>还缺哪些</h2>
-      <p>P0 是不解决就没法相信其余结论的两项，P1 是链路还差一段的能力，P2 需要产品或固件先给一个说法。</p>
+      <p>P0 是挡住跨平台发布的真机验证，P1 是链路还差一段的能力，P2 需要产品或固件先给一个说法。</p>
     </div>
 
     <div class="band p0">
       <span class="tier">P0</span>
-      <span class="band-note">挡住真机联调：功能都在了，但没有一行代码被编译或运行验证过。</span>
+      <span class="band-note">挡住跨平台发布：Dart 逻辑已验证，但 iOS 与真实后端/设备仍未完成真机闭环。</span>
     </div>
     <div class="gaps">
 
       <article class="gap">
         <div class="gap-head">
-          <div class="gap-title"><span class="gap-id">G01</span><h3>本轮改动零验证</h3></div>
-          <div class="chips"><span class="chip plain">dart analyze</span><span class="chip plain">flutter test</span><span class="chip plain">Kotlin</span><span class="chip plain">Swift</span></div>
+          <div class="gap-title"><span class="gap-id">G15</span><h3>APP 后端 HTTPS 与真实账号未验证</h3></div>
+          <div class="chips"><span class="chip plain">API_BASE_URL</span><span class="chip plain">Swagger</span><span class="chip plain">userToken</span></div>
         </div>
         <dl>
-          <dt>现状</dt><dd>操作机没有 Flutter/Dart 工具链，也没有 Android SDK 与 Xcode。<code>dart format</code>、<code>dart analyze</code>、<code>flutter test</code> 都没跑过，Android 未编译，iOS 未 <code>pod install</code>。</dd>
-          <dt>缺什么</dt><dd>在有工具链的机器上跑一遍格式化、静态分析、全量测试，再做 Android debug 与 iOS 构建。</dd>
-          <dt>影响</dt><dd><strong>下面所有「已接入」都是源码走查的结论，不是运行结论。</strong>新增的事件通道、单位换算、震动开关和 iOS 桥接都属于首次落地，出编译错的概率不低。</dd>
+          <dt>现状</dt><dd>Swagger 契约已完成代码接入；2026-08-25 核验时提供的 HTTPS 域名返回备案阻断页，机器端口只用于读取契约，没有使用真实 Token 调用写接口。</dd>
+          <dt>缺什么</dt><dd>恢复可用 HTTPS 服务，配置后台产品 <code>broadcastId</code> 与涂鸦 PID 映射，再用测试账号验证登录、设备关联、植物绑定和图片增删。</dd>
+          <dt>影响</dt><dd>当前只能证明请求形状、状态编排与 Mock 测试正确，不能证明生产服务数据和权限配置正确。</dd>
         </dl>
-        <div class="evidence"><span>证据</span><span class="mono">which flutter → 不存在</span><span class="mono">docs/history/2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md</span></div>
+        <div class="evidence"><span>证据</span><span class="mono">lib/src/core/backend/app_backend_repository.dart</span><span class="mono">docs/history/2026-08/2026-08-25-app-backend-plant-dp116-calibration.md</span></div>
       </article>
 
       <article class="gap">
@@ -535,11 +538,11 @@ footer b { color: var(--ink-2); font-weight: 500; }
           <div class="chips"><span class="chip">142 dl_url</span><span class="chip">143 dl_show</span><span class="chip">144 dl_cancel</span></div>
         </div>
         <dl>
-          <dt>现状</dt><dd>定制动画页能选图、能同步、能置顶删除，但只改本地列表；<code>uploadAnimation</code> 两端仍返回 <code>product_protocol_required</code>。</dd>
-          <dt>缺什么</dt><dd>按产品口径由 Java 后端提供设备可访问的图片地址，App 再按 <code>url_len(1B)+url+name_len(1B)+name</code> 编码下发，并补 143/144 两个入口。</dd>
-          <dt>影响</dt><dd>定制动画模块目前是纯本地演示，真机上一张图也下不去。</dd>
+          <dt>现状</dt><dd>APP 后端图片列表、上传和删除已经接通；<code>uploadAnimation</code> 两端仍返回 <code>product_protocol_required</code>，尚未把云端 URL 发给硬件。</dd>
+          <dt>缺什么</dt><dd>确认 <code>dl_url</code> 的 raw 编码、文件格式/大小限制与下载回执，再补 143/144 显示控制。</dd>
+          <dt>影响</dt><dd>图片能进入账号云端列表，但真机屏幕仍不会播放。</dd>
         </dl>
-        <div class="evidence"><span>证据</span><span class="mono">lib/src/state.dart:398-415</span><span class="mono">android/…/MainActivity.kt uploadAnimation</span></div>
+        <div class="evidence"><span>证据</span><span class="mono">lib/src/core/backend/app_backend_repository.dart</span><span class="mono">android/…/MainActivity.kt uploadAnimation</span></div>
       </article>
 
       <article class="gap">
@@ -629,32 +632,6 @@ footer b { color: var(--ink-2); font-weight: 500; }
 
       <article class="gap">
         <div class="gap-head">
-          <div class="gap-title"><span class="gap-id">G10</span><h3>设备上报的植物品种和 App 植物库没打通</h3></div>
-          <div class="chips"><span class="chip">116 plant_variety</span></div>
-        </div>
-        <dl>
-          <dt>现状</dt><dd>设备上报品种标识，读进 plantVariety 就没人用；App 植物选择走本地 PlantCatalog，选完也不下发设备。</dd>
-          <dt>缺什么</dt><dd>品种标识与 App 植物库的对照表，以及「以谁为准」的约定。</dd>
-          <dt>影响</dt><dd>设备屏幕显示的植物和 App 里选的可能对不上。</dd>
-        </dl>
-        <div class="evidence"><span>证据</span><span class="mono">lib/src/tuya/tuya_repository.dart plantVariety</span><span class="mono">lib/…/plant_picker_page.dart</span></div>
-      </article>
-
-      <article class="gap">
-        <div class="gap-head">
-          <div class="gap-title"><span class="gap-id">G11</span><h3>水位校准的步骤映射没确认</h3></div>
-          <div class="chips"><span class="chip">140 water_level_calib</span></div>
-        </div>
-        <dl>
-          <dt>现状</dt><dd>导出件只写了「步骤」和「step5 是取消」。当前实现用 step0–step3 对应弹窗四步，step4 没有用到。</dd>
-          <dt>缺什么</dt><dd>固件确认每个枚举值采样哪一阶段。映射集中在 <code>TuyaConfig.calibrationSteps</code>，确认后改一行。</dd>
-          <dt>影响</dt><dd>映射错了校准会静默出错——用户看到「校准完成」，水位读数却仍然偏。</dd>
-        </dl>
-        <div class="evidence"><span>证据</span><span class="mono">lib/src/tuya/tuya_config.dart calibrationSteps</span></div>
-      </article>
-
-      <article class="gap">
-        <div class="gap-head">
           <div class="gap-title"><span class="gap-id">G12</span><h3>固件收到 141 之后做什么</h3></div>
           <div class="chips"><span class="chip">141 factory_reset</span></div>
         </div>
@@ -697,15 +674,13 @@ footer b { color: var(--ink-2); font-weight: 500; }
   <section>
     <div class="section-head">
       <span class="kicker">需要外部答复</span>
-      <h2>等产品或固件回话的8个问题</h2>
+      <h2>等产品或固件回话的6个问题</h2>
       <p>这些不是写代码能解决的，建议一次问完。</p>
     </div>
     <ul class="questions">
-      <li><b>140 的六个枚举分别采什么？</b>step0–step4 对应校准的哪一步，step5 之外还有没有取消语义。</li>
       <li><b>固件收到 141 之后做什么？</b>清哪些数据、是否自己断开绑定、要不要回执，和 SDK 解绑的先后顺序。</li>
-      <li><b>142 的图片地址由后端哪个接口给？</b>还要定图片格式与大小上限、设备下载完成怎么回执。</li>
+      <li><b>142 的 raw 数据如何编码？</b>后端上传已返回图片 URL；还要定 URL 编码、图片格式与大小上限、设备下载完成怎么回执。</li>
       <li><b>101 的取值有哪些？</b>它是设备工作模式，还是别的东西。</li>
-      <li><b>116 的品种标识对照表在哪？</b>以及选植物时以设备还是以 App 为准。</li>
       <li><b>122 是不是 123/124 的总闸？</b>决定主开关关闭时两个场景开关要不要置灰。</li>
       <li><b>温度、湿度、电池、PPFD、DLI 要不要历史？</b>固件加 DP，还是开通涂鸦统计服务/自建后端。</li>
       <li><b>设备分享要不要改成按账号分享？</b>iOS Home SDK 没有生成分享链接的接口，两端要统一形态。</li>
@@ -739,7 +714,7 @@ footer b { color: var(--ink-2); font-weight: 500; }
 <tr><td class="num">113</td><td>空气温度状态</td><td class="mono">air_temperature_status</td><td class="mono dim">enum</td><td class="dim">只上报</td><td><span class="tag ok">已接入</span></td><td class="note">温度状态页枚举</td></tr>
 <tr><td class="num">114</td><td>空气湿度</td><td class="mono">air_humidity</td><td class="mono dim">value</td><td class="dim">只上报</td><td><span class="tag ok">已接入</span></td><td class="note">读取除以 10，湿度状态页</td></tr>
 <tr><td class="num">115</td><td>空气湿度状态</td><td class="mono">air_humidity_status</td><td class="mono dim">enum</td><td class="dim">只上报</td><td><span class="tag ok">已接入</span></td><td class="note">湿度状态页枚举</td></tr>
-<tr><td class="num">116</td><td>植物品种</td><td class="mono">plant_variety</td><td class="mono dim">string</td><td class="dim">只上报</td><td><span class="tag idle">已读未用</span></td><td class="note">读进 plantVariety，App 植物库仍用本地 plantId</td></tr>
+<tr><td class="num">116</td><td>植物品种</td><td class="mono">plant_variety</td><td class="mono dim">string</td><td class="dim">可下发可上报</td><td><span class="tag ok">已接入</span></td><td class="note">后端 tuYaRemark 作为标识符；绑定成功后下发，上报反向更新当前植物</td></tr>
 <tr><td class="num">117</td><td>显示屏幕亮度开关</td><td class="mono">disp_brightness_switch</td><td class="mono dim">bool</td><td class="dim">可下发可上报</td><td><span class="tag ok">已接入</span></td><td class="note">显示设置页自动亮度；设备回执会回写本地设置</td></tr>
 <tr><td class="num">118</td><td>声音互动开关</td><td class="mono">voice_interaction_switch</td><td class="mono dim">bool</td><td class="dim">可下发可上报</td><td><span class="tag ok">已接入</span></td><td class="note">听觉设置页开关</td></tr>
 <tr><td class="num">119</td><td>声音互动灵敏度</td><td class="mono">sound_sensitivity</td><td class="mono dim">value</td><td class="dim">可下发可上报</td><td><span class="tag ok">已接入</span></td><td class="note">听觉设置页灵敏度滑杆</td></tr>
@@ -763,9 +738,9 @@ footer b { color: var(--ink-2); font-weight: 500; }
 <tr><td class="num">137</td><td>光照历史日</td><td class="mono">light_daily_hist</td><td class="mono dim">raw</td><td class="dim">只上报</td><td><span class="tag ok">已接入</span></td><td class="note">同 131（2 字节采样）</td></tr>
 <tr><td class="num">138</td><td>光照历史周</td><td class="mono">light_weekly_hist</td><td class="mono dim">raw</td><td class="dim">只上报</td><td><span class="tag ok">已接入</span></td><td class="note">同 131（2 字节采样）</td></tr>
 <tr><td class="num">139</td><td>光照历史月</td><td class="mono">light_monthly_hist</td><td class="mono dim">raw</td><td class="dim">只上报</td><td><span class="tag ok">已接入</span></td><td class="note">同 131（2 字节采样）</td></tr>
-<tr><td class="num">140</td><td>水位校准动作</td><td class="mono">water_level_calib</td><td class="mono dim">enum</td><td class="dim">只下发</td><td><span class="tag cond">有条件</span></td><td class="note">校准弹窗逐步下发 step0–step3 + step5 取消；step4 未用，映射待固件确认</td></tr>
+<tr><td class="num">140</td><td>水位校准动作</td><td class="mono">water_level_calib</td><td class="mono dim">enum</td><td class="dim">只下发</td><td><span class="tag ok">已接入</span></td><td class="note">四次确认依次下发 step0–step3，取消下发 step5；step4 保留不用</td></tr>
 <tr><td class="num">141</td><td>恢复出厂设置</td><td class="mono">factory_reset</td><td class="mono dim">bool</td><td class="dim">只下发</td><td><span class="tag cond">有条件</span></td><td class="note">解绑前先下发 141，再调 SDK resetFactory；固件收到后的行为待确认</td></tr>
-<tr><td class="num">142</td><td>下载图片</td><td class="mono">dl_url</td><td class="mono dim">raw</td><td class="dim">只下发</td><td><span class="tag none">未接入</span></td><td class="note">等 Java 后端提供设备可访问的图片地址后再接</td></tr>
+<tr><td class="num">142</td><td>下载图片</td><td class="mono">dl_url</td><td class="mono dim">raw</td><td class="dim">只下发</td><td><span class="tag none">未接入</span></td><td class="note">APP 后端已提供图片上传与 URL；硬件 raw 编码、限制和回执仍待确认</td></tr>
 <tr><td class="num">143</td><td>显示图片</td><td class="mono">dl_show</td><td class="mono dim">string</td><td class="dim">只下发</td><td><span class="tag none">未接入</span></td><td class="note">同 142，没有「显示指定图片」入口</td></tr>
 <tr><td class="num">144</td><td>取消显示</td><td class="mono">dl_cancel</td><td class="mono dim">bool</td><td class="dim">只下发</td><td><span class="tag none">未接入</span></td><td class="note">同 142，没有「取消显示」入口</td></tr>
 <tr><td class="num">145</td><td>充电状态</td><td class="mono">charge_status</td><td class="mono dim">bool</td><td class="dim">只上报</td><td><span class="tag ok">已接入</span></td><td class="note">首页与电量状态页充电态</td></tr>
@@ -780,8 +755,8 @@ footer b { color: var(--ink-2); font-weight: 500; }
   </section>
 
   <footer>
-    <p><b>同一个前提，仍然成立：</b>本轮改动<b>没有经过任何编译或测试验证</b>——操作机上没有 Flutter／Dart 工具链，也没有 Android SDK 与 Xcode。上表所有「已接入」都是源码走查的结论。</p>
-    <p>核对基线 main / 665ce5c + 未提交工作区 · 功能点表导出于 2026-08-20 · 本页由 <code>tool/build_dp_gap_report.py</code> 生成 · 相关文档：<code>docs/history/2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md</code>、<code>docs/TUYA_SDK_SETUP.md</code>、<code>docs/PRD_IMPLEMENTATION.md</code></p>
+    <p><b>验证边界：</b>Dart 静态分析与相关定向测试已通过；后端 HTTPS 域名、真实 Token、固件 DP 与 iOS 真机仍未形成端到端闭环。</p>
+    <p>核对基线 main / 9b057dc + 未提交工作区 · 功能点表导出于 2026-08-20 · 本页由 <code>tool/build_dp_gap_report.py</code> 生成 · 相关文档：<code>docs/history/2026-08/2026-08-25-app-backend-plant-dp116-calibration.md</code>、<code>docs/TUYA_SDK_SETUP.md</code>、<code>docs/PRD_IMPLEMENTATION.md</code></p>
   </footer>
 
 </div>

@@ -1,13 +1,15 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
 
-class AnimationsPage extends StatelessWidget {
+class AnimationsPage extends StatefulWidget {
   const AnimationsPage({required this.deviceId, super.key});
 
   static const uploadZoneKey = Key('animation-upload-zone');
@@ -15,9 +17,38 @@ class AnimationsPage extends StatelessWidget {
   final String deviceId;
 
   @override
+  State<AnimationsPage> createState() => _AnimationsPageState();
+}
+
+class _AnimationsPageState extends State<AnimationsPage> {
+  bool loadingStarted = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (loadingStarted) return;
+    loadingStarted = true;
+    unawaited(_refreshFiles());
+  }
+
+  Future<void> _refreshFiles() async {
+    try {
+      await FlowerpotScope.of(context).refreshAnimations(widget.deviceId);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      showAppMessage(
+        context,
+        '图片列表加载失败：${error.message}',
+        tone: AppMessageTone.error,
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
-    final files = state.animations
+    final files = state
+        .animationsFor(widget.deviceId)
         .where((item) => !item.path.startsWith('builtin://'))
         .toList(growable: false);
     return AppPageScaffold(
@@ -75,10 +106,7 @@ class AnimationsPage extends StatelessWidget {
                     for (final file in files) ...<Widget>[
                       _AnimationFileTile(
                         file: file,
-                        onDelete: () {
-                          state.deleteAnimation(file.id);
-                          showAppMessage(context, '已删除 ${file.name}');
-                        },
+                        onDelete: () => _deleteFile(context, file),
                       ),
                       const SizedBox(height: AppSpacing.sm),
                     ],
@@ -94,7 +122,8 @@ class AnimationsPage extends StatelessWidget {
 
   Future<void> _pickFile(BuildContext context) async {
     final state = FlowerpotScope.of(context);
-    final fileCount = state.animations
+    final fileCount = state
+        .animationsFor(widget.deviceId)
         .where((item) => !item.path.startsWith('builtin://'))
         .length;
     if (fileCount >= 10) {
@@ -107,7 +136,7 @@ class AnimationsPage extends StatelessWidget {
     );
     if (file == null || !context.mounted) return;
     final result = await state.addAnimation(
-      deviceId,
+      widget.deviceId,
       name: file.name,
       path: file.path,
     );
@@ -121,11 +150,23 @@ class AnimationsPage extends StatelessWidget {
 
   Future<void> _syncFiles(BuildContext context) async {
     final state = FlowerpotScope.of(context);
-    final result = await state.syncAnimations(deviceId);
+    final result = await state.syncAnimations(widget.deviceId);
     if (!context.mounted) return;
     showAppMessage(
       context,
       result.message,
+      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+    );
+  }
+
+  Future<void> _deleteFile(BuildContext context, AnimationAsset file) async {
+    final result = await FlowerpotScope.of(
+      context,
+    ).deleteAnimation(widget.deviceId, file.id);
+    if (!context.mounted) return;
+    showAppMessage(
+      context,
+      result.success ? '已删除 ${file.name}' : result.message,
       tone: result.success ? AppMessageTone.success : AppMessageTone.error,
     );
   }

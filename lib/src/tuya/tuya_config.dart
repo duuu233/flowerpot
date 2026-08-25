@@ -41,8 +41,7 @@ abstract final class TuyaConfig {
     'air_temperature_status': 113, // enum cold/suitable/heat
     'air_humidity': 114, // value 0-1000, 倍数 1 -> tenths of a percent
     'air_humidity_status': 115, // enum dry/suitable/damp
-    'plant_variety': 116, // string
-
+    'plant_variety': 116, // string, report + write (`tuYaRemark`)
     // Control.
     'disp_brightness_switch': 117, // bool
     'voice_interaction_switch': 118, // bool
@@ -58,7 +57,6 @@ abstract final class TuyaConfig {
     'night_sleep_switch': 128, // bool
     'night_sleep_start_time': 129, // value 0-1440 minutes past midnight
     'night_sleep_end_time': 130, // value 0-1440 minutes past midnight
-
     // Reported history, raw. See `TuyaHistoryCodec` for the byte layout.
     'tank_level_daily_hist': 131,
     'tank_level_weekly_hist': 132,
@@ -143,9 +141,8 @@ abstract final class TuyaConfig {
   /// Steps of `water_level_calib`, indexed by the calibration dialog step the
   /// user just confirmed.
   ///
-  /// The platform export only says "步骤" and that step5 cancels, so which
-  /// stage each value samples is a firmware detail: confirm the mapping
-  /// against the device before shipping calibration.
+  /// The confirmed sequence is step0 → step1 → step2 → step3. step4 is
+  /// reserved and must not be sent; cancelling at any active step sends step5.
   static const calibrationSteps = <String>['step0', 'step1', 'step2', 'step3'];
   static const calibrationCancel = 'step5';
 

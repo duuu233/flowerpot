@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/backend/backend.dart';
+import '../core/network/api_config.dart';
 import '../design_system/design_system.dart';
 import '../features/auth/presentation/auth_page.dart';
 import '../features/preview/preview_config.dart';
@@ -10,7 +12,6 @@ import '../features/splash/presentation/splash_page.dart';
 import '../routes/app_routes.dart';
 import '../state.dart';
 import '../tuya/tuya_repository.dart';
-import 'app_theme.dart';
 
 /// 根节点切换动效时长（闪屏 → 登录页/主壳层）。
 const Duration kRootTransitionDuration = Duration(milliseconds: 1100);
@@ -59,7 +60,7 @@ Widget _rootTransitionLayout(
     children: <Widget>[
       if (previousChildren.isNotEmpty) const _RootTransitionBackdrop(),
       ...previousChildren,
-      if (currentChild != null) currentChild,
+      ?currentChild,
     ],
   );
 }
@@ -90,10 +91,12 @@ class FlowerpotApp extends StatefulWidget {
   const FlowerpotApp({
     super.key,
     this.repository,
+    this.backendRepository,
     this.splashDuration = const Duration(milliseconds: 1800),
   });
 
   final TuyaRepository? repository;
+  final AppBackendRepository? backendRepository;
 
   /// How long the cold-start screen stays up at minimum. Tests pass
   /// [Duration.zero] so they do not have to wait it out.
@@ -108,6 +111,11 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
     repository:
         widget.repository ??
         TuyaRepository.create(seedMockDevice: !StaticPreviewConfig.enabled),
+    backendRepository:
+        widget.backendRepository ??
+        (ApiConfig.baseUrl.trim().isEmpty
+            ? const DisabledAppBackendRepository()
+            : HttpAppBackendRepository.fromEnvironment()),
   );
 
   /// Cold-start screen, dismissed once the minimum time has passed *and* the

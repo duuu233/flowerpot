@@ -19,7 +19,7 @@ Git 是办公室电脑、家庭电脑和远程 SSH 环境之间唯一共享的�
 - Flutter / Dart，Dart SDK 约束为 `^3.11.5`。
 - Material 3、feature-first 页面组织、命名路由。
 - `ChangeNotifier` 的 `FlowerpotState` 管理应用状态，`FlowerpotScope` 通过 `InheritedNotifier` 向页面提供状态。
-- `http` 提供 REST 客户端，`shared_preferences` 保存会话和本地偏好，`image_picker` 选择图片。
+- `http` 提供 REST 客户端，`crypto` 负责后端密码接口要求的 MD5，`shared_preferences` 保存会话和本地偏好，`image_picker` 选择图片。
 - Android Kotlin、iOS Swift 负责涂鸦 SDK 原生桥接。
 
 ```bash
@@ -55,11 +55,16 @@ lib/main.dart
 页面
   → FlowerpotScope.of(context)
   → FlowerpotState
-  → TuyaRepository
-      ├─ TUYA_ENABLED=false：MockTuyaRepository
-      └─ TUYA_ENABLED=true：MethodChannelTuyaRepository
-                              → Android/iOS Smart Life SDK
+      ├─ AppBackendRepository（配置 API_BASE_URL 后启用）
+      │   → ApiClient / ApiSession
+      │   → 国内短信、登录/注册、用户设备、植物、设备图片
+      └─ TuyaRepository
+          ├─ TUYA_ENABLED=false：MockTuyaRepository
+          └─ TUYA_ENABLED=true：MethodChannelTuyaRepository
+                                  → Android/iOS Smart Life SDK
 ```
+
+国内账号在 APP 后端登录/注册成功后，由后端返回 `userNo` 与 `tuYaPwd`，`FlowerpotState` 再用这组映射凭据建立涂鸦会话；任一步失败都会清理 APP Token，避免半登录状态。海外邮箱和未配置 `API_BASE_URL` 的开发模式保留原涂鸦账号链。
 
 设备主动上报是反方向的一条单向链，不经过方法通道：
 
@@ -73,7 +78,7 @@ Android IDevListener / iOS ThingSmartDeviceDelegate
 
 `ActionResult` 同时带回 `message` 与 `code`：产品页面只展示 `message`，SDK 联调页用 `code` 区分平台配置错误（`sdk_unavailable`、`credentials_missing`、`security_component_mismatch`）与账号错误。
 
-REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL` 读取服务地址，`ApiSession` 用 `SharedPreferences` 持久化 `userToken` 并统一处理鉴权失效。当前账号和设备主链仍以 `TuyaRepository` 为边界，业务页面不应直接发 HTTP 请求。
+REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/core/backend/`：`ApiClient` 从 `API_BASE_URL` 读取服务地址，`ApiSession` 用 `SharedPreferences` 持久化 `userToken` 并统一处理鉴权失效，`HttpAppBackendRepository` 封装账号、用户设备、植物与图片接口。业务页面不直接发 HTTP 请求，由 `FlowerpotState` 编排 APP 后端与涂鸦设备会话。
 
 ## 4. 关键目录
 
@@ -87,6 +92,7 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 | `lib/src/design_system/` | Design Token、资源索引和公共视觉组件。 |
 | `lib/src/shared/` | 跨 Feature 复用组件。 |
 | `lib/src/core/network/` | REST 请求、会话、异常和重试。 |
+| `lib/src/core/backend/` | APP 后端账号、用户设备、植物、设备图片模型与接口封装。 |
 | `lib/src/tuya/` | 涂鸦 DP 表与配置、模型、raw 历史解码、Mock 与 MethodChannel Repository。 |
 | `android/`、`ios/` | 平台工程、SDK 配置和桥接实现。 |
 | `test/` | 网络、配置、页面和公共组件测试。 |
@@ -94,9 +100,9 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 
 ## 5. 当前核心模块
 
-- 账号：国内手机号、海外邮箱、验证码/密码、注册、找回密码、退出和注销。
+- 账号：配置 `API_BASE_URL` 后，国内手机号短信、验证码/密码登录与注册走 APP 后端，再用返回的映射凭据登录涂鸦；海外邮箱及找回密码等原有能力保留涂鸦链路。
 - 设备实时性：DP 上报、上下线和解绑由原生监听推给 Dart，页面自动刷新；温标（146）与时间格式（147）下发后 App 自身展示跟随。
-- 首页与设备：无底部菜单，设备列表即首页、左上角头像进入「我的」、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网动线中只有 Wi-Fi 那一步是真实 SDK 调用，搜索与选择设备都是模拟，详见 `docs/TUYA_SDK_SETUP.md` 第 6 节。
+- 首页与设备：无底部菜单，设备列表即首页、左上角头像进入「我的」、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。后端设备行按涂鸦 `deviceId` 关联；植物目录、详情、绑定/删除与设备图片使用 APP 后端。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网动线中只有 Wi-Fi 那一步是真实 SDK 调用，搜索与选择设备都是模拟，详见 `docs/TUYA_SDK_SETUP.md` 第 6 节。
 - 设备控制：显示、听觉、触觉、振动、行为时段、温标、时钟、校准与系统修复。
 - 内容与维护：动画资源、设备分享、解绑、恢复出厂和 OTA。
 - 个人中心：资料、账号安全、帮助、协议、隐私、关于与偏好。
@@ -118,6 +124,7 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 ## 7. 环境与秘密管理
 
 - `TUYA_ENABLED`、`API_BASE_URL`、`TUYA_DEBUG_TOOLS` 通过 `--dart-define` 注入。
+- `API_BASE_URL` 必须是服务源站（例如 `https://api.example.com`），不能填写 `/swagger-ui.html#/` 页面地址；未配置时使用禁用型 Repository，不会发 REST 请求。
 - Android 涂鸦密钥放在未提交的 `android/local.properties`；安全组件按接入文档放置，不得写入普通 Markdown。
 - iOS 安全组件、Bundle ID、Universal Link/App Link 和签名资料按平台受控管理。
 - 文档、源码、历史记录和提交信息不得包含 Token、AppSecret、密码、签名材料、真实 Wi-Fi 凭据或用户数据。
@@ -147,8 +154,11 @@ REST 公共能力位于 `lib/src/core/network/`：`ApiClient` 从 `API_BASE_URL`
 - Android Home SDK 7.5.1 与 Expansion SDK 7.8.0 已在本机 arm64 强制安装模式下完成初始化验证；账号、家庭、配网、设备控制和真机链路仍未完成联调，Mock 或 SDK 初始化通过不等于真实业务链通过。
 - 静态演示构建使用 Mock 后端与空设备列表，接口错误、超时和真实鉴权行为都不会在其中出现。
 - `FlowerpotState` 被大量页面调用，继续膨胀会扩大变更影响面；拆分前必须先分析调用链并保留行为。
-- DP 101–123 的最终映射、倍率、枚举、统计服务、动画传输、分享和 OTA 回调仍需平台/固件确认。
-- 温度、湿度、电量、PPFD、DLI 没有历史功能点，真机上这几条曲线是空态而不是曲线；142/143/144 图片下发链路等 Java 后端提供图片地址后再接。
+- 除已确认的 DP 116 外，DP 101–115、117–123 的最终映射、倍率、枚举、统计服务、动画传输、分享和 OTA 回调仍需平台/固件确认。
+- DP 116 `plant_variety` 已按可上报可下发处理：后端植物 `tuYaRemark` 是下发值，绑定成功后才下发，设备上报的已知标识符会反向更新当前植物。
+- DP 140 校准固定依次发送 `step0`、`step1`、`step2`、`step3`，取消或在最终完成卡片尚未确认 `step3` 时关闭都发送 `step5`；`step4` 保留且不调用。
+- 温度、湿度、电量、PPFD、DLI 没有历史功能点，真机上这几条曲线是空态而不是曲线；设备图片已可在 APP 后端上传/列出/删除，但 142/143/144 从云端 URL 下发到硬件的协议仍待确认。
+- 2026-08-25 核验时，提供的 `https://api.yikaltd.com` 域名返回备案阻断页；Swagger 机器端口可读取契约，但未使用真实账号执行写接口。恢复可用 HTTPS 域名后仍需完成真机端到端联调。
 - iOS 桥接已补齐配网前置、DP 上报与 OTA，但 iOS 侧全部改动尚未经过 Xcode 编译或真机验证；`createShareLink` 在 iOS 上仍是明确错误码（Home SDK 只有按账号分享）。
 - Android/iOS 包名与桥接正在工作区中演进；不要根据旧历史文档恢复已删除的平台文件。
 - 当前工作区有大量未提交的 UI、资源、路由、平台与测试改动，任何任务都必须先识别所有权并避免覆盖。

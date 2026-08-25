@@ -3,17 +3,23 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/backend/backend.dart';
 import 'core/cache/image_cache_cleanup.dart';
+import 'core/network/api_exception.dart';
 import 'features/auth/domain/auth_validator.dart';
 import 'tuya/tuya_config.dart';
 import 'tuya/tuya_models.dart';
 import 'tuya/tuya_repository.dart';
 
 class FlowerpotState extends ChangeNotifier {
-  FlowerpotState({required TuyaRepository repository})
-    : _repository = repository;
+  FlowerpotState({
+    required TuyaRepository repository,
+    AppBackendRepository? backendRepository,
+  }) : _repository = repository,
+       _backend = backendRepository ?? const DisabledAppBackendRepository();
 
   TuyaRepository _repository;
+  final AppBackendRepository _backend;
   bool _initialized = false;
   bool _busy = false;
   bool _sdkReady = false;
@@ -25,6 +31,17 @@ class FlowerpotState extends ChangeNotifier {
   WifiScan? _wifiScan;
   String? _selectedDeviceId;
   List<SmartPlanterDevice> _devices = <SmartPlanterDevice>[];
+
+  /// Server-side device rows keyed by the Tuya device id. Plant and image APIs
+  /// require `userProductId`, so this mapping is resolved once and reused.
+  final Map<String, BackendUserProduct> _backendDevices =
+      <String, BackendUserProduct>{};
+  final Map<String, List<PlantProfile>> _backendPlants =
+      <String, List<PlantProfile>>{};
+  final Map<String, List<AnimationAsset>> _backendAnimations =
+      <String, List<AnimationAsset>>{};
+  final Map<String, PlantProfile> _knownPlantsByIdentifier =
+      <String, PlantProfile>{};
 
   /// Live device reports. See [_applyDeviceUpdate].
   StreamSubscription<DeviceUpdate>? _deviceUpdates;
@@ -42,29 +59,23 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, PlantProfile> _plantOverrides = <String, PlantProfile>{};
   final Map<String, DeviceControlSettings> _settingsOverrides =
       <String, DeviceControlSettings>{};
-  /// Seeded so the animation page has something to show. The list filters out
-  /// `builtin://` paths, so these carry file-like paths and are visible.
+
+  /// Built-in device animations are not user-uploaded files, so the page
+  /// filters their `builtin://` paths and only counts backend/local uploads.
   final List<AnimationAsset> _animations = <AnimationAsset>[
     AnimationAsset(
       id: 'welcome',
       name: '清晨问候.gif',
-      path: '/storage/emulated/0/YSplanter/清晨问候.gif',
+      path: 'builtin://welcome',
       createdAt: DateTime(2026, 8, 12, 9, 20),
       synced: true,
     ),
     AnimationAsset(
       id: 'rain',
       name: '下雨啦.gif',
-      path: '/storage/emulated/0/YSplanter/下雨啦.gif',
+      path: 'builtin://rain',
       createdAt: DateTime(2026, 8, 14, 18, 5),
       synced: true,
-    ),
-    AnimationAsset(
-      id: 'sleepy',
-      name: '晚安打盹.gif',
-      path: '/storage/emulated/0/YSplanter/晚安打盹.gif',
-      createdAt: DateTime(2026, 8, 16, 22, 40),
-      synced: false,
     ),
   ];
 
@@ -79,13 +90,23 @@ class FlowerpotState extends ChangeNotifier {
   /// the native bridge. True without `TUYA_ENABLED`, and also after the demo
   /// shortcut replaced the repository at runtime.
   bool get usingMockBackend => _repository is MockTuyaRepository;
+  bool get usingAppBackend => _backend.enabled;
   String get languageCode => _languageCode;
   AppUser? get user => _user;
 
   /// Last nearby-network scan, populated by [probeWifi].
   WifiScan? get wifiScan => _wifiScan;
   List<SmartPlanterDevice> get devices => List.unmodifiable(_devices);
-  List<AnimationAsset> get animations => List.unmodifiable(_animations);
+  List<AnimationAsset> get animations => animationsFor(_selectedDeviceId);
+
+  List<AnimationAsset> animationsFor(String? deviceId) {
+    final items = _backend.enabled
+        ? deviceId == null
+              ? const <AnimationAsset>[]
+              : _backendAnimations[deviceId] ?? const <AnimationAsset>[]
+        : _animations;
+    return List.unmodifiable(items);
+  }
 
   SmartPlanterDevice? get selectedDevice {
     if (_devices.isEmpty) return null;
@@ -116,6 +137,11 @@ class FlowerpotState extends ChangeNotifier {
       // Local preference failures do not block SDK/session initialization.
     }
     try {
+      await _backend.initialize(languageCode: _languageCode);
+    } catch (_) {
+      // A REST outage must not prevent the Tuya SDK from restoring its session.
+    }
+    try {
       _sdkReady = await _repository.initialize();
     } catch (_) {
       _sdkReady = false;
@@ -141,6 +167,15 @@ class FlowerpotState extends ChangeNotifier {
     required int type,
   }) => _guard(() async {
     final normalizedAccount = _normalizeAccount(account, region);
+    if (region == LoginRegion.domestic && _backend.enabled) {
+      // The APP backend uses 0 for login/register and 1 for password reset;
+      // the UI's legacy Tuya values (1/2/3) are normalized here.
+      await _backend.sendSms(
+        mobile: normalizedAccount,
+        sendType: type == 3 ? 1 : 0,
+      );
+      return const ActionResult(true, '验证码已发送');
+    }
     await _repository.sendVerificationCode(
       account: normalizedAccount,
       countryCode: region == LoginRegion.domestic ? '86' : '1',
@@ -160,12 +195,25 @@ class FlowerpotState extends ChangeNotifier {
       credential,
       verificationCode: verificationCode,
     );
-    _user = await _repository.login(
-      account: normalizedAccount,
-      credential: normalizedCredential,
-      region: region,
-      verificationCode: verificationCode,
-    );
+    if (region == LoginRegion.domestic && _backend.enabled) {
+      final backendAccount = verificationCode
+          ? await _backend.loginWithCode(
+              mobile: normalizedAccount,
+              code: normalizedCredential,
+            )
+          : await _backend.loginWithPassword(
+              mobile: normalizedAccount,
+              password: normalizedCredential,
+            );
+      _user = await _loginTuyaAccount(backendAccount);
+    } else {
+      _user = await _repository.login(
+        account: normalizedAccount,
+        credential: normalizedCredential,
+        region: region,
+        verificationCode: verificationCode,
+      );
+    }
     _sessionEpoch++;
     await _refreshDevicesForSession(ignoreErrors: true);
     return const ActionResult(true, '登录成功');
@@ -180,12 +228,21 @@ class FlowerpotState extends ChangeNotifier {
     final normalizedAccount = _normalizeAccount(account, region);
     final normalizedPassword = AuthValidator.password(password);
     final normalizedCode = AuthValidator.code(code);
-    _user = await _repository.register(
-      account: normalizedAccount,
-      password: normalizedPassword,
-      code: normalizedCode,
-      region: region,
-    );
+    if (region == LoginRegion.domestic && _backend.enabled) {
+      final backendAccount = await _backend.registerMobile(
+        mobile: normalizedAccount,
+        code: normalizedCode,
+        password: normalizedPassword,
+      );
+      _user = await _loginTuyaAccount(backendAccount);
+    } else {
+      _user = await _repository.register(
+        account: normalizedAccount,
+        password: normalizedPassword,
+        code: normalizedCode,
+        region: region,
+      );
+    }
     _sessionEpoch++;
     await _refreshDevicesForSession(ignoreErrors: true);
     return const ActionResult(true, '账号创建成功');
@@ -216,6 +273,7 @@ class FlowerpotState extends ChangeNotifier {
   /// normal login land on the same screen.
   Future<ActionResult> enterDemo({bool seedDevice = true}) async {
     _demoMode = true;
+    _backend.clearSession();
     _repository = MockTuyaRepository(
       latency: const Duration(milliseconds: 80),
       seedDevice: seedDevice,
@@ -275,7 +333,9 @@ class FlowerpotState extends ChangeNotifier {
       false => '5G，EZ 配网需要切到 2.4G',
       null => '频段未知',
     };
-    final hotspots = scan.networks.where((n) => n.looksLikeDeviceHotspot).length;
+    final hotspots = scan.networks
+        .where((n) => n.looksLikeDeviceHotspot)
+        .length;
     return ActionResult(
       true,
       '扫描到 ${scan.networks.length} 个网络'
@@ -297,12 +357,14 @@ class FlowerpotState extends ChangeNotifier {
     } catch (_) {
       // Local logout must remain available while the SDK/network is offline.
     }
+    _backend.clearSession();
     _clearLocalSession();
     return const ActionResult(true, '已退出登录');
   });
 
   Future<ActionResult> deleteAccount() => _guard(() async {
     await _repository.deleteAccount();
+    _backend.clearSession();
     _clearLocalSession();
     return const ActionResult(true, '账号已注销');
   });
@@ -322,6 +384,17 @@ class FlowerpotState extends ChangeNotifier {
       device,
     ];
     _selectedDeviceId = device.id;
+    if (_backend.enabled && _backend.hasSession) {
+      try {
+        await _ensureBackendDevice(device.id);
+      } on ApiException catch (error) {
+        return ActionResult(
+          true,
+          '设备已配网；后台关联待重试：${error.message}',
+          code: 'backend_device_pending',
+        );
+      }
+    }
     return const ActionResult(true, '设备配网成功');
   });
 
@@ -338,12 +411,142 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '设备名称已更新');
   });
 
+  /// Loads the plants configured for this device's backend product. The local
+  /// catalog remains the offline/demo fallback only.
+  Future<List<PlantProfile>> loadPlantCatalog(
+    String deviceId, {
+    String keyword = '',
+  }) async {
+    if (!_backend.enabled) {
+      final normalized = keyword.trim().toLowerCase();
+      if (normalized.isEmpty) return PlantCatalog.items;
+      return PlantCatalog.items
+          .where(
+            (plant) =>
+                plant.name.contains(normalized) ||
+                plant.latinName.toLowerCase().contains(normalized),
+          )
+          .toList(growable: false);
+    }
+    if (!_backend.hasSession) {
+      throw const ApiException(
+        'BACKEND_SESSION_REQUIRED',
+        'APP 后端登录状态已失效，请重新登录',
+      );
+    }
+    final backendDevice = await _ensureBackendDevice(deviceId);
+    final productId = backendDevice.productId;
+    if (productId == null || productId <= 0) {
+      throw const ApiException('PRODUCT_ID_MISSING', '后台设备未关联产品，无法加载植物列表');
+    }
+    final plants = await _backend.getProductPlants(
+      productId: productId,
+      keyword: keyword,
+    );
+    _rememberPlants(plants);
+    return plants;
+  }
+
+  Future<PlantProfile> loadPlantDetail(PlantProfile plant) async {
+    final productPlantId = plant.productPlantId;
+    if (!_backend.enabled || !_backend.hasSession || productPlantId == null) {
+      return plant;
+    }
+    final detail = await _backend.getPlantDetail(productPlantId);
+    _rememberPlants(<PlantProfile>[detail]);
+    return detail;
+  }
+
+  /// Persists the selection first, then writes its backend English identifier
+  /// to reportable/writable DP 116. A DP failure deliberately keeps the server
+  /// binding so the same selection can be retried without losing user data.
   Future<ActionResult> selectPlant(String id, PlantProfile plant) =>
       _guard(() async {
-        _plantedDevices.add(id);
-        _plantOverrides[id] = plant;
-        _replaceDevice(id, (device) => device.copyWith(plant: plant));
-        return ActionResult(true, '已选择${plant.name}');
+        final identifier = plant.tuyaIdentifier.trim();
+        if (identifier.isEmpty) {
+          throw const ApiException(
+            'PLANT_IDENTIFIER_MISSING',
+            '该植物尚未配置英文标识符，请先在后端植物管理中补充',
+          );
+        }
+
+        var boundPlant = plant;
+        if (_backend.enabled) {
+          final backendDevice = await _ensureBackendDevice(id);
+          final productPlantId = plant.productPlantId;
+          if (productPlantId == null || productPlantId <= 0) {
+            throw const ApiException(
+              'PRODUCT_PLANT_ID_MISSING',
+              '该植物缺少后台编号，无法绑定',
+            );
+          }
+
+          var current =
+              _backendPlants[id] ??
+              await _backend.getUserPlants(backendDevice.userProductId);
+          final same = current.where(
+            (item) =>
+                item.productPlantId == productPlantId ||
+                item.tuyaIdentifier == identifier,
+          );
+          if (same.isEmpty) {
+            final activeIdentifier =
+                deviceById(id)?.plantVariety.trim().toLowerCase() ?? '';
+            final previous =
+                current
+                    .where(
+                      (item) =>
+                          activeIdentifier.isNotEmpty &&
+                          item.tuyaIdentifier.trim().toLowerCase() ==
+                              activeIdentifier,
+                    )
+                    .firstOrNull ??
+                current.firstOrNull;
+            if (previous?.userProductPlantId case final previousId?) {
+              await _backend.deleteUserPlant(previousId);
+            }
+            try {
+              await _backend.addUserPlant(
+                userProductId: backendDevice.userProductId,
+                productPlantId: productPlantId,
+              );
+            } catch (_) {
+              // Restore the previous binding where possible. The original
+              // error is still reported to the user.
+              final rollbackId = previous?.productPlantId;
+              if (rollbackId != null) {
+                try {
+                  await _backend.addUserPlant(
+                    userProductId: backendDevice.userProductId,
+                    productPlantId: rollbackId,
+                  );
+                } catch (_) {}
+              }
+              rethrow;
+            }
+            current = await _backend.getUserPlants(backendDevice.userProductId);
+          }
+          _backendPlants[id] = current;
+          _rememberPlants(current);
+          boundPlant = current.firstWhere(
+            (item) =>
+                item.productPlantId == productPlantId ||
+                item.tuyaIdentifier == identifier,
+            orElse: () => plant,
+          );
+        }
+
+        _setPlantSelection(id, boundPlant);
+        try {
+          await _publishPlantVariety(id, identifier);
+        } on TuyaException catch (error) {
+          return ActionResult(
+            false,
+            '植物已绑定，但同步到设备失败：${error.message}，请重试',
+            code: error.code,
+          );
+        }
+        return ActionResult(true, '已选择${boundPlant.name}并同步到设备');
       });
 
   Future<ActionResult> updateSetting(
@@ -396,6 +599,15 @@ class FlowerpotState extends ChangeNotifier {
     required String name,
     required String path,
   }) => _guard(() async {
+    if (_backend.enabled) {
+      final backendDevice = await _ensureBackendDevice(deviceId);
+      await _backend.uploadImage(
+        userProductId: backendDevice.userProductId,
+        filePath: path,
+      );
+      await _refreshBackendImages(deviceId, backendDevice);
+      return const ActionResult(true, '图片已上传');
+    }
     final asset = AnimationAsset(
       id: '${DateTime.now().microsecondsSinceEpoch}',
       name: name,
@@ -410,6 +622,11 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   Future<ActionResult> syncAnimations(String deviceId) => _guard(() async {
+    if (_backend.enabled) {
+      final backendDevice = await _ensureBackendDevice(deviceId);
+      await _refreshBackendImages(deviceId, backendDevice);
+      return ActionResult(true, '已同步 ${animationsFor(deviceId).length} 个云端文件');
+    }
     final files = _animations
         .where((item) => !item.path.startsWith('builtin://'))
         .toList(growable: false);
@@ -430,9 +647,25 @@ class FlowerpotState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void deleteAnimation(String id) {
-    _animations.removeWhere((item) => item.id == id);
-    notifyListeners();
+  Future<ActionResult> deleteAnimation(String deviceId, String id) =>
+      _guard(() async {
+        if (_backend.enabled) {
+          final imageId = int.tryParse(id);
+          if (imageId == null) {
+            throw const ApiException('IMAGE_ID_INVALID', '图片编号无效，无法删除');
+          }
+          await _backend.deleteImages(<int>[imageId]);
+          _backendAnimations[deviceId]?.removeWhere((item) => item.id == id);
+        } else {
+          _animations.removeWhere((item) => item.id == id);
+        }
+        return const ActionResult(true, '图片已删除');
+      });
+
+  Future<void> refreshAnimations(String deviceId) async {
+    if (!_backend.enabled || !_backend.hasSession) return;
+    final backendDevice = await _ensureBackendDevice(deviceId);
+    await _refreshBackendImages(deviceId, backendDevice);
   }
 
   Future<ActionResult> createShareLink(String id) => _guard(() async {
@@ -499,13 +732,44 @@ class FlowerpotState extends ChangeNotifier {
     await _repository.publishDps(id, <int, Object>{dpId: step});
   }
 
+  Future<void> _publishPlantVariety(String id, String identifier) async {
+    final dpId = TuyaConfig.dp['plant_variety'];
+    if (dpId == null) {
+      throw const TuyaException('unsupported_dp', '当前产品未提供植物品种功能点');
+    }
+    await _repository.publishDps(id, <int, Object>{dpId: identifier});
+  }
+
   Future<ActionResult> removeDevice(String id, {required bool resetFactory}) =>
       _guard(() async {
         if (resetFactory) await _publishFactoryReset(id);
         await _repository.removeDevice(id, resetFactory: resetFactory);
+        final backendDevice = _backendDevices[id];
+        ApiException? backendCleanupError;
+        if (_backend.enabled && backendDevice != null) {
+          try {
+            await _backend.deleteUserProduct(backendDevice.userProductId);
+          } on ApiException catch (error) {
+            // Tuya has already unbound the device. Finish the local removal and
+            // surface the stale backend row as a retryable partial result.
+            backendCleanupError = error;
+          }
+        }
+        _backendDevices.remove(id);
         _devices.removeWhere((device) => device.id == id);
         _plantedDevices.remove(id);
+        _backendPlants.remove(id);
+        _backendAnimations.remove(id);
+        _plantOverrides.remove(id);
+        _settingsOverrides.remove(id);
         _selectedDeviceId = _devices.firstOrNull?.id;
+        if (backendCleanupError != null) {
+          return ActionResult(
+            true,
+            '设备已解绑；后台记录清理待重试：${backendCleanupError.message}',
+            code: 'backend_device_delete_pending',
+          );
+        }
         return ActionResult(true, resetFactory ? '设备已解绑并清除数据' : '设备已解绑');
       });
 
@@ -524,6 +788,7 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<void> setLanguage(String code) async {
     _languageCode = code;
+    _backend.setLanguage(code);
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString('languageCode', code);
@@ -547,14 +812,17 @@ class FlowerpotState extends ChangeNotifier {
   /// every DP the app knew plus the ones that just changed, so the local
   /// settings copy is refreshed from it rather than replayed over it — that
   /// copy only exists because the mock backend cannot persist a write, and a
-  /// stale one would mask a switch pressed on the planter itself. The plant is
-  /// the exception: the app picks it, the device does not report it.
+  /// stale one would mask a switch pressed on the planter itself. DP 116 is
+  /// reportable, so a recognized identifier also replaces the local plant.
   void _applyDeviceUpdate(DeviceUpdate update) {
     final removedId = update.removedId;
     if (removedId != null) {
       if (_devices.every((device) => device.id != removedId)) return;
       _devices = _devices.where((device) => device.id != removedId).toList();
       _plantedDevices.remove(removedId);
+      _backendDevices.remove(removedId);
+      _backendPlants.remove(removedId);
+      _backendAnimations.remove(removedId);
       _plantOverrides.remove(removedId);
       _settingsOverrides.remove(removedId);
       if (_selectedDeviceId == removedId) {
@@ -570,13 +838,21 @@ class FlowerpotState extends ChangeNotifier {
     // is what introduces it.
     if (index < 0) return;
     _settingsOverrides[device.id] = device.settings;
-    _devices[index] = device.copyWith(plant: _plantOverrides[device.id]);
+    final reportedPlant = _plantForIdentifier(device.plantVariety);
+    if (reportedPlant != null) {
+      _plantOverrides[device.id] = reportedPlant;
+      _plantedDevices.add(device.id);
+    }
+    _devices[index] = device.copyWith(
+      plant: reportedPlant ?? _plantOverrides[device.id],
+    );
     notifyListeners();
   }
 
   @override
   void dispose() {
     _deviceUpdates?.cancel();
+    _backend.close();
     super.dispose();
   }
 
@@ -599,6 +875,9 @@ class FlowerpotState extends ChangeNotifier {
       return ActionResult(false, error.message, code: 'invalid_input');
     } on TuyaException catch (error) {
       return ActionResult(false, error.message, code: error.code);
+    } on ApiException catch (error) {
+      if (error.isAuthError) _clearLocalSession();
+      return ActionResult(false, error.message, code: error.code.toString());
     } catch (error) {
       return ActionResult(false, '操作失败：$error', code: 'unexpected_error');
     } finally {
@@ -613,6 +892,13 @@ class FlowerpotState extends ChangeNotifier {
       final devices = await _repository.getDevices();
       if (epoch != _sessionEpoch) return;
       _devices = devices.map(_withLocalOverrides).toList();
+      if (_backend.enabled && _backend.hasSession) {
+        try {
+          await _syncBackendDevices(epoch);
+        } catch (_) {
+          if (!ignoreErrors) rethrow;
+        }
+      }
       if (_devices.isEmpty) {
         _selectedDeviceId = null;
       } else if (_devices.every((item) => item.id != _selectedDeviceId)) {
@@ -625,10 +911,182 @@ class FlowerpotState extends ChangeNotifier {
   }
 
   SmartPlanterDevice _withLocalOverrides(SmartPlanterDevice device) {
-    final plant = _plantOverrides[device.id];
+    final plant =
+        _plantForIdentifier(device.plantVariety) ?? _plantOverrides[device.id];
     final settings = _settingsOverrides[device.id];
+    if (plant != null) {
+      _plantOverrides[device.id] = plant;
+      _plantedDevices.add(device.id);
+    }
     if (plant == null && settings == null) return device;
     return device.copyWith(plant: plant, settings: settings);
+  }
+
+  Future<AppUser> _loginTuyaAccount(BackendAuthAccount backendAccount) async {
+    try {
+      await _repository.login(
+        account: backendAccount.tuyaAccount,
+        credential: backendAccount.tuyaPassword,
+        region: LoginRegion.domestic,
+        verificationCode: false,
+      );
+    } catch (_) {
+      // Do not leave a valid APP token paired with a failed Tuya session.
+      _backend.clearSession();
+      rethrow;
+    }
+    return AppUser(
+      id: backendAccount.tuyaAccount,
+      nickname: backendAccount.nickname,
+      account: backendAccount.account,
+      avatarUrl: backendAccount.avatarUrl,
+    );
+  }
+
+  Future<void> _syncBackendDevices(int epoch) async {
+    final rows = await _backend.getUserProducts();
+    if (epoch != _sessionEpoch) return;
+    final activeIds = _devices.map((device) => device.id).toSet();
+    _backendDevices.removeWhere((id, _) => !activeIds.contains(id));
+    _backendPlants.removeWhere((id, _) => !activeIds.contains(id));
+    _backendAnimations.removeWhere((id, _) => !activeIds.contains(id));
+
+    for (final device in _devices) {
+      final summary = rows
+          .where((row) => row.deviceId == device.id)
+          .firstOrNull;
+      if (summary == null) continue;
+      final detail = summary.productId == null
+          ? await _backend.getUserProductDetail(summary.userProductId)
+          : summary;
+      if (epoch != _sessionEpoch) return;
+      _backendDevices[device.id] = detail;
+      final plants = await _backend.getUserPlants(detail.userProductId);
+      if (epoch != _sessionEpoch) return;
+      _backendPlants[device.id] = plants;
+      _rememberPlants(plants);
+      final reportedIdentifier = device.plantVariety.trim().toLowerCase();
+      final activePlant =
+          plants
+              .where(
+                (plant) =>
+                    reportedIdentifier.isNotEmpty &&
+                    plant.tuyaIdentifier.trim().toLowerCase() ==
+                        reportedIdentifier,
+              )
+              .firstOrNull ??
+          plants.firstOrNull;
+      if (activePlant != null) {
+        _setPlantSelection(device.id, activePlant, notify: false);
+      }
+    }
+
+    _devices = _devices.map(_withLocalOverrides).toList(growable: false);
+  }
+
+  Future<BackendUserProduct> _ensureBackendDevice(String deviceId) async {
+    if (!_backend.enabled || !_backend.hasSession) {
+      throw const ApiException(
+        'BACKEND_SESSION_REQUIRED',
+        'APP 后端登录状态已失效，请重新登录',
+      );
+    }
+    final cached = _backendDevices[deviceId];
+    if (cached != null && cached.productId != null) return cached;
+
+    final rows = await _backend.getUserProducts();
+    final summary = rows.where((row) => row.deviceId == deviceId).firstOrNull;
+    if (summary != null) {
+      final detail = summary.productId == null
+          ? await _backend.getUserProductDetail(summary.userProductId)
+          : summary;
+      _backendDevices[deviceId] = detail;
+      return detail;
+    }
+
+    final device = deviceById(deviceId);
+    if (device == null) {
+      throw const ApiException('DEVICE_NOT_FOUND', '未找到需要关联的设备');
+    }
+    final products = await _backend.getProducts();
+    final normalizedProductId = device.productId.trim().toLowerCase();
+    final matches = products
+        .where(
+          (product) =>
+              product.broadcastId.trim().toLowerCase() == normalizedProductId,
+        )
+        .toList(growable: false);
+    final product = matches.length == 1
+        ? matches.single
+        : products.length == 1
+        ? products.single
+        : null;
+    if (product == null) {
+      throw ApiException(
+        'PRODUCT_MAPPING_NOT_FOUND',
+        '后台未找到涂鸦产品 ${device.productId} 对应的产品，请先配置 broadcastId',
+      );
+    }
+    var created = await _backend.addUserProduct(
+      deviceId: device.id,
+      product: product,
+    );
+    if (created.productId == null) {
+      created = created.copyWith(productId: product.productId);
+    }
+    _backendDevices[deviceId] = created;
+    return created;
+  }
+
+  Future<void> _refreshBackendImages(
+    String deviceId,
+    BackendUserProduct backendDevice,
+  ) async {
+    final images = await _backend.getImages(backendDevice.userProductId);
+    _backendAnimations[deviceId] = images
+        .map(
+          (image) => AnimationAsset(
+            id: image.id.toString(),
+            name: image.name,
+            path: image.url,
+            createdAt: DateTime.now(),
+            synced: true,
+          ),
+        )
+        .toList(growable: true);
+    notifyListeners();
+  }
+
+  void _rememberPlants(Iterable<PlantProfile> plants) {
+    for (final plant in plants) {
+      final identifier = plant.tuyaIdentifier.trim().toLowerCase();
+      if (identifier.isNotEmpty) _knownPlantsByIdentifier[identifier] = plant;
+    }
+  }
+
+  PlantProfile? _plantForIdentifier(String identifier) {
+    final normalized = identifier.trim().toLowerCase();
+    if (normalized.isEmpty) return null;
+    return _knownPlantsByIdentifier[normalized] ??
+        PlantCatalog.findByTuyaIdentifier(normalized);
+  }
+
+  void _setPlantSelection(
+    String deviceId,
+    PlantProfile plant, {
+    bool notify = true,
+  }) {
+    _rememberPlants(<PlantProfile>[plant]);
+    _plantedDevices.add(deviceId);
+    _plantOverrides[deviceId] = plant;
+    final index = _devices.indexWhere((device) => device.id == deviceId);
+    if (index >= 0) {
+      _devices[index] = _devices[index].copyWith(
+        plant: plant,
+        plantVariety: plant.tuyaIdentifier,
+      );
+    }
+    if (notify) notifyListeners();
   }
 
   void _clearLocalSession() {
@@ -638,6 +1096,11 @@ class FlowerpotState extends ChangeNotifier {
     _plantedDevices.clear();
     _plantOverrides.clear();
     _settingsOverrides.clear();
+    _backendDevices.clear();
+    _backendPlants.clear();
+    _backendAnimations.clear();
+    _knownPlantsByIdentifier.clear();
+    _animations.removeWhere((item) => !item.path.startsWith('builtin://'));
     _selectedDeviceId = null;
     _demoMode = false;
     ImageCacheCleanup.clearAll();

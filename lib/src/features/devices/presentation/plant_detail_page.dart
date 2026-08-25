@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
 
@@ -10,14 +13,40 @@ class PlantDetailArguments {
   final bool bound;
 }
 
-class PlantDetailPage extends StatelessWidget {
+class PlantDetailPage extends StatefulWidget {
   const PlantDetailPage({required this.arguments, super.key});
 
   final PlantDetailArguments arguments;
 
   @override
+  State<PlantDetailPage> createState() => _PlantDetailPageState();
+}
+
+class _PlantDetailPageState extends State<PlantDetailPage> {
+  late PlantProfile plant = widget.arguments.plant;
+  bool loadingStarted = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (loadingStarted) return;
+    loadingStarted = true;
+    unawaited(_loadDetail());
+  }
+
+  Future<void> _loadDetail() async {
+    try {
+      final detail = await FlowerpotScope.of(context).loadPlantDetail(plant);
+      if (mounted) setState(() => plant = detail);
+    } catch (_) {
+      // The summary passed by the picker remains usable while the network is
+      // unavailable; binding will still validate the server id later.
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final data = _PlantDetailData.fromProfile(arguments.plant);
+    final data = _PlantDetailData.fromProfile(plant);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '植物详情', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -34,12 +63,12 @@ class PlantDetailPage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               _PlantSummaryCard(
-                plant: arguments.plant,
+                plant: plant,
                 data: data,
-                bound: arguments.bound,
+                bound: widget.arguments.bound,
               ),
               const SizedBox(height: 12),
-              _PlantBasicInfoCard(plant: arguments.plant, data: data),
+              _PlantBasicInfoCard(plant: plant, data: data),
               const SizedBox(height: 12),
               _PlantCareAdviceCard(items: data.careAdvice),
             ],
@@ -101,12 +130,9 @@ class _PlantSummaryCard extends StatelessWidget {
                               ),
                               Padding(
                                 padding: const EdgeInsets.all(4),
-                                child: Image.asset(
-                                  AppAssets.plantImage(plant.id),
+                                child: _PlantDetailArtwork(
+                                  plant: plant,
                                   key: const Key('plant-detail-image'),
-                                  fit: BoxFit.contain,
-                                  filterQuality: FilterQuality.high,
-                                  semanticLabel: plant.name,
                                 ),
                               ),
                             ],
@@ -504,6 +530,36 @@ class _RatingStars extends StatelessWidget {
   }
 }
 
+class _PlantDetailArtwork extends StatelessWidget {
+  const _PlantDetailArtwork({required this.plant, super.key});
+
+  final PlantProfile plant;
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = plant.imageUrl?.trim();
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      return Image.network(
+        imageUrl,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+        semanticLabel: plant.name,
+        errorBuilder: (_, _, _) => Image.asset(
+          AppAssets.plantImage(plant.id),
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+        ),
+      );
+    }
+    return Image.asset(
+      AppAssets.plantImage(plant.id),
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: plant.name,
+    );
+  }
+}
+
 class _PlantDetailData {
   const _PlantDetailData({
     required this.temperature,
@@ -530,8 +586,53 @@ class _PlantDetailData {
   /// Written per plant. The generic fallback produced near-identical cards —
   /// same temperature range, same three tips, and `别名` echoing the plant's
   /// own name — so every plant read the same in the picker.
-  factory _PlantDetailData.fromProfile(PlantProfile plant) =>
-      _byId[plant.id] ?? _generic(plant);
+  factory _PlantDetailData.fromProfile(PlantProfile plant) {
+    final fallback = _byId[plant.id] ?? _generic(plant);
+    final hasBackendDetail =
+        plant.introduction.isNotEmpty ||
+        plant.alias.isNotEmpty ||
+        plant.temperatureRequirement.isNotEmpty ||
+        plant.humidityRequirement.isNotEmpty ||
+        plant.lightingRequirement.isNotEmpty ||
+        plant.wateringFrequency.isNotEmpty ||
+        plant.growthCharacteristics.isNotEmpty ||
+        plant.careInstructions.isNotEmpty ||
+        plant.difficultyMaintenance != null;
+    if (!hasBackendDetail) return fallback;
+    final careAdvice = plant.careInstructions
+        .split(RegExp(r'[\r\n；;]+'))
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    return _PlantDetailData(
+      temperature: plant.temperatureRequirement.isEmpty
+          ? fallback.temperature
+          : plant.temperatureRequirement,
+      humidity: plant.humidityRequirement.isEmpty
+          ? fallback.humidity
+          : plant.humidityRequirement,
+      lightRating: _rating(plant.lightingRequirement, fallback.lightRating),
+      summary: plant.introduction.isEmpty
+          ? fallback.summary
+          : plant.introduction,
+      alias: plant.alias.isEmpty ? fallback.alias : plant.alias,
+      difficulty: (plant.difficultyMaintenance ?? fallback.difficulty)
+          .clamp(1, 5)
+          .toInt(),
+      watering: plant.wateringFrequency.isEmpty
+          ? fallback.watering
+          : plant.wateringFrequency,
+      growth: plant.growthCharacteristics.isEmpty
+          ? fallback.growth
+          : plant.growthCharacteristics,
+      careAdvice: careAdvice.isEmpty ? fallback.careAdvice : careAdvice,
+    );
+  }
+
+  static int _rating(String value, int fallback) {
+    final match = RegExp(r'[1-5]').firstMatch(value);
+    return int.tryParse(match?.group(0) ?? '') ?? fallback;
+  }
 
   static const _byId = <String, _PlantDetailData>{
     'pilea_cadierei': pilea,

@@ -116,6 +116,19 @@ class PlantProfile {
     required this.moistureTarget,
     required this.lightTarget,
     required this.tip,
+    this.productPlantId,
+    this.userProductPlantId,
+    this.tuyaIdentifier = '',
+    this.imageUrl,
+    this.alias = '',
+    this.introduction = '',
+    this.temperatureRequirement = '',
+    this.humidityRequirement = '',
+    this.lightingRequirement = '',
+    this.wateringFrequency = '',
+    this.growthCharacteristics = '',
+    this.careInstructions = '',
+    this.difficultyMaintenance,
   });
 
   final String id;
@@ -125,6 +138,57 @@ class PlantProfile {
   final int moistureTarget;
   final int lightTarget;
   final String tip;
+
+  /// Backend ids used by the plant APIs. Static fallback plants leave these
+  /// null and can still be used by the offline/demo flow.
+  final int? productPlantId;
+  final int? userProductPlantId;
+
+  /// Value written to and reported by `plant_variety` (DP 116).
+  ///
+  /// The backend field is named `tuYaRemark`; it is intentionally kept
+  /// separate from the numeric database id.
+  final String tuyaIdentifier;
+  final String? imageUrl;
+
+  /// Optional detail fields returned by the backend plant-detail endpoints.
+  final String alias;
+  final String introduction;
+  final String temperatureRequirement;
+  final String humidityRequirement;
+  final String lightingRequirement;
+  final String wateringFrequency;
+  final String growthCharacteristics;
+  final String careInstructions;
+  final int? difficultyMaintenance;
+
+  PlantProfile copyWith({
+    int? userProductPlantId,
+    bool clearUserProductPlantId = false,
+  }) => PlantProfile(
+    id: id,
+    name: name,
+    latinName: latinName,
+    color: color,
+    moistureTarget: moistureTarget,
+    lightTarget: lightTarget,
+    tip: tip,
+    productPlantId: productPlantId,
+    userProductPlantId: clearUserProductPlantId
+        ? null
+        : userProductPlantId ?? this.userProductPlantId,
+    tuyaIdentifier: tuyaIdentifier,
+    imageUrl: imageUrl,
+    alias: alias,
+    introduction: introduction,
+    temperatureRequirement: temperatureRequirement,
+    humidityRequirement: humidityRequirement,
+    lightingRequirement: lightingRequirement,
+    wateringFrequency: wateringFrequency,
+    growthCharacteristics: growthCharacteristics,
+    careInstructions: careInstructions,
+    difficultyMaintenance: difficultyMaintenance,
+  );
 }
 
 /// The plants the app can offer.
@@ -142,6 +206,7 @@ abstract final class PlantCatalog {
       moistureTarget: 68,
       lightTarget: 120,
       tip: '喜湿润明亮环境，适合室内桌面或半阴环境栽培。',
+      tuyaIdentifier: 'pilea_cadierei',
     ),
     PlantProfile(
       id: 'pothos',
@@ -151,6 +216,7 @@ abstract final class PlantCatalog {
       moistureTarget: 62,
       lightTarget: 100,
       tip: '耐阴但不耐积水，保持通风有助于新叶生长。',
+      tuyaIdentifier: 'pothos',
     ),
     PlantProfile(
       id: 'ivy',
@@ -160,6 +226,7 @@ abstract final class PlantCatalog {
       moistureTarget: 58,
       lightTarget: 150,
       tip: '适合明亮散射光，保持盆土微润并注意通风。',
+      tuyaIdentifier: 'ivy',
     ),
     PlantProfile(
       id: 'monstera',
@@ -169,6 +236,7 @@ abstract final class PlantCatalog {
       moistureTarget: 58,
       lightTarget: 140,
       tip: '喜欢明亮散射光，表层土壤微干后再浇水。',
+      tuyaIdentifier: 'monstera',
     ),
     PlantProfile(
       id: 'bird_of_paradise',
@@ -178,6 +246,7 @@ abstract final class PlantCatalog {
       moistureTarget: 55,
       lightTarget: 260,
       tip: '需要充足的柔和光照，生长期保持土壤均匀湿润。',
+      tuyaIdentifier: 'bird_of_paradise',
     ),
     PlantProfile(
       id: 'china_doll',
@@ -187,11 +256,29 @@ abstract final class PlantCatalog {
       moistureTarget: 60,
       lightTarget: 180,
       tip: '喜温暖明亮环境，避免积水和长时间强光直射。',
+      tuyaIdentifier: 'china_doll',
     ),
   ];
 
   static PlantProfile byId(String? id) =>
       items.firstWhere((plant) => plant.id == id, orElse: () => items.first);
+
+  static PlantProfile? findById(String? id) {
+    if (id == null || id.isEmpty) return null;
+    for (final plant in items) {
+      if (plant.id == id) return plant;
+    }
+    return null;
+  }
+
+  static PlantProfile? findByTuyaIdentifier(String? identifier) {
+    final normalized = identifier?.trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty) return null;
+    for (final plant in items) {
+      if (plant.tuyaIdentifier.toLowerCase() == normalized) return plant;
+    }
+    return null;
+  }
 }
 
 class SensorSnapshot {
@@ -293,7 +380,11 @@ class DeviceControlSettings {
       '${value.toStringAsFixed(fractionDigits)}$temperatureSymbol';
 
   /// A Celsius range from the app's own copy, in the device's unit.
-  String formatCelsiusRange(double low, double high, {int fractionDigits = 0}) =>
+  String formatCelsiusRange(
+    double low,
+    double high, {
+    int fractionDigits = 0,
+  }) =>
       '${temperatureFromCelsius(low).toStringAsFixed(fractionDigits)}'
       '$temperatureSymbol~'
       '${temperatureFromCelsius(high).toStringAsFixed(fractionDigits)}'
@@ -398,8 +489,8 @@ class SmartPlanterDevice {
   /// `hardware_version`, reported as a plain number.
   final String hardwareVersion;
 
-  /// `plant_variety`: the species identifier the device itself holds. The app
-  /// keeps its own [plant] choice, so this is only a cross-check for now.
+  /// `plant_variety`: the backend `tuYaRemark` identifier. DP 116 is both
+  /// writable and reportable, so a device report can become the active [plant].
   final String plantVariety;
 
   /// `device_status`, an opaque product-defined string.
@@ -425,6 +516,7 @@ class SmartPlanterDevice {
     SensorSnapshot? sensors,
     DeviceControlSettings? settings,
     String? firmwareVersion,
+    String? plantVariety,
     DeviceStatusReport? status,
     DeviceHistory? history,
   }) => SmartPlanterDevice(
@@ -442,7 +534,7 @@ class SmartPlanterDevice {
     firmwareVersion: firmwareVersion ?? this.firmwareVersion,
     macAddress: macAddress,
     hardwareVersion: hardwareVersion,
-    plantVariety: plantVariety,
+    plantVariety: plantVariety ?? this.plantVariety,
     deviceStatus: deviceStatus,
     reportedDays: reportedDays,
     status: status ?? this.status,
@@ -516,11 +608,7 @@ class WifiNetwork {
 /// Result of a nearby-network scan, used to check whether the device hotspot
 /// is up and whether the phone itself sits on 2.4 GHz.
 class WifiScan {
-  const WifiScan({
-    required this.networks,
-    this.current,
-    this.currentFrequency,
-  });
+  const WifiScan({required this.networks, this.current, this.currentFrequency});
 
   final List<WifiNetwork> networks;
   final String? current;

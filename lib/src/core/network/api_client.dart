@@ -314,6 +314,10 @@ class ApiClient {
       'usertoken',
       'credential',
       'code',
+      'verifycode',
+      'tuyapwd',
+      'usermobile',
+      'userno',
     };
     if (key != null && sensitiveKeys.contains(key.toLowerCase())) return '***';
     if (value is Map) {

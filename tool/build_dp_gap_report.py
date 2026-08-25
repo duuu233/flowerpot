@@ -36,8 +36,8 @@ ROWS = [
     (113, '空气温度状态', 'air_temperature_status', 'enum', '只上报', 'ok', '温度状态页枚举'),
     (114, '空气湿度', 'air_humidity', 'value', '只上报', 'ok', '读取除以 10，湿度状态页'),
     (115, '空气湿度状态', 'air_humidity_status', 'enum', '只上报', 'ok', '湿度状态页枚举'),
-    (116, '植物品种', 'plant_variety', 'string', '只上报', 'idle',
-     '读进 plantVariety，App 植物库仍用本地 plantId'),
+    (116, '植物品种', 'plant_variety', 'string', '可下发可上报', 'ok',
+     '后端 tuYaRemark 作为标识符；绑定成功后下发，上报反向更新当前植物'),
     (117, '显示屏幕亮度开关', 'disp_brightness_switch', 'bool', '可下发可上报', 'ok',
      '显示设置页自动亮度；设备回执会回写本地设置'),
     (118, '声音互动开关', 'voice_interaction_switch', 'bool', '可下发可上报', 'ok', '听觉设置页开关'),
@@ -67,12 +67,12 @@ ROWS = [
     (137, '光照历史日', 'light_daily_hist', 'raw', '只上报', 'ok', '同 131（2 字节采样）'),
     (138, '光照历史周', 'light_weekly_hist', 'raw', '只上报', 'ok', '同 131（2 字节采样）'),
     (139, '光照历史月', 'light_monthly_hist', 'raw', '只上报', 'ok', '同 131（2 字节采样）'),
-    (140, '水位校准动作', 'water_level_calib', 'enum', '只下发', 'cond',
-     '校准弹窗逐步下发 step0–step3 + step5 取消；step4 未用，映射待固件确认'),
+    (140, '水位校准动作', 'water_level_calib', 'enum', '只下发', 'ok',
+     '四次确认依次下发 step0–step3，取消下发 step5；step4 保留不用'),
     (141, '恢复出厂设置', 'factory_reset', 'bool', '只下发', 'cond',
      '解绑前先下发 141，再调 SDK resetFactory；固件收到后的行为待确认'),
     (142, '下载图片', 'dl_url', 'raw', '只下发', 'none',
-     '等 Java 后端提供设备可访问的图片地址后再接'),
+     'APP 后端已提供图片上传与 URL；硬件 raw 编码、限制和回执仍待确认'),
     (143, '显示图片', 'dl_show', 'string', '只下发', 'none', '同 142，没有「显示指定图片」入口'),
     (144, '取消显示', 'dl_cancel', 'bool', '只下发', 'none', '同 142，没有「取消显示」入口'),
     (145, '充电状态', 'charge_status', 'bool', '只上报', 'ok', '首页与电量状态页充电态'),
@@ -107,18 +107,23 @@ CLOSED = [
     ('OTA 两端对齐',
      'iOS 补上 <code>getFirmwareUpgradeInfo</code> → <code>upgradeFirmware</code>；Android 改为只在 '
      '<code>upgradeStatus == 1</code> 时报新版本，不再无条件提示有升级。'),
+    ('植物品种双向链路已接通',
+     '后端植物 <code>tuYaRemark</code> 作为 DP 116 标识符；先绑定用户植物再下发，设备上报已知值会反向更新 App。'),
+    ('水位校准枚举已确认',
+     '四次确认严格发送 <code>step0</code>–<code>step3</code>，取消发送 <code>step5</code>，任何路径都不发送 <code>step4</code>。'),
+    ('Dart 代码已运行验证',
+     '<code>dart analyze</code> 无编译错误，后端、DP 116、校准弹窗与相关页面定向测试已通过；真机链路仍单列为风险。'),
 ]
 
 GAPS = [
-    ('p0', '挡住真机联调：功能都在了，但没有一行代码被编译或运行验证过。', [
-        ('G01', '本轮改动零验证', ['dart analyze', 'flutter test', 'Kotlin', 'Swift'], [
-            ('现状', '操作机没有 Flutter/Dart 工具链，也没有 Android SDK 与 Xcode。'
-                     '<code>dart format</code>、<code>dart analyze</code>、<code>flutter test</code> 都没跑过，'
-                     'Android 未编译，iOS 未 <code>pod install</code>。'),
-            ('缺什么', '在有工具链的机器上跑一遍格式化、静态分析、全量测试，再做 Android debug 与 iOS 构建。'),
-            ('影响', '<strong>下面所有「已接入」都是源码走查的结论，不是运行结论。</strong>'
-                     '新增的事件通道、单位换算、震动开关和 iOS 桥接都属于首次落地，出编译错的概率不低。'),
-        ], ['which flutter → 不存在', 'docs/history/2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md']),
+    ('p0', '挡住跨平台发布：Dart 逻辑已验证，但 iOS 与真实后端/设备仍未完成真机闭环。', [
+        ('G15', 'APP 后端 HTTPS 与真实账号未验证', ['API_BASE_URL', 'Swagger', 'userToken'], [
+            ('现状', 'Swagger 契约已完成代码接入；2026-08-25 核验时提供的 HTTPS 域名返回备案阻断页，'
+                     '机器端口只用于读取契约，没有使用真实 Token 调用写接口。'),
+            ('缺什么', '恢复可用 HTTPS 服务，配置后台产品 <code>broadcastId</code> 与涂鸦 PID 映射，'
+                     '再用测试账号验证登录、设备关联、植物绑定和图片增删。'),
+            ('影响', '当前只能证明请求形状、状态编排与 Mock 测试正确，不能证明生产服务数据和权限配置正确。'),
+        ], ['lib/src/core/backend/app_backend_repository.dart', 'docs/history/2026-08/2026-08-25-app-backend-plant-dp116-calibration.md']),
         ('G02', 'iOS 真机链路整体未验证', ['ThingSmartCryption', 'Podfile', 'Bundle ID'], [
             ('现状', '安全组件刚放进 <code>ios/TuyaSDK/</code>，Podfile 跟随其 SDK 线改为 '
                      '<code>ThingSmartHomeKit ~> 7.8.0</code>。AppKey/AppSecret 走 <code>Tuya.xcconfig</code>，'
@@ -130,12 +135,11 @@ GAPS = [
     ]),
     ('p1', '功能点表里有、或界面上已经存在，但还差一段链路的能力。', [
         ('G03', '图片下发链路仍未接', ['142 dl_url', '143 dl_show', '144 dl_cancel'], [
-            ('现状', '定制动画页能选图、能同步、能置顶删除，但只改本地列表；<code>uploadAnimation</code> 两端仍返回 '
-                     '<code>product_protocol_required</code>。'),
-            ('缺什么', '按产品口径由 Java 后端提供设备可访问的图片地址，App 再按 '
-                     '<code>url_len(1B)+url+name_len(1B)+name</code> 编码下发，并补 143/144 两个入口。'),
-            ('影响', '定制动画模块目前是纯本地演示，真机上一张图也下不去。'),
-        ], ['lib/src/state.dart:398-415', 'android/…/MainActivity.kt uploadAnimation']),
+            ('现状', 'APP 后端图片列表、上传和删除已经接通；<code>uploadAnimation</code> 两端仍返回 '
+                     '<code>product_protocol_required</code>，尚未把云端 URL 发给硬件。'),
+            ('缺什么', '确认 <code>dl_url</code> 的 raw 编码、文件格式/大小限制与下载回执，再补 143/144 显示控制。'),
+            ('影响', '图片能进入账号云端列表，但真机屏幕仍不会播放。'),
+        ], ['lib/src/core/backend/app_backend_repository.dart', 'android/…/MainActivity.kt uploadAnimation']),
         ('G04', 'iOS 没有「分享链接」这个接口', ['createShareLink'], [
             ('现状', 'Android 用业务拓展 SDK 的 <code>createShareInfo</code> 生成链接；iOS Home SDK 的设备分享只有'
                      '<strong>按账号分享</strong>（<code>ThingSmartDeviceShare</code>），涂鸦文档里没有 iOS 的链接接口。'),
@@ -171,16 +175,6 @@ GAPS = [
             ('缺什么', '确认 PAR 要不要露出：要就在光照状态页加一格，不要就把字段一并去掉。'),
             ('影响', '小；但留着不用的字段会让人以为界面漏了。'),
         ], ['lib/…/widgets/light_status_summary_card.dart']),
-        ('G10', '设备上报的植物品种和 App 植物库没打通', ['116 plant_variety'], [
-            ('现状', '设备上报品种标识，读进 plantVariety 就没人用；App 植物选择走本地 PlantCatalog，选完也不下发设备。'),
-            ('缺什么', '品种标识与 App 植物库的对照表，以及「以谁为准」的约定。'),
-            ('影响', '设备屏幕显示的植物和 App 里选的可能对不上。'),
-        ], ['lib/src/tuya/tuya_repository.dart plantVariety', 'lib/…/plant_picker_page.dart']),
-        ('G11', '水位校准的步骤映射没确认', ['140 water_level_calib'], [
-            ('现状', '导出件只写了「步骤」和「step5 是取消」。当前实现用 step0–step3 对应弹窗四步，step4 没有用到。'),
-            ('缺什么', '固件确认每个枚举值采样哪一阶段。映射集中在 <code>TuyaConfig.calibrationSteps</code>，确认后改一行。'),
-            ('影响', '映射错了校准会静默出错——用户看到「校准完成」，水位读数却仍然偏。'),
-        ], ['lib/src/tuya/tuya_config.dart calibrationSteps']),
         ('G12', '固件收到 141 之后做什么', ['141 factory_reset'], [
             ('现状', 'App 已按口径在解绑前下发 141，再调 SDK 的 <code>resetFactory</code>。'),
             ('缺什么', '固件确认：收到 141 后设备清哪些数据、是否自己断开绑定、要不要回执，以及和 SDK 解绑的先后是否有要求。'),
@@ -202,11 +196,9 @@ GAPS = [
 ]
 
 QUESTIONS = [
-    ('140 的六个枚举分别采什么？', 'step0–step4 对应校准的哪一步，step5 之外还有没有取消语义。'),
     ('固件收到 141 之后做什么？', '清哪些数据、是否自己断开绑定、要不要回执，和 SDK 解绑的先后顺序。'),
-    ('142 的图片地址由后端哪个接口给？', '还要定图片格式与大小上限、设备下载完成怎么回执。'),
+    ('142 的 raw 数据如何编码？', '后端上传已返回图片 URL；还要定 URL 编码、图片格式与大小上限、设备下载完成怎么回执。'),
     ('101 的取值有哪些？', '它是设备工作模式，还是别的东西。'),
-    ('116 的品种标识对照表在哪？', '以及选植物时以设备还是以 App 为准。'),
     ('122 是不是 123/124 的总闸？', '决定主开关关闭时两个场景开关要不要置灰。'),
     ('温度、湿度、电池、PPFD、DLI 要不要历史？', '固件加 DP，还是开通涂鸦统计服务/自建后端。'),
     ('设备分享要不要改成按账号分享？', 'iOS Home SDK 没有生成分享链接的接口，两端要统一形态。'),
@@ -227,12 +219,12 @@ def build():
 <div class="page">
 
   <header class="masthead">
-    <div class="eyebrow"><span>PID orhqsdjyigmh8bwa</span><span>第二版 · 2026-08-20 复核</span><span>DP 101–150</span></div>
+    <div class="eyebrow"><span>PID orhqsdjyigmh8bwa</span><span>第三版 · 2026-08-25 复核</span><span>DP 101–150</span></div>
     <h1>智能花盆功能点落地差距</h1>
-    <p class="lede">上一版列了 14 项缺口，产品方逐条给了口径，能在 App 侧完成的都已经落地。这一版重新逐条核对 50 个功能点，并把仍然缺的东西按「能不能上真机」重排了一遍——最上面两项现在是<strong>验证</strong>，不是功能。</p>
+    <p class="lede">第三版把 APP 后端植物与设备图片链路纳入核对，并按最新产品口径关闭 DP 116 双向同步和 DP 140 校准序列缺口；仍未完成的事项继续按真机发布风险排序。</p>
     <div class="meta">
-      <span>核对基线 <b>main / 665ce5c + 未提交工作区</b></span>
-      <span>对照范围 <b>lib/src/tuya、features、android、ios</b></span>
+      <span>核对基线 <b>main / 9b057dc + 未提交工作区</b></span>
+      <span>对照范围 <b>lib/src/core/backend、tuya、features、android、ios</b></span>
       <span>功能点来源 <b>assets/智能花盆test(orhqsdjyigmh8bwa)_08_20.xlsx</b></span>
     </div>
   </header>
@@ -251,8 +243,8 @@ def build():
   <section>
     <div class="section-head">
       <span class="kicker">本轮已关闭</span>
-      <h2>按产品口径做完的七件事</h2>
-      <p>上一版 14 项里关掉 7 项。注意「关闭」指 App 侧按口径写完了，不等于在真机上跑通——见下面的 P0。</p>
+      <h2>按产品口径已经关闭的能力</h2>
+      <p>「关闭」指 App 侧契约、代码和定向测试已经对齐；真实后端、固件与跨平台真机验证仍单列为风险。</p>
     </div>
     <ul class="questions">
 ''')
@@ -265,7 +257,7 @@ def build():
     <div class="section-head">
       <span class="kicker">DP 101 – 150 覆盖</span>
       <h2>五十条功能点的落地状态</h2>
-      <p>鼠标停在格子上看功能点名称。上一版有 14 个「有条件可用」，其中九个历史包和温标、时间格式已经转正——DP 实时上报接通之后，它们不再依赖手动刷新。剩下三个「有条件」是真的还在等固件或产品答复。</p>
+      <p>鼠标停在格子上看功能点名称。DP 实时上报、植物品种双向同步与校准序列已经落实；「有条件」和「未接入」仍表示需要固件、平台或真机验证。</p>
     </div>
     <ul class="strip">
 ''')
@@ -286,7 +278,7 @@ def build():
 ''')
     out.append(f'      <span class="kicker">缺口清单 · {todo} 项</span>\n')
     out.append('''      <h2>还缺哪些</h2>
-      <p>P0 是不解决就没法相信其余结论的两项，P1 是链路还差一段的能力，P2 需要产品或固件先给一个说法。</p>
+      <p>P0 是挡住跨平台发布的真机验证，P1 是链路还差一段的能力，P2 需要产品或固件先给一个说法。</p>
     </div>
 ''')
     for tier, note, items in GAPS:
@@ -361,8 +353,8 @@ def build():
   </section>
 
   <footer>
-    <p><b>同一个前提，仍然成立：</b>本轮改动<b>没有经过任何编译或测试验证</b>——操作机上没有 Flutter／Dart 工具链，也没有 Android SDK 与 Xcode。上表所有「已接入」都是源码走查的结论。</p>
-    <p>核对基线 main / 665ce5c + 未提交工作区 · 功能点表导出于 2026-08-20 · 本页由 <code>tool/build_dp_gap_report.py</code> 生成 · 相关文档：<code>docs/history/2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md</code>、<code>docs/TUYA_SDK_SETUP.md</code>、<code>docs/PRD_IMPLEMENTATION.md</code></p>
+    <p><b>验证边界：</b>Dart 静态分析与相关定向测试已通过；后端 HTTPS 域名、真实 Token、固件 DP 与 iOS 真机仍未形成端到端闭环。</p>
+    <p>核对基线 main / 9b057dc + 未提交工作区 · 功能点表导出于 2026-08-20 · 本页由 <code>tool/build_dp_gap_report.py</code> 生成 · 相关文档：<code>docs/history/2026-08/2026-08-25-app-backend-plant-dp116-calibration.md</code>、<code>docs/TUYA_SDK_SETUP.md</code>、<code>docs/PRD_IMPLEMENTATION.md</code></p>
   </footer>
 
 </div>

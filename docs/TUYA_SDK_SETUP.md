@@ -208,16 +208,19 @@ App 侧的命名不再直接当 DP 键用，两层映射都在同一个文件里
 | `nap_*_time` (126/127)、`night_sleep_*_time` (129/130) | 一个作息 = 两条 value DP，单位是「当天第几分钟」。App 里仍是 `HH:MM-HH:MM`，在 `settingDps` 与设备解析处两头换算。 |
 | `temp_unit_convert` (146) | enum `C` / `F`，不是 `celsius` / `fahrenheit`。 |
 | `time_format` (147) | enum `24h` / `12h`，与 App 取值一致。 |
-| `water_level_calib` (140) | enum `step0`–`step5`，不是 bool；`step5` 是取消。 |
+| `plant_variety` (116) | string，可上报可下发。值来自后端植物字段 `tuYaRemark`；先完成用户植物绑定，再下发 116。设备上报已知标识符时 App 反向切换当前植物。 |
+| `water_level_calib` (140) | enum：四次确认依次下发 `step0`、`step1`、`step2`、`step3`；取消下发 `step5`，`step4` 暂不调用。 |
 | 131–139 | raw 历史包，格式见 `lib/src/tuya/tuya_history_codec.dart`。 |
 
 表里没有对应功能点、界面上又存在的两处：**天气服务**（已从设置模型中删除）和**修复系统文件**（改为提示「系统修复暂未开放」）。要做就得先在平台加 DP。
 
-三条产品口径，写在这里免得反复问：
+五条产品口径，写在这里免得反复问：
 
 - **146 温度单位**：DP 112 的单位列写的是 `°C/°F`，设备切到华氏后**上报值本身就是华氏**。所以 App 只跟着换单位标签，绝不再做一次换算；需要换算的是 App 自己那套摄氏阈值（18–28 ℃ 的舒适区、坐标轴上限、养护建议文案），换算集中在 `DeviceControlSettings.temperatureFromCelsius`。
 - **147 时间格式**：下发之后 App 自身的时间展示跟随，`DeviceControlSettings.formatClock` 把 `HH:MM` 转成 12 小时制；写回设备的仍然是 24 小时制的 `HH:MM`，以及最终的「当天第几分钟」。趋势图的时间轴刻度仍固定 24 小时制。
 - **141 恢复出厂 / 150 重新配网**：恢复出厂会先向设备下发 141，再调 SDK 的 `resetFactory` 解绑（设备离线或拒绝时不阻断解绑）；设备收到 141 后的具体行为待固件确认。重新配网**不需要额外下发 150**，触发时让设备重新走一遍配网流程即可。
+- **116 植物品种**：后台 `tuYaRemark` 是固件识别的英文标识符，不使用数据库 id 或中文名。更换植物时先完成后端删除/新增，再下发；下发失败保留已成功的后端绑定并提示重试。
+- **140 水位校准**：弹窗四个主操作与 `step0`–`step3` 一一对应，最后的「完成」也必须发送 `step3`；中途取消或在最终卡片改点「关闭」都发送 `step5`，任何路径都不发送 `step4`。
 
 ## 5. 运行
 
@@ -242,8 +245,10 @@ flutter run
 | 安全组件与 AppKey、包名、证书 SHA-256 属于同一份平台配置 | `security_component_mismatch` |
 
 ```bash
-flutter run --dart-define=TUYA_ENABLED=true
+flutter run --dart-define=TUYA_ENABLED=true --dart-define=API_BASE_URL=https://your-api-origin.example
 ```
+
+`API_BASE_URL` 填服务源站，不填 Swagger 页面路径。配置后，国内短信/登录/注册、用户设备、植物和设备图片走 `HttpAppBackendRepository`；国内登录返回的 `userNo` / `tuYaPwd` 会继续用于涂鸦登录。未配置时 REST Repository 禁用，便于 Mock UI 和独立涂鸦调试。当前提供的 `https://api.yikaltd.com` 在 2026-08-25 核验时返回备案阻断页，恢复可用 HTTPS 域名前不能视为真机接口联调完成；机器端口的 HTTP Swagger 只用于读契约，不作为生产地址。
 
 排查时按包名过滤日志，标签为 `FlowerpotTuya`；日志只输出类名与错误码，不含任何密钥。
 
@@ -315,7 +320,7 @@ removed  : bool?      设备已从账号移除
 device   : Map?       设备信息变化后的整份快照
 ```
 
-Dart 侧 `MethodChannelTuyaRepository` 保留每台设备最近一次的原始 map，把增量合并进去后重新解码成 `SmartPlanterDevice`，通过 `TuyaRepository.deviceUpdates` 发出；`FlowerpotState` 订阅后替换设备并 `notifyListeners()`。因此 103–115、131–139、145 这些只上报的功能点会自己刷新，不再依赖手动下拉。合并是有状态的：只给某台设备推 DP、而这台设备本次会话从没出现在设备列表里时，事件会被丢弃，等下一次 `getDevices` 带回完整快照。
+Dart 侧 `MethodChannelTuyaRepository` 保留每台设备最近一次的原始 map，把增量合并进去后重新解码成 `SmartPlanterDevice`，通过 `TuyaRepository.deviceUpdates` 发出；`FlowerpotState` 订阅后替换设备并 `notifyListeners()`。因此 103–116、131–139、145 这些上报会自己刷新，不再依赖手动下拉；116 会用后端/本地已知英文标识符更新当前植物。合并是有状态的：只给某台设备推 DP、而这台设备本次会话从没出现在设备列表里时，事件会被丢弃，等下一次 `getDevices` 带回完整快照。
 
 设备回执同样走这条通道：下发开关后设备把新值报回来，`FlowerpotState` 会用设备值刷新本地那份设置副本，所以在设备上按实体键改的设置也能反映到界面。
 
@@ -325,7 +330,7 @@ Dart 侧 `MethodChannelTuyaRepository` 保留每台设备最近一次的原始 m
 
 尚未接通，调用会返回明确错误码而不是假数据：
 
-- `uploadAnimation` → `product_protocol_required`：动画同步需要 PID 对应的文件传输协议。表里的 142/143/144（下载图片、显示图片、取消显示）是设备侧的图片链路，142 收的是 URL 而不是本地文件，接入前要先定下图片托管在哪里。
+- `uploadAnimation` → `product_protocol_required`：APP 后端的图片列表、上传和删除已经接通代码链路，但动画同步到硬件仍需要 PID 对应的协议。表里的 142/143/144（下载图片、显示图片、取消显示）是设备侧链路，142 收 URL；后端上传返回 URL 后还要确认编码、大小限制与设备回执。
 - `createShareLink` → `share_service_unavailable`：Android 侧的分享链接由业务拓展 SDK 提供，管理类包名需要在开通设备分享后核对；iOS Home SDK 只有按账号分享，没有生成链接的接口（见第 3 节）。
 
 还未实现的能力：
@@ -360,7 +365,7 @@ Dart 侧 `MethodChannelTuyaRepository` 保留每台设备最近一次的原始 m
 
 ### 6.2 界面上的占位数据
 
-界面不再标注占位数据，判断某个值是否真实要回到源码：设备与传感器值来自 `TuyaRepository`（Mock 模式全部是模拟值，真实模式在 DP 缺失时回落到默认值）；养护建议、坐标轴刻度、植物库、帮助中心、协议正文、关于页版本号等则始终是写死的文案。真实链路验证以 SDK 联调页的调用日志为准，不要以页面上显示的数字为准。
+界面不再标注占位数据，判断某个值是否真实要回到源码：设备与传感器值来自 `TuyaRepository`（Mock 模式全部是模拟值，真实模式在 DP 缺失时回落到默认值）；配置 APP 后端并登录后，植物目录/详情与设备图片来自 REST，未配置时植物使用本地目录、设备图片使用 Mock/本地流程；帮助中心、协议正文、关于页版本号等仍是写死文案。真实链路验证以 SDK/HTTP 调试日志为准，不要以页面上显示的数字为准。
 
 ## 7. 发布前检查
 
