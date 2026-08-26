@@ -12,17 +12,18 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../support/asset_finder.dart';
 
 void main() {
-  testWidgets('device selection page exposes the Figma content', (
+  testWidgets('device selection page lists the planters the scan saw', (
     tester,
   ) async {
     await _pumpDeviceSelectionPage(tester, const Size(375, 812));
 
     expect(find.text('选择设备'), findsOneWidget);
     expect(find.text('请选择需要连接的设备'), findsOneWidget);
-    expect(find.text('YSplanter-01'), findsOneWidget);
-    expect(find.text('YSplanter-02'), findsOneWidget);
-    expect(find.text('YSplanter-03'), findsOneWidget);
-    expect(find.text('连接'), findsNWidgets(3));
+    // Real rows only: the SmartLife-* access point from the scan, not a
+    // hardcoded YSplanter-01/02/03 list.
+    expect(find.text('SmartLife-A1B2'), findsOneWidget);
+    expect(find.text('TP-LINK_2.4G'), findsNothing);
+    expect(find.text('连接'), findsOneWidget);
     expect(
       findAssetImage(AppAssets.pairingDeviceSelectionIllustration),
       findsOneWidget,
@@ -40,112 +41,116 @@ void main() {
   ) async {
     await _pumpDeviceSelectionPage(tester, const Size(320, 568));
 
-    final lastDevice = find.text('YSplanter-03');
-    await tester.ensureVisible(lastDevice);
+    final device = find.text('SmartLife-A1B2');
+    await tester.ensureVisible(device);
     await tester.pump();
 
-    expect(lastDevice, findsOneWidget);
-    expect(find.byKey(const Key('connect-device-2')), findsOneWidget);
+    expect(device, findsOneWidget);
+    expect(find.byKey(const Key('connect-device-0')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('connect opens the Wi-Fi step with the picked device', (
+  testWidgets('connect opens the Wi-Fi step with the picked hotspot', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(375, 812));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final state = FlowerpotState(
-      repository: MockTuyaRepository(latency: Duration.zero),
-    );
-    addTearDown(state.dispose);
     Object? pairingArguments;
-
-    await tester.pumpWidget(
-      FlowerpotScope(
-        state: state,
-        child: MaterialApp(
-          theme: buildAppTheme(),
-          home: const DeviceSelectionPage(),
-          onGenerateRoute: (settings) {
-            if (settings.name == AppRoutes.pairing) {
-              pairingArguments = settings.arguments;
-              return MaterialPageRoute<void>(
-                builder: (_) => const Scaffold(
-                  body: Center(child: Text('pairing-wifi-target')),
-                ),
-              );
-            }
-            return null;
-          },
-        ),
-      ),
+    await _pumpDeviceSelectionPage(
+      tester,
+      const Size(375, 812),
+      onPairingArguments: (value) => pairingArguments = value,
     );
-    await tester.pump();
 
     await tester.tap(find.byKey(const Key('connect-device-0')));
-    await tester.pump();
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-
-    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
 
     expect(find.text('pairing-wifi-target'), findsOneWidget);
     final arguments = pairingArguments! as PairingArguments;
-    expect(arguments.deviceName, 'YSplanter-01');
+    expect(arguments.deviceName, 'SmartLife-A1B2');
+    // AP provisioning has to name the hotspot the phone must join next.
+    expect(arguments.hotspotSsid, 'SmartLife-A1B2');
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('a retry carries the previous credentials to the Wi-Fi step', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(375, 812));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final state = FlowerpotState(
-      repository: MockTuyaRepository(latency: Duration.zero),
-    );
-    addTearDown(state.dispose);
     Object? pairingArguments;
-
-    await tester.pumpWidget(
-      FlowerpotScope(
-        state: state,
-        child: MaterialApp(
-          theme: buildAppTheme(),
-          home: const DeviceSelectionPage(
-            request: PairingRequest(ssid: 'TP-LINK_2.4G', password: '87654321'),
-          ),
-          onGenerateRoute: (settings) {
-            if (settings.name == AppRoutes.pairing) {
-              pairingArguments = settings.arguments;
-              return MaterialPageRoute<void>(
-                builder: (_) => const Scaffold(
-                  body: Center(child: Text('pairing-wifi-target')),
-                ),
-              );
-            }
-            return null;
-          },
-        ),
-      ),
+    await _pumpDeviceSelectionPage(
+      tester,
+      const Size(375, 812),
+      request: const PairingRequest(ssid: 'TP-LINK_2.4G', password: '87654321'),
+      onPairingArguments: (value) => pairingArguments = value,
     );
-    await tester.pump();
 
-    await tester.tap(find.byKey(const Key('connect-device-1')));
-    await tester.pump(const Duration(milliseconds: 600));
+    await tester.tap(find.byKey(const Key('connect-device-0')));
     await tester.pumpAndSettle();
 
     final arguments = pairingArguments! as PairingArguments;
-    expect(arguments.deviceName, 'YSplanter-02');
+    expect(arguments.deviceName, 'SmartLife-A1B2');
     expect(arguments.request?.ssid, 'TP-LINK_2.4G');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('no hotspot in range leaves a rescan and a manual way on', (
+    tester,
+  ) async {
+    Object? pairingArguments;
+    await _pumpDeviceSelectionPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(
+        const WifiScan(
+          current: 'TP-LINK_2.4G',
+          currentFrequency: 2437,
+          networks: <WifiNetwork>[
+            WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+          ],
+        ),
+      ),
+      onPairingArguments: (value) => pairingArguments = value,
+    );
+
+    expect(find.text('未发现配网中的设备'), findsOneWidget);
+    expect(find.byKey(const Key('device-selection-empty')), findsOneWidget);
+    expect(find.byKey(const Key('connect-device-0')), findsNothing);
+    expect(find.byKey(const Key('device-selection-rescan')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('device-selection-continue')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('pairing-wifi-target'), findsOneWidget);
+    // Nothing was observed, so no device name is invented for the next page.
+    expect((pairingArguments! as PairingArguments).hotspotSsid, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a refused scan explains the platform reason', (tester) async {
+    await _pumpDeviceSelectionPage(
+      tester,
+      const Size(375, 812),
+      repository: _FailingScanRepository(),
+    );
+
+    expect(
+      find.text('Android 9–12 扫描 Wi-Fi 需要打开系统定位开关。'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('device-selection-rescan')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
 
-Future<void> _pumpDeviceSelectionPage(WidgetTester tester, Size size) async {
+Future<FlowerpotState> _pumpDeviceSelectionPage(
+  WidgetTester tester,
+  Size size, {
+  PairingRequest? request,
+  TuyaRepository? repository,
+  ValueChanged<Object?>? onPairingArguments,
+}) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final state = FlowerpotState(
-    repository: MockTuyaRepository(latency: Duration.zero),
+    repository: repository ?? MockTuyaRepository(latency: Duration.zero),
   );
   addTearDown(state.dispose);
   await tester.pumpWidget(
@@ -153,9 +158,41 @@ Future<void> _pumpDeviceSelectionPage(WidgetTester tester, Size size) async {
       state: state,
       child: MaterialApp(
         theme: buildAppTheme(),
-        home: const DeviceSelectionPage(),
+        home: DeviceSelectionPage(request: request),
+        onGenerateRoute: (settings) {
+          if (settings.name == AppRoutes.pairing) {
+            onPairingArguments?.call(settings.arguments);
+            return MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(
+                body: Center(child: Text('pairing-wifi-target')),
+              ),
+            );
+          }
+          return null;
+        },
       ),
     ),
   );
-  await tester.pump();
+  // The page scans after its first frame when the state has no result yet.
+  await tester.pumpAndSettle();
+  return state;
+}
+
+class _ScanRepository extends MockTuyaRepository {
+  _ScanRepository(this.scan) : super(latency: Duration.zero);
+
+  final WifiScan scan;
+
+  @override
+  Future<WifiScan> scanWifi() async => scan;
+}
+
+class _FailingScanRepository extends MockTuyaRepository {
+  _FailingScanRepository() : super(latency: Duration.zero);
+
+  @override
+  Future<WifiScan> scanWifi() async => throw const TuyaException(
+    'location_disabled',
+    '系统定位未开启；Android 9-12 扫描 Wi-Fi 必须打开定位开关',
+  );
 }

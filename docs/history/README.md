@@ -48,3 +48,4 @@
 - [`2026-08/2026-08-18-demo-flow-polish.md`](2026-08/2026-08-18-demo-flow-polish.md)：统一植物目录并接入植物图片，去掉底部 Tab 导航改为头像进入「我的」，并补齐演示数据。
 - [`2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md`](2026-08/2026-08-20-dp-live-updates-and-ios-bridge.md)：接入设备 DP 实时上报（Android/iOS 监听 + 事件通道）、报表空态、温标与时间格式跟随、恢复出厂下发 141，并补齐 iOS 桥接与安全组件接入。
 - [`2026-08/2026-08-25-app-backend-plant-dp116-calibration.md`](2026-08/2026-08-25-app-backend-plant-dp116-calibration.md)：接入 APP 后端国内账号、用户设备、植物与设备图片，并落实 DP 116 双向同步和水位校准 0–3/取消 5 契约。
+- [`2026-08/2026-08-26-pairing-real-sdk-flow.md`](2026-08/2026-08-26-pairing-real-sdk-flow.md)：把联调页验证过的 `scanWifi`、`prepareActivatorToken`、`pairWifiDevice` 接进配网三页，去掉搜索/选择/Wi-Fi 切换里的模拟数据，并把 AP 拆成取令牌与开始配网两步。

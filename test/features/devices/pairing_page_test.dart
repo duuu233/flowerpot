@@ -19,20 +19,25 @@ void main() {
     expect(find.text('仅支持2.4GHz Wi-Fi网络'), findsOneWidget);
     expect(find.text('请确保设备连接的是稳定的2.4GHz网络'), findsOneWidget);
     expect(find.text('Wi-Fi名称'), findsOneWidget);
-    // Nothing is prefilled: a placeholder SSID/password would be sent to the
-    // SDK as-is on a real pairing attempt.
-    expect(find.text('输入 2.4G 名称'), findsOneWidget);
+    // Prefilled from the scan, not from a placeholder: the network the phone is
+    // on is the one the planter has to join. The password is never guessed.
     final ssidField = tester.widget<TextField>(
       find.byKey(const Key('pairing-ssid-field')),
     );
-    expect(ssidField.controller?.text, isEmpty);
+    expect(ssidField.controller?.text, 'TP-LINK_2.4G');
     expect(ssidField.readOnly, isFalse);
+    final password = tester.widget<TextField>(
+      find.byKey(const Key('pairing-password-field')),
+    );
+    expect(password.controller?.text, isEmpty);
+    expect(password.obscureText, isTrue);
     expect(find.text('切换'), findsOneWidget);
     expect(find.text('Wi-Fi密码'), findsOneWidget);
     expect(find.text('连接过程中请保持设备靠近路由器'), findsOneWidget);
-    expect(find.text('开始配网'), findsOneWidget);
-    // Debug builds expose the provisioning mode switch and default to AP.
+    // Debug builds expose the provisioning mode switch and default to AP, whose
+    // first step is the provisioning token.
     expect(find.byKey(const Key('pairing-mode-switch')), findsOneWidget);
+    expect(find.text('下一步：连接设备热点'), findsOneWidget);
     expect(
       findAssetImage(AppAssets.pairingWifiSetupIllustration),
       findsOneWidget,
@@ -53,29 +58,26 @@ void main() {
       (noticeCard.decoration as BoxDecoration).color,
       AppColors.surfaceTranslucent,
     );
-
-    final password = tester.widget<TextField>(
-      find.byKey(const Key('pairing-password-field')),
-    );
-    expect(password.obscureText, isTrue);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('wifi selection sheet updates the network name', (tester) async {
+  testWidgets('the wifi sheet offers the 2.4G networks the phone can see', (
+    tester,
+  ) async {
     await _pumpPairingPage(tester, const Size(375, 812));
 
     await tester.tap(find.byKey(const Key('switch-wifi-button')));
     await tester.pumpAndSettle();
     expect(find.text('选择Wi-Fi'), findsOneWidget);
     expect(find.text('仅显示可用的2.4GHzWi-Fi网络'), findsOneWidget);
-    expect(find.byKey(const Key('wifi-option-Home_2.4G')), findsOneWidget);
     expect(find.byKey(const Key('wifi-option-TP-LINK_2.4G')), findsOneWidget);
     expect(find.byKey(const Key('wifi-option-Xiaomi_2.4G')), findsOneWidget);
-    // Nothing is selected until the user picks one, because the field starts
-    // empty rather than on a placeholder network.
-    expect(find.byKey(const Key('wifi-selected-check')), findsNothing);
+    // 5 GHz cannot carry provisioning, and the planter's own hotspot is not a
+    // network it can be told to join.
+    expect(find.byKey(const Key('wifi-option-TP-LINK_5G')), findsNothing);
+    expect(find.byKey(const Key('wifi-option-SmartLife-A1B2')), findsNothing);
 
-    await tester.tap(find.byKey(const Key('wifi-option-TP-LINK_2.4G')));
+    await tester.tap(find.byKey(const Key('wifi-option-Xiaomi_2.4G')));
     await tester.pump();
     await tester.tap(find.byKey(const Key('wifi-selection-confirm')));
     await tester.pumpAndSettle();
@@ -83,7 +85,34 @@ void main() {
     final ssid = tester.widget<TextField>(
       find.byKey(const Key('pairing-ssid-field')),
     );
-    expect(ssid.controller?.text, 'TP-LINK_2.4G');
+    expect(ssid.controller?.text, 'Xiaomi_2.4G');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a platform without a network list keeps manual entry', (
+    tester,
+  ) async {
+    await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      // iOS reports the current SSID and nothing else.
+      repository: _ScanRepository(
+        const WifiScan(current: 'Home_2.4G', networks: <WifiNetwork>[]),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('switch-wifi-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('wifi-selection-empty')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('wifi-selection-cancel')));
+    await tester.pumpAndSettle();
+
+    // The band is unknown there, so the current network is still offered.
+    final ssid = tester.widget<TextField>(
+      find.byKey(const Key('pairing-ssid-field')),
+    );
+    expect(ssid.controller?.text, 'Home_2.4G');
     expect(tester.takeException(), isNull);
   });
 
@@ -95,7 +124,7 @@ void main() {
     await tester.pump();
 
     expect(info, findsOneWidget);
-    expect(find.text('开始配网'), findsOneWidget);
+    expect(find.byKey(const Key('start-pairing-button')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -106,13 +135,14 @@ void main() {
       tester,
       const Size(375, 812),
       arguments: const PairingArguments(
-        deviceName: 'YSplanter-01',
+        deviceName: 'SmartLife-A1B2',
+        hotspotSsid: 'SmartLife-A1B2',
         request: PairingRequest(ssid: 'TP-LINK_2.4G', password: '87654321'),
       ),
     );
 
     expect(find.byKey(const Key('pairing-connected-device')), findsOneWidget);
-    expect(find.text('已连接 YSplanter-01'), findsOneWidget);
+    expect(find.text('已连接 SmartLife-A1B2'), findsOneWidget);
     final ssid = tester.widget<TextField>(
       find.byKey(const Key('pairing-ssid-field')),
     );
@@ -120,25 +150,102 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('start pairing binds the device and opens the success page', (
+  testWidgets('AP provisioning takes the token before the hotspot switch', (
     tester,
   ) async {
     Object? successArguments;
+    final repository = _TokenRepository();
     final state = await _pumpPairingPage(
       tester,
       const Size(375, 812),
+      repository: repository,
+      arguments: const PairingArguments(hotspotSsid: 'SmartLife-A1B2'),
       onSuccessArguments: (value) => successArguments = value,
     );
 
-    await _enterCredentials(tester);
+    await _enterPassword(tester);
+    await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pumpAndSettle();
+    // Expire the confirmation toast so it does not outlive the test.
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pumpAndSettle();
+
+    // Step one is the cloud call, which has to happen while the phone still has
+    // internet — joining the planter hotspot cuts it off.
+    expect(repository.tokenCalls, 1);
+    expect(repository.pairCalls, 0);
+    expect(state.activatorTokenReady, isTrue);
+    expect(find.byKey(const Key('pairing-hotspot-step')), findsOneWidget);
+    expect(find.textContaining('「SmartLife-A1B2」'), findsOneWidget);
+    expect(find.text('开始配网'), findsOneWidget);
+
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
+    expect(repository.pairCalls, 1);
+    expect(repository.lastRequest?.mode, 'ap');
     expect(find.text('pairing-success-target'), findsOneWidget);
     expect(successArguments, 'vdevo17235508413621');
-    expect(state.devices, hasLength(1));
+    // The token is single use; the bridge drops its cached copy on success.
+    expect(state.activatorTokenReady, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('EZ provisioning starts in one step', (tester) async {
+    final repository = _TokenRepository();
+    await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+      arguments: const PairingArguments(
+        request: PairingRequest(
+          ssid: 'TP-LINK_2.4G',
+          password: 'wifi-password',
+          mode: 'ez',
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    // EZ never leaves the router, so `pairWifiDevice` fetches its own token.
+    expect(repository.tokenCalls, 0);
+    expect(repository.pairCalls, 1);
+    expect(repository.lastRequest?.mode, 'ez');
+    expect(find.text('pairing-success-target'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('EZ on a 5G network is called out before the attempt', (
+    tester,
+  ) async {
+    await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(
+        const WifiScan(
+          current: 'TP-LINK_5G',
+          currentFrequency: 5180,
+          networks: <WifiNetwork>[
+            WifiNetwork(ssid: 'TP-LINK_5G', level: -52, frequency: 5180),
+          ],
+        ),
+      ),
+      arguments: const PairingArguments(
+        request: PairingRequest(
+          ssid: 'TP-LINK_5G',
+          password: 'wifi-password',
+          mode: 'ez',
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('pairing-band-warning')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -148,10 +255,16 @@ void main() {
       tester,
       const Size(375, 812),
       repository: _FailingRepository(),
+      arguments: const PairingArguments(
+        request: PairingRequest(
+          ssid: 'TP-LINK_2.4G',
+          password: 'wifi-password',
+          mode: 'ez',
+        ),
+      ),
       onFailureArguments: (value) => failureArguments = value,
     );
 
-    await _enterCredentials(tester);
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pumpAndSettle();
 
@@ -165,11 +278,7 @@ void main() {
   });
 }
 
-Future<void> _enterCredentials(WidgetTester tester) async {
-  await tester.enterText(
-    find.byKey(const Key('pairing-ssid-field')),
-    'TP-LINK_2.4G',
-  );
+Future<void> _enterPassword(WidgetTester tester) async {
   await tester.enterText(
     find.byKey(const Key('pairing-password-field')),
     'wifi-password',
@@ -219,8 +328,37 @@ Future<FlowerpotState> _pumpPairingPage(
       ),
     ),
   );
-  await tester.pump();
+  // The page reads the nearby networks after its first frame.
+  await tester.pumpAndSettle();
   return state;
+}
+
+class _ScanRepository extends MockTuyaRepository {
+  _ScanRepository(this.scan) : super(latency: Duration.zero);
+
+  final WifiScan scan;
+
+  @override
+  Future<WifiScan> scanWifi() async => scan;
+}
+
+/// Counts the two provisioning calls so the AP order can be asserted.
+class _TokenRepository extends MockTuyaRepository {
+  _TokenRepository() : super(latency: Duration.zero);
+
+  int tokenCalls = 0;
+  int pairCalls = 0;
+  PairingRequest? lastRequest;
+
+  @override
+  Future<void> prepareActivatorToken() async => tokenCalls++;
+
+  @override
+  Future<SmartPlanterDevice> pair(PairingRequest request) {
+    pairCalls++;
+    lastRequest = request;
+    return super.pair(request);
+  }
 }
 
 class _FailingRepository extends MockTuyaRepository {

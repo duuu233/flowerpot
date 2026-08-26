@@ -55,29 +55,40 @@ void main() {
     await _signIn(tester);
 
     await tester.tap(find.byKey(const Key('add-device-button')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
     expect(find.text('搜索附近设备...'), findsOneWidget);
 
-    await tester.pump(const Duration(seconds: 2));
+    // The Wi-Fi scan finds the planter's AP-mode hotspot and moves on by
+    // itself; the selection list is what the scan actually saw.
     await tester.pumpAndSettle();
     expect(find.text('请选择需要连接的设备'), findsOneWidget);
+    expect(find.text('SmartLife-A1B2'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('connect-device-0')));
-    await tester.pump(const Duration(milliseconds: 600));
     await tester.pumpAndSettle();
     expect(find.text('连接Wi-Fi'), findsOneWidget);
     expect(find.byKey(const Key('pairing-connected-device')), findsOneWidget);
 
-    // Credentials are no longer prefilled with placeholder values.
-    await tester.enterText(
+    // The SSID is prefilled from the scan; only the password has to be typed.
+    final ssid = tester.widget<TextField>(
       find.byKey(const Key('pairing-ssid-field')),
-      'TP-LINK_2.4G',
     );
+    expect(ssid.controller?.text, 'TP-LINK_2.4G');
     await tester.enterText(
       find.byKey(const Key('pairing-password-field')),
       'wifi-password',
     );
     await tester.pump();
+
+    // AP mode takes the provisioning token first: the phone loses its route to
+    // the cloud as soon as it joins the device hotspot.
+    await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pairing-hotspot-step')), findsOneWidget);
+    // Expire the confirmation toast so it does not outlive the test.
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pump(const Duration(seconds: 1));

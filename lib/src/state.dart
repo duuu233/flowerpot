@@ -29,6 +29,11 @@ class FlowerpotState extends ChangeNotifier {
   String _languageCode = 'zh';
   AppUser? _user;
   WifiScan? _wifiScan;
+
+  /// When [prepareActivatorToken] last succeeded. The token itself never
+  /// leaves the native layer; this only tells the Wi-Fi page whether the AP
+  /// step is still covered.
+  DateTime? _activatorTokenAt;
   String? _selectedDeviceId;
   List<SmartPlanterDevice> _devices = <SmartPlanterDevice>[];
 
@@ -94,8 +99,23 @@ class FlowerpotState extends ChangeNotifier {
   String get languageCode => _languageCode;
   AppUser? get user => _user;
 
-  /// Last nearby-network scan, populated by [probeWifi].
+  /// Last nearby-network scan, populated by [probeWifi]. Read by the pairing
+  /// flow as well as the SDK console.
   WifiScan? get wifiScan => _wifiScan;
+
+  /// Tuya signs a provisioning token for 10 minutes and the bridge caches it
+  /// for 8. The UI expires it earlier so switching to the device hotspot does
+  /// not eat the whole margin.
+  static const Duration activatorTokenLifetime = Duration(minutes: 7);
+
+  /// Whether a provisioning token fetched by [prepareActivatorToken] should
+  /// still be valid. AP pairing needs one before the phone leaves the router.
+  bool get activatorTokenReady {
+    final fetchedAt = _activatorTokenAt;
+    return fetchedAt != null &&
+        DateTime.now().difference(fetchedAt) < activatorTokenLifetime;
+  }
+
   List<SmartPlanterDevice> get devices => List.unmodifiable(_devices);
   List<AnimationAsset> get animations => animationsFor(_selectedDeviceId);
 
@@ -321,9 +341,12 @@ class FlowerpotState extends ChangeNotifier {
     return ActionResult(true, '会话有效，设备 ${_devices.length} 台');
   });
 
-  /// Nearby access points, for diagnosing provisioning: in AP mode the device
-  /// hotspot has to be visible, and EZ mode only works from a 2.4 GHz network.
-  /// Diagnostics-only state, read by the SDK console.
+  /// Nearby access points: in AP mode the device hotspot has to be visible, and
+  /// EZ mode only works from a 2.4 GHz network.
+  ///
+  /// Used by the pairing flow — the search step looks for planter hotspots and
+  /// the Wi-Fi step lists real 2.4 GHz routers — and by the SDK console. Does
+  /// not touch the Tuya SDK, so it answers even before initialization.
   Future<ActionResult> probeWifi() => _guard(() async {
     final scan = await _repository.scanWifi();
     _wifiScan = scan;
@@ -374,11 +397,15 @@ class FlowerpotState extends ChangeNotifier {
   /// [TuyaRepository.prepareActivatorToken].
   Future<ActionResult> prepareActivatorToken() => _guard(() async {
     await _repository.prepareActivatorToken();
+    _activatorTokenAt = DateTime.now();
     return const ActionResult(true, '已获取配网令牌，8 分钟内有效，现在可以切到设备热点');
   });
 
   Future<ActionResult> pairDevice(PairingRequest request) => _guard(() async {
     final device = await _repository.pair(request);
+    // Tuya tokens are single-use and the bridge drops its cached copy on
+    // success, so the next AP attempt has to fetch a new one.
+    _activatorTokenAt = null;
     _devices = <SmartPlanterDevice>[
       ..._devices.where((item) => item.id != device.id),
       device,
@@ -1103,6 +1130,8 @@ class FlowerpotState extends ChangeNotifier {
     _animations.removeWhere((item) => !item.path.startsWith('builtin://'));
     _selectedDeviceId = null;
     _demoMode = false;
+    // The native token belongs to the account that fetched it.
+    _activatorTokenAt = null;
     ImageCacheCleanup.clearAll();
   }
 

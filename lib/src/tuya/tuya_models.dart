@@ -596,8 +596,21 @@ class WifiNetwork {
 
   bool get is24g => frequency >= 2400 && frequency < 2500;
 
+  /// Bars the pairing UI draws, 1 to 4. Cut points follow the usual Android
+  /// `WifiManager.calculateSignalLevel` steps.
+  int get signalBars => switch (level) {
+    >= -55 => 4,
+    >= -65 => 3,
+    >= -75 => 2,
+    _ => 1,
+  };
+
   /// Access points a planter raises in AP provisioning mode.
-  bool get looksLikeDeviceHotspot {
+  bool get looksLikeDeviceHotspot => isDeviceHotspotName(ssid);
+
+  /// Same test against a bare name, for the SSID the phone is currently on:
+  /// that one arrives without a scan entry behind it.
+  static bool isDeviceHotspotName(String ssid) {
     final name = ssid.toLowerCase();
     return name.startsWith('smartlife') ||
         name.startsWith('ty_') ||
@@ -607,6 +620,10 @@ class WifiNetwork {
 
 /// Result of a nearby-network scan, used to check whether the device hotspot
 /// is up and whether the phone itself sits on 2.4 GHz.
+///
+/// [networks] is empty on platforms that cannot enumerate access points — iOS
+/// only reports the network the phone is on — so screens have to treat "no
+/// networks" as "unknown", never as "no device nearby".
 class WifiScan {
   const WifiScan({required this.networks, this.current, this.currentFrequency});
 
@@ -614,9 +631,49 @@ class WifiScan {
   final String? current;
   final int? currentFrequency;
 
-  bool? get currentIs24g => currentFrequency == null
-      ? null
-      : currentFrequency! >= 2400 && currentFrequency! < 2500;
+  /// Null when the platform does not report a band. A non-positive frequency
+  /// is the "not connected" answer some Android builds give, and is unknown
+  /// rather than 5 GHz.
+  bool? get currentIs24g {
+    final frequency = currentFrequency;
+    if (frequency == null || frequency <= 0) return null;
+    return frequency >= 2400 && frequency < 2500;
+  }
+
+  /// Whether the phone itself sits on a planter hotspot, which is what AP
+  /// provisioning needs right before [PairingRequest] with `mode: 'ap'`.
+  bool get currentIsDeviceHotspot {
+    final ssid = current;
+    return ssid != null && WifiNetwork.isDeviceHotspotName(ssid);
+  }
+
+  /// Planters waiting in AP provisioning mode, strongest first. Scanning for
+  /// these is the only real evidence the app has that a device entered pairing
+  /// state: the product has no BLE discovery and the SDK has no scan API.
+  List<WifiNetwork> get deviceHotspots =>
+      _strongestPerSsid(networks.where((item) => item.looksLikeDeviceHotspot));
+
+  /// Routers the planter can be asked to join: 2.4 GHz only, device hotspots
+  /// removed, strongest first.
+  List<WifiNetwork> get routerNetworks => _strongestPerSsid(
+    networks.where((item) => item.is24g && !item.looksLikeDeviceHotspot),
+  );
+
+  /// One entry per SSID, keeping the strongest reading. A real scan returns the
+  /// same network once per band and per access point.
+  static List<WifiNetwork> _strongestPerSsid(Iterable<WifiNetwork> items) {
+    final byName = <String, WifiNetwork>{};
+    for (final network in items) {
+      if (network.ssid.isEmpty) continue;
+      final known = byName[network.ssid];
+      if (known == null || network.level > known.level) {
+        byName[network.ssid] = network;
+      }
+    }
+    final sorted = byName.values.toList(growable: false)
+      ..sort((a, b) => b.level.compareTo(a.level));
+    return List<WifiNetwork>.unmodifiable(sorted);
+  }
 }
 
 class ActionResult {

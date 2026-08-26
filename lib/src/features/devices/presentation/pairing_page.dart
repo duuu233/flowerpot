@@ -9,10 +9,15 @@ import '../../../tuya/tuya_models.dart';
 /// Route arguments for the Wi-Fi step, which now runs after a device is
 /// connected on the selection page.
 class PairingArguments {
-  const PairingArguments({this.deviceName, this.request});
+  const PairingArguments({this.deviceName, this.hotspotSsid, this.request});
 
   /// Planter picked on the selection page, shown above the credentials.
   final String? deviceName;
+
+  /// The access point that planter raises in AP mode, as the scan saw it. AP
+  /// provisioning needs the phone to join it, so the page can name it instead
+  /// of saying "the device hotspot".
+  final String? hotspotSsid;
 
   /// Credentials from a previous attempt, so a retry keeps what was entered.
   final PairingRequest? request;
@@ -40,7 +45,8 @@ class PairingPage extends StatefulWidget {
 class _PairingPageState extends State<PairingPage> {
   // Only a retry pre-fills these. A placeholder SSID/password would be handed
   // to the SDK verbatim on the first real pairing attempt, so a fresh start
-  // asks for the network the phone is actually on.
+  // asks for the network the phone is actually on — filled in from the scan,
+  // never from a made-up name.
   late final ssidController = TextEditingController(
     text: widget.arguments?.request?.ssid ?? '',
   );
@@ -54,23 +60,80 @@ class _PairingPageState extends State<PairingPage> {
   late String mode = widget.arguments?.request?.mode ?? 'ap';
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadNetworks());
+  }
+
+  @override
   void dispose() {
     ssidController.dispose();
     passwordController.dispose();
     super.dispose();
   }
 
+  /// Fills the SSID with the network the phone is on, which is the one the
+  /// planter has to join in the overwhelming majority of setups.
+  ///
+  /// Only a real scan result is used, and only a 2.4 GHz one: handing the SDK a
+  /// 5 GHz or hotspot name would make provisioning fail in a way that looks
+  /// like a device problem.
+  Future<void> _loadNetworks({bool force = false}) async {
+    if (!mounted) return;
+    final state = FlowerpotScope.of(context);
+    if (force || state.wifiScan == null) await state.probeWifi();
+    if (!mounted) return;
+    final scan = state.wifiScan;
+    final current = scan?.current;
+    if (scan != null &&
+        current != null &&
+        current.isNotEmpty &&
+        ssidController.text.isEmpty &&
+        scan.currentIs24g != false &&
+        !scan.currentIsDeviceHotspot) {
+      ssidController.text = current;
+    }
+    setState(() {});
+  }
+
   Future<void> _switchWifi() async {
+    final state = FlowerpotScope.of(context);
     final value = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: .42),
-      builder: (_) => _WifiSelectionSheet(current: ssidController.text),
+      builder: (_) => _WifiSelectionSheet(
+        current: ssidController.text,
+        networks: state.wifiScan?.routerNetworks ?? const <WifiNetwork>[],
+        onRefresh: () async {
+          await state.probeWifi();
+          return state.wifiScan?.routerNetworks ?? const <WifiNetwork>[];
+        },
+      ),
     );
     if (value != null && value.isNotEmpty && mounted) {
       setState(() => ssidController.text = value);
     }
+  }
+
+  /// AP provisioning fetches its token first, in its own step.
+  ///
+  /// `getActivatorToken` is a cloud call, and in AP mode the phone leaves the
+  /// router for the device hotspot before provisioning starts — from there
+  /// there is no route to the cloud, and Tuya answers with a network error that
+  /// looks nothing like its actual cause. The bridge caches the token natively
+  /// for 8 minutes; it is never handed back to Dart.
+  Future<void> _prepareToken() async {
+    final state = FlowerpotScope.of(context);
+    final result = await state.prepareActivatorToken();
+    if (!mounted) return;
+    setState(() {});
+    showAppMessage(
+      context,
+      result.success ? '已获取配网令牌，请到系统设置连接设备热点后返回' : result.message,
+      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+    );
   }
 
   Future<void> _pair() async {
@@ -80,6 +143,14 @@ class _PairingPageState extends State<PairingPage> {
     }
 
     final state = FlowerpotScope.of(context);
+    // Credentials first, then the token: the user has to type them while the
+    // phone still has internet, because AP mode sends them away to the hotspot
+    // right afterwards.
+    if (_needsToken(state.activatorTokenReady)) {
+      await _prepareToken();
+      return;
+    }
+
     final request = PairingRequest(
       ssid: ssidController.text.trim(),
       password: passwordController.text,
@@ -106,9 +177,17 @@ class _PairingPageState extends State<PairingPage> {
     );
   }
 
+  /// EZ stays on the router the whole time, so its token is fetched inside
+  /// `pairWifiDevice` and no separate step is shown.
+  bool _needsToken(bool tokenReady) => mode == 'ap' && !tokenReady;
+
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
+    final scan = state.wifiScan;
+    final tokenReady = state.activatorTokenReady;
+    final needsToken = _needsToken(tokenReady);
+    final hotspot = widget.arguments?.hotspotSsid;
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接Wi-Fi', leading: AppBackButton()),
       background: AppPageBackground.account,
@@ -159,6 +238,29 @@ class _PairingPageState extends State<PairingPage> {
                     passwordController: passwordController,
                     onSwitchWifi: _switchWifi,
                   ),
+                  if (mode == 'ez' &&
+                      scan != null &&
+                      scan.currentIs24g == false) ...<Widget>[
+                    const SizedBox(height: 12),
+                    _PairingHintCard(
+                      key: const Key('pairing-band-warning'),
+                      tone: AppColors.danger,
+                      // EZ broadcasts the credentials over the network the
+                      // phone is on; from 5 GHz the planter never hears them.
+                      text:
+                          '手机当前连接的是 5G 网络（${scan.current ?? ''}），'
+                          'EZ 快连必须先切到 2.4G。',
+                    ),
+                  ],
+                  if (mode == 'ap' && tokenReady) ...<Widget>[
+                    const SizedBox(height: 12),
+                    _HotspotStepCard(
+                      hotspot: hotspot,
+                      current: scan?.current,
+                      joined: scan?.currentIsDeviceHotspot ?? false,
+                      onRefresh: () => _loadNetworks(force: true),
+                    ),
+                  ],
                   if (DebugToolsConfig.enabled) ...<Widget>[
                     const SizedBox(height: 18),
                     Center(
@@ -220,10 +322,88 @@ class _PairingPageState extends State<PairingPage> {
                         strokeWidth: 2,
                       ),
                     )
-                  : const Text('开始配网'),
+                  : Text(needsToken ? '下一步：连接设备热点' : '开始配网'),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// What AP mode has to do between fetching the token and provisioning: join the
+/// planter's own access point, which only the system Wi-Fi settings can do.
+class _HotspotStepCard extends StatelessWidget {
+  const _HotspotStepCard({
+    required this.hotspot,
+    required this.current,
+    required this.joined,
+    required this.onRefresh,
+    super.key,
+  });
+
+  /// The planter hotspot picked on the selection page, when there was one.
+  final String? hotspot;
+
+  /// The network the phone is on right now, from the last scan.
+  final String? current;
+  final bool joined;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final target = hotspot == null ? '设备热点（SmartLife-… / TY_…）' : '「$hotspot」';
+    return _PairingHintCard(
+      key: const Key('pairing-hotspot-step'),
+      tone: joined ? AppColors.success : AppColors.brandPrimary,
+      text: joined
+          ? '已连接 ${current ?? '设备热点'}，现在可以点「开始配网」。'
+          : '配网令牌已就绪（8 分钟内有效）。\n'
+                '请到系统设置连接 $target，提示「无法访问互联网」时选择保持连接，'
+                '然后回到这里点「开始配网」。'
+                '${current == null ? '' : '\n手机当前连接：$current'}',
+      action: TextButton(
+        key: const Key('pairing-hotspot-refresh'),
+        onPressed: onRefresh,
+        child: const Text('检查连接'),
+      ),
+    );
+  }
+}
+
+/// Small notice strip used for the band warning and the AP hotspot step.
+class _PairingHintCard extends StatelessWidget {
+  const _PairingHintCard({
+    required this.tone,
+    required this.text,
+    this.action,
+    super.key,
+  });
+
+  final Color tone;
+  final String text;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: .08),
+        borderRadius: AppRadius.card,
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 12, 16, action == null ? 12 : 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              text,
+              style: TextStyle(color: tone, fontSize: 13, height: 1.55),
+            ),
+            if (action != null)
+              Align(alignment: Alignment.centerRight, child: action!),
+          ],
+        ),
       ),
     );
   }
@@ -391,8 +571,9 @@ class _WifiCredentialsCard extends StatelessWidget {
                         ),
                         SizedBox(
                           height: 24,
-                          // Editable: the switcher only offers placeholder
-                          // names, so the real network has to be typable.
+                          // Editable: the switcher lists what the phone can
+                          // actually see, which is nothing on iOS, so the real
+                          // network always has to be typable.
                           child: TextField(
                             key: const Key('pairing-ssid-field'),
                             controller: ssidController,
@@ -486,10 +667,21 @@ class _CredentialIcon extends StatelessWidget {
   }
 }
 
+/// The 2.4 GHz networks the phone can actually see, from `scanWifi`.
+///
+/// Empty is a normal answer: iOS does not enumerate access points at all, and
+/// Android throttles scans. The sheet says so instead of offering example
+/// names, because whatever is picked here is handed to the SDK verbatim.
 class _WifiSelectionSheet extends StatefulWidget {
-  const _WifiSelectionSheet({required this.current});
+  const _WifiSelectionSheet({
+    required this.current,
+    required this.networks,
+    required this.onRefresh,
+  });
 
   final String current;
+  final List<WifiNetwork> networks;
+  final Future<List<WifiNetwork>> Function() onRefresh;
 
   @override
   State<_WifiSelectionSheet> createState() => _WifiSelectionSheetState();
@@ -497,13 +689,18 @@ class _WifiSelectionSheet extends StatefulWidget {
 
 class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
   late String selected = widget.current;
+  late List<WifiNetwork> networks = widget.networks;
+  bool refreshing = false;
 
-  List<String> get networks => <String>[
-    if (widget.current.isNotEmpty) widget.current,
-    if (widget.current != 'Home_2.4G') 'Home_2.4G',
-    if (widget.current != 'TP-LINK_2.4G') 'TP-LINK_2.4G',
-    if (widget.current != 'Xiaomi_2.4G') 'Xiaomi_2.4G',
-  ];
+  Future<void> _refresh() async {
+    setState(() => refreshing = true);
+    final result = await widget.onRefresh();
+    if (!mounted) return;
+    setState(() {
+      networks = result;
+      refreshing = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -561,7 +758,9 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
                         alignment: Alignment.centerRight,
                         child: TextButton(
                           key: const Key('wifi-selection-confirm'),
-                          onPressed: () => Navigator.pop(context, selected),
+                          onPressed: selected.isEmpty
+                              ? null
+                              : () => Navigator.pop(context, selected),
                           child: const Text(
                             '确认',
                             style: TextStyle(
@@ -575,61 +774,105 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
                   ],
                 ),
               ),
-              const Text(
-                '仅显示可用的2.4GHzWi-Fi网络',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  const Text(
+                    '仅显示可用的2.4GHzWi-Fi网络',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                  IconButton(
+                    key: const Key('wifi-selection-refresh'),
+                    tooltip: '重新扫描',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: refreshing ? null : _refresh,
+                    icon: refreshing
+                        ? const SizedBox.square(
+                            dimension: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(
+                            Icons.refresh,
+                            size: 18,
+                            color: AppColors.brandPrimary,
+                          ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 6),
               Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 36),
-                  itemCount: networks.length,
-                  separatorBuilder: (_, _) =>
-                      const Divider(height: 1, color: AppColors.divider),
-                  itemBuilder: (context, index) {
-                    final network = networks[index];
-                    final active = selected == network;
-                    return InkWell(
-                      key: Key('wifi-option-$network'),
-                      onTap: () => setState(() => selected = network),
-                      child: SizedBox(
-                        height: 64,
-                        child: Row(
-                          children: <Widget>[
-                            Image.asset(
-                              AppAssets.wifiSignalIcon,
-                              width: 27,
-                              height: 27,
-                              fit: BoxFit.contain,
-                              filterQuality: FilterQuality.high,
-                              semanticLabel: 'Wi-Fi 网络',
+                child: networks.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 36),
+                        child: Center(
+                          child: Text(
+                            '没有扫描到 2.4GHz 网络。\n'
+                            '可以直接在上一页手动输入 Wi-Fi 名称。',
+                            key: Key('wifi-selection-empty'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 14,
+                              height: 1.6,
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Text(
-                                network,
-                                style: const TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontSize: 17,
-                                ),
-                              ),
-                            ),
-                            if (active)
-                              Image.asset(
-                                AppAssets.checkmarkIcon,
-                                key: const Key('wifi-selected-check'),
-                                width: 28,
-                                height: 28,
-                                fit: BoxFit.contain,
-                                filterQuality: FilterQuality.high,
-                                semanticLabel: '已选择',
-                              ),
-                          ],
+                          ),
                         ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.symmetric(horizontal: 36),
+                        itemCount: networks.length,
+                        separatorBuilder: (_, _) =>
+                            const Divider(height: 1, color: AppColors.divider),
+                        itemBuilder: (context, index) {
+                          final network = networks[index];
+                          final active = selected == network.ssid;
+                          return InkWell(
+                            key: Key('wifi-option-${network.ssid}'),
+                            onTap: () =>
+                                setState(() => selected = network.ssid),
+                            child: SizedBox(
+                              height: 64,
+                              child: Row(
+                                children: <Widget>[
+                                  Image.asset(
+                                    AppAssets.wifiSignalIcon,
+                                    width: 27,
+                                    height: 27,
+                                    fit: BoxFit.contain,
+                                    filterQuality: FilterQuality.high,
+                                    semanticLabel: 'Wi-Fi 网络',
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Text(
+                                      network.ssid,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 17,
+                                      ),
+                                    ),
+                                  ),
+                                  if (active)
+                                    Image.asset(
+                                      AppAssets.checkmarkIcon,
+                                      key: const Key('wifi-selected-check'),
+                                      width: 28,
+                                      height: 28,
+                                      fit: BoxFit.contain,
+                                      filterQuality: FilterQuality.high,
+                                      semanticLabel: '已选择',
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
               ),
             ],
           ),
