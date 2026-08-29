@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
@@ -215,6 +217,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      */
     private var activatorToken: String? = null
     private var activatorTokenAt: Long = 0L
+
+    /** AP 配网期间进程被绑定到的那个 Wi-Fi，用于识别热点何时消失。 */
+    private var boundNetwork: Network? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     /**
      * `IThingDevice` instances that currently hold a registered listener, keyed
@@ -779,15 +785,16 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     /**
-     * 把进程流量绑定到 Wi-Fi，配网期间必须做。
+     * 把进程流量绑定到 Wi-Fi，AP 配网期间必须做。
      *
-     * AP 配网时手机连的是设备热点，那个网络没有互联网。Android 10 起系统会因此
-     * 把默认网络留在移动数据上，App 发出的 socket 于是根本没走热点，凭据送不到
-     * 设备——表现就是等满 120 秒后涂鸦回 `1006 out of time`，错误本身完全看不出
-     * 是网络选错了。绑定后进程流量强制走 Wi-Fi。
+     * 手机此刻连的是设备热点，那个网络没有互联网。Android 10 起系统会因此把默认
+     * 网络留在移动数据上，App 发出的 socket 根本没走热点，凭据送不到设备——表现
+     * 就是等满 120 秒后涂鸦回 `1006 out of time`。绑定后进程流量强制走 Wi-Fi。
      *
-     * 绑定期间 App 是没有外网的，所以配网令牌必须提前取好（见 prepareActivatorToken），
-     * 并且无论成功失败都要在 [stopActivator] 里解绑，否则后续云端请求全部失败。
+     * 绑定必须随热点消失而解除：设备一旦拿到凭据就会关掉热点去连路由器，那个
+     * Network 随即失效。继续绑着的话 App 会彻底没网，SDK 拿不到云端的激活确认，
+     * 最终同样报 1006——但那时设备其实已经配网成功了，最难判断的就是这种。
+     * 所以这里注册回调，热点一 onLost 就立刻解绑，让手机回到路由器上。
      */
     private fun bindProcessToWifi(): Boolean {
         val manager = activity.getSystemService(ConnectivityManager::class.java)
@@ -799,14 +806,38 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
             }
         }.getOrNull() ?: return false
-        return runCatching { manager.bindProcessToNetwork(wifi) }.getOrDefault(false)
+        if (!runCatching { manager.bindProcessToNetwork(wifi) }.getOrDefault(false)) {
+            return false
+        }
+        boundNetwork = wifi
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: Network) {
+                if (network == boundNetwork) {
+                    Log.i(TUYA_LOG_TAG, "AP pairing: hotspot lost, releasing network binding")
+                    activity.runOnUiThread { unbindProcessNetwork() }
+                }
+            }
+        }
+        runCatching {
+            manager.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .build(),
+                callback,
+            )
+            networkCallback = callback
+        }
+        return true
     }
 
     private fun unbindProcessNetwork() {
-        runCatching {
-            activity.getSystemService(ConnectivityManager::class.java)
-                ?.bindProcessToNetwork(null)
+        val manager = activity.getSystemService(ConnectivityManager::class.java)
+        runCatching { manager?.bindProcessToNetwork(null) }
+        networkCallback?.let { callback ->
+            runCatching { manager?.unregisterNetworkCallback(callback) }
         }
+        networkCallback = null
+        boundNetwork = null
     }
 
     private fun deviceAction(call: MethodCall, result: MethodChannel.Result, method: String) {

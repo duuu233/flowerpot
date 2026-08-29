@@ -441,7 +441,20 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   Future<ActionResult> pairDevice(PairingRequest request) => _guard(() async {
-    final device = await _repository.pair(request);
+    final knownIds = _devices.map((item) => item.id).toSet();
+    final SmartPlanterDevice device;
+    try {
+      device = await _repository.pair(request);
+    } on TuyaException catch (error) {
+      // 设备可能已经激活，只是 App 没等到云端的确认——AP 配网下很常见：设备一
+      // 拿到凭据就关掉热点去连路由器，手机正在从热点切回路由器的这个空档里，
+      // SDK 的确认请求发不出去，最后报 `1006 out of time`，而设备其实已经绑到
+      // 账号上了。云端的设备列表才是权威，所以判失败之前先问一次。
+      final recovered = await _recoverPairedDevice(knownIds);
+      if (recovered == null) rethrow;
+      debugPrint('[pair] ${error.code} 后在云端发现新设备，按成功处理');
+      device = recovered;
+    }
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.
     _activatorTokenAt = null;
@@ -464,6 +477,27 @@ class FlowerpotState extends ChangeNotifier {
     }
     return const ActionResult(true, '设备配网成功');
   });
+
+  /// 配网报错后回查云端，看是否其实已经绑上了一台新设备。
+  ///
+  /// 只认[knownIds]之外的设备：重试时账号里可能已经有别的花盆，不能把任意一台
+  /// 当成本次配网的结果。查询本身失败就返回 null，让原来的错误照常抛出。
+  Future<SmartPlanterDevice?> _recoverPairedDevice(Set<String> knownIds) async {
+    // 手机这时刚从设备热点切回路由器，网络要几秒才稳，立刻查多半还是失败。
+    // 配网本身已经等了两分钟，这里多花几秒换一次准确判断是划算的。
+    for (var attempt = 0; attempt < 3; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      try {
+        final devices = await _repository.getDevices();
+        for (final device in devices) {
+          if (!knownIds.contains(device.id)) return device;
+        }
+      } catch (_) {
+        // 这一轮网络还没好，再试。三轮都不行就保持原错误。
+      }
+    }
+    return null;
+  }
 
   void selectDevice(String id) {
     _selectedDeviceId = id;
