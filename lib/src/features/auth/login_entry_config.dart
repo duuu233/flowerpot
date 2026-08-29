@@ -20,5 +20,9 @@ abstract final class LoginEntryConfig {
   /// login is still attempted first, so a real account keeps a real session;
   /// only a rejection falls back to the demo backend, and the user is told so.
   /// Must be turned off before a production release.
-  static final bool acceptAnyVerificationCode = true;
+  ///
+  /// 2026-08-29 起关闭：真实短信链路联调时，这个回落会把「验证码校验失败」伪装
+  /// 成一次成功登录（只弹一句提示就进演示会话），失败原因看不到。要恢复演示包
+  /// 把它改回 `true` 即可。
+  static final bool acceptAnyVerificationCode = false;
 }
