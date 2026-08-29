@@ -12,10 +12,21 @@ abstract final class ApiConfig {
 
   static const String _envBaseUrl = String.fromEnvironment('API_BASE_URL');
 
-  /// `--dart-define=API_BASE_URL=...` 仍然优先，方便后端给出可用 HTTPS 域名后
-  /// 不改代码直接切换。
-  static String get baseUrl =>
-      _envBaseUrl.trim().isEmpty ? _temporaryBaseUrl : _envBaseUrl;
+  /// 显式禁用 APP 后端的哨兵值：`--dart-define=API_BASE_URL=none`。
+  ///
+  /// [_temporaryBaseUrl] 写死之后，"不配地址就走纯涂鸦链路" 这个调试模式没法
+  /// 用了 —— 传空值也会被回落逻辑顶回写死的地址。这个哨兵值把它还回来，用于
+  /// 排查绑在涂鸦原生账号（手机号直接注册）下的设备，不必改源码再改回去。
+  static const String disabledMarker = 'none';
+
+  /// `--dart-define=API_BASE_URL=...` 优先，方便后端给出可用 HTTPS 域名后不改
+  /// 代码直接切换；传 [disabledMarker] 则禁用 REST 后端。
+  static String get baseUrl {
+    final configured = _envBaseUrl.trim();
+    if (configured.isEmpty) return _temporaryBaseUrl;
+    if (configured.toLowerCase() == disabledMarker) return '';
+    return configured;
+  }
 
   static const Duration timeout = Duration(seconds: 10);
   static const Duration uploadTimeout = Duration(seconds: 20);
