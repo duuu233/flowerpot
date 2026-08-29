@@ -30,6 +30,9 @@ class FlowerpotState extends ChangeNotifier {
   AppUser? _user;
   WifiScan? _wifiScan;
 
+  /// [probeWifi] 自己的重入保护，见那里的说明。
+  bool _wifiScanning = false;
+
   /// When [prepareActivatorToken] last succeeded. The token itself never
   /// leaves the native layer; this only tells the Wi-Fi page whether the AP
   /// step is still covered.
@@ -215,9 +218,6 @@ class FlowerpotState extends ChangeNotifier {
       credential,
       verificationCode: verificationCode,
     );
-    // TODO(联调): 涂鸦账号映射排查完后删除 authPayload 相关三处，它会把后端
-    // 返回的 tuYaPwd 显示在 toast 上。
-    String? authPayload;
     if (region == LoginRegion.domestic && _backend.enabled) {
       final backendAccount = verificationCode
           ? await _backend.loginWithCode(
@@ -228,7 +228,6 @@ class FlowerpotState extends ChangeNotifier {
               mobile: normalizedAccount,
               password: normalizedCredential,
             );
-      authPayload = backendAccount.raw;
       _user = await _loginTuyaAccount(backendAccount);
     } else {
       _user = await _repository.login(
@@ -240,10 +239,7 @@ class FlowerpotState extends ChangeNotifier {
     }
     _sessionEpoch++;
     await _refreshDevicesForSession(ignoreErrors: true);
-    return ActionResult(
-      true,
-      authPayload == null ? '登录成功' : '登录成功｜后端返回：$authPayload',
-    );
+    return const ActionResult(true, '登录成功');
   });
 
   Future<ActionResult> register({
@@ -362,7 +358,29 @@ class FlowerpotState extends ChangeNotifier {
   /// Used by the pairing flow — the search step looks for planter hotspots and
   /// the Wi-Fi step lists real 2.4 GHz routers — and by the SDK console. Does
   /// not touch the Tuya SDK, so it answers even before initialization.
-  Future<ActionResult> probeWifi() => _guard(() async {
+  ///
+  /// 不参与 [_guard] 的全局单操作锁：这是个只读调用，和别的操作没有真实冲突，
+  /// 而 Android 上一次扫描要好几秒。占着锁的话，这期间用户发起的任何操作——
+  /// 换页后再扫一次、配网页取令牌——都会被挡成「请等待当前操作完成」，在选择
+  /// 设备页上还会被当成扫描失败的原因显示出来。这里只防它自己重入。
+  Future<ActionResult> probeWifi() async {
+    if (_wifiScanning) {
+      return const ActionResult(
+        false,
+        'APP-wifi_scanning 正在扫描附近网络，请稍候',
+        code: 'wifi_scanning',
+      );
+    }
+    _wifiScanning = true;
+    try {
+      return await _run(_probeWifi);
+    } finally {
+      _wifiScanning = false;
+      notifyListeners();
+    }
+  }
+
+  Future<ActionResult> _probeWifi() async {
     final scan = await _repository.scanWifi();
     _wifiScan = scan;
     final current = scan.current;
@@ -380,7 +398,7 @@ class FlowerpotState extends ChangeNotifier {
       '${current == null ? '' : '，当前 $current（$band）'}'
       '${hotspots == 0 ? '' : '，其中 $hotspots 个疑似设备热点'}',
     );
-  });
+  }
 
   /// Device refresh that reports home query, auto-create and device list
   /// failures instead of hiding them like the silent session refresh.
@@ -930,6 +948,17 @@ class FlowerpotState extends ChangeNotifier {
     _busy = true;
     notifyListeners();
     try {
+      return await _run(action);
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// 异常收口，不占用 [_busy]。给那些和其它操作没有真实冲突、又可能跑很久的
+  /// 只读调用用，[_guard] 自己也走这里。
+  Future<ActionResult> _run(Future<ActionResult> Function() action) async {
+    try {
       return await action();
     } on AuthValidationException catch (error) {
       return ActionResult(
@@ -956,9 +985,6 @@ class FlowerpotState extends ChangeNotifier {
         _tagged('APP', 'unexpected_error', '操作失败：$error'),
         code: 'unexpected_error',
       );
-    } finally {
-      _busy = false;
-      notifyListeners();
     }
   }
 
@@ -1005,16 +1031,9 @@ class FlowerpotState extends ChangeNotifier {
         password: backendAccount.tuyaPassword,
         countryCode: backendAccount.countryCode,
       );
-    } catch (error) {
+    } catch (_) {
       // Do not leave a valid APP token paired with a failed Tuya session.
       _backend.clearSession();
-      // TODO(联调): 同上，排查完后去掉这段附加文案。
-      if (error is TuyaException) {
-        throw TuyaException(
-          error.code,
-          '${error.message}｜后端返回：${backendAccount.raw}',
-        );
-      }
       rethrow;
     }
     return AppUser(

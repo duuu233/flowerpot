@@ -263,7 +263,6 @@ class HttpAppBackendRepository implements AppBackendRepository {
       nickname: _text(data, 'nickName', fallback: '植物守护者'),
       account: _text(data, 'userMobile'),
       avatarUrl: _nullableText(data['avatar']),
-      raw: jsonEncode(data),
     );
     if (result.userToken.isEmpty ||
         result.tuyaAccount.isEmpty ||
