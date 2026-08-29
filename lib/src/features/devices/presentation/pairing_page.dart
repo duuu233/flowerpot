@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
-import '../../../core/config/debug_tools_config.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
@@ -53,11 +52,6 @@ class _PairingPageState extends State<PairingPage> {
   late final passwordController = TextEditingController(
     text: widget.arguments?.request?.password ?? '',
   );
-
-  /// Provisioning mode sent to the SDK. The product UI always uses AP; debug
-  /// builds can switch to EZ, which is usually the quicker one to bring up on
-  /// a bench device.
-  late String mode = widget.arguments?.request?.mode ?? 'ap';
 
   @override
   void initState() {
@@ -154,7 +148,6 @@ class _PairingPageState extends State<PairingPage> {
     final request = PairingRequest(
       ssid: ssidController.text.trim(),
       password: passwordController.text,
-      mode: mode,
     );
     final result = await state.pairDevice(request);
     if (!mounted) return;
@@ -177,9 +170,8 @@ class _PairingPageState extends State<PairingPage> {
     );
   }
 
-  /// EZ stays on the router the whole time, so its token is fetched inside
-  /// `pairWifiDevice` and no separate step is shown.
-  bool _needsToken(bool tokenReady) => mode == 'ap' && !tokenReady;
+  /// AP 配网必须先取令牌：手机随后要离开路由器去连设备热点，那时云端不可达。
+  bool _needsToken(bool tokenReady) => !tokenReady;
 
   @override
   Widget build(BuildContext context) {
@@ -238,21 +230,7 @@ class _PairingPageState extends State<PairingPage> {
                     passwordController: passwordController,
                     onSwitchWifi: _switchWifi,
                   ),
-                  if (mode == 'ez' &&
-                      scan != null &&
-                      scan.currentIs24g == false) ...<Widget>[
-                    const SizedBox(height: 12),
-                    _PairingHintCard(
-                      key: const Key('pairing-band-warning'),
-                      tone: AppColors.danger,
-                      // EZ broadcasts the credentials over the network the
-                      // phone is on; from 5 GHz the planter never hears them.
-                      text:
-                          '手机当前连接的是 5G 网络（${scan.current ?? ''}），'
-                          'EZ 快连必须先切到 2.4G。',
-                    ),
-                  ],
-                  if (mode == 'ap' && tokenReady) ...<Widget>[
+                  if (tokenReady) ...<Widget>[
                     const SizedBox(height: 12),
                     _HotspotStepCard(
                       hotspot: hotspot,
@@ -261,17 +239,7 @@ class _PairingPageState extends State<PairingPage> {
                       onRefresh: () => _loadNetworks(force: true),
                     ),
                   ],
-                  if (DebugToolsConfig.enabled) ...<Widget>[
-                    const SizedBox(height: 18),
-                    Center(
-                      child: _PairingModeSwitch(
-                        mode: mode,
-                        onChanged: (value) => setState(() => mode = value),
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                  ] else
-                    const SizedBox(height: 38),
+                  const SizedBox(height: 38),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
@@ -405,33 +373,6 @@ class _PairingHintCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Debug-only switch between the two Wi-Fi provisioning modes the bridge
-/// supports, so a bench test does not have to be rebuilt to try the other one.
-class _PairingModeSwitch extends StatelessWidget {
-  const _PairingModeSwitch({required this.mode, required this.onChanged});
-
-  final String mode;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SegmentedButton<String>(
-      key: const Key('pairing-mode-switch'),
-      segments: const <ButtonSegment<String>>[
-        ButtonSegment<String>(value: 'ap', label: Text('AP')),
-        ButtonSegment<String>(value: 'ez', label: Text('EZ')),
-      ],
-      selected: <String>{mode},
-      showSelectedIcon: false,
-      style: const ButtonStyle(
-        visualDensity: VisualDensity.compact,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-      onSelectionChanged: (value) => onChanged(value.first),
     );
   }
 }

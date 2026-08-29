@@ -30,6 +30,12 @@ class FlowerpotState extends ChangeNotifier {
   AppUser? _user;
   WifiScan? _wifiScan;
 
+  /// 每台设备最近一次的固件升级进度，界面据此显示进度条。
+  final Map<String, OtaProgress> _otaProgress = <String, OtaProgress>{};
+
+  /// 已发起升级但尚未收到 success 的目标版本号，收到后才写回设备。
+  final Map<String, String> _pendingOtaVersion = <String, String>{};
+
   /// [probeWifi] 自己的重入保护，见那里的说明。
   bool _wifiScanning = false;
 
@@ -53,6 +59,7 @@ class FlowerpotState extends ChangeNotifier {
 
   /// Live device reports. See [_applyDeviceUpdate].
   StreamSubscription<DeviceUpdate>? _deviceUpdates;
+  StreamSubscription<OtaProgress>? _otaUpdates;
 
   /// Devices whose plant has been picked in this session.
   ///
@@ -352,8 +359,7 @@ class FlowerpotState extends ChangeNotifier {
     return ActionResult(true, '会话有效，设备 ${_devices.length} 台');
   });
 
-  /// Nearby access points: in AP mode the device hotspot has to be visible, and
-  /// EZ mode only works from a 2.4 GHz network.
+  /// Nearby access points: AP 配网要能看见设备热点，而设备本身只连 2.4 GHz。
   ///
   /// Used by the pairing flow — the search step looks for planter hotspots and
   /// the Wi-Fi step lists real 2.4 GHz routers — and by the SDK console. Does
@@ -386,7 +392,7 @@ class FlowerpotState extends ChangeNotifier {
     final current = scan.current;
     final band = switch (scan.currentIs24g) {
       true => '2.4G',
-      false => '5G，EZ 配网需要切到 2.4G',
+      false => '5G，设备只能连 2.4G',
       null => '频段未知',
     };
     final hotspots = scan.networks
@@ -736,13 +742,26 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<String?> checkFirmware(String id) => _repository.checkFirmware(id);
 
+  /// 发起固件升级。
+  ///
+  /// 只负责"发起"：涂鸦的 `startOta` 返回时设备才刚开始下载，之后的进度和最终
+  /// 结果都从 [otaUpdates] 回来。版本号因此不在这里改写，而是等 success 事件
+  /// ——否则设备还在烧录，界面就已经显示新版本了。
   Future<ActionResult> upgradeFirmware(String id, String version) => _guard(
     () async {
       await _repository.startFirmwareUpgrade(id);
-      _replaceDevice(id, (device) => device.copyWith(firmwareVersion: version));
-      return ActionResult(true, '固件已升级至 $version');
+      _pendingOtaVersion[id] = version;
+      _otaProgress[id] = OtaProgress(
+        deviceId: id,
+        status: OtaStatus.running,
+        percent: 0,
+      );
+      return const ActionResult(true, '升级已开始，请保持设备通电并留在网络中');
     },
   );
+
+  /// 某台设备最近一次的升级进度，没有发起过升级时为 null。
+  OtaProgress? otaProgressFor(String deviceId) => _otaProgress[deviceId];
 
   /// Advances `water_level_calib` (DP 140) by one step.
   ///
@@ -865,6 +884,28 @@ class FlowerpotState extends ChangeNotifier {
   void _listenForDeviceUpdates() {
     _deviceUpdates?.cancel();
     _deviceUpdates = _repository.deviceUpdates.listen(_applyDeviceUpdate);
+    _otaUpdates?.cancel();
+    _otaUpdates = _repository.otaUpdates.listen(_applyOtaProgress);
+  }
+
+  /// 固件升级的实时进度。
+  ///
+  /// 升级要几分钟，期间设备一直在下载和烧录，所以版本号只在收到 success 时才
+  /// 更新——`startOta` 返回只代表升级发起成功。失败和进度都留在这里给界面读。
+  void _applyOtaProgress(OtaProgress progress) {
+    _otaProgress[progress.deviceId] = progress;
+    if (progress.status == OtaStatus.success) {
+      final target = _pendingOtaVersion.remove(progress.deviceId);
+      if (target != null) {
+        _replaceDevice(
+          progress.deviceId,
+          (device) => device.copyWith(firmwareVersion: target),
+        );
+      }
+    } else if (progress.status == OtaStatus.failed) {
+      _pendingOtaVersion.remove(progress.deviceId);
+    }
+    notifyListeners();
   }
 
   /// Applies a change the device pushed on its own.
@@ -913,6 +954,7 @@ class FlowerpotState extends ChangeNotifier {
   @override
   void dispose() {
     _deviceUpdates?.cancel();
+    _otaUpdates?.cancel();
     _backend.close();
     super.dispose();
   }

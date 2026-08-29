@@ -301,10 +301,8 @@ final class FlowerpotTuyaBridge: NSObject {
   }
 
   private func pairWifi(_ args: [String: Any], _ result: @escaping FlutterResult) {
-    // Reuse a pre-fetched token when there is one. This is what makes AP mode
-    // work at all: by the time this runs the phone is on the device's hotspot
-    // and the cloud is unreachable. EZ keeps the phone on the router, so the
-    // fetch below is its normal path.
+    // 复用预取的令牌——AP 配网能成立全靠这一步：跑到这里时手机已经连在设备热点
+    // 上，云端不可达。没有缓存令牌（例如已过期）才回落到云端取。
     if let token = freshActivatorToken() {
       startActivator(args, result, token: token)
       return
@@ -327,9 +325,9 @@ final class FlowerpotTuyaBridge: NSObject {
     }
     pairingResult = result
     activator.delegate = self
-    let mode = (args["mode"] as? String) == "ez" ? ThingActivatorModeEZ : ThingActivatorModeAP
+    // 产品只走 AP 配网，EZ 已从桥接和界面移除。
     activator.startConfigWiFi(
-      mode,
+      ThingActivatorModeAP,
       ssid: args["ssid"] as? String ?? "",
       password: args["password"] as? String ?? "",
       token: token,
@@ -574,6 +572,36 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
     guard let id = device.deviceModel?.devId else { return }
     emit(["deviceId": id, "removed": true])
     DispatchQueue.main.async { [weak self] in self?.unwatchDevice(id) }
+  }
+
+  // 固件升级要跑几分钟，方法通道只回答"已发起"，进度和成败走这里，形状和
+  // Android 的 emitOta 一致。这几个都是 delegate 的可选方法：SDK 若换了签名
+  // 只会静默不回调，不会编译失败，届时版本号仍由 deviceInfoUpdate 兜底刷新。
+  func device(_ device: ThingSmartDevice, firmwareUpgradeProgress type: Int, progress: Double) {
+    guard let id = device.deviceModel?.devId else { return }
+    emitOta(id, "running", percent: Int((progress * 100).rounded()))
+  }
+
+  func deviceFirmwareUpgradeSuccess(_ device: ThingSmartDevice, type: Int) {
+    guard let id = device.deviceModel?.devId else { return }
+    emitOta(id, "success")
+  }
+
+  func deviceFirmwareUpgradeFailure(_ device: ThingSmartDevice, type: Int) {
+    guard let id = device.deviceModel?.devId else { return }
+    emitOta(id, "failed", message: "固件升级失败")
+  }
+
+  private func emitOta(
+    _ deviceId: String,
+    _ status: String,
+    percent: Int? = nil,
+    message: String? = nil
+  ) {
+    var ota: [String: Any] = ["status": status]
+    if let percent { ota["percent"] = percent }
+    if let message { ota["message"] = message }
+    emit(["deviceId": deviceId, "ota": ota])
   }
 }
 #endif

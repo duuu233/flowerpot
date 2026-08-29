@@ -34,7 +34,6 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
   final wifiPasswordController = TextEditingController();
   final List<_CallLog> log = <_CallLog>[];
   LoginRegion region = LoginRegion.domestic;
-  String pairMode = 'ez';
 
   @override
   void dispose() {
@@ -423,12 +422,11 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                     children: <Widget>[
                       Text(
                         '直接调用 pairWifiDevice（超时 120 秒），失败只写进下面的日志并带原始'
-                        '错误码，不会跳到配网失败页。两种模式填的都是「设备要连的路由器」'
-                        '的名称和密码，不是设备热点的。\n'
-                        'EZ：手机保持连在同一个 2.4G 网络，直接点「开始配网」。\n'
-                        'AP：先点「获取配网令牌」（这一步要联网），再去系统设置连上设备'
-                        '热点，回来点「开始配网」。连上热点后手机就没有外网了，令牌必须'
-                        '提前取好。',
+                        '错误码，不会跳到配网失败页。填的是「设备要连的路由器」的名称和'
+                        '密码，不是设备热点的。\n'
+                        'AP 配网：先点「获取配网令牌」（这一步要联网），再去系统设置连上'
+                        '设备热点，回来点「开始配网」。连上热点后手机就没有外网了，令牌'
+                        '必须提前取好。',
                         style: AppTypography.smallBody.copyWith(
                           color: AppColors.textSecondary,
                         ),
@@ -446,24 +444,6 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         key: const Key('tuya-debug-wifi-password'),
                         controller: wifiPasswordController,
                         label: 'Wi-Fi 密码',
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      SegmentedButton<String>(
-                        key: const Key('tuya-debug-pair-mode'),
-                        segments: const <ButtonSegment<String>>[
-                          ButtonSegment<String>(
-                            value: 'ez',
-                            label: Text('EZ 快连'),
-                          ),
-                          ButtonSegment<String>(
-                            value: 'ap',
-                            label: Text('AP 热点'),
-                          ),
-                        ],
-                        selected: <String>{pairMode},
-                        showSelectedIcon: false,
-                        onSelectionChanged: (value) =>
-                            setState(() => pairMode = value.first),
                       ),
                       const SizedBox(height: AppSpacing.md),
                       _ActionRow(
@@ -505,12 +485,11 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         busy: busy,
                         primary: true,
                         onPressed: () => _run(
-                          '配网 ${pairMode.toUpperCase()}',
+                          '配网 AP',
                           () => state.pairDevice(
                             PairingRequest(
                               ssid: ssidController.text.trim(),
                               password: wifiPasswordController.text,
-                              mode: pairMode,
                             ),
                           ),
                           usesAccount: false,
@@ -691,8 +670,8 @@ class _WifiScanResult extends StatelessWidget {
           Text(
             '手机当前连接：$current'
             '${switch (scan.currentIs24g) {
-              true => '（2.4G，可用于 EZ）',
-              false => '（5G，EZ 配网必须先切到 2.4G）',
+              true => '（2.4G）',
+              false => '（5G，设备只能连 2.4G）',
               null => '',
             }}',
             style: AppTypography.smallBody.copyWith(

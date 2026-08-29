@@ -261,9 +261,9 @@ flutter run --dart-define=TUYA_ENABLED=true --dart-define=API_BASE_URL=https://y
 - 注册：发送注册验证码（type 1）与「注册并登录」；注册成功后 SDK 直接持有会话，不需要再登录。
 - 登录：发送登录验证码（type 2）、验证码登录、密码登录。
 - 会话与设备：初始化自检、查询会话、拉取设备列表、退出登录。「拉取设备列表」会先查询家庭并在没有家庭时自动建家，是配网前必须先跑通的一步；返回 0 台说明链路通了、账号下还没有绑定设备。
-- 配网：先「扫描附近 Wi-Fi」再填 Wi-Fi 名称、密码与 EZ/AP 模式，直接调用 `pairWifiDevice`（超时 120 秒）。失败只写进日志并带原始错误码，不跳转到配网失败页，便于连续重试和对照错误码。旁边还有「获取配网令牌」，只有 AP 模式需要单独点，见下节。
+- 配网：先「扫描附近 Wi-Fi」再填 Wi-Fi 名称与密码，直接调用 `pairWifiDevice`（超时 120 秒，只有 AP 模式）。失败只写进日志并带原始错误码，不跳转到配网失败页，便于连续重试和对照错误码。配网前必须先点「获取配网令牌」，见下节。
 
-「扫描附近 Wi-Fi」走的是 `scanWifi` 桥接方法（`WifiManager.startScan` + `scanResults`），不依赖涂鸦 SDK，SDK 未初始化时也能用。它有两个用途：确认手机当前连的是 2.4G 还是 5G（EZ 配网连在 5G 上必然失败），以及在 AP 模式下确认设备热点（`SmartLife-*`、`TY_*`）是否已经出现——这是配网前唯一能真实验证「设备已进入配网状态」的手段。点列表里的任意一项会把名称填进 Wi-Fi 名称输入框。
+「扫描附近 Wi-Fi」走的是 `scanWifi` 桥接方法（`WifiManager.startScan` + `scanResults`），不依赖涂鸦 SDK，SDK 未初始化时也能用。它有两个用途：确认手机当前连的是 2.4G 还是 5G（设备只能连 2.4G），以及在 AP 模式下确认设备热点（`SmartLife-*`、`TY_*`）是否已经出现——这是配网前唯一能真实验证「设备已进入配网状态」的手段。点列表里的任意一项会把名称填进 Wi-Fi 名称输入框。
 
 扫描受系统限制：Android 9 起每 2 分钟只允许前台应用扫描几次，超出后返回上一次的缓存结果；Android 9–12 还要求系统定位开关打开，否则返回 `location_disabled`；手机 Wi-Fi 关闭时返回 `wifi_disabled`。
 
@@ -271,7 +271,7 @@ flutter run --dart-define=TUYA_ENABLED=true --dart-define=API_BASE_URL=https://y
 
 `getActivatorToken` 是**云端调用**。AP 配网时手机连的是设备热点，那条链路没有外网，如果等到点「开始配网」才去取令牌，涂鸦会直接返回 `Network error please try it again`——这个报错与设备、与 Wi-Fi 密码都无关，纯粹是取令牌的时机不对。
 
-因此桥接把取令牌拆成了独立的 `prepareActivatorToken`，并在原生层缓存令牌（8 分钟，涂鸦签发的有效期是 10 分钟）。令牌**不回传 Dart**：它是短时效的云端凭据，而联调页会把收到的一切写进可见日志。`pairWifiDevice` 优先复用缓存令牌，没有或已过期才回落到云端取——EZ 全程连在路由器上，走的就是这条回落路径，所以 EZ 不需要额外操作。配网成功后立即清空缓存，涂鸦令牌是一次性的。
+因此桥接把取令牌拆成了独立的 `prepareActivatorToken`，并在原生层缓存令牌（8 分钟，涂鸦签发的有效期是 10 分钟）。令牌**不回传 Dart**：它是短时效的云端凭据，而联调页会把收到的一切写进可见日志。`pairWifiDevice` 优先复用缓存令牌，没有或已过期才回落到云端取；AP 模式下手机此时已在设备热点上、云端不可达，所以这条回落路径基本只会失败，令牌必须提前取好。配网成功后立即清空缓存，涂鸦令牌是一次性的。
 
 AP 模式的正确顺序：
 
@@ -297,7 +297,7 @@ flutter build apk --release --split-per-abi --dart-define=TUYA_DEBUG_TOOLS=true 
 
 `android/app/src/main/kotlin/com/common/yikaltd/MainActivity.kt` 中的桥接不硬编码涂鸦回调接口名：先按方法名与参数个数解析目标方法，再用该方法声明的最后一个接口参数生成动态代理。因此 `logout`（`ILogoutCallback`）与 `cancelAccount`（`IResultCallback`）、`getOtaInfo`、`setOtaListener` 等签名不同的接口能共用同一套调用代码，SDK 升级改名也不会静默失效。Expansion SDK 7.8.0 的初始化声明为 `ThingOptimusSdk.init(Context)`；反射查找必须使用声明类型 `Context`，实际参数仍可传入 `Application`。
 
-已接通：账号（验证码、登录、注册、找回密码、改昵称、退出、注销）、家庭查询与自动建家、AP/EZ 配网、设备列表、DP 下发、重命名、解绑、恢复出厂、OTA 查询与升级、**设备 DP 实时上报**。
+已接通：账号（验证码、登录、注册、找回密码、改昵称、退出、注销）、家庭查询与自动建家、AP 配网、设备列表、DP 下发、重命名、解绑、恢复出厂、OTA 查询与升级、**设备 DP 实时上报**。
 
 iOS 桥接（`ios/Runner/AppDelegate.swift`）现在覆盖同一组方法名：账号、家庭、设备列表、配网（含 `scanWifi` 与 `prepareActivatorToken`）、DP 下发、重命名、解绑、恢复出厂、DP 实时上报、OTA 查询与升级。两端方法名、参数名和错误码保持一致，Dart 侧只有一套 Repository。
 
@@ -336,7 +336,7 @@ Dart 侧 `MethodChannelTuyaRepository` 保留每台设备最近一次的原始 m
 还未实现的能力：
 
 - 温度、湿度、电量、PPFD、DLI 五条趋势曲线没有历史 DP：表里只有水仓水位、土壤湿度、光照各三个窗口。这几页在真实设备上显示「暂无历史数据」空态——不再用当前读数画一个点冒充趋势。要出曲线得在平台补 DP 或自建后端。
-- **SDK 意义上的设备发现**。桥接里没有任何设备扫描接口，`TuyaRepository` 也没有对应契约。**产品确认设备只支持 2.4GHz Wi-Fi 配网，没有蓝牙配网**，因此这里不应该去实现 BLE 扫描：EZ/AP 配网本来就没有「SDK 扫描出一台设备再选」这一步。能被手机真实观测到的只有设备在 AP 模式下自己拉起的热点，配网三页现在就建立在这一条真实证据上（见 6.3）。
+- **SDK 意义上的设备发现**。桥接里没有任何设备扫描接口，`TuyaRepository` 也没有对应契约。**产品确认设备只支持 2.4GHz Wi-Fi 配网，没有蓝牙配网**，因此这里不应该去实现 BLE 扫描：AP 配网本来就没有「SDK 扫描出一台设备再选」这一步。能被手机真实观测到的只有设备在 AP 模式下自己拉起的热点，配网三页现在就建立在这一条真实证据上（见 6.3）。
 
 配网前的运行时权限只申请 Wi-Fi 相关项：API 33 以下要求 `ACCESS_FINE_LOCATION`，API 33 及以上要求 `NEARBY_WIFI_DEVICES`（同时申请但不强制 `ACCESS_FINE_LOCATION`）。不要再把 `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT` 加进配网前置检查：设备没有蓝牙配网，而这两项被拒绝会让整个配网直接返回 `permission_denied`。Manifest 中仍保留蓝牙声明（涂鸦 SDK 自身可能合并同名权限），但 App 不会主动申请。
 
@@ -351,7 +351,7 @@ Dart 侧 `MethodChannelTuyaRepository` 保留每台设备最近一次的原始 m
 
 常量名同样被改过：**7.5.1 里是 `THING_AP` / `THING_EZ`（完整清单 `THING_AP, THING_EZ, THING_4G_GATEWAY, THING_STATIC_IP, THING_QR`），没有任何 `TY_*`**。`EZ_MODE_NAMES` / `AP_MODE_NAMES` 按「新名在前、旧名兜底」的顺序匹配，两代 SDK 都能用。
 
-**工厂方法要按模式选**：`newMultiActivator` 是多设备配网，只实现了 EZ，喂给它一个 AP 的 Builder 会在 `start()` 时报 `Multi Config don't support the AP Mode`。所以 AP 只允许 `newActivator`（单设备），EZ 优先 `newMultiActivator`、缺失时回落到 `newActivator`。这个约束在涂鸦的 API 签名上完全看不出来，只能从运行时报错知道。
+**工厂方法固定用 `newActivator`（单设备）**：`newMultiActivator` 是多设备配网，只实现了 EZ，喂给它一个 AP 的 Builder 会在 `start()` 时报 `Multi Config don't support the AP Mode`。这个约束在涂鸦的 API 签名上完全看不出来，只能从运行时报错知道。
 
 两处解析失败时抛出的异常都会把 SDK 实际提供的方法签名或枚举常量名列进消息里，联调页日志能直接看到，无需再翻 AAR。新增其它配网能力时沿用这个思路，不要再往桥接里塞全限定名。
 
@@ -372,7 +372,6 @@ Dart 侧 `MethodChannelTuyaRepository` 保留每台设备最近一次的原始 m
 几条必须知道的边界：
 
 - **AP 两步是硬要求，不是交互偏好**。`getActivatorToken` 是云端调用，手机连上设备热点后就没有外网了。产品页因此和联调页一样先取令牌（按钮显示「下一步：连接设备热点」），令牌就绪后按钮才变成「开始配网」。令牌只存在原生层，Dart 侧只记录取回时间用于判断是否需要重取（7 分钟，短于原生缓存的 8 分钟）。配网成功后清空，涂鸦令牌一次性。
-- **EZ 仍是一步**：全程连在路由器上，令牌由 `pairWifiDevice` 内部取。手机当前在 5G 时页面直接给出红色提示，因为 EZ 在 5G 上必然失败。
 - **扫不到不等于没有设备**。iOS 的 `scanWifi` 只返回当前连接的 SSID，`networks` 恒为空；Android 9 起扫描受频率限制，定位关闭时返回 `location_disabled`。因此三页在列表为空时给的都是「无法列出」而不是「没有设备」，并且始终保留手动继续的入口——配网本身不依赖扫描结果。
 - 「连接」按钮不会真的去连热点：Android/iOS 都不允许应用静默加入某个 Wi-Fi。它只是把选中的热点名带到下一页，由 AP 引导卡片告诉用户去系统设置连哪一个，并可点「检查连接」重新扫描确认。
 

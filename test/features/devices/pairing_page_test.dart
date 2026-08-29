@@ -34,9 +34,8 @@ void main() {
     expect(find.text('切换'), findsOneWidget);
     expect(find.text('Wi-Fi密码'), findsOneWidget);
     expect(find.text('连接过程中请保持设备靠近路由器'), findsOneWidget);
-    // Debug builds expose the provisioning mode switch and default to AP, whose
-    // first step is the provisioning token.
-    expect(find.byKey(const Key('pairing-mode-switch')), findsOneWidget);
+    // 只有 AP 一种模式，第一步永远是取配网令牌。
+    expect(find.byKey(const Key('pairing-mode-switch')), findsNothing);
     expect(find.text('下一步：连接设备热点'), findsOneWidget);
     expect(
       findAssetImage(AppAssets.pairingWifiSetupIllustration),
@@ -185,67 +184,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.pairCalls, 1);
-    expect(repository.lastRequest?.mode, 'ap');
     expect(find.text('pairing-success-target'), findsOneWidget);
     expect(successArguments, 'vdevo17235508413621');
     // The token is single use; the bridge drops its cached copy on success.
     expect(state.activatorTokenReady, isFalse);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('EZ provisioning starts in one step', (tester) async {
-    final repository = _TokenRepository();
-    await _pumpPairingPage(
-      tester,
-      const Size(375, 812),
-      repository: repository,
-      arguments: const PairingArguments(
-        request: PairingRequest(
-          ssid: 'TP-LINK_2.4G',
-          password: 'wifi-password',
-          mode: 'ez',
-        ),
-      ),
-    );
-
-    await tester.tap(find.byKey(const Key('start-pairing-button')));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pumpAndSettle();
-
-    // EZ never leaves the router, so `pairWifiDevice` fetches its own token.
-    expect(repository.tokenCalls, 0);
-    expect(repository.pairCalls, 1);
-    expect(repository.lastRequest?.mode, 'ez');
-    expect(find.text('pairing-success-target'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('EZ on a 5G network is called out before the attempt', (
-    tester,
-  ) async {
-    await _pumpPairingPage(
-      tester,
-      const Size(375, 812),
-      repository: _ScanRepository(
-        const WifiScan(
-          current: 'TP-LINK_5G',
-          currentFrequency: 5180,
-          networks: <WifiNetwork>[
-            WifiNetwork(ssid: 'TP-LINK_5G', level: -52, frequency: 5180),
-          ],
-        ),
-      ),
-      arguments: const PairingArguments(
-        request: PairingRequest(
-          ssid: 'TP-LINK_5G',
-          password: 'wifi-password',
-          mode: 'ez',
-        ),
-      ),
-    );
-
-    expect(find.byKey(const Key('pairing-band-warning')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -259,12 +201,16 @@ void main() {
         request: PairingRequest(
           ssid: 'TP-LINK_2.4G',
           password: 'wifi-password',
-          mode: 'ez',
         ),
       ),
       onFailureArguments: (value) => failureArguments = value,
     );
 
+    // AP 是两步：第一次点击只取令牌，第二次才真正配网。
+    await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pumpAndSettle();
 

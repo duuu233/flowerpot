@@ -54,7 +54,7 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
   /// Moves to the Wi-Fi credentials for the picked planter.
   ///
   /// Nothing is "connected" here: joining a hotspot is a system-level action
-  /// the app cannot perform, and EZ mode never involves one. The name is
+  /// the app cannot perform. The name is
   /// carried so the next page can name the hotspot to join in AP mode.
   void _connect(WifiNetwork? device) {
     Navigator.pushNamed(

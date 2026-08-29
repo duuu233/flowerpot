@@ -96,6 +96,10 @@ abstract class TuyaRepository {
   /// A broadcast stream — several screens may listen at once — that stays
   /// silent rather than failing on a platform whose bridge does not push yet.
   Stream<DeviceUpdate> get deviceUpdates;
+
+  /// 固件升级进度。和 [deviceUpdates] 走同一条事件通道，同样在没有推送能力的
+  /// 平台上保持静默而不是抛错。
+  Stream<OtaProgress> get otaUpdates;
 }
 
 class MethodChannelTuyaRepository implements TuyaRepository {
@@ -114,16 +118,49 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   final Map<String, Map<Object?, Object?>> _snapshots =
       <String, Map<Object?, Object?>>{};
 
-  @override
-  late final Stream<DeviceUpdate> deviceUpdates = _events
+  /// 原始事件流，只订阅一次后分给下面两个消费者。
+  ///
+  /// A platform that does not implement the event channel delivers one
+  /// MissingPluginException and nothing else. Live updates stay off there
+  /// instead of taking every listener down with them.
+  late final Stream<Object?> _rawEvents = _events
       .receiveBroadcastStream()
-      // A platform that does not implement the event channel — iOS today —
-      // delivers one MissingPluginException and nothing else. Live updates
-      // stay off there instead of taking every listener down with them.
-      .handleError((Object _) {})
+      .handleError((Object _) {});
+
+  @override
+  late final Stream<DeviceUpdate> deviceUpdates = _rawEvents
       .map(_deviceUpdate)
       .where((update) => update != null)
       .cast<DeviceUpdate>();
+
+  @override
+  late final Stream<OtaProgress> otaUpdates = _rawEvents
+      .map(_otaUpdate)
+      .where((update) => update != null)
+      .cast<OtaProgress>();
+
+  /// 解析原生的 OTA 事件：`{deviceId, ota: {status, percent?, message?}}`。
+  OtaProgress? _otaUpdate(Object? event) {
+    if (event is! Map) return null;
+    final ota = event['ota'];
+    if (ota is! Map) return null;
+    final deviceId = '${event['deviceId'] ?? ''}';
+    if (deviceId.isEmpty) return null;
+    final status = switch ('${ota['status'] ?? ''}') {
+      'success' => OtaStatus.success,
+      'failed' => OtaStatus.failed,
+      'running' => OtaStatus.running,
+      _ => null,
+    };
+    if (status == null) return null;
+    final percent = ota['percent'];
+    return OtaProgress(
+      deviceId: deviceId,
+      status: status,
+      percent: percent is num ? percent.toInt().clamp(0, 100) : null,
+      message: ota['message']?.toString(),
+    );
+  }
 
   /// Turns one native event into an update, or null when there is nothing to
   /// report.
@@ -300,7 +337,6 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       <String, Object?>{
         'ssid': request.ssid,
         'password': request.password,
-        'mode': request.mode,
         'homeName': TuyaConfig.defaultHomeName,
       },
     );
@@ -625,6 +661,15 @@ class MockTuyaRepository implements TuyaRepository {
   /// like a live planter.
   @override
   Stream<DeviceUpdate> get deviceUpdates => _updates.stream;
+
+  final StreamController<OtaProgress> _otaUpdates =
+      StreamController<OtaProgress>.broadcast();
+
+  @override
+  Stream<OtaProgress> get otaUpdates => _otaUpdates.stream;
+
+  /// 让测试和演示能驱动升级进度，无需真实设备。
+  void pushOtaProgress(OtaProgress progress) => _otaUpdates.add(progress);
 
   /// Pushes a report the way a real planter would, for tests and for driving
   /// the live-update path without hardware.

@@ -86,6 +86,53 @@ class DeviceUpdate {
   final String? removedId;
 }
 
+/// 固件升级的实时状态。
+///
+/// 涂鸦的 OTA 是个长过程：`startOta` 只是把升级发起出去，设备下载加烧录要几
+/// 分钟，期间 SDK 通过监听器回报进度。所以"升级完成"只能由 [success] 事件
+/// 断定，不能在发起调用返回时就宣布。
+class OtaProgress {
+  const OtaProgress({
+    required this.deviceId,
+    required this.status,
+    this.percent,
+    this.message,
+  });
+
+  final String deviceId;
+  final OtaStatus status;
+
+  /// 0–100，仅 [OtaStatus.running] 时有值。
+  final int? percent;
+
+  /// 失败原因，仅 [OtaStatus.failed] 时有值。
+  final String? message;
+}
+
+enum OtaStatus { running, success, failed }
+
+/// 一个被分享到的接收方。
+///
+/// 涂鸦文档里的设备分享是按账号进行的：把设备分享给某个手机号/邮箱，接收方在
+/// 自己的账号里看到这台设备。链接分享只有 Android 业务拓展 SDK 才有，iOS 的
+/// Home SDK 没有对应接口，所以两端统一走账号。
+class DeviceShareMember {
+  const DeviceShareMember({
+    required this.memberId,
+    required this.name,
+    this.account,
+  });
+
+  /// 取消分享时要回传给 SDK 的成员 id。
+  final String memberId;
+
+  /// 接收方昵称，SDK 没给时回落到账号。
+  final String name;
+
+  /// 手机号或邮箱，SDK 未必返回。
+  final String? account;
+}
+
 class AppUser {
   const AppUser({
     required this.id,
@@ -566,16 +613,15 @@ class AnimationAsset {
   );
 }
 
+/// 配网请求。
+///
+/// 只有 AP 一种模式：产品确认设备走 AP 配网，手机先连设备热点再把路由器凭据
+/// 交给它。EZ（手机保持连路由器广播凭据）已经从桥接和界面里移除。
 class PairingRequest {
-  const PairingRequest({
-    required this.ssid,
-    required this.password,
-    this.mode = 'ap',
-  });
+  const PairingRequest({required this.ssid, required this.password});
 
   final String ssid;
   final String password;
-  final String mode;
 }
 
 /// One access point seen by the phone.

@@ -20,14 +20,14 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Provisioning-mode constants, newest spelling first.
+ * AP 配网模式常量，新拼写在前。
+ *
+ * 产品只走 AP：手机先连设备热点，再把路由器凭据交给设备。EZ 已移除。
  *
  * Tuya renamed `ActivatorModelEnum`'s constants from `TY_*` to `THING_*` during
- * 7.x — 7.5.1 offers `THING_AP, THING_EZ, THING_4G_GATEWAY, THING_STATIC_IP,
- * THING_QR` and no `TY_*` at all. The old names stay as a fallback so the
- * bridge also works against an older SDK drop.
+ * 7.x — 7.5.1 offers `THING_AP` and no `TY_AP` at all. The old name stays as a
+ * fallback so the bridge also works against an older SDK drop.
  */
-private val EZ_MODE_NAMES = listOf("THING_EZ", "TY_EZ")
 private val AP_MODE_NAMES = listOf("THING_AP", "TY_AP")
 
 /**
@@ -105,7 +105,7 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * The planter is provisioned over 2.4 GHz Wi-Fi (EZ/AP) and has no BLE
+     * The planter is provisioned over 2.4 GHz Wi-Fi (AP) and has no BLE
      * pairing, so only Wi-Fi permissions are requested. Asking for
      * BLUETOOTH_SCAN/CONNECT here used to let a reasonable "deny" on a prompt
      * the product never needs block provisioning outright.
@@ -648,10 +648,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     private fun pairWifi(call: MethodCall, result: MethodChannel.Result) {
-        // Reuse a pre-fetched token when there is one. This is what makes AP
-        // mode work at all: by the time this runs the phone is on the device's
-        // hotspot, so the cloud is unreachable. EZ keeps the phone on the
-        // router, so its fallback below is the normal path.
+        // 复用预取的令牌——AP 配网能成立全靠这一步：跑到这里时手机已经连在设备
+        // 热点上，云端不可达。没有缓存令牌（例如令牌已过期）才回落到云端去取，
+        // 那种情况下这次配网多半也会失败，但错误码比直接崩掉有用。
         freshActivatorToken()?.let { token ->
             startActivator(call, result, token)
             return
@@ -672,13 +671,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // factory method takes the builder as its only argument, so the type is
         // read off that signature instead — the same trick invokeWithCallback
         // already uses for callback interfaces.
-        val ez = call.argument<String>("mode") == "ez"
-        val factory = activatorFactory(activatorApi, allowMulti = ez)
+        val factory = activatorFactory(activatorApi)
         val builderClass = factory.parameterTypes.single()
         val builder = builderClass.getDeclaredConstructor()
             .apply { isAccessible = true }
             .newInstance()
-        val mode = activatorMode(builder, if (ez) EZ_MODE_NAMES else AP_MODE_NAMES)
+        val mode = activatorMode(builder, AP_MODE_NAMES)
         invoke(builder, "setContext", activity)
         invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
         invoke(builder, "setPassword", call.argument<String>("password").orEmpty())
@@ -713,38 +711,24 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     /**
-     * The activator factory on `IThingActivator`, chosen by mode.
+     * `IThingActivator` 上的配网工厂。
      *
-     * `newMultiActivator` holds one session open for several devices, but it
-     * implements EZ only — handing it an AP builder fails at `start()` with
-     * `Multi Config don't support the AP Mode`. So AP is restricted to the
-     * single-device `newActivator`, while EZ prefers multi and falls back to
-     * single for builds that do not ship it.
+     * 固定用单设备的 `newActivator`：`newMultiActivator` 只实现了 EZ，喂给它一个
+     * AP 的 Builder 会在 `start()` 时报 `Multi Config don't support the AP Mode`。
      *
-     * Both take the builder as their only argument, which is how
-     * [startActivator] learns the builder's type without naming it.
+     * 它只接受 Builder 一个参数，[startActivator] 正是据此拿到 Builder 的类型，
+     * 不必写死包名。
      */
-    private fun activatorFactory(activatorApi: Any, allowMulti: Boolean): Method {
-        val preference = if (allowMulti) {
-            listOf("newMultiActivator", "newActivator")
-        } else {
-            listOf("newActivator")
-        }
-        val factories = candidates(activatorApi.javaClass).filter { method ->
-            method.name in preference &&
+    private fun activatorFactory(activatorApi: Any): Method =
+        candidates(activatorApi.javaClass).firstOrNull { method ->
+            method.name == "newActivator" &&
                 method.parameterTypes.size == 1 &&
                 method.parameterTypes.single().simpleName.endsWith("Builder")
-        }
-        // Walk the preference list rather than the reflected order, which is
-        // not promised to be stable across runs.
-        return preference
-            .firstNotNullOfOrNull { name -> factories.firstOrNull { it.name == name } }
-            ?.apply { isAccessible = true }
+        }?.apply { isAccessible = true }
             ?: throw NoSuchMethodException(
-                "${activatorApi.javaClass.name} 未提供 ${preference.joinToString("/")}" +
-                    "(Builder)，该类的工厂方法：" + describeFactories(activatorApi.javaClass),
+                "${activatorApi.javaClass.name} 未提供 newActivator(Builder)，" +
+                    "该类的工厂方法：" + describeFactories(activatorApi.javaClass),
             )
-    }
 
     /** Signatures of the `new*` methods, so a rename is diagnosable from the log. */
     private fun describeFactories(clazz: Class<*>): String = candidates(clazz)
@@ -756,8 +740,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         .ifEmpty { "无" }
 
     /**
-     * Resolves the EZ / AP constant from the setter's parameter type, so the
-     * enum's package name does not have to be hard-coded either.
+     * Resolves the AP constant from the setter's parameter type, so the enum's
+     * package name does not have to be hard-coded either.
      *
      * [modeNames] is a preference list rather than one name: Tuya renamed these
      * constants from `TY_*` to `THING_*` during 7.x (7.5.1 ships only the
@@ -879,9 +863,24 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     private fun startFirmwareUpgrade(call: MethodCall, result: MethodChannel.Result) {
+        val deviceId = call.argument<String>("deviceId").orEmpty()
         val ota = otaInstance(call)
-        val onSuccess: (Any?) -> Unit = { success(result, null) }
-        val onError: (String, String) -> Unit = { code, message -> error(result, code, message) }
+        // 升级要跑几分钟，方法通道只能回答一次，所以它只回答"已发起"；下载进度
+        // 和最终成败改从事件通道推给 Dart。
+        val started = AtomicBoolean(false)
+        val answerStarted = { if (started.compareAndSet(false, true)) success(result, null) }
+        val onSuccess: (Any?) -> Unit = {
+            answerStarted()
+            emitOta(deviceId, "success")
+        }
+        val onError: (String, String) -> Unit = { code, message ->
+            // 还没回答过方法调用就失败，说明升级根本没起来，照常回错误；已经
+            // 回答过则只能通过事件通道报告。
+            if (started.compareAndSet(false, true)) {
+                error(result, code, message)
+            }
+            emitOta(deviceId, "failed", message = message)
+        }
         // 7.x reports progress through a listener and starts with a no-arg call;
         // older builds accept the callback directly on startOta.
         val listenerMethod =
@@ -889,13 +888,76 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         if (listenerMethod != null) {
             listenerMethod.invoke(
                 ota,
-                callbackProxy(listenerMethod.parameterTypes.last(), onSuccess, onError),
+                otaListenerProxy(
+                    listenerMethod.parameterTypes.last(),
+                    deviceId,
+                    onSuccess,
+                    onError,
+                ),
             )
             invoke(ota, "startOta")
+            answerStarted()
             return
         }
         invokeWithCallback(ota, "startOta", onSuccess = onSuccess, onError = onError)
     }
+
+    /**
+     * `IThingOtaListener` 的动态代理。
+     *
+     * 和 [callbackProxy] 的区别只在于它还认 `onProgress(otaType, percent)`——
+     * 通用代理会把这个回调丢进默认分支，进度就没了，界面只能干等几分钟。
+     * 方法名之外不假设签名：百分比从参数里挑第一个数字，兼容不同的参数顺序。
+     */
+    private fun otaListenerProxy(
+        listenerType: Class<*>,
+        deviceId: String,
+        onSuccess: (Any?) -> Unit,
+        onError: (String, String) -> Unit,
+    ): Any {
+        val loader = listenerType.classLoader ?: activity.classLoader
+        return Proxy.newProxyInstance(loader, arrayOf(listenerType)) { proxy, method, args ->
+            when (method.name) {
+                "equals" -> proxy === args?.firstOrNull()
+                "hashCode" -> System.identityHashCode(proxy)
+                "toString" -> "TuyaOtaListener(${listenerType.simpleName})"
+                "onProgress" -> {
+                    val percent = args?.filterIsInstance<Number>()?.lastOrNull()?.toInt()
+                    emitOta(deviceId, "running", percent = percent)
+                    defaultValue(method.returnType)
+                }
+                "onSuccess" -> {
+                    onSuccess(args?.firstOrNull())
+                    defaultValue(method.returnType)
+                }
+                "onFailure", "onError" -> {
+                    val texts = args?.filterIsInstance<String>().orEmpty()
+                    onError(
+                        texts.firstOrNull() ?: "ota_failed",
+                        texts.lastOrNull() ?: "固件升级失败",
+                    )
+                    defaultValue(method.returnType)
+                }
+                else -> defaultValue(method.returnType)
+            }
+        }
+    }
+
+    private fun emitOta(
+        deviceId: String,
+        status: String,
+        percent: Int? = null,
+        message: String? = null,
+    ) = emit(
+        mapOf(
+            "deviceId" to deviceId,
+            "ota" to mapOf(
+                "status" to status,
+                "percent" to percent,
+                "message" to message,
+            ),
+        ),
+    )
 
     private fun otaInstance(call: MethodCall): Any =
         invokeStatic(sdkClass(), "newOTAInstance", call.argument<String>("deviceId").orEmpty())

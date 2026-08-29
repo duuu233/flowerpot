@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/config/debug_tools_config.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
@@ -11,16 +10,19 @@ class PairingFailurePage extends StatelessWidget {
 
   final PairingRequest? request;
 
-  /// Raw SDK failure, surfaced only in debug builds: the product copy alone
-  /// cannot tell a timeout apart from a wrong password or an already-bound
-  /// device.
+  /// 涂鸦返回的原始失败原因。
+  ///
+  /// 正式包也照常显示：那句产品文案分不出超时、密码错和设备已被绑定，只看它
+  /// 无法判断该改什么。[message] 已经由 `FlowerpotState` 打上来源标签（形如
+  /// `涂鸦-<code> 原文`），所以这里不再重复拼 [code]。
   final String? code;
   final String? message;
 
   String get _subtitle {
     const generic = '设备未能成功连接到当前Wi-Fi网络';
-    if (!DebugToolsConfig.enabled || code == null) return generic;
-    return '$generic\n[$code] ${message ?? ''}'.trimRight();
+    final detail = message?.trim() ?? '';
+    if (detail.isEmpty) return generic;
+    return '$generic\n$detail';
   }
 
   void _retry(BuildContext context) {
