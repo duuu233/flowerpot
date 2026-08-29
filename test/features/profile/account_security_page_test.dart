@@ -174,7 +174,6 @@ class _AccountSecurityRepository extends MockTuyaRepository {
     required String credential,
     required LoginRegion region,
     required bool verificationCode,
-    String? countryCode,
   }) async {
     return const AppUser(
       id: 'J123456',

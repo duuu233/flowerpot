@@ -251,6 +251,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "currentUser" -> currentUser(result)
                 "sendVerificationCode" -> sendCode(call, result)
                 "login" -> login(call, result)
+                "loginWithUid" -> loginWithUid(call, result)
                 "register" -> register(call, result)
                 "resetPassword" -> resetPassword(call, result)
                 "updateNickname" -> updateNickname(call, result)
@@ -431,6 +432,38 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             onSuccess = { value -> success(result, value?.let(::userMap)) },
             onError = { code, message -> error(result, code, message) },
         )
+    }
+
+    /**
+     * 自有账号体系登录：APP 后端下发内部编号与配套密码，涂鸦侧据此登录，
+     * 账号不存在时自动注册。
+     *
+     * 方法名以及是否带 createHome 参数在各 SDK 版本之间有差异，所以按候选
+     * 组合逐个探测，取第一个签名匹配得上的，避免写死某一版的签名。
+     */
+    private fun loginWithUid(call: MethodCall, result: MethodChannel.Result) {
+        val user = userInstance()
+        val countryCode = call.argument<String>("countryCode").orEmpty()
+        val uid = call.argument<String>("uid").orEmpty()
+        val password = call.argument<String>("password").orEmpty()
+        val argumentSets = listOf(
+            arrayOf<Any?>(countryCode, uid, password, true),
+            arrayOf<Any?>(countryCode, uid, password),
+        )
+        for (name in listOf("loginOrRegisterWithUid", "loginOrRegisterByUid")) {
+            for (args in argumentSets) {
+                if (optionalCallbackMethod(user.javaClass, name, args) == null) continue
+                invokeWithCallback(
+                    user,
+                    name,
+                    *args,
+                    onSuccess = { value -> success(result, value?.let(::userMap)) },
+                    onError = { code, message -> error(result, code, message) },
+                )
+                return
+            }
+        }
+        error(result, "uid_login_unsupported", "当前涂鸦 SDK 不支持 uid 登录")
     }
 
     private fun register(call: MethodCall, result: MethodChannel.Result) {

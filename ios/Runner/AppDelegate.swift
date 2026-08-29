@@ -72,6 +72,7 @@ final class FlowerpotTuyaBridge: NSObject {
     case "currentUser": currentUser(result)
     case "sendVerificationCode": sendCode(args, result)
     case "login": login(args, result)
+    case "loginWithUid": loginWithUid(args, result)
     case "register": register(args, result)
     case "resetPassword": resetPassword(args, result)
     case "updateNickname": updateNickname(args, result)
@@ -161,6 +162,25 @@ final class FlowerpotTuyaBridge: NSObject {
     } else {
       ThingSmartUser.sharedInstance()?.login(byPhone: country, phoneNumber: account, password: credential, success: success, failure: failure)
     }
+  }
+
+  /// 自有账号体系登录：APP 后端下发内部编号与配套密码，涂鸦侧据此登录，
+  /// 账号不存在时自动注册。国内账号走这条路，不是 `login`。
+  private func loginWithUid(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    let uid = args["uid"] as? String ?? ""
+    let password = args["password"] as? String ?? ""
+    let country = args["countryCode"] as? String ?? "86"
+    ThingSmartUser.sharedInstance()?.loginOrRegister(
+      withCountryCode: country,
+      uid: uid,
+      password: password,
+      createHome: true,
+      success: { [weak self] _ in
+        guard let self, let user = ThingSmartUser.sharedInstance() else { return }
+        result(self.userMap(user))
+      },
+      failure: { error in self.fail(result, error) }
+    )
   }
 
   private func register(_ args: [String: Any], _ result: @escaping FlutterResult) {

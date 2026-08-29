@@ -29,16 +29,25 @@ abstract class TuyaRepository {
     required String countryCode,
     required int type,
   });
-  /// [countryCode] 覆盖由 [region] 推导出的国家码。国内账号映射登录要用 APP
-  /// 后端返回的国家码；固定传 86 会在后端返回其它国家码时被涂鸦拒登，而且报的
-  /// 是 `USER_PASSWD_WRONG`，从文案上看不出真正原因。
   Future<AppUser> login({
     required String account,
     required String credential,
     required LoginRegion region,
     required bool verificationCode,
-    String? countryCode,
   });
+
+  /// 涂鸦自有账号体系登录：用 APP 后端下发的内部编号 [uid] 与配套密码登录，
+  /// 涂鸦侧没有该账号时自动注册。
+  ///
+  /// 国内账号走的是这条路而不是 [login]：后端返回的 `userNo`（形如
+  /// `GA7593223`）不是手机号，拿它调手机号登录会被涂鸦回 `USER_PASSWD_WRONG`，
+  /// 文案上看起来却像密码错，很容易把排查方向带偏。
+  Future<AppUser> loginWithUid({
+    required String uid,
+    required String password,
+    required String countryCode,
+  });
+
   Future<AppUser> register({
     required String account,
     required String password,
@@ -196,15 +205,32 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     required String credential,
     required LoginRegion region,
     required bool verificationCode,
-    String? countryCode,
   }) async {
     final raw = await _invoke<Map<Object?, Object?>>('login', <String, Object?>{
       'account': account,
       'credential': credential,
-      'countryCode': _resolveCountryCode(region, countryCode),
+      'countryCode': region == LoginRegion.domestic ? '86' : '1',
       'verificationCode': verificationCode,
       'email': region == LoginRegion.overseas,
     });
+    if (raw == null) throw const TuyaException('empty_user', '登录未返回用户信息');
+    return _user(raw);
+  }
+
+  @override
+  Future<AppUser> loginWithUid({
+    required String uid,
+    required String password,
+    required String countryCode,
+  }) async {
+    final raw = await _invoke<Map<Object?, Object?>>(
+      'loginWithUid',
+      <String, Object?>{
+        'uid': uid,
+        'password': password,
+        'countryCode': _resolveCountryCode(LoginRegion.domestic, countryCode),
+      },
+    );
     if (raw == null) throw const TuyaException('empty_user', '登录未返回用户信息');
     return _user(raw);
   }
@@ -650,7 +676,6 @@ class MockTuyaRepository implements TuyaRepository {
     required String credential,
     required LoginRegion region,
     required bool verificationCode,
-    String? countryCode,
   }) async {
     await _wait();
     if (account.trim().isEmpty || credential.trim().isEmpty) {
@@ -665,6 +690,18 @@ class MockTuyaRepository implements TuyaRepository {
       avatarUrl: 'assets/images/demo_user_avatar.png',
     );
   }
+
+  @override
+  Future<AppUser> loginWithUid({
+    required String uid,
+    required String password,
+    required String countryCode,
+  }) => login(
+    account: uid,
+    credential: password,
+    region: LoginRegion.domestic,
+    verificationCode: false,
+  );
 
   @override
   Future<AppUser> register({

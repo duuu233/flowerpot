@@ -1000,11 +1000,9 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<AppUser> _loginTuyaAccount(BackendAuthAccount backendAccount) async {
     try {
-      await _repository.login(
-        account: backendAccount.tuyaAccount,
-        credential: backendAccount.tuyaPassword,
-        region: LoginRegion.domestic,
-        verificationCode: false,
+      await _repository.loginWithUid(
+        uid: backendAccount.tuyaAccount,
+        password: backendAccount.tuyaPassword,
         countryCode: backendAccount.countryCode,
       );
     } catch (error) {

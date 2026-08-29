@@ -212,7 +212,6 @@ class _AuthRecordingTuya extends MockTuyaRepository {
     required String credential,
     required LoginRegion region,
     required bool verificationCode,
-    String? countryCode,
   }) async {
     this.account = account;
     this.credential = credential;
@@ -222,7 +221,6 @@ class _AuthRecordingTuya extends MockTuyaRepository {
       credential: credential,
       region: region,
       verificationCode: verificationCode,
-      countryCode: countryCode,
     );
   }
 }
