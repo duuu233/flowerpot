@@ -486,7 +486,7 @@ class _WifiBandIcon extends StatelessWidget {
   }
 }
 
-class _WifiCredentialsCard extends StatelessWidget {
+class _WifiCredentialsCard extends StatefulWidget {
   const _WifiCredentialsCard({
     required this.ssidController,
     required this.passwordController,
@@ -496,6 +496,17 @@ class _WifiCredentialsCard extends StatelessWidget {
   final TextEditingController ssidController;
   final TextEditingController passwordController;
   final VoidCallback onSwitchWifi;
+
+  @override
+  State<_WifiCredentialsCard> createState() => _WifiCredentialsCardState();
+}
+
+class _WifiCredentialsCardState extends State<_WifiCredentialsCard> {
+  /// Wi-Fi 密码默认遮蔽，可切明文。
+  ///
+  /// 配网失败最常见的原因之一就是密码打错，而这里又是全大小写/符号混排的路由器
+  /// 密码，看不见就只能靠重试两分钟来发现输错了。
+  bool _obscurePassword = true;
 
   @override
   Widget build(BuildContext context) {
@@ -536,7 +547,7 @@ class _WifiCredentialsCard extends StatelessWidget {
                           // network always has to be typable.
                           child: TextField(
                             key: const Key('pairing-ssid-field'),
-                            controller: ssidController,
+                            controller: widget.ssidController,
                             style: const TextStyle(
                               color: AppColors.textPrimary,
                               fontSize: 15,
@@ -551,7 +562,7 @@ class _WifiCredentialsCard extends StatelessWidget {
                   ),
                   TextButton(
                     key: const Key('switch-wifi-button'),
-                    onPressed: onSwitchWifi,
+                    onPressed: widget.onSwitchWifi,
                     child: const Text('切换'),
                   ),
                 ],
@@ -583,12 +594,14 @@ class _WifiCredentialsCard extends StatelessWidget {
                           height: 24,
                           child: TextField(
                             key: const Key('pairing-password-field'),
-                            controller: passwordController,
-                            obscureText: true,
-                            style: const TextStyle(
+                            controller: widget.passwordController,
+                            obscureText: _obscurePassword,
+                            style: TextStyle(
                               color: AppColors.textPrimary,
                               fontSize: 15,
-                              letterSpacing: 3,
+                              // 圆点之间要留空才看得清位数；明文时恢复正常字距，
+                              // 否则路由器密码会被拉得很难读。
+                              letterSpacing: _obscurePassword ? 3 : 0,
                             ),
                             decoration: const InputDecoration.collapsed(
                               hintText: '请输入密码',
@@ -597,6 +610,26 @@ class _WifiCredentialsCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                  ),
+                  IconButton(
+                    key: const Key('pairing-password-visibility'),
+                    tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+                    onPressed: () => setState(
+                      () => _obscurePassword = !_obscurePassword,
+                    ),
+                    icon: _obscurePassword
+                        ? Image.asset(
+                            AppAssets.passwordVisibilityOffIcon,
+                            width: 24,
+                            height: 24,
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.high,
+                            excludeFromSemantics: true,
+                          )
+                        : const Icon(
+                            Icons.visibility_outlined,
+                            color: AppColors.textSecondary,
+                          ),
                   ),
                 ],
               ),
