@@ -3,6 +3,7 @@ import '../../../tuya/tuya_models.dart';
 enum MineMenuKind {
   personalInfo,
   accountSecurity,
+  deviceSettings,
   helpCenter,
   feedback,
   privacyPolicy,
@@ -38,6 +39,7 @@ class MinePageModel {
       menuItems: const <MineMenuItem>[
         MineMenuItem(kind: MineMenuKind.personalInfo, label: '个人信息'),
         MineMenuItem(kind: MineMenuKind.accountSecurity, label: '账号与安全'),
+        MineMenuItem(kind: MineMenuKind.deviceSettings, label: '设备设置'),
         MineMenuItem(kind: MineMenuKind.helpCenter, label: '帮助中心'),
         MineMenuItem(
           kind: MineMenuKind.feedback,
