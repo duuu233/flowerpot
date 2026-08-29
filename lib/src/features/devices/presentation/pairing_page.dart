@@ -53,6 +53,12 @@ class _PairingPageState extends State<PairingPage> {
     text: widget.arguments?.request?.password ?? '',
   );
 
+  /// 配网模式。默认 EZ：手机全程连在路由器上，不用切到设备热点。EZ 受路由器
+  /// 组播策略影响可能失败，那时用户可以切到 AP 兜底——失败页也有直达入口。
+  late String mode = widget.arguments?.request?.mode ?? 'ez';
+
+  bool get _isAp => mode == 'ap';
+
   @override
   void initState() {
     super.initState();
@@ -149,7 +155,8 @@ class _PairingPageState extends State<PairingPage> {
     // 120 秒超时后回涂鸦的 `1006 out of time`——那个错误看不出真正原因，所以
     // 在这里先拦一道。平台给不出网络列表时（iOS 永远如此）无从判断，不拦。
     final scan = state.wifiScan;
-    if (scan != null &&
+    if (_isAp &&
+        scan != null &&
         scan.networks.isNotEmpty &&
         !scan.currentIsDeviceHotspot) {
       final proceed = await showAppConfirmDialog(
@@ -167,6 +174,7 @@ class _PairingPageState extends State<PairingPage> {
     final request = PairingRequest(
       ssid: ssidController.text.trim(),
       password: passwordController.text,
+      mode: mode,
     );
     final result = await state.pairDevice(request);
     if (!mounted) return;
@@ -189,8 +197,9 @@ class _PairingPageState extends State<PairingPage> {
     );
   }
 
-  /// AP 配网必须先取令牌：手机随后要离开路由器去连设备热点，那时云端不可达。
-  bool _needsToken(bool tokenReady) => !tokenReady;
+  /// 只有 AP 需要单独取令牌：手机随后要离开路由器去连设备热点，那时云端不可达。
+  /// EZ 全程连在路由器上，令牌由 `pairWifiDevice` 内部取，用户无需多一步。
+  bool _needsToken(bool tokenReady) => _isAp && !tokenReady;
 
   @override
   Widget build(BuildContext context) {
@@ -249,7 +258,21 @@ class _PairingPageState extends State<PairingPage> {
                     passwordController: passwordController,
                     onSwitchWifi: _switchWifi,
                   ),
-                  if (tokenReady) ...<Widget>[
+                  if (!_isAp &&
+                      scan != null &&
+                      scan.currentIs24g == false) ...<Widget>[
+                    const SizedBox(height: 12),
+                    _PairingHintCard(
+                      key: const Key('pairing-band-warning'),
+                      tone: AppColors.danger,
+                      // EZ 把凭据广播到手机当前所在的网络上；手机在 5G 时设备
+                      // 根本听不到，必然失败。
+                      text:
+                          '手机当前连接的是 5G 网络（${scan.current ?? ''}），'
+                          '快速配网必须先切到 2.4G，或改用热点配网。',
+                    ),
+                  ],
+                  if (_isAp && tokenReady) ...<Widget>[
                     const SizedBox(height: 12),
                     _HotspotStepCard(
                       hotspot: hotspot,
@@ -258,7 +281,14 @@ class _PairingPageState extends State<PairingPage> {
                       onRefresh: () => _loadNetworks(force: true),
                     ),
                   ],
-                  const SizedBox(height: 38),
+                  const SizedBox(height: 18),
+                  Center(
+                    child: _PairingModeSwitch(
+                      mode: mode,
+                      onChanged: (value) => setState(() => mode = value),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
@@ -354,6 +384,35 @@ class _HotspotStepCard extends StatelessWidget {
         onPressed: onRefresh,
         child: const Text('检查连接'),
       ),
+    );
+  }
+}
+
+/// 配网方式切换。
+///
+/// 面向用户而不是调试开关：EZ 省掉切热点那一步，但会被部分路由器的组播策略挡
+/// 下；AP 步骤多却不受影响。哪种能成只有现场才知道，所以两个都摆出来。
+class _PairingModeSwitch extends StatelessWidget {
+  const _PairingModeSwitch({required this.mode, required this.onChanged});
+
+  final String mode;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<String>(
+      key: const Key('pairing-mode-switch'),
+      segments: const <ButtonSegment<String>>[
+        ButtonSegment<String>(value: 'ez', label: Text('快速配网')),
+        ButtonSegment<String>(value: 'ap', label: Text('热点配网')),
+      ],
+      selected: <String>{mode},
+      showSelectedIcon: false,
+      style: const ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      onSelectionChanged: (value) => onChanged(value.first),
     );
   }
 }

@@ -25,13 +25,28 @@ class PairingFailurePage extends StatelessWidget {
     return '$generic\n$detail';
   }
 
+  /// EZ 失败后是否该改走 AP。
+  ///
+  /// EZ 失败的常见原因（路由器过滤组播、手机在 5G）重试一次不会变，所以主按钮
+  /// 直接把用户带到不依赖路由器策略的热点配网，而不是让他把同一条路再走一遍。
+  bool get _shouldFallBackToAp => request != null && request!.mode != 'ap';
+
   void _retry(BuildContext context) {
     // The Wi-Fi page no longer pre-fills placeholder credentials, so a retry
     // has to carry the previous attempt back or the form arrives blank.
+    final attempt = request;
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.pairing,
-      arguments: PairingArguments(request: request),
+      arguments: PairingArguments(
+        request: _shouldFallBackToAp && attempt != null
+            ? PairingRequest(
+                ssid: attempt.ssid,
+                password: attempt.password,
+                mode: 'ap',
+              )
+            : attempt,
+      ),
     );
   }
 
@@ -122,7 +137,9 @@ class PairingFailurePage extends StatelessWidget {
                             shape: const StadiumBorder(),
                             textStyle: const TextStyle(fontSize: 19),
                           ),
-                          child: const Text('重新配网'),
+                          child: Text(
+                            _shouldFallBackToAp ? '改用热点配网' : '重新配网',
+                          ),
                         ),
                       ),
                     ),

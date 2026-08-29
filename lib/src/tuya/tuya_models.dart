@@ -615,13 +615,23 @@ class AnimationAsset {
 
 /// 配网请求。
 ///
-/// 只有 AP 一种模式：产品确认设备走 AP 配网，手机先连设备热点再把路由器凭据
-/// 交给它。EZ（手机保持连路由器广播凭据）已经从桥接和界面里移除。
+/// [mode] 取 `ez` 或 `ap`：
+/// - `ez`（默认）手机全程连在路由器上，把凭据广播出去，用户不必切换网络；代价
+///   是必须处在 2.4G，且部分路由器会过滤组播导致设备收不到。
+/// - `ap` 要手机先连设备自己拉起的热点，步骤繁琐但不受路由器策略影响，作为 EZ
+///   失败后的兜底。
 class PairingRequest {
-  const PairingRequest({required this.ssid, required this.password});
+  const PairingRequest({
+    required this.ssid,
+    required this.password,
+    this.mode = 'ez',
+  });
 
   final String ssid;
   final String password;
+  final String mode;
+
+  bool get isAp => mode == 'ap';
 }
 
 /// One access point seen by the phone.

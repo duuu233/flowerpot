@@ -24,14 +24,18 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * AP 配网模式常量，新拼写在前。
+ * 配网模式常量，新拼写在前。
  *
- * 产品只走 AP：手机先连设备热点，再把路由器凭据交给设备。EZ 已移除。
+ * 两种都支持：EZ 让手机全程连在路由器上直接广播凭据，省掉切热点那一步，是默认
+ * 路径；AP 要手机先连设备热点，步骤繁琐但不受路由器组播策略影响，作为 EZ 失败
+ * 后的兜底。
  *
  * Tuya renamed `ActivatorModelEnum`'s constants from `TY_*` to `THING_*` during
- * 7.x — 7.5.1 offers `THING_AP` and no `TY_AP` at all. The old name stays as a
- * fallback so the bridge also works against an older SDK drop.
+ * 7.x — 7.5.1 offers `THING_AP, THING_EZ, THING_4G_GATEWAY, THING_STATIC_IP,
+ * THING_QR` and no `TY_*` at all. The old names stay as a fallback so the
+ * bridge also works against an older SDK drop.
  */
+private val EZ_MODE_NAMES = listOf("THING_EZ", "TY_EZ")
 private val AP_MODE_NAMES = listOf("THING_AP", "TY_AP")
 
 /**
@@ -109,7 +113,7 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * The planter is provisioned over 2.4 GHz Wi-Fi (AP) and has no BLE
+     * The planter is provisioned over 2.4 GHz Wi-Fi (EZ/AP) and has no BLE
      * pairing, so only Wi-Fi permissions are requested. Asking for
      * BLUETOOTH_SCAN/CONNECT here used to let a reasonable "deny" on a prompt
      * the product never needs block provisioning outright.
@@ -660,8 +664,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // App 一直没有外网。这里先无条件清一次。
         unbindProcessNetwork()
         // 复用预取的令牌——AP 配网能成立全靠这一步：跑到这里时手机已经连在设备
-        // 热点上，云端不可达。没有缓存令牌（例如令牌已过期）才回落到云端去取，
-        // 那种情况下这次配网多半也会失败，但错误码比直接崩掉有用。
+        // 热点上，云端不可达。EZ 全程连在路由器上，走的就是下面这条回落路径，
+        // 所以 EZ 不需要用户先点「获取配网令牌」。
         freshActivatorToken()?.let { token ->
             startActivator(call, result, token)
             return
@@ -682,12 +686,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // factory method takes the builder as its only argument, so the type is
         // read off that signature instead — the same trick invokeWithCallback
         // already uses for callback interfaces.
-        val factory = activatorFactory(activatorApi)
+        val ez = call.argument<String>("mode") == "ez"
+        val factory = activatorFactory(activatorApi, allowMulti = ez)
         val builderClass = factory.parameterTypes.single()
         val builder = builderClass.getDeclaredConstructor()
             .apply { isAccessible = true }
             .newInstance()
-        val mode = activatorMode(builder, AP_MODE_NAMES)
+        val mode = activatorMode(builder, if (ez) EZ_MODE_NAMES else AP_MODE_NAMES)
         invoke(builder, "setContext", activity)
         invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
         invoke(builder, "setPassword", call.argument<String>("password").orEmpty())
@@ -724,24 +729,36 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     /**
-     * `IThingActivator` 上的配网工厂。
+     * `IThingActivator` 上的配网工厂，按模式选。
      *
-     * 固定用单设备的 `newActivator`：`newMultiActivator` 只实现了 EZ，喂给它一个
-     * AP 的 Builder 会在 `start()` 时报 `Multi Config don't support the AP Mode`。
+     * `newMultiActivator` 一次会话可以配多台，但只实现了 EZ——喂给它一个 AP 的
+     * Builder 会在 `start()` 时报 `Multi Config don't support the AP Mode`。所以
+     * AP 只允许单设备的 `newActivator`，EZ 优先 multi、缺失时回落到单设备。
      *
-     * 它只接受 Builder 一个参数，[startActivator] 正是据此拿到 Builder 的类型，
-     * 不必写死包名。
+     * 两者都只接受 Builder 一个参数，[startActivator] 正是据此拿到 Builder 的
+     * 类型，不必写死包名。
      */
-    private fun activatorFactory(activatorApi: Any): Method =
-        candidates(activatorApi.javaClass).firstOrNull { method ->
-            method.name == "newActivator" &&
+    private fun activatorFactory(activatorApi: Any, allowMulti: Boolean): Method {
+        val preference = if (allowMulti) {
+            listOf("newMultiActivator", "newActivator")
+        } else {
+            listOf("newActivator")
+        }
+        val factories = candidates(activatorApi.javaClass).filter { method ->
+            method.name in preference &&
                 method.parameterTypes.size == 1 &&
                 method.parameterTypes.single().simpleName.endsWith("Builder")
-        }?.apply { isAccessible = true }
+        }
+        // Walk the preference list rather than the reflected order, which is
+        // not promised to be stable across runs.
+        return preference
+            .firstNotNullOfOrNull { name -> factories.firstOrNull { it.name == name } }
+            ?.apply { isAccessible = true }
             ?: throw NoSuchMethodException(
-                "${activatorApi.javaClass.name} 未提供 newActivator(Builder)，" +
-                    "该类的工厂方法：" + describeFactories(activatorApi.javaClass),
+                "${activatorApi.javaClass.name} 未提供 ${preference.joinToString("/")}" +
+                    "(Builder)，该类的工厂方法：" + describeFactories(activatorApi.javaClass),
             )
+    }
 
     /** Signatures of the `new*` methods, so a rename is diagnosable from the log. */
     private fun describeFactories(clazz: Class<*>): String = candidates(clazz)
@@ -753,8 +770,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         .ifEmpty { "无" }
 
     /**
-     * Resolves the AP constant from the setter's parameter type, so the enum's
-     * package name does not have to be hard-coded either.
+     * Resolves the EZ / AP constant from the setter's parameter type, so the
+     * enum's package name does not have to be hard-coded either.
      *
      * [modeNames] is a preference list rather than one name: Tuya renamed these
      * constants from `TY_*` to `THING_*` during 7.x (7.5.1 ships only the

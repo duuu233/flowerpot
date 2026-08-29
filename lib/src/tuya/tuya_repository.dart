@@ -337,6 +337,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       <String, Object?>{
         'ssid': request.ssid,
         'password': request.password,
+        'mode': request.mode,
         'homeName': TuyaConfig.defaultHomeName,
       },
     );

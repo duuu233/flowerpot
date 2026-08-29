@@ -302,7 +302,7 @@ final class FlowerpotTuyaBridge: NSObject {
 
   private func pairWifi(_ args: [String: Any], _ result: @escaping FlutterResult) {
     // 复用预取的令牌——AP 配网能成立全靠这一步：跑到这里时手机已经连在设备热点
-    // 上，云端不可达。没有缓存令牌（例如已过期）才回落到云端取。
+    // 上，云端不可达。EZ 全程连在路由器上，走的就是下面这条回落路径。
     if let token = freshActivatorToken() {
       startActivator(args, result, token: token)
       return
@@ -325,9 +325,10 @@ final class FlowerpotTuyaBridge: NSObject {
     }
     pairingResult = result
     activator.delegate = self
-    // 产品只走 AP 配网，EZ 已从桥接和界面移除。
+    // EZ 默认，AP 兜底；两者都走同一条 startConfigWiFi。
+    let mode = (args["mode"] as? String) == "ez" ? ThingActivatorModeEZ : ThingActivatorModeAP
     activator.startConfigWiFi(
-      ThingActivatorModeAP,
+      mode,
       ssid: args["ssid"] as? String ?? "",
       password: args["password"] as? String ?? "",
       token: token,
