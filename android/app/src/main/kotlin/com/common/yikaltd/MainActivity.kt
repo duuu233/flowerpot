@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
@@ -648,6 +650,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     private fun pairWifi(call: MethodCall, result: MethodChannel.Result) {
+        // 上一次配网若被中途放弃（用户退页面、进程被杀），绑定可能还留着，那会让
+        // App 一直没有外网。这里先无条件清一次。
+        unbindProcessNetwork()
         // 复用预取的令牌——AP 配网能成立全靠这一步：跑到这里时手机已经连在设备
         // 热点上，云端不可达。没有缓存令牌（例如令牌已过期）才回落到云端去取，
         // 那种情况下这次配网多半也会失败，但错误码比直接崩掉有用。
@@ -707,6 +712,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         )
         activator = factory.invoke(activatorApi, builder)
             ?: throw IllegalStateException("${factory.name} 未返回配网实例")
+        val bound = bindProcessToWifi()
+        Log.i(TUYA_LOG_TAG, "AP pairing: process bound to Wi-Fi = $bound")
         invoke(activator!!, "start")
     }
 
@@ -768,6 +775,38 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private fun stopActivator() {
         activator?.let { runCatching { invoke(it, "stop") } }
         activator = null
+        unbindProcessNetwork()
+    }
+
+    /**
+     * 把进程流量绑定到 Wi-Fi，配网期间必须做。
+     *
+     * AP 配网时手机连的是设备热点，那个网络没有互联网。Android 10 起系统会因此
+     * 把默认网络留在移动数据上，App 发出的 socket 于是根本没走热点，凭据送不到
+     * 设备——表现就是等满 120 秒后涂鸦回 `1006 out of time`，错误本身完全看不出
+     * 是网络选错了。绑定后进程流量强制走 Wi-Fi。
+     *
+     * 绑定期间 App 是没有外网的，所以配网令牌必须提前取好（见 prepareActivatorToken），
+     * 并且无论成功失败都要在 [stopActivator] 里解绑，否则后续云端请求全部失败。
+     */
+    private fun bindProcessToWifi(): Boolean {
+        val manager = activity.getSystemService(ConnectivityManager::class.java)
+            ?: return false
+        val wifi = runCatching {
+            @Suppress("DEPRECATION")
+            manager.allNetworks.firstOrNull { network ->
+                manager.getNetworkCapabilities(network)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+        }.getOrNull() ?: return false
+        return runCatching { manager.bindProcessToNetwork(wifi) }.getOrDefault(false)
+    }
+
+    private fun unbindProcessNetwork() {
+        runCatching {
+            activity.getSystemService(ConnectivityManager::class.java)
+                ?.bindProcessToNetwork(null)
+        }
     }
 
     private fun deviceAction(call: MethodCall, result: MethodChannel.Result, method: String) {

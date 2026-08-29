@@ -145,6 +145,25 @@ class _PairingPageState extends State<PairingPage> {
       return;
     }
 
+    // AP 配网靠设备热点把凭据送过去。手机没连上热点时 SDK 只会一直等，直到
+    // 120 秒超时后回涂鸦的 `1006 out of time`——那个错误看不出真正原因，所以
+    // 在这里先拦一道。平台给不出网络列表时（iOS 永远如此）无从判断，不拦。
+    final scan = state.wifiScan;
+    if (scan != null &&
+        scan.networks.isNotEmpty &&
+        !scan.currentIsDeviceHotspot) {
+      final proceed = await showAppConfirmDialog(
+        context,
+        title: '尚未连接设备热点',
+        message:
+            '没有检测到手机已连上设备热点（SmartLife-… / TY_…）。\n'
+            'AP 配网必须先在系统设置里连上它，否则会等满 120 秒后失败。\n\n'
+            '当前连接：${scan.current ?? '未知'}',
+        confirmLabel: '仍然继续',
+      );
+      if (!proceed || !mounted) return;
+    }
+
     final request = PairingRequest(
       ssid: ssidController.text.trim(),
       password: passwordController.text,
