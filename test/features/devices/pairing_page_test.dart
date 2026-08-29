@@ -273,7 +273,7 @@ void main() {
     expect(failure.request?.ssid, 'TP-LINK_2.4G');
     // The SDK reason has to reach the failure screen, not just the request.
     expect(failure.code, 'pair_failed');
-    expect(failure.message, '配网失败');
+    expect(failure.message, '涂鸦-pair_failed 配网失败');
     expect(tester.takeException(), isNull);
   });
 }

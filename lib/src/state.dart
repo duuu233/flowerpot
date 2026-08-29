@@ -320,7 +320,11 @@ class FlowerpotState extends ChangeNotifier {
     _sdkReady = ready;
     return ready
         ? const ActionResult(true, 'SDK 初始化通过')
-        : const ActionResult(false, 'SDK 初始化返回不可用', code: 'sdk_unavailable');
+        : const ActionResult(
+            false,
+            'APP-sdk_unavailable SDK 初始化返回不可用',
+            code: 'sdk_unavailable',
+          );
   });
 
   /// Asks the SDK whether it still holds a login session and aligns the local
@@ -333,7 +337,11 @@ class FlowerpotState extends ChangeNotifier {
       final demo = _demoMode;
       _clearLocalSession();
       _demoMode = demo;
-      return const ActionResult(false, 'SDK 未持有登录会话', code: 'no_session');
+      return const ActionResult(
+        false,
+        'APP-no_session SDK 未持有登录会话',
+        code: 'no_session',
+      );
     }
     _user = user;
     _sessionEpoch++;
@@ -417,7 +425,8 @@ class FlowerpotState extends ChangeNotifier {
       } on ApiException catch (error) {
         return ActionResult(
           true,
-          '设备已配网；后台关联待重试：${error.message}',
+          '设备已配网；后台关联待重试：'
+          '${_tagged(_apiSource(error.code), error.code, error.message)}',
           code: 'backend_device_pending',
         );
       }
@@ -892,21 +901,54 @@ class FlowerpotState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 给失败文案打上来源标签，toast 上一眼看出是谁拒绝了这次请求：
+  ///
+  /// - `接口-<code>`：APP 后端 REST 返回的失败（`retCode` 或 HTTP 状态码）；
+  /// - `涂鸦-<code>`：涂鸦 SDK 原生层返回的失败，与 APP 后端无关；
+  /// - `APP-<code>`：APP 自己产生的失败（本地校验、网络层、未预期异常）。
+  ///
+  /// 涂鸦单列而不并进「接口」：两者是不同的服务，混成一类会把涂鸦拒绝的登录
+  /// 指向 APP 后端，排查方向正好反了。
+  static String _tagged(String source, Object code, String message) =>
+      '$source-$code $message';
+
+  /// 后端的 `retCode` 与 HTTP 状态码都是数字；APP 网络层自己抛的是
+  /// `NETWORK_TIMEOUT` 这类大写字符串常量，据此区分 [ApiException] 的来源。
+  static String _apiSource(Object code) => code is int ? '接口' : 'APP';
+
   Future<ActionResult> _guard(Future<ActionResult> Function() action) async {
-    if (_busy) return const ActionResult(false, '请等待当前操作完成', code: 'busy');
+    if (_busy) {
+      return const ActionResult(false, 'APP-busy 请等待当前操作完成', code: 'busy');
+    }
     _busy = true;
     notifyListeners();
     try {
       return await action();
     } on AuthValidationException catch (error) {
-      return ActionResult(false, error.message, code: 'invalid_input');
+      return ActionResult(
+        false,
+        _tagged('APP', 'invalid_input', error.message),
+        code: 'invalid_input',
+      );
     } on TuyaException catch (error) {
-      return ActionResult(false, error.message, code: error.code);
+      return ActionResult(
+        false,
+        _tagged('涂鸦', error.code, error.message),
+        code: error.code,
+      );
     } on ApiException catch (error) {
       if (error.isAuthError) _clearLocalSession();
-      return ActionResult(false, error.message, code: error.code.toString());
+      return ActionResult(
+        false,
+        _tagged(_apiSource(error.code), error.code, error.message),
+        code: error.code.toString(),
+      );
     } catch (error) {
-      return ActionResult(false, '操作失败：$error', code: 'unexpected_error');
+      return ActionResult(
+        false,
+        _tagged('APP', 'unexpected_error', '操作失败：$error'),
+        code: 'unexpected_error',
+      );
     } finally {
       _busy = false;
       notifyListeners();
