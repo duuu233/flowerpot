@@ -7,6 +7,7 @@ class BackendAuthAccount {
     required this.nickname,
     required this.account,
     this.avatarUrl,
+    this.raw = '',
   });
 
   final String userToken;
@@ -16,6 +17,12 @@ class BackendAuthAccount {
   final String nickname;
   final String account;
   final String? avatarUrl;
+
+  /// APP 后端登录/注册接口返回的原始 `retData`。
+  ///
+  /// TODO(联调): 涂鸦账号映射问题排查完后删除本字段，以及 [FlowerpotState.login]
+  /// 里把它拼进 toast 的那段 —— 它会把 `tuYaPwd` 显示在屏幕上。
+  final String raw;
 }
 
 class BackendProduct {

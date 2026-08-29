@@ -215,6 +215,9 @@ class FlowerpotState extends ChangeNotifier {
       credential,
       verificationCode: verificationCode,
     );
+    // TODO(联调): 涂鸦账号映射排查完后删除 authPayload 相关三处，它会把后端
+    // 返回的 tuYaPwd 显示在 toast 上。
+    String? authPayload;
     if (region == LoginRegion.domestic && _backend.enabled) {
       final backendAccount = verificationCode
           ? await _backend.loginWithCode(
@@ -225,6 +228,7 @@ class FlowerpotState extends ChangeNotifier {
               mobile: normalizedAccount,
               password: normalizedCredential,
             );
+      authPayload = backendAccount.raw;
       _user = await _loginTuyaAccount(backendAccount);
     } else {
       _user = await _repository.login(
@@ -236,7 +240,10 @@ class FlowerpotState extends ChangeNotifier {
     }
     _sessionEpoch++;
     await _refreshDevicesForSession(ignoreErrors: true);
-    return const ActionResult(true, '登录成功');
+    return ActionResult(
+      true,
+      authPayload == null ? '登录成功' : '登录成功｜后端返回：$authPayload',
+    );
   });
 
   Future<ActionResult> register({
@@ -998,10 +1005,18 @@ class FlowerpotState extends ChangeNotifier {
         credential: backendAccount.tuyaPassword,
         region: LoginRegion.domestic,
         verificationCode: false,
+        countryCode: backendAccount.countryCode,
       );
-    } catch (_) {
+    } catch (error) {
       // Do not leave a valid APP token paired with a failed Tuya session.
       _backend.clearSession();
+      // TODO(联调): 同上，排查完后去掉这段附加文案。
+      if (error is TuyaException) {
+        throw TuyaException(
+          error.code,
+          '${error.message}｜后端返回：${backendAccount.raw}',
+        );
+      }
       rethrow;
     }
     return AppUser(

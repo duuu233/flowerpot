@@ -226,6 +226,7 @@ class _RejectingRepository extends MockTuyaRepository {
     required String credential,
     required LoginRegion region,
     required bool verificationCode,
+    String? countryCode,
   }) async {
     throw const TuyaException('USER_MOBILE_CODE_ERROR', '验证码错误');
   }

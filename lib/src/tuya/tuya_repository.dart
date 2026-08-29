@@ -7,6 +7,13 @@ import 'tuya_config.dart';
 import 'tuya_history_codec.dart';
 import 'tuya_models.dart';
 
+/// 显式国家码优先；缺省时按区域回落到国内 86 / 海外 1。
+String _resolveCountryCode(LoginRegion region, String? override) {
+  final explicit = override?.trim() ?? '';
+  if (explicit.isNotEmpty) return explicit;
+  return region == LoginRegion.domestic ? '86' : '1';
+}
+
 abstract class TuyaRepository {
   /// [seedMockDevice] pre-binds a demo planter to the mock backend. The static
   /// UI demo turns it off so the flow starts from the "no device yet" screen.
@@ -22,11 +29,15 @@ abstract class TuyaRepository {
     required String countryCode,
     required int type,
   });
+  /// [countryCode] 覆盖由 [region] 推导出的国家码。国内账号映射登录要用 APP
+  /// 后端返回的国家码；固定传 86 会在后端返回其它国家码时被涂鸦拒登，而且报的
+  /// 是 `USER_PASSWD_WRONG`，从文案上看不出真正原因。
   Future<AppUser> login({
     required String account,
     required String credential,
     required LoginRegion region,
     required bool verificationCode,
+    String? countryCode,
   });
   Future<AppUser> register({
     required String account,
@@ -185,11 +196,12 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     required String credential,
     required LoginRegion region,
     required bool verificationCode,
+    String? countryCode,
   }) async {
     final raw = await _invoke<Map<Object?, Object?>>('login', <String, Object?>{
       'account': account,
       'credential': credential,
-      'countryCode': region == LoginRegion.domestic ? '86' : '1',
+      'countryCode': _resolveCountryCode(region, countryCode),
       'verificationCode': verificationCode,
       'email': region == LoginRegion.overseas,
     });
@@ -638,6 +650,7 @@ class MockTuyaRepository implements TuyaRepository {
     required String credential,
     required LoginRegion region,
     required bool verificationCode,
+    String? countryCode,
   }) async {
     await _wait();
     if (account.trim().isEmpty || credential.trim().isEmpty) {
