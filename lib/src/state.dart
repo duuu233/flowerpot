@@ -441,20 +441,7 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   Future<ActionResult> pairDevice(PairingRequest request) => _guard(() async {
-    final knownIds = _devices.map((item) => item.id).toSet();
-    final SmartPlanterDevice device;
-    try {
-      device = await _repository.pair(request);
-    } on TuyaException catch (error) {
-      // 设备可能已经激活，只是 App 没等到云端的确认——AP 配网下很常见：设备一
-      // 拿到凭据就关掉热点去连路由器，手机正在从热点切回路由器的这个空档里，
-      // SDK 的确认请求发不出去，最后报 `1006 out of time`，而设备其实已经绑到
-      // 账号上了。云端的设备列表才是权威，所以判失败之前先问一次。
-      final recovered = await _recoverPairedDevice(knownIds);
-      if (recovered == null) rethrow;
-      debugPrint('[pair] ${error.code} 后在云端发现新设备，按成功处理');
-      device = recovered;
-    }
+    final device = await _pairOrRecover(request);
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.
     _activatorTokenAt = null;
@@ -477,6 +464,24 @@ class FlowerpotState extends ChangeNotifier {
     }
     return const ActionResult(true, '设备配网成功');
   });
+
+  /// 配网，报错时回查云端确认设备是不是其实已经绑上了。
+  ///
+  /// 设备可能已经激活，只是 App 没等到云端的确认——AP 配网下很常见：设备一拿到
+  /// 凭据就关掉热点去连路由器，手机正在从热点切回路由器的这个空档里，SDK 的确认
+  /// 请求发不出去，最后报 `1006 out of time`，而设备其实已经绑到账号上了。云端
+  /// 的设备列表才是权威，所以判失败之前先问一次。
+  Future<SmartPlanterDevice> _pairOrRecover(PairingRequest request) async {
+    final knownIds = _devices.map((item) => item.id).toSet();
+    try {
+      return await _repository.pair(request);
+    } on TuyaException catch (error) {
+      final recovered = await _recoverPairedDevice(knownIds);
+      if (recovered == null) rethrow;
+      debugPrint('[pair] ${error.code} 后在云端发现新设备，按成功处理');
+      return recovered;
+    }
+  }
 
   /// 配网报错后回查云端，看是否其实已经绑上了一台新设备。
   ///
