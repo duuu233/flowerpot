@@ -430,7 +430,9 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         'EZ：手机保持连在同一个 2.4G 网络，直接点「开始配网」。\n'
                         'AP：先点「获取配网令牌」（这一步要联网），再去系统设置连上设备'
                         '热点，回来点「开始配网」。连上热点后手机就没有外网了，令牌必须'
-                        '提前取好。',
+                        '提前取好。\n'
+                        '双模：SDK 同时走 EZ 和 AP。先点「查询配网模式」确认这套 SDK 报出了'
+                        '双模常量，没有的话选它会直接失败并列出实际可用的常量名。',
                         style: AppTypography.smallBody.copyWith(
                           color: AppColors.textSecondary,
                         ),
@@ -453,13 +455,11 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                       SegmentedButton<String>(
                         key: const Key('tuya-debug-pair-mode'),
                         segments: const <ButtonSegment<String>>[
+                          ButtonSegment<String>(value: 'ez', label: Text('EZ')),
+                          ButtonSegment<String>(value: 'ap', label: Text('AP')),
                           ButtonSegment<String>(
-                            value: 'ez',
-                            label: Text('EZ 快连'),
-                          ),
-                          ButtonSegment<String>(
-                            value: 'ap',
-                            label: Text('AP 热点'),
+                            value: 'dual',
+                            label: Text('双模'),
                           ),
                         ],
                         selected: <String>{pairMode},
@@ -470,6 +470,16 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                       const SizedBox(height: AppSpacing.md),
                       _ActionRow(
                         children: <Widget>[
+                          _action(
+                            key: const Key('tuya-debug-activator-modes'),
+                            label: '查询配网模式',
+                            busy: busy,
+                            onPressed: () => _run(
+                              '查询配网模式',
+                              () => state.probeActivatorModes(),
+                              usesAccount: false,
+                            ),
+                          ),
                           _action(
                             key: const Key('tuya-debug-scan-wifi'),
                             label: '扫描附近 Wi-Fi',

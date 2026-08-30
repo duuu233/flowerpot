@@ -440,6 +440,15 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '已获取配网令牌，8 分钟内有效，现在可以切到设备热点');
   });
 
+  /// 问 SDK 要它实际提供的配网模式，用来确认双模是否可用。
+  Future<ActionResult> probeActivatorModes() => _guard(() async {
+    final modes = await _repository.listActivatorModes();
+    return ActionResult(
+      true,
+      modes.isEmpty ? '该 SDK 未报告任何配网模式' : '可用配网模式：${modes.join(', ')}',
+    );
+  });
+
   Future<ActionResult> pairDevice(PairingRequest request) => _guard(() async {
     final device = await _pairOrRecover(request);
     // Tuya tokens are single-use and the bridge drops its cached copy on

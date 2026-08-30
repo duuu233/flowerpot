@@ -74,6 +74,9 @@ abstract class TuyaRepository {
   /// token from there and fail. The token stays in the native layer.
   Future<void> prepareActivatorToken();
 
+  /// SDK 实际提供的配网模式常量名。用于确认这套 SDK 到底支不支持双模。
+  Future<List<String>> listActivatorModes();
+
   /// Nearby access points, used before provisioning to check that the phone is
   /// on 2.4 GHz and — in AP mode — that the device hotspot is up.
   Future<WifiScan> scanWifi();
@@ -348,6 +351,14 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<void> prepareActivatorToken() =>
       _invoke<void>('prepareActivatorToken');
+
+  @override
+  Future<List<String>> listActivatorModes() async {
+    final raw = await _invoke<List<Object?>>('listActivatorModes');
+    return (raw ?? const <Object?>[])
+        .map((item) => '$item')
+        .toList(growable: false);
+  }
 
   @override
   Future<WifiScan> scanWifi() async {
@@ -808,6 +819,13 @@ class MockTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> prepareActivatorToken() => _wait();
+
+  /// Mock 不接 SDK，报空列表——免得联调页看起来像真的问到了答案。
+  @override
+  Future<List<String>> listActivatorModes() async {
+    await _wait();
+    return const <String>[];
+  }
 
   @override
   Future<WifiScan> scanWifi() async {

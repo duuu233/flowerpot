@@ -39,6 +39,14 @@ private val EZ_MODE_NAMES = listOf("THING_EZ", "TY_EZ")
 private val AP_MODE_NAMES = listOf("THING_AP", "TY_AP")
 
 /**
+ * EZ+AP 双模。SDK 里叫什么没有公开保证，所以按候选列表逐个试；一个都没有时
+ * [activatorMode] 会把该枚举实际提供的常量名列进异常，据此再补名字。
+ */
+private val DUAL_MODE_NAMES = listOf(
+    "THING_EZ_AP", "TY_EZ_AP", "THING_AP_EZ", "TY_AP_EZ", "THING_EZ_AND_AP",
+)
+
+/**
  * How long a cached provisioning token may be reused.
  *
  * Tuya issues them with a 10-minute validity; 8 leaves room for the user to
@@ -272,6 +280,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "getDevices" -> withHome(result) { home -> loadHomeDevices(home, result) }
                 "prepareActivatorToken" -> prepareActivatorToken(result)
                 "pairWifiDevice" -> pairWifi(call, result)
+                "listActivatorModes" -> listActivatorModes(result)
                 "publishDps" -> deviceAction(call, result, "publishDps")
                 "renameDevice" -> deviceAction(call, result, "renameDevice")
                 "removeDevice" -> deviceAction(call, result, "removeDevice")
@@ -686,13 +695,19 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // factory method takes the builder as its only argument, so the type is
         // read off that signature instead — the same trick invokeWithCallback
         // already uses for callback interfaces.
-        val ez = call.argument<String>("mode") == "ez"
-        val factory = activatorFactory(activatorApi, allowMulti = ez)
+        val requested = call.argument<String>("mode").orEmpty()
+        val modeNames = when (requested) {
+            "ez" -> EZ_MODE_NAMES
+            "dual" -> DUAL_MODE_NAMES
+            else -> AP_MODE_NAMES
+        }
+        // multi 只实现了 EZ；双模同时要走 AP 那一半，所以只有纯 EZ 允许 multi。
+        val factory = activatorFactory(activatorApi, allowMulti = requested == "ez")
         val builderClass = factory.parameterTypes.single()
         val builder = builderClass.getDeclaredConstructor()
             .apply { isAccessible = true }
             .newInstance()
-        val mode = activatorMode(builder, if (ez) EZ_MODE_NAMES else AP_MODE_NAMES)
+        val mode = activatorMode(builder, modeNames)
         invoke(builder, "setContext", activity)
         invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
         invoke(builder, "setPassword", call.argument<String>("password").orEmpty())
@@ -793,6 +808,32 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             "SDK 未提供配网模式 ${modeNames.joinToString("/")}，可用：" +
                 constants.joinToString { it.name }.ifEmpty { "无" },
         )
+    }
+
+    /**
+     * 列出 SDK 实际提供的配网模式常量名。
+     *
+     * 双模在不同 SDK 版本里叫什么没有公开保证，与其在代码里猜，不如让 SDK 自己
+     * 报一遍——联调页调用后写进日志，据此确定 [DUAL_MODE_NAMES] 该填什么。
+     */
+    private fun listActivatorModes(result: MethodChannel.Result) {
+        val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
+            ?: throw IllegalStateException("无法获取配网实例")
+        val factory = activatorFactory(activatorApi, allowMulti = false)
+        val builderClass = factory.parameterTypes.single()
+        val builder = builderClass.getDeclaredConstructor()
+            .apply { isAccessible = true }
+            .newInstance()
+        val setter = candidates(builder.javaClass).firstOrNull { method ->
+            method.name == "setActivatorModel" &&
+                method.parameterTypes.size == 1 &&
+                method.parameterTypes.single().isEnum
+        } ?: throw NoSuchMethodException("setActivatorModel(枚举) 不存在")
+        val names = (setter.parameterTypes.single().enumConstants ?: emptyArray())
+            .filterIsInstance<Enum<*>>()
+            .map { it.name }
+        Log.i(TUYA_LOG_TAG, "Activator modes: ${names.joinToString()}")
+        success(result, names)
     }
 
     private fun stopActivator() {
