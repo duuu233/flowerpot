@@ -4,6 +4,11 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <!-- EZ（SmartConfig）把 SSID 和密码编码成 UDP 组播发给设备。Android 要收发
+         组播必须先拿 WifiManager.MulticastLock，而申请这个锁需要本权限；没有它，
+         Wi-Fi 芯片在省电模式下会直接丢掉组播帧，配网只会等满 120 秒后报
+         `1006 out of time`，看不出是权限缺失。normal 级权限，装机即授予。 -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>

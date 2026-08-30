@@ -701,8 +701,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             "dual" -> DUAL_MODE_NAMES
             else -> AP_MODE_NAMES
         }
-        // multi 只实现了 EZ；双模同时要走 AP 那一半，所以只有纯 EZ 允许 multi。
-        val factory = activatorFactory(activatorApi, allowMulti = requested == "ez")
+        val factory = activatorFactory(activatorApi)
         val builderClass = factory.parameterTypes.single()
         val builder = builderClass.getDeclaredConstructor()
             .apply { isAccessible = true }
@@ -738,42 +737,37 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         )
         activator = factory.invoke(activatorApi, builder)
             ?: throw IllegalStateException("${factory.name} 未返回配网实例")
-        val bound = bindProcessToWifi()
-        Log.i(TUYA_LOG_TAG, "AP pairing: process bound to Wi-Fi = $bound")
+        // 绑定只对 AP 做。EZ 是往手机所在网络广播凭据，把进程绑死在某个 Network
+        // 上会挡住那些广播——这正是 EZ 加了绑定之后开始报 1006 的原因。AP 则相反：
+        // 手机连的设备热点没有互联网，不绑定的话流量会被系统留在移动数据上。
+        if (requested == "ap") {
+            val bound = bindProcessToWifi()
+            Log.i(TUYA_LOG_TAG, "AP pairing: process bound to Wi-Fi = $bound")
+        }
         invoke(activator!!, "start")
     }
 
     /**
-     * `IThingActivator` 上的配网工厂，按模式选。
+     * `IThingActivator` 上的配网工厂，固定用单设备的 `newActivator`。
      *
-     * `newMultiActivator` 一次会话可以配多台，但只实现了 EZ——喂给它一个 AP 的
-     * Builder 会在 `start()` 时报 `Multi Config don't support the AP Mode`。所以
-     * AP 只允许单设备的 `newActivator`，EZ 优先 multi、缺失时回落到单设备。
+     * 曾经让 EZ 优先走 `newMultiActivator`，但那是「一次会话配多台」的语义：它不
+     * 保证配上第一台就回调，涂鸦官方 App 配单台设备走的也是 `newActivator`。多
+     * 设备工厂还只实现了 EZ，喂给它 AP 的 Builder 会在 `start()` 时直接报
+     * `Multi Config don't support the AP Mode`。单设备工厂三种模式都能用。
      *
-     * 两者都只接受 Builder 一个参数，[startActivator] 正是据此拿到 Builder 的
-     * 类型，不必写死包名。
+     * 它只接受 Builder 一个参数，[startActivator] 正是据此拿到 Builder 的类型，
+     * 不必写死包名。
      */
-    private fun activatorFactory(activatorApi: Any, allowMulti: Boolean): Method {
-        val preference = if (allowMulti) {
-            listOf("newMultiActivator", "newActivator")
-        } else {
-            listOf("newActivator")
-        }
-        val factories = candidates(activatorApi.javaClass).filter { method ->
-            method.name in preference &&
+    private fun activatorFactory(activatorApi: Any): Method =
+        candidates(activatorApi.javaClass).firstOrNull { method ->
+            method.name == "newActivator" &&
                 method.parameterTypes.size == 1 &&
                 method.parameterTypes.single().simpleName.endsWith("Builder")
-        }
-        // Walk the preference list rather than the reflected order, which is
-        // not promised to be stable across runs.
-        return preference
-            .firstNotNullOfOrNull { name -> factories.firstOrNull { it.name == name } }
-            ?.apply { isAccessible = true }
+        }?.apply { isAccessible = true }
             ?: throw NoSuchMethodException(
-                "${activatorApi.javaClass.name} 未提供 ${preference.joinToString("/")}" +
-                    "(Builder)，该类的工厂方法：" + describeFactories(activatorApi.javaClass),
+                "${activatorApi.javaClass.name} 未提供 newActivator(Builder)，" +
+                    "该类的工厂方法：" + describeFactories(activatorApi.javaClass),
             )
-    }
 
     /** Signatures of the `new*` methods, so a rename is diagnosable from the log. */
     private fun describeFactories(clazz: Class<*>): String = candidates(clazz)
@@ -819,7 +813,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private fun listActivatorModes(result: MethodChannel.Result) {
         val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
             ?: throw IllegalStateException("无法获取配网实例")
-        val factory = activatorFactory(activatorApi, allowMulti = false)
+        val factory = activatorFactory(activatorApi)
         val builderClass = factory.parameterTypes.single()
         val builder = builderClass.getDeclaredConstructor()
             .apply { isAccessible = true }
