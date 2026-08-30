@@ -144,7 +144,7 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         value: TuyaConfig.channelName,
                       ),
                       const _StatusRow(
-                        label: '默认家庭',
+                        label: '家庭名称',
                         value: TuyaConfig.defaultHomeName,
                       ),
                       _StatusRow(

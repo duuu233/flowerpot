@@ -87,6 +87,9 @@ abstract class TuyaRepository {
   /// 释放上面那条连接，让手机回到原来的网络。
   Future<void> leaveDeviceHotspot();
 
+  /// 当前使用的涂鸦家庭 id。设备列表按家庭查，家庭对不上就会是空的。
+  Future<String> currentHomeId();
+
   /// Nearby access points, used before provisioning to check that the phone is
   /// on 2.4 GHz and — in AP mode — that the device hotspot is up.
   Future<WifiScan> scanWifi();
@@ -380,6 +383,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> leaveDeviceHotspot() => _invoke<void>('leaveDeviceHotspot');
+
+  @override
+  Future<String> currentHomeId() async =>
+      await _invoke<String>('currentHomeId') ?? '';
 
   @override
   Future<WifiScan> scanWifi() async {
@@ -856,6 +863,12 @@ class MockTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> leaveDeviceHotspot() => _wait();
+
+  @override
+  Future<String> currentHomeId() async {
+    await _wait();
+    return 'mock-home';
+  }
 
   @override
   Future<WifiScan> scanWifi() async {

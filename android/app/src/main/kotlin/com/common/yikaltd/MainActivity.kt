@@ -286,6 +286,11 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "prepareActivatorToken" -> prepareActivatorToken(result)
                 "pairWifiDevice" -> pairWifi(call, result)
                 "listActivatorModes" -> listActivatorModes(result)
+                // 设备列表是按家庭查的，家庭对不上就是 0 台，而这在 Dart 侧完全
+                // 看不出来——联调页原来显示的「默认家庭」只是个本地常量。
+                "currentHomeId" -> withHome(result) { id ->
+                    success(result, id.toString())
+                }
                 "joinDeviceHotspot" -> joinDeviceHotspot(call, result)
                 "leaveDeviceHotspot" -> {
                     releaseHotspotRequest()

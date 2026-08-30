@@ -410,7 +410,13 @@ class FlowerpotState extends ChangeNotifier {
   /// failures instead of hiding them like the silent session refresh.
   Future<ActionResult> probeDevices() => _run(() async {
     await _refreshDevicesForSession(ignoreErrors: false);
-    return ActionResult(true, '设备列表已刷新，共 ${_devices.length} 台');
+    // 带上家庭 id：0 台设备最常见的原因不是没配上，而是查的家庭和配网时用的
+    // 不是同一个，而那在 Dart 侧原本完全看不出来。
+    final home = await _repository.currentHomeId().catchError((_) => '?');
+    return ActionResult(
+      true,
+      '设备列表已刷新，共 ${_devices.length} 台（家庭 $home）',
+    );
   });
 
   Future<ActionResult> logout() => _guard(() async {
