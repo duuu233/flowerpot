@@ -325,7 +325,7 @@ class FlowerpotState extends ChangeNotifier {
 
   /// Re-runs SDK initialization so the reason behind [sdkReady] becomes
   /// visible. Startup swallows this failure to keep the app usable.
-  Future<ActionResult> probeSdk() => _guard(() async {
+  Future<ActionResult> probeSdk() => _run(() async {
     final ready = await _repository.initialize();
     _sdkReady = ready;
     return ready
@@ -339,7 +339,7 @@ class FlowerpotState extends ChangeNotifier {
 
   /// Asks the SDK whether it still holds a login session and aligns the local
   /// session with that answer.
-  Future<ActionResult> probeSession() => _guard(() async {
+  Future<ActionResult> probeSession() => _run(() async {
     final user = await _repository.restoreSession();
     if (user == null) {
       // Probing a session is not leaving the demo: the repository swapped in by
@@ -408,7 +408,7 @@ class FlowerpotState extends ChangeNotifier {
 
   /// Device refresh that reports home query, auto-create and device list
   /// failures instead of hiding them like the silent session refresh.
-  Future<ActionResult> probeDevices() => _guard(() async {
+  Future<ActionResult> probeDevices() => _run(() async {
     await _refreshDevicesForSession(ignoreErrors: false);
     return ActionResult(true, '设备列表已刷新，共 ${_devices.length} 台');
   });
@@ -441,7 +441,7 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   /// 问 SDK 要它实际提供的配网模式，用来确认双模是否可用。
-  Future<ActionResult> probeActivatorModes() => _guard(() async {
+  Future<ActionResult> probeActivatorModes() => _run(() async {
     final modes = await _repository.listActivatorModes();
     return ActionResult(
       true,
@@ -476,26 +476,56 @@ class FlowerpotState extends ChangeNotifier {
     required String password,
     String? hotspotSsid,
   }) => _guard(() async {
-    await _repository.prepareActivatorToken();
-    _activatorTokenAt = DateTime.now();
-    // 优先用扫描里真实看到的热点名。前缀匹配只能给一个模式，写死 `SmartLife-`
-    // 会漏掉 `ty_` / `ysplanter` 开头的那些——系统找不到匹配网络时不会弹框，直接
-    // 回 onUnavailable，看起来就像用户取消了。
-    final target =
-        hotspotSsid ??
-        _wifiScan?.deviceHotspots
-            .map((item) => item.ssid)
-            .firstOrNull;
-    final joined = await _repository.joinDeviceHotspot(
-      ssid: target,
-      prefix: target == null ? 'SmartLife-' : null,
-    );
-    if (!joined) {
-      throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
+    // 三步各自计时并写进结果文案。整个过程只吐一个最终结果的话，卡在取令牌、
+    // 连热点还是下发凭据上完全看不出来——而这三步的失败在涂鸦那边都可能表现成
+    // 同一个 `1006 out of time`。
+    final steps = <String>[];
+    final watch = Stopwatch()..start();
+    void mark(String name) {
+      steps.add('$name ${watch.elapsedMilliseconds}ms');
+      watch.reset();
     }
-    return _pairInternal(
-      PairingRequest(ssid: ssid, password: password, mode: 'ap'),
-    );
+
+    try {
+      await _repository.prepareActivatorToken();
+      _activatorTokenAt = DateTime.now();
+      mark('令牌');
+
+      // 优先用扫描里真实看到的热点名。前缀匹配只能给一个模式，写死 `SmartLife-`
+      // 会漏掉 `ty_` / `ysplanter` 开头的那些——系统找不到匹配网络时不会弹框，
+      // 直接回 onUnavailable，看起来就像用户取消了。
+      final target =
+          hotspotSsid ??
+          _wifiScan?.deviceHotspots.map((item) => item.ssid).firstOrNull;
+      final joined = await _repository.joinDeviceHotspot(
+        ssid: target,
+        prefix: target == null ? 'SmartLife-' : null,
+      );
+      mark('连热点${target == null ? '(前缀匹配)' : '($target)'}');
+      if (!joined) {
+        throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
+      }
+
+      final result = await _pairInternal(
+        PairingRequest(ssid: ssid, password: password, mode: 'ap'),
+      );
+      mark('配网');
+      return ActionResult(
+        result.success,
+        '${result.message}｜${steps.join(' · ')}',
+        code: result.code,
+      );
+    } on TuyaException catch (error) {
+      mark('失败');
+      throw TuyaException(error.code, '${error.message}｜${steps.join(' · ')}');
+    } on ApiException catch (error) {
+      mark('失败');
+      throw ApiException(
+        error.code,
+        '${error.message}｜${steps.join(' · ')}',
+        data: error.data,
+      );
+    }
   });
 
   Future<ActionResult> _pairInternal(PairingRequest request) async {
@@ -1094,8 +1124,11 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
-  /// 异常收口，不占用 [_busy]。给那些和其它操作没有真实冲突、又可能跑很久的
-  /// 只读调用用，[_guard] 自己也走这里。
+  /// 异常收口，不占用 [_busy]。
+  ///
+  /// 给两类调用用：和其它操作没有真实冲突、又可能跑很久的只读调用（Wi-Fi 扫描），
+  /// 以及联调页那几个诊断入口——AP 配网最长要跑两分半，那段时间恰恰最需要能查
+  /// 会话和设备列表，被全局锁挡住的话调试台等于废了。[_guard] 自己也走这里。
   Future<ActionResult> _run(Future<ActionResult> Function() action) async {
     try {
       return await action();

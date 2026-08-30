@@ -370,7 +370,7 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                           _action(
                             key: const Key('tuya-debug-probe-sdk'),
                             label: '初始化自检',
-                            busy: busy,
+                            busy: false,
                             onPressed: () => _run(
                               '初始化自检',
                               () => state.probeSdk(),
@@ -380,7 +380,7 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                           _action(
                             key: const Key('tuya-debug-probe-session'),
                             label: '查询会话',
-                            busy: busy,
+                            busy: false,
                             onPressed: () => _run(
                               '查询会话',
                               () => state.probeSession(),
@@ -390,7 +390,7 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                           _action(
                             key: const Key('tuya-debug-probe-devices'),
                             label: '拉取设备列表',
-                            busy: busy,
+                            busy: false,
                             onPressed: () => _run(
                               '拉取设备列表',
                               () => state.probeDevices(),
@@ -498,7 +498,7 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                           _action(
                             key: const Key('tuya-debug-activator-modes'),
                             label: '查询配网模式',
-                            busy: busy,
+                            busy: false,
                             onPressed: () => _run(
                               '查询配网模式',
                               () => state.probeActivatorModes(),
