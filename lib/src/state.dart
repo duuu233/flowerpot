@@ -462,7 +462,35 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '已连接设备热点，可以开始配网');
   });
 
-  Future<ActionResult> pairDevice(PairingRequest request) => _guard(() async {
+  Future<ActionResult> pairDevice(PairingRequest request) =>
+      _guard(() => _pairInternal(request));
+
+  /// 一步走完 AP 配网：取令牌 → 连设备热点 → 配网。
+  ///
+  /// 三件事必须按这个顺序、并且在同一次操作里完成：令牌只能在手机还连着路由器
+  /// 时去云端取，而连上设备热点之后就没有外网了。拆成三个按钮让用户自己按顺序
+  /// 点，中间任何一步走神都会失败，而失败原因（令牌过期、没连上热点）从涂鸦的
+  /// `1006 out of time` 里完全看不出来。
+  Future<ActionResult> pairViaHotspot({
+    required String ssid,
+    required String password,
+    String? hotspotSsid,
+  }) => _guard(() async {
+    await _repository.prepareActivatorToken();
+    _activatorTokenAt = DateTime.now();
+    final joined = await _repository.joinDeviceHotspot(
+      ssid: hotspotSsid,
+      prefix: hotspotSsid == null ? 'SmartLife-' : null,
+    );
+    if (!joined) {
+      throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
+    }
+    return _pairInternal(
+      PairingRequest(ssid: ssid, password: password, mode: 'ap'),
+    );
+  });
+
+  Future<ActionResult> _pairInternal(PairingRequest request) async {
     final device = await _pairOrRecover(request);
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.
@@ -485,7 +513,7 @@ class FlowerpotState extends ChangeNotifier {
       }
     }
     return const ActionResult(true, '设备配网成功');
-  });
+  }
 
   /// 配网，报错时回查云端确认设备是不是其实已经绑上了。
   ///

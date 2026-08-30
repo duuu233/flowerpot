@@ -422,13 +422,16 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
                       Text(
-                        'EZ 配网，直接调用 pairWifiDevice（超时 120 秒）。失败只写进下面的'
-                        '日志并带原始错误码，不跳配网失败页，方便连续重试。\n\n'
-                        '① 设备长按到指示灯快闪（EZ 下设备不拉热点，扫不到是正常的）\n'
-                        '② 手机连在目标 2.4G 路由器上，保持不动，且要有网\n'
+                        'AP 配网（超时 120 秒）。失败只写进下面的日志并带原始错误码，'
+                        '不跳配网失败页，方便连续重试。\n\n'
+                        '「开始配网」一步做完三件事：取配网令牌 → 连设备热点 → 下发凭据。'
+                        '令牌只能在还有外网时取，连上热点后就取不到了，所以必须串在一起，'
+                        '不用手动分步。\n\n'
+                        '① 设备长按到指示灯慢闪，Wi-Fi 列表里能看到 SmartLife-… 热点\n'
+                        '② 手机先连在目标 2.4G 路由器上（要有网）\n'
                         '③ 填路由器的名称和密码——不是设备热点的\n'
-                        '④ 点「开始配网」\n\n'
-                        '设备若已被别的 App 绑定，必须先在那边解绑，否则它不再监听配网广播。',
+                        '④ 点「开始配网」，系统会弹框问是否连接设备热点，点确认\n\n'
+                        '设备若已被别的 App 绑定，必须先在那边解绑，否则它不会回到配网状态。',
                         style: AppTypography.smallBody.copyWith(
                           color: AppColors.textSecondary,
                         ),
@@ -487,13 +490,10 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         busy: busy,
                         primary: true,
                         onPressed: () => _run(
-                          '配网 EZ',
-                          () => state.pairDevice(
-                            PairingRequest(
-                              ssid: ssidController.text.trim(),
-                              password: wifiPasswordController.text,
-                              mode: 'ez',
-                            ),
+                          '配网 AP',
+                          () => state.pairViaHotspot(
+                            ssid: ssidController.text.trim(),
+                            password: wifiPasswordController.text,
                           ),
                           usesAccount: false,
                         ),

@@ -61,8 +61,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _DeviceActionsCard(
-                    onPairing: () =>
-                        Navigator.pushNamed(context, AppRoutes.pairing),
+                    onPairing: () => _repairNetwork(device),
                     onFactoryReset: () =>
                         _removeDevice(device, resetFactory: true),
                     onRemove: () => _removeDevice(device, resetFactory: false),
@@ -180,6 +179,36 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
     } finally {
       if (mounted) setState(() => _updatingFirmware = false);
     }
+  }
+
+  /// 重新配网 = 先解绑，再从搜索设备重新走一遍。
+  ///
+  /// 不能直接跳到填 Wi-Fi 那一页：设备还绑在账号上时它是正常工作状态，既不拉
+  /// 热点也不监听配网广播，配过去只会等满 120 秒报 `1006 out of time`。解绑
+  /// （带 DP 141 恢复出厂）会让它回到配网状态，这时搜索页才扫得到它的热点。
+  Future<void> _repairNetwork(SmartPlanterDevice device) async {
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: '重新配网',
+      message:
+          '需要先解绑“${device.name}”，设备会回到配网状态，随后重新添加。\n'
+          '设备上的个性化设置会被清除，确定继续吗？',
+      confirmLabel: '解绑并重新配网',
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    final result = await FlowerpotScope.of(
+      context,
+    ).removeDevice(widget.deviceId, resetFactory: true);
+    if (!mounted) return;
+    if (!result.success) {
+      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      return;
+    }
+    // 设备已经从账号里移除，本页和它的兄弟页都失去了数据源，所以清到根再进
+    // 搜索页——而不是 push 一层上去。
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    Navigator.pushNamed(context, AppRoutes.deviceSearch);
   }
 
   Future<void> _removeDevice(
