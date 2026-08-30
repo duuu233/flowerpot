@@ -55,23 +55,41 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
     Future<ActionResult> Function() call, {
     bool usesAccount = true,
   }) async {
+    final target = usesAccount
+        ? '$_countryCode/${_maskAccount(accountController.text)}'
+        : '';
+    // 先落一条「进行中」，结束时就地替换。配网要跑两分钟，只在结束后写日志的话
+    // 这两分钟里日志台一片空白，分不清是没点还是卡住了。
+    final pending = _CallLog(
+      time: DateTime.now(),
+      label: label,
+      success: null,
+      message: '进行中…',
+      target: target,
+    );
+    setState(() {
+      log.insert(0, pending);
+      if (log.length > _logLimit) log.removeRange(_logLimit, log.length);
+    });
+
     final result = await call();
     if (!mounted) return;
     setState(() {
-      log.insert(
-        0,
-        _CallLog(
-          time: DateTime.now(),
-          label: label,
-          success: result.success,
-          code: result.code,
-          message: result.message,
-          target: usesAccount
-              ? '$_countryCode/${_maskAccount(accountController.text)}'
-              : '',
-        ),
+      final done = _CallLog(
+        time: DateTime.now(),
+        label: label,
+        success: result.success,
+        code: result.code,
+        message: result.message,
+        target: target,
       );
-      if (log.length > _logLimit) log.removeRange(_logLimit, log.length);
+      final index = log.indexOf(pending);
+      if (index >= 0) {
+        log[index] = done;
+      } else {
+        log.insert(0, done);
+        if (log.length > _logLimit) log.removeRange(_logLimit, log.length);
+      }
     });
     showAppMessage(
       context,
@@ -841,7 +859,11 @@ class _CallLogRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = entry.success ? AppColors.success : AppColors.danger;
+    final color = switch (entry.success) {
+      null => AppColors.brandPrimary,
+      true => AppColors.success,
+      false => AppColors.danger,
+    };
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: Column(
@@ -849,13 +871,20 @@ class _CallLogRow extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Icon(
-                entry.success
-                    ? Icons.check_circle_outline
-                    : Icons.error_outline,
-                size: 16,
-                color: color,
-              ),
+              if (entry.running)
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                )
+              else
+                Icon(
+                  entry.success!
+                      ? Icons.check_circle_outline
+                      : Icons.error_outline,
+                  size: 16,
+                  color: color,
+                ),
               const SizedBox(width: AppSpacing.xs),
               Expanded(
                 child: Text(
@@ -901,7 +930,10 @@ class _CallLog {
 
   final DateTime time;
   final String label;
-  final bool success;
+
+  /// null 表示还在跑。配网这类调用要跑两分钟，等它结束才写日志的话，这段时间
+  /// 日志台上什么都没有——看起来就像根本没点，实际是卡在 await 里。
+  final bool? success;
   final String message;
 
   /// Country code plus masked account the call was made with, empty for calls
@@ -912,8 +944,14 @@ class _CallLog {
   String get stamp =>
       '${_pad(time.hour)}:${_pad(time.minute)}:${_pad(time.second)}';
 
+  bool get running => success == null;
+
   String get line {
-    final status = success ? 'OK ' : 'ERR';
+    final status = switch (success) {
+      null => '...',
+      true => 'OK ',
+      false => 'ERR',
+    };
     final codeText = code == null ? '' : ' [$code]';
     final targetText = target.isEmpty ? '' : ' · $target';
     return '$stamp $status $label$codeText · $message$targetText';

@@ -684,9 +684,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     private fun pairWifi(call: MethodCall, result: MethodChannel.Result) {
-        // 上一次配网若被中途放弃（用户退页面、进程被杀），绑定可能还留着，那会让
-        // App 一直没有外网。这里先无条件清一次。
-        unbindProcessNetwork()
+        // 这里**不能**清理网络绑定：joinDeviceHotspot 刚把手机连上设备热点，而那条
+        // 连接是跟着 NetworkCallback 走的，一旦 unregister 系统立刻断开——凭据就再
+        // 也发不到设备，只能等满 120 秒报 1006。上一次遗留的绑定由
+        // joinDeviceHotspot 自己在发起新请求前清理，配网结束由 stopActivator 清理。
         // 复用预取的令牌——AP 配网能成立全靠这一步：跑到这里时手机已经连在设备
         // 热点上，云端不可达。EZ 全程连在路由器上，走的就是下面这条回落路径，
         // 所以 EZ 不需要用户先点「获取配网令牌」。
@@ -759,9 +760,16 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 绑定只对 AP 做。EZ 是往手机所在网络广播凭据，把进程绑死在某个 Network
         // 上会挡住那些广播——这正是 EZ 加了绑定之后开始报 1006 的原因。AP 则相反：
         // 手机连的设备热点没有互联网，不绑定的话流量会被系统留在移动数据上。
+        //
+        // joinDeviceHotspot 已经绑好时不要重绑：那条绑定指向的正是设备热点，而这里
+        // 是从 allNetworks 里挑第一个 Wi-Fi，很可能挑中路由器，反而把凭据发错地方。
         if (requested == "ap") {
-            val bound = bindProcessToWifi()
-            Log.i(TUYA_LOG_TAG, "AP pairing: process bound to Wi-Fi = $bound")
+            if (boundNetwork == null) {
+                val bound = bindProcessToWifi()
+                Log.i(TUYA_LOG_TAG, "AP pairing: process bound to Wi-Fi = $bound")
+            } else {
+                Log.i(TUYA_LOG_TAG, "AP pairing: reusing hotspot binding")
+            }
         }
         invoke(activator!!, "start")
     }
