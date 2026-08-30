@@ -34,9 +34,9 @@ void main() {
     expect(find.text('切换'), findsOneWidget);
     expect(find.text('Wi-Fi密码'), findsOneWidget);
     expect(find.text('连接过程中请保持设备靠近路由器'), findsOneWidget);
-    // 两种配网方式都摆给用户，默认 AP——第一步是取配网令牌。
+    // 两种配网方式都摆给用户，默认 AP，一次点击走完。
     expect(find.byKey(const Key('pairing-mode-switch')), findsOneWidget);
-    expect(find.text('下一步：连接设备热点'), findsOneWidget);
+    expect(find.text('开始配网'), findsOneWidget);
     expect(
       findAssetImage(AppAssets.pairingWifiSetupIllustration),
       findsOneWidget,
@@ -149,7 +149,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('AP provisioning takes the token before the hotspot switch', (
+  testWidgets('AP provisioning runs token, hotspot and pairing in one tap', (
     tester,
   ) async {
     Object? successArguments;
@@ -162,31 +162,21 @@ void main() {
       onSuccessArguments: (value) => successArguments = value,
     );
 
-    // 默认就是 AP，第一步是取配网令牌。
-    expect(find.text('下一步：连接设备热点'), findsOneWidget);
-
-    await _enterPassword(tester);
-    await tester.tap(find.byKey(const Key('start-pairing-button')));
-    await tester.pumpAndSettle();
-    // Expire the confirmation toast so it does not outlive the test.
-    await tester.pump(const Duration(seconds: 7));
-    await tester.pumpAndSettle();
-
-    // Step one is the cloud call, which has to happen while the phone still has
-    // internet — joining the planter hotspot cuts it off.
-    expect(repository.tokenCalls, 1);
-    expect(repository.pairCalls, 0);
-    expect(state.activatorTokenReady, isTrue);
+    // 一次点击走完三步，所以按钮直接就是「开始配网」，页面上只说明系统会弹框。
+    expect(find.text('开始配网'), findsOneWidget);
     expect(find.byKey(const Key('pairing-hotspot-step')), findsOneWidget);
     expect(find.textContaining('「SmartLife-A1B2」'), findsOneWidget);
-    expect(find.text('开始配网'), findsOneWidget);
 
+    await _enterPassword(tester);
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
+    // 令牌只能在还连着路由器时取，所以它和配网必须在同一次操作里按序完成。
+    expect(repository.tokenCalls, 1);
     expect(repository.pairCalls, 1);
+    expect(repository.lastRequest?.mode, 'ap');
     expect(find.text('pairing-success-target'), findsOneWidget);
     expect(successArguments, 'vdevo17235508413621');
     // The token is single use; the bridge drops its cached copy on success.

@@ -385,6 +385,34 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                             ),
                           ),
                           _action(
+                            key: const Key('tuya-debug-unbind'),
+                            label: '解绑当前设备',
+                            busy: busy,
+                            onPressed: () => _run(
+                              '解绑当前设备',
+                              () {
+                                // 配好的设备会一直绑在账号上，不解绑就回不到配网
+                                // 状态，再配只会等满 120 秒报 1006。反复联调必须
+                                // 有这个入口，否则每次都要退到产品页去解绑。
+                                final device = state.selectedDevice;
+                                if (device == null) {
+                                  return Future<ActionResult>.value(
+                                    const ActionResult(
+                                      false,
+                                      'APP-no_device 账号下没有设备',
+                                      code: 'no_device',
+                                    ),
+                                  );
+                                }
+                                return state.removeDevice(
+                                  device.id,
+                                  resetFactory: true,
+                                );
+                              },
+                              usesAccount: false,
+                            ),
+                          ),
+                          _action(
                             key: const Key('tuya-debug-logout'),
                             label: '退出登录',
                             busy: busy,

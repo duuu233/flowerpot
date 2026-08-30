@@ -118,44 +118,6 @@ class _PairingPageState extends State<PairingPage> {
     }
   }
 
-  /// AP provisioning fetches its token first, in its own step.
-  ///
-  /// `getActivatorToken` is a cloud call, and in AP mode the phone leaves the
-  /// router for the device hotspot before provisioning starts — from there
-  /// there is no route to the cloud, and Tuya answers with a network error that
-  /// looks nothing like its actual cause. The bridge caches the token natively
-  /// for 8 minutes; it is never handed back to Dart.
-  Future<void> _prepareToken() async {
-    final state = FlowerpotScope.of(context);
-    final result = await state.prepareActivatorToken();
-    if (!mounted) return;
-    setState(() {});
-    showAppMessage(
-      context,
-      result.success ? '已获取配网令牌，请到系统设置连接设备热点后返回' : result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
-  }
-
-  /// 让 App 直接连上设备热点，连上后刷新扫描结果好让卡片变绿。
-  ///
-  /// Android 9 及以下没有这个能力，桥接会回 `hotspot_join_unsupported`，那时把
-  /// 原来的手动步骤说明提示出来即可。
-  Future<void> _joinHotspot(String? hotspot) async {
-    final result = await FlowerpotScope.of(
-      context,
-    ).joinDeviceHotspot(ssid: hotspot);
-    if (!mounted) return;
-    showAppMessage(
-      context,
-      result.code == 'hotspot_join_unsupported'
-          ? '当前系统不支持由应用连接热点，请到系统设置手动连接 Wi-Fi'
-          : result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
-    if (result.success) await _loadNetworks(force: true);
-  }
-
   Future<void> _pair() async {
     if (ssidController.text.trim().isEmpty || passwordController.text.isEmpty) {
       showAppMessage(context, '请输入 Wi-Fi 名称与密码', tone: AppMessageTone.error);
@@ -163,40 +125,22 @@ class _PairingPageState extends State<PairingPage> {
     }
 
     final state = FlowerpotScope.of(context);
-    // Credentials first, then the token: the user has to type them while the
-    // phone still has internet, because AP mode sends them away to the hotspot
-    // right afterwards.
-    if (_needsToken(state.activatorTokenReady)) {
-      await _prepareToken();
-      return;
-    }
-
-    // AP 配网靠设备热点把凭据送过去。手机没连上热点时 SDK 只会一直等，直到
-    // 120 秒超时后回涂鸦的 `1006 out of time`——那个错误看不出真正原因，所以
-    // 在这里先拦一道。平台给不出网络列表时（iOS 永远如此）无从判断，不拦。
-    final scan = state.wifiScan;
-    if (_isAp &&
-        scan != null &&
-        scan.networks.isNotEmpty &&
-        !scan.currentIsDeviceHotspot) {
-      final proceed = await showAppConfirmDialog(
-        context,
-        title: '尚未连接设备热点',
-        message:
-            '没有检测到手机已连上设备热点（SmartLife-… / TY_…）。\n'
-            'AP 配网必须先在系统设置里连上它，否则会等满 120 秒后失败。\n\n'
-            '当前连接：${scan.current ?? '未知'}',
-        confirmLabel: '仍然继续',
-      );
-      if (!proceed || !mounted) return;
-    }
-
     final request = PairingRequest(
       ssid: ssidController.text.trim(),
       password: passwordController.text,
       mode: mode,
     );
-    final result = await state.pairDevice(request);
+    // AP 走 pairViaHotspot：取令牌 → 连热点 → 下发凭据串成一次操作。这三步有
+    // 顺序约束（令牌只能在还有外网时取，连上热点后就取不到了），交给用户按顺序
+    // 点三个按钮，错一次就是两分钟超时，而失败原因从 `1006` 里看不出来。
+    // EZ 全程连在路由器上，本来就是一步。
+    final result = _isAp
+        ? await state.pairViaHotspot(
+            ssid: request.ssid,
+            password: request.password,
+            hotspotSsid: widget.arguments?.hotspotSsid,
+          )
+        : await state.pairDevice(request);
     if (!mounted) return;
     if (!result.success) {
       Navigator.pushReplacementNamed(
@@ -217,16 +161,10 @@ class _PairingPageState extends State<PairingPage> {
     );
   }
 
-  /// 只有 AP 需要单独取令牌：手机随后要离开路由器去连设备热点，那时云端不可达。
-  /// EZ 全程连在路由器上，令牌由 `pairWifiDevice` 内部取，用户无需多一步。
-  bool _needsToken(bool tokenReady) => _isAp && !tokenReady;
-
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
     final scan = state.wifiScan;
-    final tokenReady = state.activatorTokenReady;
-    final needsToken = _needsToken(tokenReady);
     final hotspot = widget.arguments?.hotspotSsid;
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接Wi-Fi', leading: AppBackButton()),
@@ -292,14 +230,15 @@ class _PairingPageState extends State<PairingPage> {
                           '快速配网必须先切到 2.4G，或改用热点配网。',
                     ),
                   ],
-                  if (_isAp && tokenReady) ...<Widget>[
+                  if (_isAp) ...<Widget>[
                     const SizedBox(height: 12),
-                    _HotspotStepCard(
-                      hotspot: hotspot,
-                      current: scan?.current,
-                      joined: scan?.currentIsDeviceHotspot ?? false,
-                      onRefresh: () => _loadNetworks(force: true),
-                      onJoin: () => _joinHotspot(hotspot),
+                    _PairingHintCard(
+                      key: const Key('pairing-hotspot-step'),
+                      tone: AppColors.brandPrimary,
+                      text:
+                          '点「开始配网」后，系统会弹框询问是否连接'
+                          '${hotspot == null ? '设备热点' : '「$hotspot」'}，确认即可，'
+                          '不必到系统设置里手动连。',
                     ),
                   ],
                   const SizedBox(height: 18),
@@ -360,65 +299,9 @@ class _PairingPageState extends State<PairingPage> {
                         strokeWidth: 2,
                       ),
                     )
-                  : Text(needsToken ? '下一步：连接设备热点' : '开始配网'),
+                  : const Text('开始配网'),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// What AP mode has to do between fetching the token and provisioning: join the
-/// planter's own access point, which only the system Wi-Fi settings can do.
-class _HotspotStepCard extends StatelessWidget {
-  const _HotspotStepCard({
-    required this.hotspot,
-    required this.current,
-    required this.joined,
-    required this.onRefresh,
-    required this.onJoin,
-    super.key,
-  });
-
-  /// The planter hotspot picked on the selection page, when there was one.
-  final String? hotspot;
-
-  /// The network the phone is on right now, from the last scan.
-  final String? current;
-  final bool joined;
-  final VoidCallback onRefresh;
-
-  /// 由 App 发起连接热点。Android 10+ 会弹系统确认框，用户点一下就连上，不必
-  /// 离开 App——涂鸦官方 App 的 AP 配网没有「去设置里连」这一步，就是走的这条。
-  final VoidCallback onJoin;
-
-  @override
-  Widget build(BuildContext context) {
-    final target = hotspot == null ? '设备热点（SmartLife-… / TY_…）' : '「$hotspot」';
-    return _PairingHintCard(
-      key: const Key('pairing-hotspot-step'),
-      tone: joined ? AppColors.success : AppColors.brandPrimary,
-      text: joined
-          ? '已连接 ${current ?? '设备热点'}，现在可以点「开始配网」。'
-          : '配网令牌已就绪（8 分钟内有效）。\n'
-                '点「连接设备热点」，在系统弹框里确认连接 $target 即可，'
-                '不必离开 App。'
-                '${current == null ? '' : '\n手机当前连接：$current'}',
-      action: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: <Widget>[
-          TextButton(
-            key: const Key('pairing-hotspot-refresh'),
-            onPressed: onRefresh,
-            child: const Text('检查连接'),
-          ),
-          if (!joined)
-            TextButton(
-              key: const Key('pairing-hotspot-join'),
-              onPressed: onJoin,
-              child: const Text('连接设备热点'),
-            ),
         ],
       ),
     );
