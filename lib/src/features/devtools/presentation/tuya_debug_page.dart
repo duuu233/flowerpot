@@ -158,8 +158,21 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                       _StatusRow(
                         label: '设备数量',
                         value: '${state.devices.length}',
-                        last: true,
+                        last: state.devices.isEmpty,
                       ),
+                      // 配网成功后设备是否真的进了账号，只有这份列表能说明。
+                      // 之前「解绑当前设备」报没有设备 ID，就是因为列表其实是空
+                      // 的——配网返回成功不等于设备已经在列表里。
+                      for (final (index, device)
+                          in state.devices.indexed) ...<Widget>[
+                        _StatusRow(
+                          label: '设备 ${index + 1}',
+                          value:
+                              '${device.name}\n${device.id}'
+                              '${device.online ? '' : '（离线）'}',
+                          last: index == state.devices.length - 1,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -399,7 +412,8 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                                   return Future<ActionResult>.value(
                                     const ActionResult(
                                       false,
-                                      'APP-no_device 账号下没有设备',
+                                      'APP-no_device 设备列表为空。配网返回成功不代表'
+                                      '设备已进列表，先点「拉取设备列表」确认。',
                                       code: 'no_device',
                                     ),
                                   );

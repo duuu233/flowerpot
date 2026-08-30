@@ -53,13 +53,6 @@ class _PairingPageState extends State<PairingPage> {
     text: widget.arguments?.request?.password ?? '',
   );
 
-  /// 配网模式。默认 AP：App 能直接发起设备热点连接（系统弹框确认即可），所以
-  /// 用户步骤并不比 EZ 多，而且不受路由器组播策略影响——实测这是唯一稳定配上的
-  /// 方式。EZ 留作备选，失败页会引导过去。
-  late String mode = widget.arguments?.request?.mode ?? 'ap';
-
-  bool get _isAp => mode == 'ap';
-
   @override
   void initState() {
     super.initState();
@@ -128,19 +121,15 @@ class _PairingPageState extends State<PairingPage> {
     final request = PairingRequest(
       ssid: ssidController.text.trim(),
       password: passwordController.text,
-      mode: mode,
     );
-    // AP 走 pairViaHotspot：取令牌 → 连热点 → 下发凭据串成一次操作。这三步有
-    // 顺序约束（令牌只能在还有外网时取，连上热点后就取不到了），交给用户按顺序
-    // 点三个按钮，错一次就是两分钟超时，而失败原因从 `1006` 里看不出来。
-    // EZ 全程连在路由器上，本来就是一步。
-    final result = _isAp
-        ? await state.pairViaHotspot(
-            ssid: request.ssid,
-            password: request.password,
-            hotspotSsid: widget.arguments?.hotspotSsid,
-          )
-        : await state.pairDevice(request);
+    // 取令牌 → 连热点 → 下发凭据串成一次操作。这三步有顺序约束（令牌只能在还有
+    // 外网时取，连上热点后就取不到了），交给用户按顺序点三个按钮，错一次就是两
+    // 分钟超时，而失败原因从 `1006` 里看不出来。
+    final result = await state.pairViaHotspot(
+      ssid: request.ssid,
+      password: request.password,
+      hotspotSsid: widget.arguments?.hotspotSsid,
+    );
     if (!mounted) return;
     if (!result.success) {
       Navigator.pushReplacementNamed(
@@ -154,10 +143,23 @@ class _PairingPageState extends State<PairingPage> {
       );
       return;
     }
+    // 不强制解包：配网返回成功、设备却没进列表时（云端刚绑完还没同步、或这中间
+    // 有一次拉取拿到了空列表），`!` 会把一次成功的配网变成一个空指针异常——页面
+    // 停在原地不动，看起来就像配网失败了，实际设备已经绑好。
+    final device = state.selectedDevice;
+    if (device == null) {
+      showAppMessage(
+        context,
+        '配网成功，但暂时读不到设备信息，请回设备列表下拉刷新',
+        tone: AppMessageTone.info,
+      );
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      return;
+    }
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.pairingSuccess,
-      arguments: state.selectedDevice!.id,
+      arguments: device.id,
     );
   }
 
@@ -216,21 +218,7 @@ class _PairingPageState extends State<PairingPage> {
                     passwordController: passwordController,
                     onSwitchWifi: _switchWifi,
                   ),
-                  if (!_isAp &&
-                      scan != null &&
-                      scan.currentIs24g == false) ...<Widget>[
-                    const SizedBox(height: 12),
-                    _PairingHintCard(
-                      key: const Key('pairing-band-warning'),
-                      tone: AppColors.danger,
-                      // EZ 把凭据广播到手机当前所在的网络上；手机在 5G 时设备
-                      // 根本听不到，必然失败。
-                      text:
-                          '手机当前连接的是 5G 网络（${scan.current ?? ''}），'
-                          '快速配网必须先切到 2.4G，或改用热点配网。',
-                    ),
-                  ],
-                  if (_isAp) ...<Widget>[
+                  ...<Widget>[
                     const SizedBox(height: 12),
                     _PairingHintCard(
                       key: const Key('pairing-hotspot-step'),
@@ -241,14 +229,7 @@ class _PairingPageState extends State<PairingPage> {
                           '不必到系统设置里手动连。',
                     ),
                   ],
-                  const SizedBox(height: 18),
-                  Center(
-                    child: _PairingModeSwitch(
-                      mode: mode,
-                      onChanged: (value) => setState(() => mode = value),
-                    ),
-                  ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 38),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
@@ -304,35 +285,6 @@ class _PairingPageState extends State<PairingPage> {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// 配网方式切换。
-///
-/// 面向用户而不是调试开关：EZ 省掉切热点那一步，但会被部分路由器的组播策略挡
-/// 下；AP 步骤多却不受影响。哪种能成只有现场才知道，所以两个都摆出来。
-class _PairingModeSwitch extends StatelessWidget {
-  const _PairingModeSwitch({required this.mode, required this.onChanged});
-
-  final String mode;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SegmentedButton<String>(
-      key: const Key('pairing-mode-switch'),
-      segments: const <ButtonSegment<String>>[
-        ButtonSegment<String>(value: 'ez', label: Text('快速配网')),
-        ButtonSegment<String>(value: 'ap', label: Text('热点配网')),
-      ],
-      selected: <String>{mode},
-      showSelectedIcon: false,
-      style: const ButtonStyle(
-        visualDensity: VisualDensity.compact,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-      onSelectionChanged: (value) => onChanged(value.first),
     );
   }
 }

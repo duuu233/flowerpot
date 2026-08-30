@@ -25,37 +25,16 @@ class PairingFailurePage extends StatelessWidget {
     return '$generic\n$detail';
   }
 
-  /// 失败后该改走哪种模式。
-  ///
-  /// 两种模式的失败原因都不会因为重试而改变（AP：热点没连住；EZ：路由器过滤组播
-  /// 或设备不在 EZ 模式），所以主按钮直接把用户带到另一条路，而不是让他把同一条
-  /// 再走一遍两分钟。
-  String? get _fallbackMode => switch (request?.mode) {
-    'ap' => 'ez',
-    'ez' => 'ap',
-    _ => null,
-  };
-
-  String get _fallbackLabel =>
-      _fallbackMode == 'ez' ? '改用快速配网' : '改用热点配网';
-
   void _retry(BuildContext context) {
     // The Wi-Fi page no longer pre-fills placeholder credentials, so a retry
     // has to carry the previous attempt back or the form arrives blank.
-    final attempt = request;
-    final fallback = _fallbackMode;
+    //
+    // 产品页只有 AP 一种方式，所以这里不再做「改用另一种模式」的回落——EZ 仍在
+    // 桥接层可用，但不对最终用户暴露。
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.pairing,
-      arguments: PairingArguments(
-        request: fallback != null && attempt != null
-            ? PairingRequest(
-                ssid: attempt.ssid,
-                password: attempt.password,
-                mode: fallback,
-              )
-            : attempt,
-      ),
+      arguments: PairingArguments(request: request),
     );
   }
 
@@ -146,9 +125,7 @@ class PairingFailurePage extends StatelessWidget {
                             shape: const StadiumBorder(),
                             textStyle: const TextStyle(fontSize: 19),
                           ),
-                          child: Text(
-                            _fallbackMode == null ? '重新配网' : _fallbackLabel,
-                          ),
+                          child: const Text('重新配网'),
                         ),
                       ),
                     ),
