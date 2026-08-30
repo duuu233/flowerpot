@@ -701,7 +701,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             "dual" -> DUAL_MODE_NAMES
             else -> AP_MODE_NAMES
         }
-        val factory = activatorFactory(activatorApi)
+        val factory = activatorFactory(activatorApi, requested)
         val builderClass = factory.parameterTypes.single()
         val builder = builderClass.getDeclaredConstructor()
             .apply { isAccessible = true }
@@ -713,6 +713,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         invoke(builder, "setActivatorModel", mode)
         invoke(builder, "setTimeOut", 120L)
         invoke(builder, "setToken", token)
+        Log.i(
+            TUYA_LOG_TAG,
+            "pairing mode=$requested factory=${factory.name} enum=${(mode as Enum<*>).name}",
+        )
         invokeWithCallback(
             builder,
             "setListener",
@@ -748,26 +752,39 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     /**
-     * `IThingActivator` 上的配网工厂，固定用单设备的 `newActivator`。
+     * `IThingActivator` 上的配网工厂，按模式选。
      *
-     * 曾经让 EZ 优先走 `newMultiActivator`，但那是「一次会话配多台」的语义：它不
-     * 保证配上第一台就回调，涂鸦官方 App 配单台设备走的也是 `newActivator`。多
-     * 设备工厂还只实现了 EZ，喂给它 AP 的 Builder 会在 `start()` 时直接报
-     * `Multi Config don't support the AP Mode`。单设备工厂三种模式都能用。
+     * 7.5.1 为 EZ 单独提供了 `newEZWifiConfigDevActivator(ActivatorBuilder)`——参数
+     * 类型和通用的 `newActivator` 完全相同，光看签名分不出差别，但那才是 SDK 给
+     * EZ 的正式入口。找不到时回落到 `newActivator`，老 SDK 仍能工作。
      *
-     * 它只接受 Builder 一个参数，[startActivator] 正是据此拿到 Builder 的类型，
+     * 不用 `newMultiActivator`：那是「一次会话配多台」的语义，不保证配上第一台就
+     * 回调；它还只实现了 EZ，喂 AP 的 Builder 会在 `start()` 报
+     * `Multi Config don't support the AP Mode`。
+     *
+     * 工厂只接受 Builder 一个参数，[startActivator] 正是据此拿到 Builder 的类型，
      * 不必写死包名。
      */
-    private fun activatorFactory(activatorApi: Any): Method =
-        candidates(activatorApi.javaClass).firstOrNull { method ->
-            method.name == "newActivator" &&
+    private fun activatorFactory(activatorApi: Any, mode: String): Method {
+        val preference = if (mode == "ez") {
+            listOf("newEZWifiConfigDevActivator", "newActivator")
+        } else {
+            listOf("newActivator")
+        }
+        val factories = candidates(activatorApi.javaClass).filter { method ->
+            method.name in preference &&
                 method.parameterTypes.size == 1 &&
                 method.parameterTypes.single().simpleName.endsWith("Builder")
-        }?.apply { isAccessible = true }
+        }
+        // 按偏好顺序取，而不是反射返回的顺序——后者不保证跨次运行稳定。
+        return preference
+            .firstNotNullOfOrNull { name -> factories.firstOrNull { it.name == name } }
+            ?.apply { isAccessible = true }
             ?: throw NoSuchMethodException(
-                "${activatorApi.javaClass.name} 未提供 newActivator(Builder)，" +
-                    "该类的工厂方法：" + describeFactories(activatorApi.javaClass),
+                "${activatorApi.javaClass.name} 未提供 ${preference.joinToString("/")}" +
+                    "(Builder)，该类的工厂方法：" + describeFactories(activatorApi.javaClass),
             )
+    }
 
     /** Signatures of the `new*` methods, so a rename is diagnosable from the log. */
     private fun describeFactories(clazz: Class<*>): String = candidates(clazz)
@@ -813,7 +830,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private fun listActivatorModes(result: MethodChannel.Result) {
         val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
             ?: throw IllegalStateException("无法获取配网实例")
-        val factory = activatorFactory(activatorApi)
+        val factory = activatorFactory(activatorApi, "ap")
         val builderClass = factory.parameterTypes.single()
         val builder = builderClass.getDeclaredConstructor()
             .apply { isAccessible = true }
