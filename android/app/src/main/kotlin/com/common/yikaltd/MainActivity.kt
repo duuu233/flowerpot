@@ -9,7 +9,9 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
+import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
+import android.os.PatternMatcher
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -234,6 +236,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private var boundNetwork: Network? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
+    /** 由 App 发起的设备热点连接请求；释放它系统就会断开那条连接。 */
+    private var hotspotCallback: ConnectivityManager.NetworkCallback? = null
+
     /**
      * `IThingDevice` instances that currently hold a registered listener, keyed
      * by device id. Written from the main thread, read from the SDK's callback
@@ -281,6 +286,11 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "prepareActivatorToken" -> prepareActivatorToken(result)
                 "pairWifiDevice" -> pairWifi(call, result)
                 "listActivatorModes" -> listActivatorModes(result)
+                "joinDeviceHotspot" -> joinDeviceHotspot(call, result)
+                "leaveDeviceHotspot" -> {
+                    releaseHotspotRequest()
+                    success(result, null)
+                }
                 "publishDps" -> deviceAction(call, result, "publishDps")
                 "renameDevice" -> deviceAction(call, result, "renameDevice")
                 "removeDevice" -> deviceAction(call, result, "removeDevice")
@@ -713,10 +723,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         invoke(builder, "setActivatorModel", mode)
         invoke(builder, "setTimeOut", 120L)
         invoke(builder, "setToken", token)
-        Log.i(
-            TUYA_LOG_TAG,
-            "pairing mode=$requested factory=${factory.name} enum=${(mode as Enum<*>).name}",
-        )
+        // 这台机器上 adb 未必连得上，所以诊断信息不能只进 logcat——失败时一并
+        // 回给 Dart，联调页的日志区才看得到实际用了哪个工厂、哪个枚举常量。
+        val used = "$requested/${factory.name}/${(mode as Enum<*>).name}"
+        Log.i(TUYA_LOG_TAG, "pairing $used")
         invokeWithCallback(
             builder,
             "setListener",
@@ -736,7 +746,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             },
             onError = { code, message ->
                 stopActivator()
-                error(result, code, message)
+                error(result, code, "$message · $used")
             },
         )
         activator = factory.invoke(activatorApi, builder)
@@ -852,6 +862,98 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         success(result, names + listOf("工厂方法：$factories"))
     }
 
+    /**
+     * 由 App 直接连上设备热点，省掉「去系统设置连 Wi-Fi」这一步。
+     *
+     * Android 10 起应用不能再自己 `enableNetwork` 任意网络，取而代之的是
+     * [WifiNetworkSpecifier]：应用描述想连的网络，系统弹一个确认框，用户点一下就
+     * 连上——涂鸦官方 App 的 AP 配网没有「请到设置里连接热点」那一步，用的就是它。
+     *
+     * 这样连上的网络是**进程专属**的，正好是 AP 配网需要的形态：系统默认网络仍留
+     * 在有互联网的那一边，而我们在 [onAvailable] 里把进程绑到热点上。所以必须显式
+     * 声明 `removeCapability(NET_CAPABILITY_INTERNET)`，否则系统会因为热点上不了网
+     * 而判定请求不满足。
+     *
+     * Android 9 及以下没有这个 API，仍然只能引导用户手动连，Dart 侧据此回落。
+     */
+    private fun joinDeviceHotspot(call: MethodCall, result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            error(
+                result,
+                "hotspot_join_unsupported",
+                "Android 9 及以下无法由应用连接热点，请到系统设置手动连接",
+            )
+            return
+        }
+        val manager = activity.getSystemService(ConnectivityManager::class.java)
+        if (manager == null) {
+            error(result, "hotspot_join_failed", "无法获取网络服务")
+            return
+        }
+        val ssid = call.argument<String>("ssid").orEmpty()
+        val prefix = call.argument<String>("prefix").orEmpty()
+        val specifier = WifiNetworkSpecifier.Builder().apply {
+            // 给了确切 SSID 就精确匹配；只给前缀时让系统列出所有匹配的热点，由
+            // 用户在弹框里挑——设备热点名带随机后缀，扫不到时前缀更实用。
+            if (ssid.isNotEmpty()) {
+                setSsid(ssid)
+            } else {
+                setSsidPattern(
+                    PatternMatcher(
+                        prefix.ifEmpty { "SmartLife-" },
+                        PatternMatcher.PATTERN_PREFIX,
+                    ),
+                )
+            }
+        }.build()
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .setNetworkSpecifier(specifier)
+            .build()
+
+        releaseHotspotRequest()
+        val answered = AtomicBoolean(false)
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                boundNetwork = network
+                val bound = runCatching { manager.bindProcessToNetwork(network) }
+                    .getOrDefault(false)
+                Log.i(TUYA_LOG_TAG, "hotspot joined, bound=$bound")
+                if (answered.compareAndSet(false, true)) success(result, bound)
+            }
+
+            override fun onUnavailable() {
+                if (answered.compareAndSet(false, true)) {
+                    error(result, "hotspot_join_cancelled", "未连接设备热点，可能是取消或超时")
+                }
+            }
+
+            override fun onLost(network: Network) {
+                if (network == boundNetwork) {
+                    Log.i(TUYA_LOG_TAG, "hotspot lost, releasing binding")
+                    activity.runOnUiThread { unbindProcessNetwork() }
+                }
+            }
+        }
+        hotspotCallback = callback
+        // 系统弹框要用户操作，给足时间；超时会走 onUnavailable。
+        runCatching { manager.requestNetwork(request, callback, 60_000) }
+            .onFailure {
+                hotspotCallback = null
+                error(result, "hotspot_join_failed", it.message ?: "请求连接热点失败")
+            }
+    }
+
+    /** 释放热点请求，系统随即断开这条进程专属连接。 */
+    private fun releaseHotspotRequest() {
+        val manager = activity.getSystemService(ConnectivityManager::class.java)
+        hotspotCallback?.let { callback ->
+            runCatching { manager?.unregisterNetworkCallback(callback) }
+        }
+        hotspotCallback = null
+    }
+
     private fun stopActivator() {
         activator?.let { runCatching { invoke(it, "stop") } }
         activator = null
@@ -905,6 +1007,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     private fun unbindProcessNetwork() {
+        releaseHotspotRequest()
         val manager = activity.getSystemService(ConnectivityManager::class.java)
         runCatching { manager?.bindProcessToNetwork(null) }
         networkCallback?.let { callback ->

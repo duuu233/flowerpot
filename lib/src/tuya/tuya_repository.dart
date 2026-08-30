@@ -77,6 +77,16 @@ abstract class TuyaRepository {
   /// SDK 实际提供的配网模式常量名。用于确认这套 SDK 到底支不支持双模。
   Future<List<String>> listActivatorModes();
 
+  /// 由 App 直接连上设备热点，省掉「去系统设置连 Wi-Fi」那一步。
+  ///
+  /// 给了 [ssid] 就精确连它；只给 [prefix] 时由系统列出匹配的热点让用户挑。
+  /// 返回是否连上并把进程流量绑了过去。Android 9 及以下不支持，抛
+  /// `hotspot_join_unsupported`，调用方据此回落到手动引导。
+  Future<bool> joinDeviceHotspot({String? ssid, String? prefix});
+
+  /// 释放上面那条连接，让手机回到原来的网络。
+  Future<void> leaveDeviceHotspot();
+
   /// Nearby access points, used before provisioning to check that the phone is
   /// on 2.4 GHz and — in AP mode — that the device hotspot is up.
   Future<WifiScan> scanWifi();
@@ -359,6 +369,17 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         .map((item) => '$item')
         .toList(growable: false);
   }
+
+  @override
+  Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async =>
+      await _invoke<bool>('joinDeviceHotspot', <String, Object?>{
+        'ssid': ssid ?? '',
+        'prefix': prefix ?? '',
+      }) ??
+      false;
+
+  @override
+  Future<void> leaveDeviceHotspot() => _invoke<void>('leaveDeviceHotspot');
 
   @override
   Future<WifiScan> scanWifi() async {
@@ -826,6 +847,15 @@ class MockTuyaRepository implements TuyaRepository {
     await _wait();
     return const <String>[];
   }
+
+  @override
+  Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {
+    await _wait();
+    return true;
+  }
+
+  @override
+  Future<void> leaveDeviceHotspot() => _wait();
 
   @override
   Future<WifiScan> scanWifi() async {

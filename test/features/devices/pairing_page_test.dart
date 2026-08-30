@@ -34,9 +34,9 @@ void main() {
     expect(find.text('切换'), findsOneWidget);
     expect(find.text('Wi-Fi密码'), findsOneWidget);
     expect(find.text('连接过程中请保持设备靠近路由器'), findsOneWidget);
-    // 两种配网方式都摆给用户，默认 EZ——不需要先取令牌，按钮直接是「开始配网」。
+    // 两种配网方式都摆给用户，默认 AP——第一步是取配网令牌。
     expect(find.byKey(const Key('pairing-mode-switch')), findsOneWidget);
-    expect(find.text('开始配网'), findsOneWidget);
+    expect(find.text('下一步：连接设备热点'), findsOneWidget);
     expect(
       findAssetImage(AppAssets.pairingWifiSetupIllustration),
       findsOneWidget,
@@ -162,9 +162,7 @@ void main() {
       onSuccessArguments: (value) => successArguments = value,
     );
 
-    // 默认是 EZ，这个用例要测 AP，先切过去。
-    await tester.tap(find.text('热点配网'));
-    await tester.pumpAndSettle();
+    // 默认就是 AP，第一步是取配网令牌。
     expect(find.text('下一步：连接设备热点'), findsOneWidget);
 
     await _enterPassword(tester);

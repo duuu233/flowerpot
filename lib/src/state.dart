@@ -449,6 +449,19 @@ class FlowerpotState extends ChangeNotifier {
     );
   });
 
+  /// 由 App 直接连上设备热点。AP 配网原本要用户自己去系统设置连，这一步是那段
+  /// 流程里最容易失败的地方（连错、系统因无互联网自动切走、超时）。
+  Future<ActionResult> joinDeviceHotspot({String? ssid}) => _guard(() async {
+    final joined = await _repository.joinDeviceHotspot(
+      ssid: ssid,
+      prefix: ssid == null ? 'SmartLife-' : null,
+    );
+    if (!joined) {
+      throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
+    }
+    return const ActionResult(true, '已连接设备热点，可以开始配网');
+  });
+
   Future<ActionResult> pairDevice(PairingRequest request) => _guard(() async {
     final device = await _pairOrRecover(request);
     // Tuya tokens are single-use and the bridge drops its cached copy on

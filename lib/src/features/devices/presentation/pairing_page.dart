@@ -53,9 +53,10 @@ class _PairingPageState extends State<PairingPage> {
     text: widget.arguments?.request?.password ?? '',
   );
 
-  /// 配网模式。默认 EZ：手机全程连在路由器上，不用切到设备热点。EZ 受路由器
-  /// 组播策略影响可能失败，那时用户可以切到 AP 兜底——失败页也有直达入口。
-  late String mode = widget.arguments?.request?.mode ?? 'ez';
+  /// 配网模式。默认 AP：App 能直接发起设备热点连接（系统弹框确认即可），所以
+  /// 用户步骤并不比 EZ 多，而且不受路由器组播策略影响——实测这是唯一稳定配上的
+  /// 方式。EZ 留作备选，失败页会引导过去。
+  late String mode = widget.arguments?.request?.mode ?? 'ap';
 
   bool get _isAp => mode == 'ap';
 
@@ -134,6 +135,25 @@ class _PairingPageState extends State<PairingPage> {
       result.success ? '已获取配网令牌，请到系统设置连接设备热点后返回' : result.message,
       tone: result.success ? AppMessageTone.success : AppMessageTone.error,
     );
+  }
+
+  /// 让 App 直接连上设备热点，连上后刷新扫描结果好让卡片变绿。
+  ///
+  /// Android 9 及以下没有这个能力，桥接会回 `hotspot_join_unsupported`，那时把
+  /// 原来的手动步骤说明提示出来即可。
+  Future<void> _joinHotspot(String? hotspot) async {
+    final result = await FlowerpotScope.of(
+      context,
+    ).joinDeviceHotspot(ssid: hotspot);
+    if (!mounted) return;
+    showAppMessage(
+      context,
+      result.code == 'hotspot_join_unsupported'
+          ? '当前系统不支持由应用连接热点，请到系统设置手动连接 Wi-Fi'
+          : result.message,
+      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+    );
+    if (result.success) await _loadNetworks(force: true);
   }
 
   Future<void> _pair() async {
@@ -279,6 +299,7 @@ class _PairingPageState extends State<PairingPage> {
                       current: scan?.current,
                       joined: scan?.currentIsDeviceHotspot ?? false,
                       onRefresh: () => _loadNetworks(force: true),
+                      onJoin: () => _joinHotspot(hotspot),
                     ),
                   ],
                   const SizedBox(height: 18),
@@ -356,6 +377,7 @@ class _HotspotStepCard extends StatelessWidget {
     required this.current,
     required this.joined,
     required this.onRefresh,
+    required this.onJoin,
     super.key,
   });
 
@@ -367,6 +389,10 @@ class _HotspotStepCard extends StatelessWidget {
   final bool joined;
   final VoidCallback onRefresh;
 
+  /// 由 App 发起连接热点。Android 10+ 会弹系统确认框，用户点一下就连上，不必
+  /// 离开 App——涂鸦官方 App 的 AP 配网没有「去设置里连」这一步，就是走的这条。
+  final VoidCallback onJoin;
+
   @override
   Widget build(BuildContext context) {
     final target = hotspot == null ? '设备热点（SmartLife-… / TY_…）' : '「$hotspot」';
@@ -376,13 +402,24 @@ class _HotspotStepCard extends StatelessWidget {
       text: joined
           ? '已连接 ${current ?? '设备热点'}，现在可以点「开始配网」。'
           : '配网令牌已就绪（8 分钟内有效）。\n'
-                '请到系统设置连接 $target，提示「无法访问互联网」时选择保持连接，'
-                '然后回到这里点「开始配网」。'
+                '点「连接设备热点」，在系统弹框里确认连接 $target 即可，'
+                '不必离开 App。'
                 '${current == null ? '' : '\n手机当前连接：$current'}',
-      action: TextButton(
-        key: const Key('pairing-hotspot-refresh'),
-        onPressed: onRefresh,
-        child: const Text('检查连接'),
+      action: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: <Widget>[
+          TextButton(
+            key: const Key('pairing-hotspot-refresh'),
+            onPressed: onRefresh,
+            child: const Text('检查连接'),
+          ),
+          if (!joined)
+            TextButton(
+              key: const Key('pairing-hotspot-join'),
+              onPressed: onJoin,
+              child: const Text('连接设备热点'),
+            ),
+        ],
       ),
     );
   }

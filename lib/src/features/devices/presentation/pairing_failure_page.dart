@@ -25,25 +25,34 @@ class PairingFailurePage extends StatelessWidget {
     return '$generic\n$detail';
   }
 
-  /// EZ 失败后是否该改走 AP。
+  /// 失败后该改走哪种模式。
   ///
-  /// EZ 失败的常见原因（路由器过滤组播、手机在 5G）重试一次不会变，所以主按钮
-  /// 直接把用户带到不依赖路由器策略的热点配网，而不是让他把同一条路再走一遍。
-  bool get _shouldFallBackToAp => request != null && request!.mode != 'ap';
+  /// 两种模式的失败原因都不会因为重试而改变（AP：热点没连住；EZ：路由器过滤组播
+  /// 或设备不在 EZ 模式），所以主按钮直接把用户带到另一条路，而不是让他把同一条
+  /// 再走一遍两分钟。
+  String? get _fallbackMode => switch (request?.mode) {
+    'ap' => 'ez',
+    'ez' => 'ap',
+    _ => null,
+  };
+
+  String get _fallbackLabel =>
+      _fallbackMode == 'ez' ? '改用快速配网' : '改用热点配网';
 
   void _retry(BuildContext context) {
     // The Wi-Fi page no longer pre-fills placeholder credentials, so a retry
     // has to carry the previous attempt back or the form arrives blank.
     final attempt = request;
+    final fallback = _fallbackMode;
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.pairing,
       arguments: PairingArguments(
-        request: _shouldFallBackToAp && attempt != null
+        request: fallback != null && attempt != null
             ? PairingRequest(
                 ssid: attempt.ssid,
                 password: attempt.password,
-                mode: 'ap',
+                mode: fallback,
               )
             : attempt,
       ),
@@ -138,7 +147,7 @@ class PairingFailurePage extends StatelessWidget {
                             textStyle: const TextStyle(fontSize: 19),
                           ),
                           child: Text(
-                            _shouldFallBackToAp ? '改用热点配网' : '重新配网',
+                            _fallbackMode == null ? '重新配网' : _fallbackLabel,
                           ),
                         ),
                       ),

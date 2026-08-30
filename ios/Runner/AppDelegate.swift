@@ -84,6 +84,12 @@ final class FlowerpotTuyaBridge: NSObject {
     // ThingActivatorMode 是 ObjC 的 NS_ENUM，运行时拿不到常量名，没法像 Android
     // 那样让 SDK 自己报一遍。要确认 iOS 支不支持双模只能查平台文档。
     case "listActivatorModes": sdkError(result, code: "unsupported_on_ios", message: "iOS 端无法枚举配网模式常量，请查涂鸦 iOS 文档")
+    // iOS 的对应能力是 NEHotspotConfigurationManager，但它需要 Hotspot
+    // Configuration entitlement（要在 Apple 开发者后台为 App ID 开启并加进
+    // entitlements 文件）。那套配置还没做，所以这里明确报未实现，Dart 侧会
+    // 回落到引导用户去系统设置手动连接，而不是静默失败。
+    case "joinDeviceHotspot": sdkError(result, code: "hotspot_join_unsupported", message: "iOS 端需先配置 Hotspot Configuration 权限")
+    case "leaveDeviceHotspot": result(nil)
     case "pairWifiDevice": pairWifi(args, result)
     case "publishDps": publishDps(args, result)
     case "renameDevice": renameDevice(args, result)

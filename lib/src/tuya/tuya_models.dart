@@ -615,19 +615,22 @@ class AnimationAsset {
 
 /// 配网请求。
 ///
-/// [mode] 取 `ez`、`ap` 或 `dual`：
-/// - `ez`（默认）手机全程连在路由器上，把凭据广播出去，用户不必切换网络；代价
-///   是必须处在 2.4G，且部分路由器会过滤组播导致设备收不到。
-/// - `ap` 要手机先连设备自己拉起的热点，步骤繁琐但不受路由器策略影响，作为 EZ
-///   失败后的兜底。
-/// - `dual` 由 SDK 同时走 EZ 和 AP。**这套 SDK 是否提供双模常量尚未确认**，先用
-///   联调页的「查询配网模式」问一次；没有的话选它会失败并列出实际可用的常量名。
-///   确认可用之前不要放进产品页。
+/// [mode] 取 `ap` 或 `ez`：
+/// - `ap`（默认）手机先连设备自己拉起的热点，再把路由器凭据交给它。Android 10
+///   起 App 可以直接发起这个连接（系统弹框确认即可，见 `joinDeviceHotspot`），
+///   不必让用户去系统设置，所以步骤并不比 EZ 多。它不受路由器组播策略影响，是
+///   实测唯一稳定配上的方式。
+/// - `ez` 手机全程连在路由器上广播凭据，看似更省事，但必须处在 2.4G，且很多
+///   路由器会过滤组播导致设备收不到；设备也必须处在 EZ 模式（快闪、不拉热点）。
+///
+/// 没有双模：7.5.1 的 `ActivatorModelEnum` 只提供
+/// `THING_AP / THING_EZ / THING_4G_GATEWAY / THING_STATIC_IP / THING_QR`，
+/// 实机查询过，不存在 EZ+AP 合一的常量。
 class PairingRequest {
   const PairingRequest({
     required this.ssid,
     required this.password,
-    this.mode = 'ez',
+    this.mode = 'ap',
   });
 
   final String ssid;
