@@ -892,6 +892,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
         val ssid = call.argument<String>("ssid").orEmpty()
         val prefix = call.argument<String>("prefix").orEmpty()
+        val target = if (ssid.isNotEmpty()) ssid else "${prefix.ifEmpty { "SmartLife-" }}*"
         val specifier = WifiNetworkSpecifier.Builder().apply {
             // 给了确切 SSID 就精确匹配；只给前缀时让系统列出所有匹配的热点，由
             // 用户在弹框里挑——设备热点名带随机后缀，扫不到时前缀更实用。
@@ -919,13 +920,20 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 boundNetwork = network
                 val bound = runCatching { manager.bindProcessToNetwork(network) }
                     .getOrDefault(false)
-                Log.i(TUYA_LOG_TAG, "hotspot joined, bound=$bound")
+                Log.i(TUYA_LOG_TAG, "hotspot joined $target, bound=$bound")
                 if (answered.compareAndSet(false, true)) success(result, bound)
             }
 
             override fun onUnavailable() {
+                // 系统扫不到匹配的网络时也走这里，和用户点了取消无法区分，所以把
+                // 实际匹配的目标带出去——前缀写错导致一个都匹配不上时，这行是唯一
+                // 能看出问题的信息。
                 if (answered.compareAndSet(false, true)) {
-                    error(result, "hotspot_join_cancelled", "未连接设备热点，可能是取消或超时")
+                    error(
+                        result,
+                        "hotspot_join_cancelled",
+                        "未连上 $target：热点不存在、系统弹框被取消或超时",
+                    )
                 }
             }
 

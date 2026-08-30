@@ -478,9 +478,17 @@ class FlowerpotState extends ChangeNotifier {
   }) => _guard(() async {
     await _repository.prepareActivatorToken();
     _activatorTokenAt = DateTime.now();
+    // 优先用扫描里真实看到的热点名。前缀匹配只能给一个模式，写死 `SmartLife-`
+    // 会漏掉 `ty_` / `ysplanter` 开头的那些——系统找不到匹配网络时不会弹框，直接
+    // 回 onUnavailable，看起来就像用户取消了。
+    final target =
+        hotspotSsid ??
+        _wifiScan?.deviceHotspots
+            .map((item) => item.ssid)
+            .firstOrNull;
     final joined = await _repository.joinDeviceHotspot(
-      ssid: hotspotSsid,
-      prefix: hotspotSsid == null ? 'SmartLife-' : null,
+      ssid: target,
+      prefix: target == null ? 'SmartLife-' : null,
     );
     if (!joined) {
       throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
