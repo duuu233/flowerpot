@@ -33,8 +33,6 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
   final ssidController = TextEditingController();
   final wifiPasswordController = TextEditingController();
 
-  /// 联调页默认 EZ，和产品页一致。
-  String pairMode = 'ez';
   final List<_CallLog> log = <_CallLog>[];
   LoginRegion region = LoginRegion.domestic;
 
@@ -424,15 +422,13 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
                       Text(
-                        '直接调用 pairWifiDevice（超时 120 秒），失败只写进下面的日志并带原始'
-                        '错误码，不会跳到配网失败页。两种模式填的都是「设备要连的路由器」'
-                        '的名称和密码，不是设备热点的。\n'
-                        'EZ：手机保持连在同一个 2.4G 网络，直接点「开始配网」。\n'
-                        'AP：先点「获取配网令牌」（这一步要联网），再去系统设置连上设备'
-                        '热点，回来点「开始配网」。连上热点后手机就没有外网了，令牌必须'
-                        '提前取好。\n'
-                        '双模：SDK 同时走 EZ 和 AP。先点「查询配网模式」确认这套 SDK 报出了'
-                        '双模常量，没有的话选它会直接失败并列出实际可用的常量名。',
+                        'EZ 配网，直接调用 pairWifiDevice（超时 120 秒）。失败只写进下面的'
+                        '日志并带原始错误码，不跳配网失败页，方便连续重试。\n\n'
+                        '① 设备长按到指示灯快闪（EZ 下设备不拉热点，扫不到是正常的）\n'
+                        '② 手机连在目标 2.4G 路由器上，保持不动，且要有网\n'
+                        '③ 填路由器的名称和密码——不是设备热点的\n'
+                        '④ 点「开始配网」\n\n'
+                        '设备若已被别的 App 绑定，必须先在那边解绑，否则它不再监听配网广播。',
                         style: AppTypography.smallBody.copyWith(
                           color: AppColors.textSecondary,
                         ),
@@ -450,22 +446,6 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         key: const Key('tuya-debug-wifi-password'),
                         controller: wifiPasswordController,
                         label: 'Wi-Fi 密码',
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      SegmentedButton<String>(
-                        key: const Key('tuya-debug-pair-mode'),
-                        segments: const <ButtonSegment<String>>[
-                          ButtonSegment<String>(value: 'ez', label: Text('EZ')),
-                          ButtonSegment<String>(value: 'ap', label: Text('AP')),
-                          ButtonSegment<String>(
-                            value: 'dual',
-                            label: Text('双模'),
-                          ),
-                        ],
-                        selected: <String>{pairMode},
-                        showSelectedIcon: false,
-                        onSelectionChanged: (value) =>
-                            setState(() => pairMode = value.first),
                       ),
                       const SizedBox(height: AppSpacing.md),
                       _ActionRow(
@@ -490,16 +470,6 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                               usesAccount: false,
                             ),
                           ),
-                          _action(
-                            key: const Key('tuya-debug-prepare-token'),
-                            label: '获取配网令牌',
-                            busy: busy,
-                            onPressed: () => _run(
-                              '获取配网令牌',
-                              () => state.prepareActivatorToken(),
-                              usesAccount: false,
-                            ),
-                          ),
                         ],
                       ),
                       if (state.wifiScan case final WifiScan scan) ...<Widget>[
@@ -517,12 +487,12 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         busy: busy,
                         primary: true,
                         onPressed: () => _run(
-                          '配网 ${pairMode.toUpperCase()}',
+                          '配网 EZ',
                           () => state.pairDevice(
                             PairingRequest(
                               ssid: ssidController.text.trim(),
                               password: wifiPasswordController.text,
-                              mode: pairMode,
+                              mode: 'ez',
                             ),
                           ),
                           usesAccount: false,

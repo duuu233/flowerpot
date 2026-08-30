@@ -826,8 +826,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val names = (setter.parameterTypes.single().enumConstants ?: emptyArray())
             .filterIsInstance<Enum<*>>()
             .map { it.name }
+        val factories = describeFactories(activatorApi.javaClass)
         Log.i(TUYA_LOG_TAG, "Activator modes: ${names.joinToString()}")
-        success(result, names)
+        Log.i(TUYA_LOG_TAG, "Activator factories: $factories")
+        // 工厂列表一起报出来：智能生活能「搜索到设备」，说明这套 SDK 多半提供了
+        // 搜索用的工厂（newSearchActivator 之类）。项目文档当初判断「SDK 没有设备
+        // 发现接口」，这一行就是用来推翻或证实它的。
+        success(result, names + listOf("工厂方法：$factories"))
     }
 
     private fun stopActivator() {
