@@ -155,6 +155,12 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                                   '${_maskAccount(state.user!.account)} · '
                                   'uid ${state.user!.id}',
                       ),
+                      // 「开始配网」等会改状态的操作守着全局单操作锁。锁没释放
+                      // 时按钮是灰的，而原来页面上看不出这是被锁住还是没反应。
+                      _StatusRow(
+                        label: '操作锁',
+                        value: busy ? '占用中（写操作按钮会变灰）' : '空闲',
+                      ),
                       _StatusRow(
                         label: '设备数量',
                         value: '${state.devices.length}',
