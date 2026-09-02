@@ -40,6 +40,15 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- 临时联调配置（2026-08-29 起）：APP 后端目前只有明文 IP 端口可用。
+	     ATS 的 NSExceptionDomains 对纯 IP 字面量匹配不可靠，所以这里只能开
+	     全局 NSAllowsArbitraryLoads。后端给出可用 HTTPS 源站后必须整段删除，
+	     否则 App Store 审核会要求书面说明。 -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

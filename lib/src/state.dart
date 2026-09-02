@@ -30,6 +30,15 @@ class FlowerpotState extends ChangeNotifier {
   AppUser? _user;
   WifiScan? _wifiScan;
 
+  /// 每台设备最近一次的固件升级进度，界面据此显示进度条。
+  final Map<String, OtaProgress> _otaProgress = <String, OtaProgress>{};
+
+  /// 已发起升级但尚未收到 success 的目标版本号，收到后才写回设备。
+  final Map<String, String> _pendingOtaVersion = <String, String>{};
+
+  /// [probeWifi] 自己的重入保护，见那里的说明。
+  bool _wifiScanning = false;
+
   /// When [prepareActivatorToken] last succeeded. The token itself never
   /// leaves the native layer; this only tells the Wi-Fi page whether the AP
   /// step is still covered.
@@ -50,6 +59,7 @@ class FlowerpotState extends ChangeNotifier {
 
   /// Live device reports. See [_applyDeviceUpdate].
   StreamSubscription<DeviceUpdate>? _deviceUpdates;
+  StreamSubscription<OtaProgress>? _otaUpdates;
 
   /// Devices whose plant has been picked in this session.
   ///
@@ -315,17 +325,21 @@ class FlowerpotState extends ChangeNotifier {
 
   /// Re-runs SDK initialization so the reason behind [sdkReady] becomes
   /// visible. Startup swallows this failure to keep the app usable.
-  Future<ActionResult> probeSdk() => _guard(() async {
+  Future<ActionResult> probeSdk() => _run(() async {
     final ready = await _repository.initialize();
     _sdkReady = ready;
     return ready
         ? const ActionResult(true, 'SDK 初始化通过')
-        : const ActionResult(false, 'SDK 初始化返回不可用', code: 'sdk_unavailable');
+        : const ActionResult(
+            false,
+            'APP-sdk_unavailable SDK 初始化返回不可用',
+            code: 'sdk_unavailable',
+          );
   });
 
   /// Asks the SDK whether it still holds a login session and aligns the local
   /// session with that answer.
-  Future<ActionResult> probeSession() => _guard(() async {
+  Future<ActionResult> probeSession() => _run(() async {
     final user = await _repository.restoreSession();
     if (user == null) {
       // Probing a session is not leaving the demo: the repository swapped in by
@@ -333,7 +347,11 @@ class FlowerpotState extends ChangeNotifier {
       final demo = _demoMode;
       _clearLocalSession();
       _demoMode = demo;
-      return const ActionResult(false, 'SDK 未持有登录会话', code: 'no_session');
+      return const ActionResult(
+        false,
+        'APP-no_session SDK 未持有登录会话',
+        code: 'no_session',
+      );
     }
     _user = user;
     _sessionEpoch++;
@@ -341,19 +359,40 @@ class FlowerpotState extends ChangeNotifier {
     return ActionResult(true, '会话有效，设备 ${_devices.length} 台');
   });
 
-  /// Nearby access points: in AP mode the device hotspot has to be visible, and
-  /// EZ mode only works from a 2.4 GHz network.
+  /// Nearby access points: AP 配网要能看见设备热点，而设备本身只连 2.4 GHz。
   ///
   /// Used by the pairing flow — the search step looks for planter hotspots and
   /// the Wi-Fi step lists real 2.4 GHz routers — and by the SDK console. Does
   /// not touch the Tuya SDK, so it answers even before initialization.
-  Future<ActionResult> probeWifi() => _guard(() async {
+  ///
+  /// 不参与 [_guard] 的全局单操作锁：这是个只读调用，和别的操作没有真实冲突，
+  /// 而 Android 上一次扫描要好几秒。占着锁的话，这期间用户发起的任何操作——
+  /// 换页后再扫一次、配网页取令牌——都会被挡成「请等待当前操作完成」，在选择
+  /// 设备页上还会被当成扫描失败的原因显示出来。这里只防它自己重入。
+  Future<ActionResult> probeWifi() async {
+    if (_wifiScanning) {
+      return const ActionResult(
+        false,
+        'APP-wifi_scanning 正在扫描附近网络，请稍候',
+        code: 'wifi_scanning',
+      );
+    }
+    _wifiScanning = true;
+    try {
+      return await _run(_probeWifi);
+    } finally {
+      _wifiScanning = false;
+      notifyListeners();
+    }
+  }
+
+  Future<ActionResult> _probeWifi() async {
     final scan = await _repository.scanWifi();
     _wifiScan = scan;
     final current = scan.current;
     final band = switch (scan.currentIs24g) {
       true => '2.4G',
-      false => '5G，EZ 配网需要切到 2.4G',
+      false => '5G，设备只能连 2.4G',
       null => '频段未知',
     };
     final hotspots = scan.networks
@@ -365,13 +404,19 @@ class FlowerpotState extends ChangeNotifier {
       '${current == null ? '' : '，当前 $current（$band）'}'
       '${hotspots == 0 ? '' : '，其中 $hotspots 个疑似设备热点'}',
     );
-  });
+  }
 
   /// Device refresh that reports home query, auto-create and device list
   /// failures instead of hiding them like the silent session refresh.
-  Future<ActionResult> probeDevices() => _guard(() async {
+  Future<ActionResult> probeDevices() => _run(() async {
     await _refreshDevicesForSession(ignoreErrors: false);
-    return ActionResult(true, '设备列表已刷新，共 ${_devices.length} 台');
+    // 带上家庭 id：0 台设备最常见的原因不是没配上，而是查的家庭和配网时用的
+    // 不是同一个，而那在 Dart 侧原本完全看不出来。
+    final home = await _repository.currentHomeId().catchError((_) => '?');
+    return ActionResult(
+      true,
+      '设备列表已刷新，共 ${_devices.length} 台（家庭 $home）',
+    );
   });
 
   Future<ActionResult> logout() => _guard(() async {
@@ -401,8 +446,96 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '已获取配网令牌，8 分钟内有效，现在可以切到设备热点');
   });
 
-  Future<ActionResult> pairDevice(PairingRequest request) => _guard(() async {
-    final device = await _repository.pair(request);
+  /// 问 SDK 要它实际提供的配网模式，用来确认双模是否可用。
+  Future<ActionResult> probeActivatorModes() => _run(() async {
+    final modes = await _repository.listActivatorModes();
+    return ActionResult(
+      true,
+      modes.isEmpty ? '该 SDK 未报告任何配网模式' : '可用配网模式：${modes.join(', ')}',
+    );
+  });
+
+  /// 由 App 直接连上设备热点。AP 配网原本要用户自己去系统设置连，这一步是那段
+  /// 流程里最容易失败的地方（连错、系统因无互联网自动切走、超时）。
+  Future<ActionResult> joinDeviceHotspot({String? ssid}) => _guard(() async {
+    final joined = await _repository.joinDeviceHotspot(
+      ssid: ssid,
+      prefix: ssid == null ? 'SmartLife-' : null,
+    );
+    if (!joined) {
+      throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
+    }
+    return const ActionResult(true, '已连接设备热点，可以开始配网');
+  });
+
+  Future<ActionResult> pairDevice(PairingRequest request) =>
+      _guard(() => _pairInternal(request));
+
+  /// 一步走完 AP 配网：取令牌 → 连设备热点 → 配网。
+  ///
+  /// 三件事必须按这个顺序、并且在同一次操作里完成：令牌只能在手机还连着路由器
+  /// 时去云端取，而连上设备热点之后就没有外网了。拆成三个按钮让用户自己按顺序
+  /// 点，中间任何一步走神都会失败，而失败原因（令牌过期、没连上热点）从涂鸦的
+  /// `1006 out of time` 里完全看不出来。
+  Future<ActionResult> pairViaHotspot({
+    required String ssid,
+    required String password,
+    String? hotspotSsid,
+  }) => _guard(() async {
+    // 三步各自计时并写进结果文案。整个过程只吐一个最终结果的话，卡在取令牌、
+    // 连热点还是下发凭据上完全看不出来——而这三步的失败在涂鸦那边都可能表现成
+    // 同一个 `1006 out of time`。
+    final steps = <String>[];
+    final watch = Stopwatch()..start();
+    void mark(String name) {
+      steps.add('$name ${watch.elapsedMilliseconds}ms');
+      watch.reset();
+    }
+
+    try {
+      await _repository.prepareActivatorToken();
+      _activatorTokenAt = DateTime.now();
+      mark('令牌');
+
+      // 优先用扫描里真实看到的热点名。前缀匹配只能给一个模式，写死 `SmartLife-`
+      // 会漏掉 `ty_` / `ysplanter` 开头的那些——系统找不到匹配网络时不会弹框，
+      // 直接回 onUnavailable，看起来就像用户取消了。
+      final target =
+          hotspotSsid ??
+          _wifiScan?.deviceHotspots.map((item) => item.ssid).firstOrNull;
+      final joined = await _repository.joinDeviceHotspot(
+        ssid: target,
+        prefix: target == null ? 'SmartLife-' : null,
+      );
+      mark('连热点${target == null ? '(前缀匹配)' : '($target)'}');
+      if (!joined) {
+        throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
+      }
+
+      final result = await _pairInternal(
+        PairingRequest(ssid: ssid, password: password, mode: 'ap'),
+      );
+      mark('配网');
+      return ActionResult(
+        result.success,
+        '${result.message}｜${steps.join(' · ')}',
+        code: result.code,
+      );
+    } on TuyaException catch (error) {
+      mark('失败');
+      throw TuyaException(error.code, '${error.message}｜${steps.join(' · ')}');
+    } on ApiException catch (error) {
+      mark('失败');
+      throw ApiException(
+        error.code,
+        '${error.message}｜${steps.join(' · ')}',
+        data: error.data,
+      );
+    }
+  });
+
+  Future<ActionResult> _pairInternal(PairingRequest request) async {
+    final device = await _pairOrRecover(request);
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.
     _activatorTokenAt = null;
@@ -417,13 +550,53 @@ class FlowerpotState extends ChangeNotifier {
       } on ApiException catch (error) {
         return ActionResult(
           true,
-          '设备已配网；后台关联待重试：${error.message}',
+          '设备已配网；后台关联待重试：'
+          '${_tagged(_apiSource(error.code), error.code, error.message)}',
           code: 'backend_device_pending',
         );
       }
     }
     return const ActionResult(true, '设备配网成功');
-  });
+  }
+
+  /// 配网，报错时回查云端确认设备是不是其实已经绑上了。
+  ///
+  /// 设备可能已经激活，只是 App 没等到云端的确认——AP 配网下很常见：设备一拿到
+  /// 凭据就关掉热点去连路由器，手机正在从热点切回路由器的这个空档里，SDK 的确认
+  /// 请求发不出去，最后报 `1006 out of time`，而设备其实已经绑到账号上了。云端
+  /// 的设备列表才是权威，所以判失败之前先问一次。
+  Future<SmartPlanterDevice> _pairOrRecover(PairingRequest request) async {
+    final knownIds = _devices.map((item) => item.id).toSet();
+    try {
+      return await _repository.pair(request);
+    } on TuyaException catch (error) {
+      final recovered = await _recoverPairedDevice(knownIds);
+      if (recovered == null) rethrow;
+      debugPrint('[pair] ${error.code} 后在云端发现新设备，按成功处理');
+      return recovered;
+    }
+  }
+
+  /// 配网报错后回查云端，看是否其实已经绑上了一台新设备。
+  ///
+  /// 只认[knownIds]之外的设备：重试时账号里可能已经有别的花盆，不能把任意一台
+  /// 当成本次配网的结果。查询本身失败就返回 null，让原来的错误照常抛出。
+  Future<SmartPlanterDevice?> _recoverPairedDevice(Set<String> knownIds) async {
+    // 手机这时刚从设备热点切回路由器，网络要几秒才稳，立刻查多半还是失败。
+    // 配网本身已经等了两分钟，这里多花几秒换一次准确判断是划算的。
+    for (var attempt = 0; attempt < 3; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      try {
+        final devices = await _repository.getDevices();
+        for (final device in devices) {
+          if (!knownIds.contains(device.id)) return device;
+        }
+      } catch (_) {
+        // 这一轮网络还没好，再试。三轮都不行就保持原错误。
+      }
+    }
+    return null;
+  }
 
   void selectDevice(String id) {
     _selectedDeviceId = id;
@@ -702,13 +875,26 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<String?> checkFirmware(String id) => _repository.checkFirmware(id);
 
+  /// 发起固件升级。
+  ///
+  /// 只负责"发起"：涂鸦的 `startOta` 返回时设备才刚开始下载，之后的进度和最终
+  /// 结果都从 [otaUpdates] 回来。版本号因此不在这里改写，而是等 success 事件
+  /// ——否则设备还在烧录，界面就已经显示新版本了。
   Future<ActionResult> upgradeFirmware(String id, String version) => _guard(
     () async {
       await _repository.startFirmwareUpgrade(id);
-      _replaceDevice(id, (device) => device.copyWith(firmwareVersion: version));
-      return ActionResult(true, '固件已升级至 $version');
+      _pendingOtaVersion[id] = version;
+      _otaProgress[id] = OtaProgress(
+        deviceId: id,
+        status: OtaStatus.running,
+        percent: 0,
+      );
+      return const ActionResult(true, '升级已开始，请保持设备通电并留在网络中');
     },
   );
+
+  /// 某台设备最近一次的升级进度，没有发起过升级时为 null。
+  OtaProgress? otaProgressFor(String deviceId) => _otaProgress[deviceId];
 
   /// Advances `water_level_calib` (DP 140) by one step.
   ///
@@ -831,6 +1017,28 @@ class FlowerpotState extends ChangeNotifier {
   void _listenForDeviceUpdates() {
     _deviceUpdates?.cancel();
     _deviceUpdates = _repository.deviceUpdates.listen(_applyDeviceUpdate);
+    _otaUpdates?.cancel();
+    _otaUpdates = _repository.otaUpdates.listen(_applyOtaProgress);
+  }
+
+  /// 固件升级的实时进度。
+  ///
+  /// 升级要几分钟，期间设备一直在下载和烧录，所以版本号只在收到 success 时才
+  /// 更新——`startOta` 返回只代表升级发起成功。失败和进度都留在这里给界面读。
+  void _applyOtaProgress(OtaProgress progress) {
+    _otaProgress[progress.deviceId] = progress;
+    if (progress.status == OtaStatus.success) {
+      final target = _pendingOtaVersion.remove(progress.deviceId);
+      if (target != null) {
+        _replaceDevice(
+          progress.deviceId,
+          (device) => device.copyWith(firmwareVersion: target),
+        );
+      }
+    } else if (progress.status == OtaStatus.failed) {
+      _pendingOtaVersion.remove(progress.deviceId);
+    }
+    notifyListeners();
   }
 
   /// Applies a change the device pushed on its own.
@@ -879,6 +1087,7 @@ class FlowerpotState extends ChangeNotifier {
   @override
   void dispose() {
     _deviceUpdates?.cancel();
+    _otaUpdates?.cancel();
     _backend.close();
     super.dispose();
   }
@@ -892,24 +1101,68 @@ class FlowerpotState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 给失败文案打上来源标签，toast 上一眼看出是谁拒绝了这次请求：
+  ///
+  /// - `接口-<code>`：APP 后端 REST 返回的失败（`retCode` 或 HTTP 状态码）；
+  /// - `涂鸦-<code>`：涂鸦 SDK 原生层返回的失败，与 APP 后端无关；
+  /// - `APP-<code>`：APP 自己产生的失败（本地校验、网络层、未预期异常）。
+  ///
+  /// 涂鸦单列而不并进「接口」：两者是不同的服务，混成一类会把涂鸦拒绝的登录
+  /// 指向 APP 后端，排查方向正好反了。
+  static String _tagged(String source, Object code, String message) =>
+      '$source-$code $message';
+
+  /// 后端的 `retCode` 与 HTTP 状态码都是数字；APP 网络层自己抛的是
+  /// `NETWORK_TIMEOUT` 这类大写字符串常量，据此区分 [ApiException] 的来源。
+  static String _apiSource(Object code) => code is int ? '接口' : 'APP';
+
   Future<ActionResult> _guard(Future<ActionResult> Function() action) async {
-    if (_busy) return const ActionResult(false, '请等待当前操作完成', code: 'busy');
+    if (_busy) {
+      return const ActionResult(false, 'APP-busy 请等待当前操作完成', code: 'busy');
+    }
     _busy = true;
     notifyListeners();
     try {
-      return await action();
-    } on AuthValidationException catch (error) {
-      return ActionResult(false, error.message, code: 'invalid_input');
-    } on TuyaException catch (error) {
-      return ActionResult(false, error.message, code: error.code);
-    } on ApiException catch (error) {
-      if (error.isAuthError) _clearLocalSession();
-      return ActionResult(false, error.message, code: error.code.toString());
-    } catch (error) {
-      return ActionResult(false, '操作失败：$error', code: 'unexpected_error');
+      return await _run(action);
     } finally {
       _busy = false;
       notifyListeners();
+    }
+  }
+
+  /// 异常收口，不占用 [_busy]。
+  ///
+  /// 给两类调用用：和其它操作没有真实冲突、又可能跑很久的只读调用（Wi-Fi 扫描），
+  /// 以及联调页那几个诊断入口——AP 配网最长要跑两分半，那段时间恰恰最需要能查
+  /// 会话和设备列表，被全局锁挡住的话调试台等于废了。[_guard] 自己也走这里。
+  Future<ActionResult> _run(Future<ActionResult> Function() action) async {
+    try {
+      return await action();
+    } on AuthValidationException catch (error) {
+      return ActionResult(
+        false,
+        _tagged('APP', 'invalid_input', error.message),
+        code: 'invalid_input',
+      );
+    } on TuyaException catch (error) {
+      return ActionResult(
+        false,
+        _tagged('涂鸦', error.code, error.message),
+        code: error.code,
+      );
+    } on ApiException catch (error) {
+      if (error.isAuthError) _clearLocalSession();
+      return ActionResult(
+        false,
+        _tagged(_apiSource(error.code), error.code, error.message),
+        code: error.code.toString(),
+      );
+    } catch (error) {
+      return ActionResult(
+        false,
+        _tagged('APP', 'unexpected_error', '操作失败：$error'),
+        code: 'unexpected_error',
+      );
     }
   }
 
@@ -951,11 +1204,10 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<AppUser> _loginTuyaAccount(BackendAuthAccount backendAccount) async {
     try {
-      await _repository.login(
-        account: backendAccount.tuyaAccount,
-        credential: backendAccount.tuyaPassword,
-        region: LoginRegion.domestic,
-        verificationCode: false,
+      await _repository.loginWithUid(
+        uid: backendAccount.tuyaAccount,
+        password: backendAccount.tuyaPassword,
+        countryCode: backendAccount.countryCode,
       );
     } catch (_) {
       // Do not leave a valid APP token paired with a failed Tuya session.

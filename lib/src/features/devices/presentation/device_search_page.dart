@@ -194,6 +194,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       );
     }
     final result = _result;
+    // 另一次扫描还在跑不是失败：照常显示搜索中，别报「无法扫描附近设备」。
+    if (result != null && result.code == 'wifi_scanning') {
+      return const _SearchOutcome(
+        '搜索附近设备...',
+        '请让设备进入配网状态，并确认手机连接的是2.4GHz Wi-Fi',
+      );
+    }
     if (result != null && !result.success) {
       return _SearchOutcome('无法扫描附近设备', _failureHint(result));
     }

@@ -7,6 +7,13 @@ import 'tuya_config.dart';
 import 'tuya_history_codec.dart';
 import 'tuya_models.dart';
 
+/// 显式国家码优先；缺省时按区域回落到国内 86 / 海外 1。
+String _resolveCountryCode(LoginRegion region, String? override) {
+  final explicit = override?.trim() ?? '';
+  if (explicit.isNotEmpty) return explicit;
+  return region == LoginRegion.domestic ? '86' : '1';
+}
+
 abstract class TuyaRepository {
   /// [seedMockDevice] pre-binds a demo planter to the mock backend. The static
   /// UI demo turns it off so the flow starts from the "no device yet" screen.
@@ -28,6 +35,19 @@ abstract class TuyaRepository {
     required LoginRegion region,
     required bool verificationCode,
   });
+
+  /// 涂鸦自有账号体系登录：用 APP 后端下发的内部编号 [uid] 与配套密码登录，
+  /// 涂鸦侧没有该账号时自动注册。
+  ///
+  /// 国内账号走的是这条路而不是 [login]：后端返回的 `userNo`（形如
+  /// `GA7593223`）不是手机号，拿它调手机号登录会被涂鸦回 `USER_PASSWD_WRONG`，
+  /// 文案上看起来却像密码错，很容易把排查方向带偏。
+  Future<AppUser> loginWithUid({
+    required String uid,
+    required String password,
+    required String countryCode,
+  });
+
   Future<AppUser> register({
     required String account,
     required String password,
@@ -54,6 +74,22 @@ abstract class TuyaRepository {
   /// token from there and fail. The token stays in the native layer.
   Future<void> prepareActivatorToken();
 
+  /// SDK 实际提供的配网模式常量名。用于确认这套 SDK 到底支不支持双模。
+  Future<List<String>> listActivatorModes();
+
+  /// 由 App 直接连上设备热点，省掉「去系统设置连 Wi-Fi」那一步。
+  ///
+  /// 给了 [ssid] 就精确连它；只给 [prefix] 时由系统列出匹配的热点让用户挑。
+  /// 返回是否连上并把进程流量绑了过去。Android 9 及以下不支持，抛
+  /// `hotspot_join_unsupported`，调用方据此回落到手动引导。
+  Future<bool> joinDeviceHotspot({String? ssid, String? prefix});
+
+  /// 释放上面那条连接，让手机回到原来的网络。
+  Future<void> leaveDeviceHotspot();
+
+  /// 当前使用的涂鸦家庭 id。设备列表按家庭查，家庭对不上就会是空的。
+  Future<String> currentHomeId();
+
   /// Nearby access points, used before provisioning to check that the phone is
   /// on 2.4 GHz and — in AP mode — that the device hotspot is up.
   Future<WifiScan> scanWifi();
@@ -76,6 +112,10 @@ abstract class TuyaRepository {
   /// A broadcast stream — several screens may listen at once — that stays
   /// silent rather than failing on a platform whose bridge does not push yet.
   Stream<DeviceUpdate> get deviceUpdates;
+
+  /// 固件升级进度。和 [deviceUpdates] 走同一条事件通道，同样在没有推送能力的
+  /// 平台上保持静默而不是抛错。
+  Stream<OtaProgress> get otaUpdates;
 }
 
 class MethodChannelTuyaRepository implements TuyaRepository {
@@ -94,16 +134,49 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   final Map<String, Map<Object?, Object?>> _snapshots =
       <String, Map<Object?, Object?>>{};
 
-  @override
-  late final Stream<DeviceUpdate> deviceUpdates = _events
+  /// 原始事件流，只订阅一次后分给下面两个消费者。
+  ///
+  /// A platform that does not implement the event channel delivers one
+  /// MissingPluginException and nothing else. Live updates stay off there
+  /// instead of taking every listener down with them.
+  late final Stream<Object?> _rawEvents = _events
       .receiveBroadcastStream()
-      // A platform that does not implement the event channel — iOS today —
-      // delivers one MissingPluginException and nothing else. Live updates
-      // stay off there instead of taking every listener down with them.
-      .handleError((Object _) {})
+      .handleError((Object _) {});
+
+  @override
+  late final Stream<DeviceUpdate> deviceUpdates = _rawEvents
       .map(_deviceUpdate)
       .where((update) => update != null)
       .cast<DeviceUpdate>();
+
+  @override
+  late final Stream<OtaProgress> otaUpdates = _rawEvents
+      .map(_otaUpdate)
+      .where((update) => update != null)
+      .cast<OtaProgress>();
+
+  /// 解析原生的 OTA 事件：`{deviceId, ota: {status, percent?, message?}}`。
+  OtaProgress? _otaUpdate(Object? event) {
+    if (event is! Map) return null;
+    final ota = event['ota'];
+    if (ota is! Map) return null;
+    final deviceId = '${event['deviceId'] ?? ''}';
+    if (deviceId.isEmpty) return null;
+    final status = switch ('${ota['status'] ?? ''}') {
+      'success' => OtaStatus.success,
+      'failed' => OtaStatus.failed,
+      'running' => OtaStatus.running,
+      _ => null,
+    };
+    if (status == null) return null;
+    final percent = ota['percent'];
+    return OtaProgress(
+      deviceId: deviceId,
+      status: status,
+      percent: percent is num ? percent.toInt().clamp(0, 100) : null,
+      message: ota['message']?.toString(),
+    );
+  }
 
   /// Turns one native event into an update, or null when there is nothing to
   /// report.
@@ -198,6 +271,24 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   }
 
   @override
+  Future<AppUser> loginWithUid({
+    required String uid,
+    required String password,
+    required String countryCode,
+  }) async {
+    final raw = await _invoke<Map<Object?, Object?>>(
+      'loginWithUid',
+      <String, Object?>{
+        'uid': uid,
+        'password': password,
+        'countryCode': _resolveCountryCode(LoginRegion.domestic, countryCode),
+      },
+    );
+    if (raw == null) throw const TuyaException('empty_user', '登录未返回用户信息');
+    return _user(raw);
+  }
+
+  @override
   Future<AppUser> register({
     required String account,
     required String password,
@@ -273,6 +364,29 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<void> prepareActivatorToken() =>
       _invoke<void>('prepareActivatorToken');
+
+  @override
+  Future<List<String>> listActivatorModes() async {
+    final raw = await _invoke<List<Object?>>('listActivatorModes');
+    return (raw ?? const <Object?>[])
+        .map((item) => '$item')
+        .toList(growable: false);
+  }
+
+  @override
+  Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async =>
+      await _invoke<bool>('joinDeviceHotspot', <String, Object?>{
+        'ssid': ssid ?? '',
+        'prefix': prefix ?? '',
+      }) ??
+      false;
+
+  @override
+  Future<void> leaveDeviceHotspot() => _invoke<void>('leaveDeviceHotspot');
+
+  @override
+  Future<String> currentHomeId() async =>
+      await _invoke<String>('currentHomeId') ?? '';
 
   @override
   Future<WifiScan> scanWifi() async {
@@ -588,6 +702,15 @@ class MockTuyaRepository implements TuyaRepository {
   @override
   Stream<DeviceUpdate> get deviceUpdates => _updates.stream;
 
+  final StreamController<OtaProgress> _otaUpdates =
+      StreamController<OtaProgress>.broadcast();
+
+  @override
+  Stream<OtaProgress> get otaUpdates => _otaUpdates.stream;
+
+  /// 让测试和演示能驱动升级进度，无需真实设备。
+  void pushOtaProgress(OtaProgress progress) => _otaUpdates.add(progress);
+
   /// Pushes a report the way a real planter would, for tests and for driving
   /// the live-update path without hardware.
   void pushDeviceUpdate(DeviceUpdate update) {
@@ -654,6 +777,18 @@ class MockTuyaRepository implements TuyaRepository {
   }
 
   @override
+  Future<AppUser> loginWithUid({
+    required String uid,
+    required String password,
+    required String countryCode,
+  }) => login(
+    account: uid,
+    credential: password,
+    region: LoginRegion.domestic,
+    verificationCode: false,
+  );
+
+  @override
   Future<AppUser> register({
     required String account,
     required String password,
@@ -712,6 +847,28 @@ class MockTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> prepareActivatorToken() => _wait();
+
+  /// Mock 不接 SDK，报空列表——免得联调页看起来像真的问到了答案。
+  @override
+  Future<List<String>> listActivatorModes() async {
+    await _wait();
+    return const <String>[];
+  }
+
+  @override
+  Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {
+    await _wait();
+    return true;
+  }
+
+  @override
+  Future<void> leaveDeviceHotspot() => _wait();
+
+  @override
+  Future<String> currentHomeId() async {
+    await _wait();
+    return 'mock-home';
+  }
 
   @override
   Future<WifiScan> scanWifi() async {

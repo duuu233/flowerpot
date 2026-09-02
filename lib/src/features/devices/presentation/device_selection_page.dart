@@ -54,7 +54,7 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
   /// Moves to the Wi-Fi credentials for the picked planter.
   ///
   /// Nothing is "connected" here: joining a hotspot is a system-level action
-  /// the app cannot perform, and EZ mode never involves one. The name is
+  /// the app cannot perform. The name is
   /// carried so the next page can name the hotspot to join in AP mode.
   void _connect(WifiNetwork? device) {
     Navigator.pushNamed(
@@ -139,6 +139,8 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
     final result = _result;
     if (result != null && !result.success) {
       return switch (result.code) {
+        // 另一次扫描还在跑，不是「这里没有设备」。
+        'wifi_scanning' => '正在扫描附近设备...',
         'wifi_disabled' => '手机 Wi-Fi 未开启，无法扫描附近设备。',
         'location_disabled' => 'Android 9–12 扫描 Wi-Fi 需要打开系统定位开关。',
         'permission_denied' => '扫描需要附近设备/定位权限，请在系统设置中允许后重试。',

@@ -34,10 +34,9 @@ void main() {
     expect(find.text('切换'), findsOneWidget);
     expect(find.text('Wi-Fi密码'), findsOneWidget);
     expect(find.text('连接过程中请保持设备靠近路由器'), findsOneWidget);
-    // Debug builds expose the provisioning mode switch and default to AP, whose
-    // first step is the provisioning token.
-    expect(find.byKey(const Key('pairing-mode-switch')), findsOneWidget);
-    expect(find.text('下一步：连接设备热点'), findsOneWidget);
+    // 只有 AP 一种配网方式，没有模式切换；一次点击走完。
+    expect(find.byKey(const Key('pairing-mode-switch')), findsNothing);
+    expect(find.text('开始配网'), findsOneWidget);
     expect(
       findAssetImage(AppAssets.pairingWifiSetupIllustration),
       findsOneWidget,
@@ -150,7 +149,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('AP provisioning takes the token before the hotspot switch', (
+  testWidgets('AP provisioning runs token, hotspot and pairing in one tap', (
     tester,
   ) async {
     Object? successArguments;
@@ -163,89 +162,25 @@ void main() {
       onSuccessArguments: (value) => successArguments = value,
     );
 
-    await _enterPassword(tester);
-    await tester.tap(find.byKey(const Key('start-pairing-button')));
-    await tester.pumpAndSettle();
-    // Expire the confirmation toast so it does not outlive the test.
-    await tester.pump(const Duration(seconds: 7));
-    await tester.pumpAndSettle();
-
-    // Step one is the cloud call, which has to happen while the phone still has
-    // internet — joining the planter hotspot cuts it off.
-    expect(repository.tokenCalls, 1);
-    expect(repository.pairCalls, 0);
-    expect(state.activatorTokenReady, isTrue);
+    // 一次点击走完三步，所以按钮直接就是「开始配网」，页面上只说明系统会弹框。
+    expect(find.text('开始配网'), findsOneWidget);
     expect(find.byKey(const Key('pairing-hotspot-step')), findsOneWidget);
     expect(find.textContaining('「SmartLife-A1B2」'), findsOneWidget);
-    expect(find.text('开始配网'), findsOneWidget);
 
+    await _enterPassword(tester);
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
+    // 令牌只能在还连着路由器时取，所以它和配网必须在同一次操作里按序完成。
+    expect(repository.tokenCalls, 1);
     expect(repository.pairCalls, 1);
     expect(repository.lastRequest?.mode, 'ap');
     expect(find.text('pairing-success-target'), findsOneWidget);
     expect(successArguments, 'vdevo17235508413621');
     // The token is single use; the bridge drops its cached copy on success.
     expect(state.activatorTokenReady, isFalse);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('EZ provisioning starts in one step', (tester) async {
-    final repository = _TokenRepository();
-    await _pumpPairingPage(
-      tester,
-      const Size(375, 812),
-      repository: repository,
-      arguments: const PairingArguments(
-        request: PairingRequest(
-          ssid: 'TP-LINK_2.4G',
-          password: 'wifi-password',
-          mode: 'ez',
-        ),
-      ),
-    );
-
-    await tester.tap(find.byKey(const Key('start-pairing-button')));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pumpAndSettle();
-
-    // EZ never leaves the router, so `pairWifiDevice` fetches its own token.
-    expect(repository.tokenCalls, 0);
-    expect(repository.pairCalls, 1);
-    expect(repository.lastRequest?.mode, 'ez');
-    expect(find.text('pairing-success-target'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('EZ on a 5G network is called out before the attempt', (
-    tester,
-  ) async {
-    await _pumpPairingPage(
-      tester,
-      const Size(375, 812),
-      repository: _ScanRepository(
-        const WifiScan(
-          current: 'TP-LINK_5G',
-          currentFrequency: 5180,
-          networks: <WifiNetwork>[
-            WifiNetwork(ssid: 'TP-LINK_5G', level: -52, frequency: 5180),
-          ],
-        ),
-      ),
-      arguments: const PairingArguments(
-        request: PairingRequest(
-          ssid: 'TP-LINK_5G',
-          password: 'wifi-password',
-          mode: 'ez',
-        ),
-      ),
-    );
-
-    expect(find.byKey(const Key('pairing-band-warning')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -259,7 +194,6 @@ void main() {
         request: PairingRequest(
           ssid: 'TP-LINK_2.4G',
           password: 'wifi-password',
-          mode: 'ez',
         ),
       ),
       onFailureArguments: (value) => failureArguments = value,
@@ -273,7 +207,7 @@ void main() {
     expect(failure.request?.ssid, 'TP-LINK_2.4G');
     // The SDK reason has to reach the failure screen, not just the request.
     expect(failure.code, 'pair_failed');
-    expect(failure.message, '配网失败');
+    expect(failure.message, '涂鸦-pair_failed 配网失败');
     expect(tester.takeException(), isNull);
   });
 }

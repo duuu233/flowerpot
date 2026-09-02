@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 账号 | 国内手机号短信、验证码/密码登录与注册已接 APP 后端，并用返回的涂鸦映射凭据建立设备会话；海外邮箱、找回/修改密码、退出、注销、头像和用户名保留原链路 | `core/backend`、`features/auth`、`features/profile`、`state.dart` |
 | 首页 | 已配网设备列表、在线/信号/电量/充电、添加和删除设备 | `features/home`、`features/devices` |
-| 配网 | 2.4 GHz Wi-Fi、Token、创建默认家庭；搜索/选择页按 `scanWifi` 列出设备热点，Wi-Fi 页 AP 模式先取令牌再配网（默认 AP，debug 可切 EZ） | `device_search_page.dart`、`device_selection_page.dart`、`pairing_page.dart`、原生 Tuya bridge |
+| 配网 | 2.4 GHz Wi-Fi、Token、创建默认家庭；搜索/选择页按 `scanWifi` 列出设备热点，Wi-Fi 页默认 EZ 一步直发，切到 AP 时先取令牌再配网 | `device_search_page.dart`、`device_selection_page.dart`、`pairing_page.dart`、原生 Tuya bridge |
 | 首页与状态详情 | 植物、陪伴天数、天气、水位、土壤、光照/PPFD/DLI、温度、湿度、电池 | `features/home`、`features/devices/presentation/*_status_page.dart`、`reports_page.dart` |
 | 报表 | 水位/土壤湿度/光照日周月来自设备上报的 raw 历史包；温度、湿度、电池、PPFD、DLI 没有历史功能点，真机上是空态 | `reports_page.dart` |
 | 设备实时性 | DP 上报、上下线、远端解绑由原生监听推送，页面自动刷新 | `tuya_repository.dart`、`state.dart`、两端桥接 |
@@ -24,7 +24,7 @@
 ## 需要平台参数后联调
 
 - Android 本机已完成 AppKey、AppSecret、包名、证书 SHA-256、安全 AAR 与 Home/Expansion SDK 初始化验证；账号、家庭、配网和设备链仍需真机与真实账号联调。秘密与安全组件不入库，其他开发环境必须独立配置。联调起点是登录页的「涂鸦 SDK 联调」入口（见 `TUYA_SDK_SETUP.md` 5.3），它直接调用注册、登录、会话与设备列表并显示原始失败码。
-- 设备只支持 2.4GHz Wi-Fi 配网，没有蓝牙配网，因此不存在 SDK 意义上的「扫描并选择设备」。搜索页与选择页已改成基于 `scanWifi` 的「确认设备已进入配网状态」引导：扫到设备热点就列出来，扫不到或平台不支持枚举（iOS）时给出原因并保留手动继续入口，没有实现设备发现。配网模式默认 AP，debug 构建可切 EZ；正式默认值需要产品确认。真机仍需验证热点识别前缀是否覆盖量产 SSID。
+- 设备只支持 2.4GHz Wi-Fi 配网，没有蓝牙配网，因此不存在 SDK 意义上的「扫描并选择设备」。搜索页与选择页已改成基于 `scanWifi` 的「确认设备已进入配网状态」引导：扫到设备热点就列出来，扫不到或平台不支持枚举（iOS）时给出原因并保留手动继续入口，没有实现设备发现。配网提供 EZ / AP 两种方式，页面上可切换：默认 EZ（手机全程连路由器，省掉切热点），失败页把主按钮换成「改用热点配网」引导到 AP。设备没有蓝牙，所以不存在 Wi-Fi+BLE 双模。真机仍需验证热点识别前缀是否覆盖量产 SSID。
 - iOS 安全组件已放入 `ios/TuyaSDK/`，Podfile 跟随其 SDK 线固定 `ThingSmartHomeKit ~> 7.8.0`；AppKey、AppSecret、Bundle ID、签名仍需在 Xcode 侧配置，且 iOS 全部改动尚未编译或真机验证。iOS 没有 Wi-Fi 扫描 API，分享只有按账号分享（见 `TUYA_SDK_SETUP.md` 第 3 节）。
 - 除已确认的 116 外，产品 PID 与 101–115、117–123 DP 的最终对应关系、数据缩放倍率和枚举定义。
 - 涂鸦设备数据统计服务的开通范围与统计 API。

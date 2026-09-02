@@ -4,8 +4,14 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
+import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
+import android.os.PatternMatcher
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -20,7 +26,11 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Provisioning-mode constants, newest spelling first.
+ * 配网模式常量，新拼写在前。
+ *
+ * 两种都支持：EZ 让手机全程连在路由器上直接广播凭据，省掉切热点那一步，是默认
+ * 路径；AP 要手机先连设备热点，步骤繁琐但不受路由器组播策略影响，作为 EZ 失败
+ * 后的兜底。
  *
  * Tuya renamed `ActivatorModelEnum`'s constants from `TY_*` to `THING_*` during
  * 7.x — 7.5.1 offers `THING_AP, THING_EZ, THING_4G_GATEWAY, THING_STATIC_IP,
@@ -29,6 +39,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 private val EZ_MODE_NAMES = listOf("THING_EZ", "TY_EZ")
 private val AP_MODE_NAMES = listOf("THING_AP", "TY_AP")
+
+/**
+ * EZ+AP 双模。SDK 里叫什么没有公开保证，所以按候选列表逐个试；一个都没有时
+ * [activatorMode] 会把该枚举实际提供的常量名列进异常，据此再补名字。
+ */
+private val DUAL_MODE_NAMES = listOf(
+    "THING_EZ_AP", "TY_EZ_AP", "THING_AP_EZ", "TY_AP_EZ", "THING_EZ_AND_AP",
+)
 
 /**
  * How long a cached provisioning token may be reused.
@@ -214,6 +232,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private var activatorToken: String? = null
     private var activatorTokenAt: Long = 0L
 
+    /** AP 配网期间进程被绑定到的那个 Wi-Fi，用于识别热点何时消失。 */
+    private var boundNetwork: Network? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    /** 由 App 发起的设备热点连接请求；释放它系统就会断开那条连接。 */
+    private var hotspotCallback: ConnectivityManager.NetworkCallback? = null
+
     /**
      * `IThingDevice` instances that currently hold a registered listener, keyed
      * by device id. Written from the main thread, read from the SDK's callback
@@ -251,6 +276,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "currentUser" -> currentUser(result)
                 "sendVerificationCode" -> sendCode(call, result)
                 "login" -> login(call, result)
+                "loginWithUid" -> loginWithUid(call, result)
                 "register" -> register(call, result)
                 "resetPassword" -> resetPassword(call, result)
                 "updateNickname" -> updateNickname(call, result)
@@ -259,6 +285,17 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "getDevices" -> withHome(result) { home -> loadHomeDevices(home, result) }
                 "prepareActivatorToken" -> prepareActivatorToken(result)
                 "pairWifiDevice" -> pairWifi(call, result)
+                "listActivatorModes" -> listActivatorModes(result)
+                // 设备列表是按家庭查的，家庭对不上就是 0 台，而这在 Dart 侧完全
+                // 看不出来——联调页原来显示的「默认家庭」只是个本地常量。
+                "currentHomeId" -> withHome(result) { id ->
+                    success(result, id.toString())
+                }
+                "joinDeviceHotspot" -> joinDeviceHotspot(call, result)
+                "leaveDeviceHotspot" -> {
+                    releaseHotspotRequest()
+                    success(result, null)
+                }
                 "publishDps" -> deviceAction(call, result, "publishDps")
                 "renameDevice" -> deviceAction(call, result, "renameDevice")
                 "removeDevice" -> deviceAction(call, result, "removeDevice")
@@ -431,6 +468,38 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             onSuccess = { value -> success(result, value?.let(::userMap)) },
             onError = { code, message -> error(result, code, message) },
         )
+    }
+
+    /**
+     * 自有账号体系登录：APP 后端下发内部编号与配套密码，涂鸦侧据此登录，
+     * 账号不存在时自动注册。
+     *
+     * 方法名以及是否带 createHome 参数在各 SDK 版本之间有差异，所以按候选
+     * 组合逐个探测，取第一个签名匹配得上的，避免写死某一版的签名。
+     */
+    private fun loginWithUid(call: MethodCall, result: MethodChannel.Result) {
+        val user = userInstance()
+        val countryCode = call.argument<String>("countryCode").orEmpty()
+        val uid = call.argument<String>("uid").orEmpty()
+        val password = call.argument<String>("password").orEmpty()
+        val argumentSets = listOf(
+            arrayOf<Any?>(countryCode, uid, password, true),
+            arrayOf<Any?>(countryCode, uid, password),
+        )
+        for (name in listOf("loginOrRegisterWithUid", "loginOrRegisterByUid")) {
+            for (args in argumentSets) {
+                if (optionalCallbackMethod(user.javaClass, name, args) == null) continue
+                invokeWithCallback(
+                    user,
+                    name,
+                    *args,
+                    onSuccess = { value -> success(result, value?.let(::userMap)) },
+                    onError = { code, message -> error(result, code, message) },
+                )
+                return
+            }
+        }
+        error(result, "uid_login_unsupported", "当前涂鸦 SDK 不支持 uid 登录")
     }
 
     private fun register(call: MethodCall, result: MethodChannel.Result) {
@@ -615,10 +684,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     private fun pairWifi(call: MethodCall, result: MethodChannel.Result) {
-        // Reuse a pre-fetched token when there is one. This is what makes AP
-        // mode work at all: by the time this runs the phone is on the device's
-        // hotspot, so the cloud is unreachable. EZ keeps the phone on the
-        // router, so its fallback below is the normal path.
+        // 这里**不能**清理网络绑定：joinDeviceHotspot 刚把手机连上设备热点，而那条
+        // 连接是跟着 NetworkCallback 走的，一旦 unregister 系统立刻断开——凭据就再
+        // 也发不到设备，只能等满 120 秒报 1006。上一次遗留的绑定由
+        // joinDeviceHotspot 自己在发起新请求前清理，配网结束由 stopActivator 清理。
+        // 复用预取的令牌——AP 配网能成立全靠这一步：跑到这里时手机已经连在设备
+        // 热点上，云端不可达。EZ 全程连在路由器上，走的就是下面这条回落路径，
+        // 所以 EZ 不需要用户先点「获取配网令牌」。
         freshActivatorToken()?.let { token ->
             startActivator(call, result, token)
             return
@@ -639,19 +711,28 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // factory method takes the builder as its only argument, so the type is
         // read off that signature instead — the same trick invokeWithCallback
         // already uses for callback interfaces.
-        val ez = call.argument<String>("mode") == "ez"
-        val factory = activatorFactory(activatorApi, allowMulti = ez)
+        val requested = call.argument<String>("mode").orEmpty()
+        val modeNames = when (requested) {
+            "ez" -> EZ_MODE_NAMES
+            "dual" -> DUAL_MODE_NAMES
+            else -> AP_MODE_NAMES
+        }
+        val factory = activatorFactory(activatorApi, requested)
         val builderClass = factory.parameterTypes.single()
         val builder = builderClass.getDeclaredConstructor()
             .apply { isAccessible = true }
             .newInstance()
-        val mode = activatorMode(builder, if (ez) EZ_MODE_NAMES else AP_MODE_NAMES)
+        val mode = activatorMode(builder, modeNames)
         invoke(builder, "setContext", activity)
         invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
         invoke(builder, "setPassword", call.argument<String>("password").orEmpty())
         invoke(builder, "setActivatorModel", mode)
         invoke(builder, "setTimeOut", 120L)
         invoke(builder, "setToken", token)
+        // 这台机器上 adb 未必连得上，所以诊断信息不能只进 logcat——失败时一并
+        // 回给 Dart，联调页的日志区才看得到实际用了哪个工厂、哪个枚举常量。
+        val used = "$requested/${factory.name}/${(mode as Enum<*>).name}"
+        Log.i(TUYA_LOG_TAG, "pairing $used")
         invokeWithCallback(
             builder,
             "setListener",
@@ -671,29 +752,45 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             },
             onError = { code, message ->
                 stopActivator()
-                error(result, code, message)
+                error(result, code, "$message · $used")
             },
         )
         activator = factory.invoke(activatorApi, builder)
             ?: throw IllegalStateException("${factory.name} 未返回配网实例")
+        // 绑定只对 AP 做。EZ 是往手机所在网络广播凭据，把进程绑死在某个 Network
+        // 上会挡住那些广播——这正是 EZ 加了绑定之后开始报 1006 的原因。AP 则相反：
+        // 手机连的设备热点没有互联网，不绑定的话流量会被系统留在移动数据上。
+        //
+        // joinDeviceHotspot 已经绑好时不要重绑：那条绑定指向的正是设备热点，而这里
+        // 是从 allNetworks 里挑第一个 Wi-Fi，很可能挑中路由器，反而把凭据发错地方。
+        if (requested == "ap") {
+            if (boundNetwork == null) {
+                val bound = bindProcessToWifi()
+                Log.i(TUYA_LOG_TAG, "AP pairing: process bound to Wi-Fi = $bound")
+            } else {
+                Log.i(TUYA_LOG_TAG, "AP pairing: reusing hotspot binding")
+            }
+        }
         invoke(activator!!, "start")
     }
 
     /**
-     * The activator factory on `IThingActivator`, chosen by mode.
+     * `IThingActivator` 上的配网工厂，按模式选。
      *
-     * `newMultiActivator` holds one session open for several devices, but it
-     * implements EZ only — handing it an AP builder fails at `start()` with
-     * `Multi Config don't support the AP Mode`. So AP is restricted to the
-     * single-device `newActivator`, while EZ prefers multi and falls back to
-     * single for builds that do not ship it.
+     * 7.5.1 为 EZ 单独提供了 `newEZWifiConfigDevActivator(ActivatorBuilder)`——参数
+     * 类型和通用的 `newActivator` 完全相同，光看签名分不出差别，但那才是 SDK 给
+     * EZ 的正式入口。找不到时回落到 `newActivator`，老 SDK 仍能工作。
      *
-     * Both take the builder as their only argument, which is how
-     * [startActivator] learns the builder's type without naming it.
+     * 不用 `newMultiActivator`：那是「一次会话配多台」的语义，不保证配上第一台就
+     * 回调；它还只实现了 EZ，喂 AP 的 Builder 会在 `start()` 报
+     * `Multi Config don't support the AP Mode`。
+     *
+     * 工厂只接受 Builder 一个参数，[startActivator] 正是据此拿到 Builder 的类型，
+     * 不必写死包名。
      */
-    private fun activatorFactory(activatorApi: Any, allowMulti: Boolean): Method {
-        val preference = if (allowMulti) {
-            listOf("newMultiActivator", "newActivator")
+    private fun activatorFactory(activatorApi: Any, mode: String): Method {
+        val preference = if (mode == "ez") {
+            listOf("newEZWifiConfigDevActivator", "newActivator")
         } else {
             listOf("newActivator")
         }
@@ -702,8 +799,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 method.parameterTypes.size == 1 &&
                 method.parameterTypes.single().simpleName.endsWith("Builder")
         }
-        // Walk the preference list rather than the reflected order, which is
-        // not promised to be stable across runs.
+        // 按偏好顺序取，而不是反射返回的顺序——后者不保证跨次运行稳定。
         return preference
             .firstNotNullOfOrNull { name -> factories.firstOrNull { it.name == name } }
             ?.apply { isAccessible = true }
@@ -748,9 +844,198 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         )
     }
 
+    /**
+     * 列出 SDK 实际提供的配网模式常量名。
+     *
+     * 双模在不同 SDK 版本里叫什么没有公开保证，与其在代码里猜，不如让 SDK 自己
+     * 报一遍——联调页调用后写进日志，据此确定 [DUAL_MODE_NAMES] 该填什么。
+     */
+    private fun listActivatorModes(result: MethodChannel.Result) {
+        val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
+            ?: throw IllegalStateException("无法获取配网实例")
+        val factory = activatorFactory(activatorApi, "ap")
+        val builderClass = factory.parameterTypes.single()
+        val builder = builderClass.getDeclaredConstructor()
+            .apply { isAccessible = true }
+            .newInstance()
+        val setter = candidates(builder.javaClass).firstOrNull { method ->
+            method.name == "setActivatorModel" &&
+                method.parameterTypes.size == 1 &&
+                method.parameterTypes.single().isEnum
+        } ?: throw NoSuchMethodException("setActivatorModel(枚举) 不存在")
+        val names = (setter.parameterTypes.single().enumConstants ?: emptyArray())
+            .filterIsInstance<Enum<*>>()
+            .map { it.name }
+        val factories = describeFactories(activatorApi.javaClass)
+        Log.i(TUYA_LOG_TAG, "Activator modes: ${names.joinToString()}")
+        Log.i(TUYA_LOG_TAG, "Activator factories: $factories")
+        // 工厂列表一起报出来：智能生活能「搜索到设备」，说明这套 SDK 多半提供了
+        // 搜索用的工厂（newSearchActivator 之类）。项目文档当初判断「SDK 没有设备
+        // 发现接口」，这一行就是用来推翻或证实它的。
+        success(result, names + listOf("工厂方法：$factories"))
+    }
+
+    /**
+     * 由 App 直接连上设备热点，省掉「去系统设置连 Wi-Fi」这一步。
+     *
+     * Android 10 起应用不能再自己 `enableNetwork` 任意网络，取而代之的是
+     * [WifiNetworkSpecifier]：应用描述想连的网络，系统弹一个确认框，用户点一下就
+     * 连上——涂鸦官方 App 的 AP 配网没有「请到设置里连接热点」那一步，用的就是它。
+     *
+     * 这样连上的网络是**进程专属**的，正好是 AP 配网需要的形态：系统默认网络仍留
+     * 在有互联网的那一边，而我们在 [onAvailable] 里把进程绑到热点上。所以必须显式
+     * 声明 `removeCapability(NET_CAPABILITY_INTERNET)`，否则系统会因为热点上不了网
+     * 而判定请求不满足。
+     *
+     * Android 9 及以下没有这个 API，仍然只能引导用户手动连，Dart 侧据此回落。
+     */
+    private fun joinDeviceHotspot(call: MethodCall, result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            error(
+                result,
+                "hotspot_join_unsupported",
+                "Android 9 及以下无法由应用连接热点，请到系统设置手动连接",
+            )
+            return
+        }
+        val manager = activity.getSystemService(ConnectivityManager::class.java)
+        if (manager == null) {
+            error(result, "hotspot_join_failed", "无法获取网络服务")
+            return
+        }
+        val ssid = call.argument<String>("ssid").orEmpty()
+        val prefix = call.argument<String>("prefix").orEmpty()
+        val target = if (ssid.isNotEmpty()) ssid else "${prefix.ifEmpty { "SmartLife-" }}*"
+        val specifier = WifiNetworkSpecifier.Builder().apply {
+            // 给了确切 SSID 就精确匹配；只给前缀时让系统列出所有匹配的热点，由
+            // 用户在弹框里挑——设备热点名带随机后缀，扫不到时前缀更实用。
+            if (ssid.isNotEmpty()) {
+                setSsid(ssid)
+            } else {
+                setSsidPattern(
+                    PatternMatcher(
+                        prefix.ifEmpty { "SmartLife-" },
+                        PatternMatcher.PATTERN_PREFIX,
+                    ),
+                )
+            }
+        }.build()
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .setNetworkSpecifier(specifier)
+            .build()
+
+        releaseHotspotRequest()
+        val answered = AtomicBoolean(false)
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                boundNetwork = network
+                val bound = runCatching { manager.bindProcessToNetwork(network) }
+                    .getOrDefault(false)
+                Log.i(TUYA_LOG_TAG, "hotspot joined $target, bound=$bound")
+                if (answered.compareAndSet(false, true)) success(result, bound)
+            }
+
+            override fun onUnavailable() {
+                // 系统扫不到匹配的网络时也走这里，和用户点了取消无法区分，所以把
+                // 实际匹配的目标带出去——前缀写错导致一个都匹配不上时，这行是唯一
+                // 能看出问题的信息。
+                if (answered.compareAndSet(false, true)) {
+                    error(
+                        result,
+                        "hotspot_join_cancelled",
+                        "未连上 $target：热点不存在、系统弹框被取消或超时",
+                    )
+                }
+            }
+
+            override fun onLost(network: Network) {
+                if (network == boundNetwork) {
+                    Log.i(TUYA_LOG_TAG, "hotspot lost, releasing binding")
+                    activity.runOnUiThread { unbindProcessNetwork() }
+                }
+            }
+        }
+        hotspotCallback = callback
+        // 系统弹框要用户操作，给足时间；超时会走 onUnavailable。
+        runCatching { manager.requestNetwork(request, callback, 60_000) }
+            .onFailure {
+                hotspotCallback = null
+                error(result, "hotspot_join_failed", it.message ?: "请求连接热点失败")
+            }
+    }
+
+    /** 释放热点请求，系统随即断开这条进程专属连接。 */
+    private fun releaseHotspotRequest() {
+        val manager = activity.getSystemService(ConnectivityManager::class.java)
+        hotspotCallback?.let { callback ->
+            runCatching { manager?.unregisterNetworkCallback(callback) }
+        }
+        hotspotCallback = null
+    }
+
     private fun stopActivator() {
         activator?.let { runCatching { invoke(it, "stop") } }
         activator = null
+        unbindProcessNetwork()
+    }
+
+    /**
+     * 把进程流量绑定到 Wi-Fi，AP 配网期间必须做。
+     *
+     * 手机此刻连的是设备热点，那个网络没有互联网。Android 10 起系统会因此把默认
+     * 网络留在移动数据上，App 发出的 socket 根本没走热点，凭据送不到设备——表现
+     * 就是等满 120 秒后涂鸦回 `1006 out of time`。绑定后进程流量强制走 Wi-Fi。
+     *
+     * 绑定必须随热点消失而解除：设备一旦拿到凭据就会关掉热点去连路由器，那个
+     * Network 随即失效。继续绑着的话 App 会彻底没网，SDK 拿不到云端的激活确认，
+     * 最终同样报 1006——但那时设备其实已经配网成功了，最难判断的就是这种。
+     * 所以这里注册回调，热点一 onLost 就立刻解绑，让手机回到路由器上。
+     */
+    private fun bindProcessToWifi(): Boolean {
+        val manager = activity.getSystemService(ConnectivityManager::class.java)
+            ?: return false
+        val wifi = runCatching {
+            @Suppress("DEPRECATION")
+            manager.allNetworks.firstOrNull { network ->
+                manager.getNetworkCapabilities(network)
+                    ?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            }
+        }.getOrNull() ?: return false
+        if (!runCatching { manager.bindProcessToNetwork(wifi) }.getOrDefault(false)) {
+            return false
+        }
+        boundNetwork = wifi
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: Network) {
+                if (network == boundNetwork) {
+                    Log.i(TUYA_LOG_TAG, "AP pairing: hotspot lost, releasing network binding")
+                    activity.runOnUiThread { unbindProcessNetwork() }
+                }
+            }
+        }
+        runCatching {
+            manager.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .build(),
+                callback,
+            )
+            networkCallback = callback
+        }
+        return true
+    }
+
+    private fun unbindProcessNetwork() {
+        releaseHotspotRequest()
+        val manager = activity.getSystemService(ConnectivityManager::class.java)
+        runCatching { manager?.bindProcessToNetwork(null) }
+        networkCallback?.let { callback ->
+            runCatching { manager?.unregisterNetworkCallback(callback) }
+        }
+        networkCallback = null
+        boundNetwork = null
     }
 
     private fun deviceAction(call: MethodCall, result: MethodChannel.Result, method: String) {
@@ -846,9 +1131,24 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     private fun startFirmwareUpgrade(call: MethodCall, result: MethodChannel.Result) {
+        val deviceId = call.argument<String>("deviceId").orEmpty()
         val ota = otaInstance(call)
-        val onSuccess: (Any?) -> Unit = { success(result, null) }
-        val onError: (String, String) -> Unit = { code, message -> error(result, code, message) }
+        // 升级要跑几分钟，方法通道只能回答一次，所以它只回答"已发起"；下载进度
+        // 和最终成败改从事件通道推给 Dart。
+        val started = AtomicBoolean(false)
+        val answerStarted = { if (started.compareAndSet(false, true)) success(result, null) }
+        val onSuccess: (Any?) -> Unit = {
+            answerStarted()
+            emitOta(deviceId, "success")
+        }
+        val onError: (String, String) -> Unit = { code, message ->
+            // 还没回答过方法调用就失败，说明升级根本没起来，照常回错误；已经
+            // 回答过则只能通过事件通道报告。
+            if (started.compareAndSet(false, true)) {
+                error(result, code, message)
+            }
+            emitOta(deviceId, "failed", message = message)
+        }
         // 7.x reports progress through a listener and starts with a no-arg call;
         // older builds accept the callback directly on startOta.
         val listenerMethod =
@@ -856,13 +1156,76 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         if (listenerMethod != null) {
             listenerMethod.invoke(
                 ota,
-                callbackProxy(listenerMethod.parameterTypes.last(), onSuccess, onError),
+                otaListenerProxy(
+                    listenerMethod.parameterTypes.last(),
+                    deviceId,
+                    onSuccess,
+                    onError,
+                ),
             )
             invoke(ota, "startOta")
+            answerStarted()
             return
         }
         invokeWithCallback(ota, "startOta", onSuccess = onSuccess, onError = onError)
     }
+
+    /**
+     * `IThingOtaListener` 的动态代理。
+     *
+     * 和 [callbackProxy] 的区别只在于它还认 `onProgress(otaType, percent)`——
+     * 通用代理会把这个回调丢进默认分支，进度就没了，界面只能干等几分钟。
+     * 方法名之外不假设签名：百分比从参数里挑第一个数字，兼容不同的参数顺序。
+     */
+    private fun otaListenerProxy(
+        listenerType: Class<*>,
+        deviceId: String,
+        onSuccess: (Any?) -> Unit,
+        onError: (String, String) -> Unit,
+    ): Any {
+        val loader = listenerType.classLoader ?: activity.classLoader
+        return Proxy.newProxyInstance(loader, arrayOf(listenerType)) { proxy, method, args ->
+            when (method.name) {
+                "equals" -> proxy === args?.firstOrNull()
+                "hashCode" -> System.identityHashCode(proxy)
+                "toString" -> "TuyaOtaListener(${listenerType.simpleName})"
+                "onProgress" -> {
+                    val percent = args?.filterIsInstance<Number>()?.lastOrNull()?.toInt()
+                    emitOta(deviceId, "running", percent = percent)
+                    defaultValue(method.returnType)
+                }
+                "onSuccess" -> {
+                    onSuccess(args?.firstOrNull())
+                    defaultValue(method.returnType)
+                }
+                "onFailure", "onError" -> {
+                    val texts = args?.filterIsInstance<String>().orEmpty()
+                    onError(
+                        texts.firstOrNull() ?: "ota_failed",
+                        texts.lastOrNull() ?: "固件升级失败",
+                    )
+                    defaultValue(method.returnType)
+                }
+                else -> defaultValue(method.returnType)
+            }
+        }
+    }
+
+    private fun emitOta(
+        deviceId: String,
+        status: String,
+        percent: Int? = null,
+        message: String? = null,
+    ) = emit(
+        mapOf(
+            "deviceId" to deviceId,
+            "ota" to mapOf(
+                "status" to status,
+                "percent" to percent,
+                "message" to message,
+            ),
+        ),
+    )
 
     private fun otaInstance(call: MethodCall): Any =
         invokeStatic(sdkClass(), "newOTAInstance", call.argument<String>("deviceId").orEmpty())

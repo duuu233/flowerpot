@@ -45,7 +45,10 @@ app.*.map.json
 /android/app/release
 
 # Tuya app-specific credentials and security components
-/assets/Android_SDK/
+# 平台下载包按批次带序号（Android_SDK、Android_SDK1……），用通配覆盖，
+# 否则新一批的安全组件会漏进 Git。
+/assets/Android_SDK*/
+/assets/iOS_SDK*/
 /assets/AndroidKeys/
 /android/app/libs/security-algorithm.aar
 /ios/TuyaSDK/

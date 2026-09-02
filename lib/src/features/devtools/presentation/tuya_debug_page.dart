@@ -32,9 +32,9 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
   final codeController = TextEditingController();
   final ssidController = TextEditingController();
   final wifiPasswordController = TextEditingController();
+
   final List<_CallLog> log = <_CallLog>[];
   LoginRegion region = LoginRegion.domestic;
-  String pairMode = 'ez';
 
   @override
   void dispose() {
@@ -55,23 +55,41 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
     Future<ActionResult> Function() call, {
     bool usesAccount = true,
   }) async {
+    final target = usesAccount
+        ? '$_countryCode/${_maskAccount(accountController.text)}'
+        : '';
+    // 先落一条「进行中」，结束时就地替换。配网要跑两分钟，只在结束后写日志的话
+    // 这两分钟里日志台一片空白，分不清是没点还是卡住了。
+    final pending = _CallLog(
+      time: DateTime.now(),
+      label: label,
+      success: null,
+      message: '进行中…',
+      target: target,
+    );
+    setState(() {
+      log.insert(0, pending);
+      if (log.length > _logLimit) log.removeRange(_logLimit, log.length);
+    });
+
     final result = await call();
     if (!mounted) return;
     setState(() {
-      log.insert(
-        0,
-        _CallLog(
-          time: DateTime.now(),
-          label: label,
-          success: result.success,
-          code: result.code,
-          message: result.message,
-          target: usesAccount
-              ? '$_countryCode/${_maskAccount(accountController.text)}'
-              : '',
-        ),
+      final done = _CallLog(
+        time: DateTime.now(),
+        label: label,
+        success: result.success,
+        code: result.code,
+        message: result.message,
+        target: target,
       );
-      if (log.length > _logLimit) log.removeRange(_logLimit, log.length);
+      final index = log.indexOf(pending);
+      if (index >= 0) {
+        log[index] = done;
+      } else {
+        log.insert(0, done);
+        if (log.length > _logLimit) log.removeRange(_logLimit, log.length);
+      }
     });
     showAppMessage(
       context,
@@ -144,7 +162,7 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         value: TuyaConfig.channelName,
                       ),
                       const _StatusRow(
-                        label: '默认家庭',
+                        label: '家庭名称',
                         value: TuyaConfig.defaultHomeName,
                       ),
                       _StatusRow(
@@ -155,11 +173,30 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                                   '${_maskAccount(state.user!.account)} · '
                                   'uid ${state.user!.id}',
                       ),
+                      // 「开始配网」等会改状态的操作守着全局单操作锁。锁没释放
+                      // 时按钮是灰的，而原来页面上看不出这是被锁住还是没反应。
+                      _StatusRow(
+                        label: '操作锁',
+                        value: busy ? '占用中（写操作按钮会变灰）' : '空闲',
+                      ),
                       _StatusRow(
                         label: '设备数量',
                         value: '${state.devices.length}',
-                        last: true,
+                        last: state.devices.isEmpty,
                       ),
+                      // 配网成功后设备是否真的进了账号，只有这份列表能说明。
+                      // 之前「解绑当前设备」报没有设备 ID，就是因为列表其实是空
+                      // 的——配网返回成功不等于设备已经在列表里。
+                      for (final (index, device)
+                          in state.devices.indexed) ...<Widget>[
+                        _StatusRow(
+                          label: '设备 ${index + 1}',
+                          value:
+                              '${device.name}\n${device.id}'
+                              '${device.online ? '' : '（离线）'}',
+                          last: index == state.devices.length - 1,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -357,7 +394,7 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                           _action(
                             key: const Key('tuya-debug-probe-sdk'),
                             label: '初始化自检',
-                            busy: busy,
+                            busy: false,
                             onPressed: () => _run(
                               '初始化自检',
                               () => state.probeSdk(),
@@ -367,7 +404,7 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                           _action(
                             key: const Key('tuya-debug-probe-session'),
                             label: '查询会话',
-                            busy: busy,
+                            busy: false,
                             onPressed: () => _run(
                               '查询会话',
                               () => state.probeSession(),
@@ -377,10 +414,39 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                           _action(
                             key: const Key('tuya-debug-probe-devices'),
                             label: '拉取设备列表',
-                            busy: busy,
+                            busy: false,
                             onPressed: () => _run(
                               '拉取设备列表',
                               () => state.probeDevices(),
+                              usesAccount: false,
+                            ),
+                          ),
+                          _action(
+                            key: const Key('tuya-debug-unbind'),
+                            label: '解绑当前设备',
+                            busy: busy,
+                            onPressed: () => _run(
+                              '解绑当前设备',
+                              () {
+                                // 配好的设备会一直绑在账号上，不解绑就回不到配网
+                                // 状态，再配只会等满 120 秒报 1006。反复联调必须
+                                // 有这个入口，否则每次都要退到产品页去解绑。
+                                final device = state.selectedDevice;
+                                if (device == null) {
+                                  return Future<ActionResult>.value(
+                                    const ActionResult(
+                                      false,
+                                      'APP-no_device 设备列表为空。配网返回成功不代表'
+                                      '设备已进列表，先点「拉取设备列表」确认。',
+                                      code: 'no_device',
+                                    ),
+                                  );
+                                }
+                                return state.removeDevice(
+                                  device.id,
+                                  resetFactory: true,
+                                );
+                              },
                               usesAccount: false,
                             ),
                           ),
@@ -422,13 +488,16 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
                       Text(
-                        '直接调用 pairWifiDevice（超时 120 秒），失败只写进下面的日志并带原始'
-                        '错误码，不会跳到配网失败页。两种模式填的都是「设备要连的路由器」'
-                        '的名称和密码，不是设备热点的。\n'
-                        'EZ：手机保持连在同一个 2.4G 网络，直接点「开始配网」。\n'
-                        'AP：先点「获取配网令牌」（这一步要联网），再去系统设置连上设备'
-                        '热点，回来点「开始配网」。连上热点后手机就没有外网了，令牌必须'
-                        '提前取好。',
+                        'AP 配网（超时 120 秒）。失败只写进下面的日志并带原始错误码，'
+                        '不跳配网失败页，方便连续重试。\n\n'
+                        '「开始配网」一步做完三件事：取配网令牌 → 连设备热点 → 下发凭据。'
+                        '令牌只能在还有外网时取，连上热点后就取不到了，所以必须串在一起，'
+                        '不用手动分步。\n\n'
+                        '① 设备长按到指示灯慢闪，Wi-Fi 列表里能看到 SmartLife-… 热点\n'
+                        '② 手机先连在目标 2.4G 路由器上（要有网）\n'
+                        '③ 填路由器的名称和密码——不是设备热点的\n'
+                        '④ 点「开始配网」，系统会弹框问是否连接设备热点，点确认\n\n'
+                        '设备若已被别的 App 绑定，必须先在那边解绑，否则它不会回到配网状态。',
                         style: AppTypography.smallBody.copyWith(
                           color: AppColors.textSecondary,
                         ),
@@ -448,26 +517,18 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         label: 'Wi-Fi 密码',
                       ),
                       const SizedBox(height: AppSpacing.md),
-                      SegmentedButton<String>(
-                        key: const Key('tuya-debug-pair-mode'),
-                        segments: const <ButtonSegment<String>>[
-                          ButtonSegment<String>(
-                            value: 'ez',
-                            label: Text('EZ 快连'),
-                          ),
-                          ButtonSegment<String>(
-                            value: 'ap',
-                            label: Text('AP 热点'),
-                          ),
-                        ],
-                        selected: <String>{pairMode},
-                        showSelectedIcon: false,
-                        onSelectionChanged: (value) =>
-                            setState(() => pairMode = value.first),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
                       _ActionRow(
                         children: <Widget>[
+                          _action(
+                            key: const Key('tuya-debug-activator-modes'),
+                            label: '查询配网模式',
+                            busy: false,
+                            onPressed: () => _run(
+                              '查询配网模式',
+                              () => state.probeActivatorModes(),
+                              usesAccount: false,
+                            ),
+                          ),
                           _action(
                             key: const Key('tuya-debug-scan-wifi'),
                             label: '扫描附近 Wi-Fi',
@@ -475,16 +536,6 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                             onPressed: () => _run(
                               '扫描 Wi-Fi',
                               () => state.probeWifi(),
-                              usesAccount: false,
-                            ),
-                          ),
-                          _action(
-                            key: const Key('tuya-debug-prepare-token'),
-                            label: '获取配网令牌',
-                            busy: busy,
-                            onPressed: () => _run(
-                              '获取配网令牌',
-                              () => state.prepareActivatorToken(),
                               usesAccount: false,
                             ),
                           ),
@@ -505,13 +556,10 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         busy: busy,
                         primary: true,
                         onPressed: () => _run(
-                          '配网 ${pairMode.toUpperCase()}',
-                          () => state.pairDevice(
-                            PairingRequest(
-                              ssid: ssidController.text.trim(),
-                              password: wifiPasswordController.text,
-                              mode: pairMode,
-                            ),
+                          '配网 AP',
+                          () => state.pairViaHotspot(
+                            ssid: ssidController.text.trim(),
+                            password: wifiPasswordController.text,
                           ),
                           usesAccount: false,
                         ),
@@ -691,8 +739,8 @@ class _WifiScanResult extends StatelessWidget {
           Text(
             '手机当前连接：$current'
             '${switch (scan.currentIs24g) {
-              true => '（2.4G，可用于 EZ）',
-              false => '（5G，EZ 配网必须先切到 2.4G）',
+              true => '（2.4G）',
+              false => '（5G，设备只能连 2.4G）',
               null => '',
             }}',
             style: AppTypography.smallBody.copyWith(
@@ -811,7 +859,11 @@ class _CallLogRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = entry.success ? AppColors.success : AppColors.danger;
+    final color = switch (entry.success) {
+      null => AppColors.brandPrimary,
+      true => AppColors.success,
+      false => AppColors.danger,
+    };
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: Column(
@@ -819,13 +871,20 @@ class _CallLogRow extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Icon(
-                entry.success
-                    ? Icons.check_circle_outline
-                    : Icons.error_outline,
-                size: 16,
-                color: color,
-              ),
+              if (entry.running)
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                )
+              else
+                Icon(
+                  entry.success!
+                      ? Icons.check_circle_outline
+                      : Icons.error_outline,
+                  size: 16,
+                  color: color,
+                ),
               const SizedBox(width: AppSpacing.xs),
               Expanded(
                 child: Text(
@@ -871,7 +930,10 @@ class _CallLog {
 
   final DateTime time;
   final String label;
-  final bool success;
+
+  /// null 表示还在跑。配网这类调用要跑两分钟，等它结束才写日志的话，这段时间
+  /// 日志台上什么都没有——看起来就像根本没点，实际是卡在 await 里。
+  final bool? success;
   final String message;
 
   /// Country code plus masked account the call was made with, empty for calls
@@ -882,8 +944,14 @@ class _CallLog {
   String get stamp =>
       '${_pad(time.hour)}:${_pad(time.minute)}:${_pad(time.second)}';
 
+  bool get running => success == null;
+
   String get line {
-    final status = success ? 'OK ' : 'ERR';
+    final status = switch (success) {
+      null => '...',
+      true => 'OK ',
+      false => 'ERR',
+    };
     final codeText = code == null ? '' : ' [$code]';
     final targetText = target.isEmpty ? '' : ' · $target';
     return '$stamp $status $label$codeText · $message$targetText';

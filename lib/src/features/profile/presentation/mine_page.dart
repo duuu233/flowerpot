@@ -85,9 +85,15 @@ class MinePage extends StatelessWidget {
   }
 
   void _openItem(BuildContext context, MineMenuKind kind, MinePageModel model) {
+    if (kind == MineMenuKind.deviceSettings) {
+      _openDeviceSettings(context);
+      return;
+    }
     final route = switch (kind) {
       MineMenuKind.personalInfo => AppRoutes.profile,
       MineMenuKind.accountSecurity => AppRoutes.settings,
+      // 已在上面单独处理：它要带设备 id 才能跳。
+      MineMenuKind.deviceSettings => null,
       MineMenuKind.helpCenter => AppRoutes.help,
       MineMenuKind.privacyPolicy => AppRoutes.privacy,
       MineMenuKind.userAgreement => AppRoutes.agreement,
@@ -105,6 +111,24 @@ class MinePage extends StatelessWidget {
       context,
       '请发送反馈至 ${email ?? '客服邮箱'}',
       tone: AppMessageTone.info,
+    );
+  }
+
+  /// 设备设置的另一个入口。
+  ///
+  /// 首页那排快捷操作只在「已绑定植物」的完整形态里渲染（见 `HomePage` 的三个
+  /// 分支），设备刚配网还没选植物时进不去设备设置，也就够不到解绑和恢复出厂。
+  /// 这里给一个不依赖首页形态的入口。
+  void _openDeviceSettings(BuildContext context) {
+    final device = FlowerpotScope.of(context).selectedDevice;
+    if (device == null) {
+      showAppMessage(context, '请先添加并连接花盆', tone: AppMessageTone.info);
+      return;
+    }
+    Navigator.pushNamed(
+      context,
+      AppRoutes.deviceSettings,
+      arguments: device.id,
     );
   }
 }

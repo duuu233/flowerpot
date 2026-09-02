@@ -28,6 +28,20 @@ class AppPageScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final content = useSafeArea ? SafeArea(child: body) : body;
+    // 点空白处收起键盘。放在通用骨架里做一次，所有页面都有——逐页去加迟早会漏，
+    // 而漏掉的那一页在小屏上会被键盘挡住提交按钮。
+    //
+    // translucent 让空白区域也能接收点击；点输入框本身不会误收起键盘，因为手势
+    // 竞技场里内层的 TextField 会先赢下这次 tap，外层的 onTap 不触发。滚动也不
+    // 受影响——onTap 只认点击，不认拖拽。
+    return GestureDetector(
+      onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+      behavior: HitTestBehavior.translucent,
+      child: _buildScaffold(content),
+    );
+  }
+
+  Widget _buildScaffold(Widget content) {
     return Scaffold(
       extendBodyBehindAppBar: true,
       backgroundColor: Colors.transparent,

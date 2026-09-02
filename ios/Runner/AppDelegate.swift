@@ -72,6 +72,7 @@ final class FlowerpotTuyaBridge: NSObject {
     case "currentUser": currentUser(result)
     case "sendVerificationCode": sendCode(args, result)
     case "login": login(args, result)
+    case "loginWithUid": loginWithUid(args, result)
     case "register": register(args, result)
     case "resetPassword": resetPassword(args, result)
     case "updateNickname": updateNickname(args, result)
@@ -80,6 +81,15 @@ final class FlowerpotTuyaBridge: NSObject {
     case "getDevices": withHome(result) { [weak self] home in self?.loadDevices(home, result) }
     case "scanWifi": scanWifi(result)
     case "prepareActivatorToken": prepareActivatorToken(result)
+    // ThingActivatorMode 是 ObjC 的 NS_ENUM，运行时拿不到常量名，没法像 Android
+    // 那样让 SDK 自己报一遍。要确认 iOS 支不支持双模只能查平台文档。
+    case "listActivatorModes": sdkError(result, code: "unsupported_on_ios", message: "iOS 端无法枚举配网模式常量，请查涂鸦 iOS 文档")
+    // iOS 的对应能力是 NEHotspotConfigurationManager，但它需要 Hotspot
+    // Configuration entitlement（要在 Apple 开发者后台为 App ID 开启并加进
+    // entitlements 文件）。那套配置还没做，所以这里明确报未实现，Dart 侧会
+    // 回落到引导用户去系统设置手动连接，而不是静默失败。
+    case "joinDeviceHotspot": sdkError(result, code: "hotspot_join_unsupported", message: "iOS 端需先配置 Hotspot Configuration 权限")
+    case "leaveDeviceHotspot": result(nil)
     case "pairWifiDevice": pairWifi(args, result)
     case "publishDps": publishDps(args, result)
     case "renameDevice": renameDevice(args, result)
@@ -161,6 +171,25 @@ final class FlowerpotTuyaBridge: NSObject {
     } else {
       ThingSmartUser.sharedInstance()?.login(byPhone: country, phoneNumber: account, password: credential, success: success, failure: failure)
     }
+  }
+
+  /// 自有账号体系登录：APP 后端下发内部编号与配套密码，涂鸦侧据此登录，
+  /// 账号不存在时自动注册。国内账号走这条路，不是 `login`。
+  private func loginWithUid(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    let uid = args["uid"] as? String ?? ""
+    let password = args["password"] as? String ?? ""
+    let country = args["countryCode"] as? String ?? "86"
+    ThingSmartUser.sharedInstance()?.loginOrRegister(
+      withCountryCode: country,
+      uid: uid,
+      password: password,
+      createHome: true,
+      success: { [weak self] _ in
+        guard let self, let user = ThingSmartUser.sharedInstance() else { return }
+        result(self.userMap(user))
+      },
+      failure: { error in self.fail(result, error) }
+    )
   }
 
   private func register(_ args: [String: Any], _ result: @escaping FlutterResult) {
@@ -281,10 +310,8 @@ final class FlowerpotTuyaBridge: NSObject {
   }
 
   private func pairWifi(_ args: [String: Any], _ result: @escaping FlutterResult) {
-    // Reuse a pre-fetched token when there is one. This is what makes AP mode
-    // work at all: by the time this runs the phone is on the device's hotspot
-    // and the cloud is unreachable. EZ keeps the phone on the router, so the
-    // fetch below is its normal path.
+    // 复用预取的令牌——AP 配网能成立全靠这一步：跑到这里时手机已经连在设备热点
+    // 上，云端不可达。EZ 全程连在路由器上，走的就是下面这条回落路径。
     if let token = freshActivatorToken() {
       startActivator(args, result, token: token)
       return
@@ -307,6 +334,7 @@ final class FlowerpotTuyaBridge: NSObject {
     }
     pairingResult = result
     activator.delegate = self
+    // EZ 默认，AP 兜底；两者都走同一条 startConfigWiFi。
     let mode = (args["mode"] as? String) == "ez" ? ThingActivatorModeEZ : ThingActivatorModeAP
     activator.startConfigWiFi(
       mode,
@@ -554,6 +582,36 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
     guard let id = device.deviceModel?.devId else { return }
     emit(["deviceId": id, "removed": true])
     DispatchQueue.main.async { [weak self] in self?.unwatchDevice(id) }
+  }
+
+  // 固件升级要跑几分钟，方法通道只回答"已发起"，进度和成败走这里，形状和
+  // Android 的 emitOta 一致。这几个都是 delegate 的可选方法：SDK 若换了签名
+  // 只会静默不回调，不会编译失败，届时版本号仍由 deviceInfoUpdate 兜底刷新。
+  func device(_ device: ThingSmartDevice, firmwareUpgradeProgress type: Int, progress: Double) {
+    guard let id = device.deviceModel?.devId else { return }
+    emitOta(id, "running", percent: Int((progress * 100).rounded()))
+  }
+
+  func deviceFirmwareUpgradeSuccess(_ device: ThingSmartDevice, type: Int) {
+    guard let id = device.deviceModel?.devId else { return }
+    emitOta(id, "success")
+  }
+
+  func deviceFirmwareUpgradeFailure(_ device: ThingSmartDevice, type: Int) {
+    guard let id = device.deviceModel?.devId else { return }
+    emitOta(id, "failed", message: "固件升级失败")
+  }
+
+  private func emitOta(
+    _ deviceId: String,
+    _ status: String,
+    percent: Int? = nil,
+    message: String? = nil
+  ) {
+    var ota: [String: Any] = ["status": status]
+    if let percent { ota["percent"] = percent }
+    if let message { ota["message"] = message }
+    emit(["deviceId": deviceId, "ota": ota])
   }
 }
 #endif

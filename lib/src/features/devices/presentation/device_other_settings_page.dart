@@ -21,7 +21,9 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final device = FlowerpotScope.of(context).deviceById(widget.deviceId);
+    final state = FlowerpotScope.of(context);
+    final device = state.deviceById(widget.deviceId);
+    final ota = state.otaProgressFor(widget.deviceId);
     if (device == null) {
       return AppPageScaffold(
         appBar: const AppPageHeader(title: '其他设置', leading: AppBackButton()),
@@ -49,6 +51,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
                   _GeneralSettingsCard(
                     device: device,
                     updatingFirmware: _updatingFirmware,
+                    ota: ota,
                     onTemperatureUnit: () => _chooseTemperatureUnit(device),
                     onClockFormat: () => _chooseClockFormat(device),
                     onCalibration: _calibrateWaterLevel,
@@ -58,8 +61,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _DeviceActionsCard(
-                    onPairing: () =>
-                        Navigator.pushNamed(context, AppRoutes.pairing),
+                    onPairing: () => _repairNetwork(device),
                     onFactoryReset: () =>
                         _removeDevice(device, resetFactory: true),
                     onRemove: () => _removeDevice(device, resetFactory: false),
@@ -134,6 +136,15 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
 
   Future<void> _checkFirmware(SmartPlanterDevice device) async {
     if (_updatingFirmware) return;
+    // 升级发起后本地标志就复位了，真正的进行中状态在 state 里，否则用户能在
+    // 设备还在烧录时再发起一次。
+    final running =
+        FlowerpotScope.of(context).otaProgressFor(widget.deviceId)?.status ==
+        OtaStatus.running;
+    if (running) {
+      showAppMessage(context, '固件正在升级中，请等待完成', tone: AppMessageTone.info);
+      return;
+    }
     setState(() => _updatingFirmware = true);
     try {
       final version = await FlowerpotScope.of(
@@ -168,6 +179,36 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
     } finally {
       if (mounted) setState(() => _updatingFirmware = false);
     }
+  }
+
+  /// 重新配网 = 先解绑，再从搜索设备重新走一遍。
+  ///
+  /// 不能直接跳到填 Wi-Fi 那一页：设备还绑在账号上时它是正常工作状态，既不拉
+  /// 热点也不监听配网广播，配过去只会等满 120 秒报 `1006 out of time`。解绑
+  /// （带 DP 141 恢复出厂）会让它回到配网状态，这时搜索页才扫得到它的热点。
+  Future<void> _repairNetwork(SmartPlanterDevice device) async {
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: '重新配网',
+      message:
+          '需要先解绑“${device.name}”，设备会回到配网状态，随后重新添加。\n'
+          '设备上的个性化设置会被清除，确定继续吗？',
+      confirmLabel: '解绑并重新配网',
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    final result = await FlowerpotScope.of(
+      context,
+    ).removeDevice(widget.deviceId, resetFactory: true);
+    if (!mounted) return;
+    if (!result.success) {
+      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      return;
+    }
+    // 设备已经从账号里移除，本页和它的兄弟页都失去了数据源，所以清到根再进
+    // 搜索页——而不是 push 一层上去。
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    Navigator.pushNamed(context, AppRoutes.deviceSearch);
   }
 
   Future<void> _removeDevice(
@@ -538,6 +579,7 @@ class _GeneralSettingsCard extends StatelessWidget {
     required this.onClockFormat,
     required this.onCalibration,
     required this.onSystemFiles,
+    required this.ota,
     required this.onFirmware,
     required this.onRepair,
   });
@@ -548,6 +590,7 @@ class _GeneralSettingsCard extends StatelessWidget {
   final VoidCallback onClockFormat;
   final VoidCallback onCalibration;
   final VoidCallback onSystemFiles;
+  final OtaProgress? ota;
   final VoidCallback onFirmware;
   final VoidCallback onRepair;
 
@@ -587,8 +630,14 @@ class _GeneralSettingsCard extends StatelessWidget {
           _SettingsRow(
             assetPath: AppAssets.chipUpdateIcon,
             title: '固件版本更新',
-            value: 'V${device.firmwareVersion}',
-            loading: updatingFirmware,
+            // 升级要跑几分钟，把设备回报的百分比顶到这一行，否则用户只能对着
+            // 一个不动的加载态干等。
+            value: switch (ota?.status) {
+              OtaStatus.running => '升级中 ${ota?.percent ?? 0}%',
+              OtaStatus.failed => ota?.message ?? '升级失败',
+              _ => 'V${device.firmwareVersion}',
+            },
+            loading: updatingFirmware || ota?.status == OtaStatus.running,
             onTap: onFirmware,
           ),
           _SettingsRow(

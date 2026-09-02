@@ -86,6 +86,53 @@ class DeviceUpdate {
   final String? removedId;
 }
 
+/// 固件升级的实时状态。
+///
+/// 涂鸦的 OTA 是个长过程：`startOta` 只是把升级发起出去，设备下载加烧录要几
+/// 分钟，期间 SDK 通过监听器回报进度。所以"升级完成"只能由 [success] 事件
+/// 断定，不能在发起调用返回时就宣布。
+class OtaProgress {
+  const OtaProgress({
+    required this.deviceId,
+    required this.status,
+    this.percent,
+    this.message,
+  });
+
+  final String deviceId;
+  final OtaStatus status;
+
+  /// 0–100，仅 [OtaStatus.running] 时有值。
+  final int? percent;
+
+  /// 失败原因，仅 [OtaStatus.failed] 时有值。
+  final String? message;
+}
+
+enum OtaStatus { running, success, failed }
+
+/// 一个被分享到的接收方。
+///
+/// 涂鸦文档里的设备分享是按账号进行的：把设备分享给某个手机号/邮箱，接收方在
+/// 自己的账号里看到这台设备。链接分享只有 Android 业务拓展 SDK 才有，iOS 的
+/// Home SDK 没有对应接口，所以两端统一走账号。
+class DeviceShareMember {
+  const DeviceShareMember({
+    required this.memberId,
+    required this.name,
+    this.account,
+  });
+
+  /// 取消分享时要回传给 SDK 的成员 id。
+  final String memberId;
+
+  /// 接收方昵称，SDK 没给时回落到账号。
+  final String name;
+
+  /// 手机号或邮箱，SDK 未必返回。
+  final String? account;
+}
+
 class AppUser {
   const AppUser({
     required this.id,
@@ -566,6 +613,19 @@ class AnimationAsset {
   );
 }
 
+/// 配网请求。
+///
+/// [mode] 取 `ap` 或 `ez`：
+/// - `ap`（默认）手机先连设备自己拉起的热点，再把路由器凭据交给它。Android 10
+///   起 App 可以直接发起这个连接（系统弹框确认即可，见 `joinDeviceHotspot`），
+///   不必让用户去系统设置，所以步骤并不比 EZ 多。它不受路由器组播策略影响，是
+///   实测唯一稳定配上的方式。
+/// - `ez` 手机全程连在路由器上广播凭据，看似更省事，但必须处在 2.4G，且很多
+///   路由器会过滤组播导致设备收不到；设备也必须处在 EZ 模式（快闪、不拉热点）。
+///
+/// 没有双模：7.5.1 的 `ActivatorModelEnum` 只提供
+/// `THING_AP / THING_EZ / THING_4G_GATEWAY / THING_STATIC_IP / THING_QR`，
+/// 实机查询过，不存在 EZ+AP 合一的常量。
 class PairingRequest {
   const PairingRequest({
     required this.ssid,
@@ -576,6 +636,8 @@ class PairingRequest {
   final String ssid;
   final String password;
   final String mode;
+
+  bool get isAp => mode == 'ap';
 }
 
 /// One access point seen by the phone.

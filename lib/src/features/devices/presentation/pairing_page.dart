@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
-import '../../../core/config/debug_tools_config.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
@@ -53,11 +52,6 @@ class _PairingPageState extends State<PairingPage> {
   late final passwordController = TextEditingController(
     text: widget.arguments?.request?.password ?? '',
   );
-
-  /// Provisioning mode sent to the SDK. The product UI always uses AP; debug
-  /// builds can switch to EZ, which is usually the quicker one to bring up on
-  /// a bench device.
-  late String mode = widget.arguments?.request?.mode ?? 'ap';
 
   @override
   void initState() {
@@ -117,25 +111,6 @@ class _PairingPageState extends State<PairingPage> {
     }
   }
 
-  /// AP provisioning fetches its token first, in its own step.
-  ///
-  /// `getActivatorToken` is a cloud call, and in AP mode the phone leaves the
-  /// router for the device hotspot before provisioning starts — from there
-  /// there is no route to the cloud, and Tuya answers with a network error that
-  /// looks nothing like its actual cause. The bridge caches the token natively
-  /// for 8 minutes; it is never handed back to Dart.
-  Future<void> _prepareToken() async {
-    final state = FlowerpotScope.of(context);
-    final result = await state.prepareActivatorToken();
-    if (!mounted) return;
-    setState(() {});
-    showAppMessage(
-      context,
-      result.success ? '已获取配网令牌，请到系统设置连接设备热点后返回' : result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
-  }
-
   Future<void> _pair() async {
     if (ssidController.text.trim().isEmpty || passwordController.text.isEmpty) {
       showAppMessage(context, '请输入 Wi-Fi 名称与密码', tone: AppMessageTone.error);
@@ -143,20 +118,18 @@ class _PairingPageState extends State<PairingPage> {
     }
 
     final state = FlowerpotScope.of(context);
-    // Credentials first, then the token: the user has to type them while the
-    // phone still has internet, because AP mode sends them away to the hotspot
-    // right afterwards.
-    if (_needsToken(state.activatorTokenReady)) {
-      await _prepareToken();
-      return;
-    }
-
     final request = PairingRequest(
       ssid: ssidController.text.trim(),
       password: passwordController.text,
-      mode: mode,
     );
-    final result = await state.pairDevice(request);
+    // 取令牌 → 连热点 → 下发凭据串成一次操作。这三步有顺序约束（令牌只能在还有
+    // 外网时取，连上热点后就取不到了），交给用户按顺序点三个按钮，错一次就是两
+    // 分钟超时，而失败原因从 `1006` 里看不出来。
+    final result = await state.pairViaHotspot(
+      ssid: request.ssid,
+      password: request.password,
+      hotspotSsid: widget.arguments?.hotspotSsid,
+    );
     if (!mounted) return;
     if (!result.success) {
       Navigator.pushReplacementNamed(
@@ -170,23 +143,30 @@ class _PairingPageState extends State<PairingPage> {
       );
       return;
     }
+    // 不强制解包：配网返回成功、设备却没进列表时（云端刚绑完还没同步、或这中间
+    // 有一次拉取拿到了空列表），`!` 会把一次成功的配网变成一个空指针异常——页面
+    // 停在原地不动，看起来就像配网失败了，实际设备已经绑好。
+    final device = state.selectedDevice;
+    if (device == null) {
+      showAppMessage(
+        context,
+        '配网成功，但暂时读不到设备信息，请回设备列表下拉刷新',
+        tone: AppMessageTone.info,
+      );
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      return;
+    }
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.pairingSuccess,
-      arguments: state.selectedDevice!.id,
+      arguments: device.id,
     );
   }
-
-  /// EZ stays on the router the whole time, so its token is fetched inside
-  /// `pairWifiDevice` and no separate step is shown.
-  bool _needsToken(bool tokenReady) => mode == 'ap' && !tokenReady;
 
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
     final scan = state.wifiScan;
-    final tokenReady = state.activatorTokenReady;
-    final needsToken = _needsToken(tokenReady);
     final hotspot = widget.arguments?.hotspotSsid;
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接Wi-Fi', leading: AppBackButton()),
@@ -238,40 +218,18 @@ class _PairingPageState extends State<PairingPage> {
                     passwordController: passwordController,
                     onSwitchWifi: _switchWifi,
                   ),
-                  if (mode == 'ez' &&
-                      scan != null &&
-                      scan.currentIs24g == false) ...<Widget>[
+                  ...<Widget>[
                     const SizedBox(height: 12),
                     _PairingHintCard(
-                      key: const Key('pairing-band-warning'),
-                      tone: AppColors.danger,
-                      // EZ broadcasts the credentials over the network the
-                      // phone is on; from 5 GHz the planter never hears them.
+                      key: const Key('pairing-hotspot-step'),
+                      tone: AppColors.brandPrimary,
                       text:
-                          '手机当前连接的是 5G 网络（${scan.current ?? ''}），'
-                          'EZ 快连必须先切到 2.4G。',
+                          '点「开始配网」后，系统会弹框询问是否连接'
+                          '${hotspot == null ? '设备热点' : '「$hotspot」'}，确认即可，'
+                          '不必到系统设置里手动连。',
                     ),
                   ],
-                  if (mode == 'ap' && tokenReady) ...<Widget>[
-                    const SizedBox(height: 12),
-                    _HotspotStepCard(
-                      hotspot: hotspot,
-                      current: scan?.current,
-                      joined: scan?.currentIsDeviceHotspot ?? false,
-                      onRefresh: () => _loadNetworks(force: true),
-                    ),
-                  ],
-                  if (DebugToolsConfig.enabled) ...<Widget>[
-                    const SizedBox(height: 18),
-                    Center(
-                      child: _PairingModeSwitch(
-                        mode: mode,
-                        onChanged: (value) => setState(() => mode = value),
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                  ] else
-                    const SizedBox(height: 38),
+                  const SizedBox(height: 38),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
@@ -322,50 +280,10 @@ class _PairingPageState extends State<PairingPage> {
                         strokeWidth: 2,
                       ),
                     )
-                  : Text(needsToken ? '下一步：连接设备热点' : '开始配网'),
+                  : const Text('开始配网'),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// What AP mode has to do between fetching the token and provisioning: join the
-/// planter's own access point, which only the system Wi-Fi settings can do.
-class _HotspotStepCard extends StatelessWidget {
-  const _HotspotStepCard({
-    required this.hotspot,
-    required this.current,
-    required this.joined,
-    required this.onRefresh,
-    super.key,
-  });
-
-  /// The planter hotspot picked on the selection page, when there was one.
-  final String? hotspot;
-
-  /// The network the phone is on right now, from the last scan.
-  final String? current;
-  final bool joined;
-  final VoidCallback onRefresh;
-
-  @override
-  Widget build(BuildContext context) {
-    final target = hotspot == null ? '设备热点（SmartLife-… / TY_…）' : '「$hotspot」';
-    return _PairingHintCard(
-      key: const Key('pairing-hotspot-step'),
-      tone: joined ? AppColors.success : AppColors.brandPrimary,
-      text: joined
-          ? '已连接 ${current ?? '设备热点'}，现在可以点「开始配网」。'
-          : '配网令牌已就绪（8 分钟内有效）。\n'
-                '请到系统设置连接 $target，提示「无法访问互联网」时选择保持连接，'
-                '然后回到这里点「开始配网」。'
-                '${current == null ? '' : '\n手机当前连接：$current'}',
-      action: TextButton(
-        key: const Key('pairing-hotspot-refresh'),
-        onPressed: onRefresh,
-        child: const Text('检查连接'),
       ),
     );
   }
@@ -405,33 +323,6 @@ class _PairingHintCard extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Debug-only switch between the two Wi-Fi provisioning modes the bridge
-/// supports, so a bench test does not have to be rebuilt to try the other one.
-class _PairingModeSwitch extends StatelessWidget {
-  const _PairingModeSwitch({required this.mode, required this.onChanged});
-
-  final String mode;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SegmentedButton<String>(
-      key: const Key('pairing-mode-switch'),
-      segments: const <ButtonSegment<String>>[
-        ButtonSegment<String>(value: 'ap', label: Text('AP')),
-        ButtonSegment<String>(value: 'ez', label: Text('EZ')),
-      ],
-      selected: <String>{mode},
-      showSelectedIcon: false,
-      style: const ButtonStyle(
-        visualDensity: VisualDensity.compact,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-      onSelectionChanged: (value) => onChanged(value.first),
     );
   }
 }
@@ -526,7 +417,7 @@ class _WifiBandIcon extends StatelessWidget {
   }
 }
 
-class _WifiCredentialsCard extends StatelessWidget {
+class _WifiCredentialsCard extends StatefulWidget {
   const _WifiCredentialsCard({
     required this.ssidController,
     required this.passwordController,
@@ -536,6 +427,17 @@ class _WifiCredentialsCard extends StatelessWidget {
   final TextEditingController ssidController;
   final TextEditingController passwordController;
   final VoidCallback onSwitchWifi;
+
+  @override
+  State<_WifiCredentialsCard> createState() => _WifiCredentialsCardState();
+}
+
+class _WifiCredentialsCardState extends State<_WifiCredentialsCard> {
+  /// Wi-Fi 密码默认遮蔽，可切明文。
+  ///
+  /// 配网失败最常见的原因之一就是密码打错，而这里又是全大小写/符号混排的路由器
+  /// 密码，看不见就只能靠重试两分钟来发现输错了。
+  bool _obscurePassword = true;
 
   @override
   Widget build(BuildContext context) {
@@ -576,7 +478,7 @@ class _WifiCredentialsCard extends StatelessWidget {
                           // network always has to be typable.
                           child: TextField(
                             key: const Key('pairing-ssid-field'),
-                            controller: ssidController,
+                            controller: widget.ssidController,
                             style: const TextStyle(
                               color: AppColors.textPrimary,
                               fontSize: 15,
@@ -591,7 +493,7 @@ class _WifiCredentialsCard extends StatelessWidget {
                   ),
                   TextButton(
                     key: const Key('switch-wifi-button'),
-                    onPressed: onSwitchWifi,
+                    onPressed: widget.onSwitchWifi,
                     child: const Text('切换'),
                   ),
                 ],
@@ -623,12 +525,14 @@ class _WifiCredentialsCard extends StatelessWidget {
                           height: 24,
                           child: TextField(
                             key: const Key('pairing-password-field'),
-                            controller: passwordController,
-                            obscureText: true,
-                            style: const TextStyle(
+                            controller: widget.passwordController,
+                            obscureText: _obscurePassword,
+                            style: TextStyle(
                               color: AppColors.textPrimary,
                               fontSize: 15,
-                              letterSpacing: 3,
+                              // 圆点之间要留空才看得清位数；明文时恢复正常字距，
+                              // 否则路由器密码会被拉得很难读。
+                              letterSpacing: _obscurePassword ? 3 : 0,
                             ),
                             decoration: const InputDecoration.collapsed(
                               hintText: '请输入密码',
@@ -637,6 +541,26 @@ class _WifiCredentialsCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                  ),
+                  IconButton(
+                    key: const Key('pairing-password-visibility'),
+                    tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+                    onPressed: () => setState(
+                      () => _obscurePassword = !_obscurePassword,
+                    ),
+                    icon: _obscurePassword
+                        ? Image.asset(
+                            AppAssets.passwordVisibilityOffIcon,
+                            width: 24,
+                            height: 24,
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.high,
+                            excludeFromSemantics: true,
+                          )
+                        : const Icon(
+                            Icons.visibility_outlined,
+                            color: AppColors.textSecondary,
+                          ),
                   ),
                 ],
               ),

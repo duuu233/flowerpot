@@ -1,0 +1,7 @@
+dependencies {
+    implementation 'com.alibaba:fastjson:1.1.67.android'
+    implementation 'com.squareup.okhttp3:okhttp-urlconnection:3.14.9'
+
+    // The latest stable App SDK for Android.
+    implementation 'com.thingclips.smart:thingsmart:7.5.1'
+}
