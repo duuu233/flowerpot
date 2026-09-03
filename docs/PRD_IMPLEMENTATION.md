@@ -6,7 +6,7 @@
 
 | 一级模块 | PRD 内容 | 实现位置 |
 | --- | --- | --- |
-| 账号 | 国内手机号短信、验证码/密码登录与注册已接 APP 后端，并用返回的涂鸦映射凭据建立设备会话；海外邮箱、找回/修改密码、退出、注销、头像和用户名保留原链路 | `core/backend`、`features/auth`、`features/profile`、`state.dart` |
+| 账号 | 国内手机号短信、验证码/密码登录与注册已接 APP 后端，并用返回的涂鸦映射凭据建立设备会话；验证码登录是登录注册一体的，手机号没有后端账号时用同一条验证码补注册；海外邮箱、找回/修改密码、退出、注销、头像和用户名保留原链路 | `core/backend`、`features/auth`、`features/profile`、`state.dart` |
 | 首页 | 已配网设备列表、在线/信号/电量/充电、添加和删除设备 | `features/home`、`features/devices` |
 | 配网 | 2.4 GHz Wi-Fi、Token、创建默认家庭；搜索/选择页按 `scanWifi` 列出设备热点，Wi-Fi 页只有 AP 一种方式、一次点击串完取令牌 → App 连热点 → 配网，平台不能连热点时回落手动引导；失败、退出页面、超时都释放热点与网络绑定并可取消 | `device_search_page.dart`、`device_selection_page.dart`、`pairing_page.dart`、`state.dart`、原生 Tuya bridge |
 | 首页与状态详情 | 植物、陪伴天数、天气、水位、土壤、光照/PPFD/DLI、温度、湿度、电池 | `features/home`、`features/devices/presentation/*_status_page.dart`、`reports_page.dart` |

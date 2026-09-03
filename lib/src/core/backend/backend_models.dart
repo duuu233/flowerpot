@@ -7,6 +7,7 @@ class BackendAuthAccount {
     required this.nickname,
     required this.account,
     this.avatarUrl,
+    this.registered = false,
   });
 
   final String userToken;
@@ -16,6 +17,10 @@ class BackendAuthAccount {
   final String nickname;
   final String account;
   final String? avatarUrl;
+
+  /// 这次会话是注册接口建立的，而不是登录接口。登录注册一体的验证码登录里，
+  /// 未注册手机号会被补注册，页面据此把提示从「登录成功」换成建号文案。
+  final bool registered;
 }
 
 class BackendProduct {

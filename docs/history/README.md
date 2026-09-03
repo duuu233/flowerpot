@@ -50,3 +50,4 @@
 - [`2026-08/2026-08-25-app-backend-plant-dp116-calibration.md`](2026-08/2026-08-25-app-backend-plant-dp116-calibration.md)：接入 APP 后端国内账号、用户设备、植物与设备图片，并落实 DP 116 双向同步和水位校准 0–3/取消 5 契约。
 - [`2026-08/2026-08-26-pairing-real-sdk-flow.md`](2026-08/2026-08-26-pairing-real-sdk-flow.md)：把联调页验证过的 `scanWifi`、`prepareActivatorToken`、`pairWifiDevice` 接进配网三页，去掉搜索/选择/Wi-Fi 切换里的模拟数据，并把 AP 拆成取令牌与开始配网两步。
 - [`2026-09/2026-09-03-pairing-resource-release.md`](2026-09/2026-09-03-pairing-resource-release.md)：复核一键 AP 配网链路，补齐失败/退出/超时时的热点连接与网络绑定释放、`cancelPairing`、令牌复用与 iOS/Android 9 的手动回落路径，并修正过期的测试与文档。
+- [`2026-09/2026-09-03-verify-code-login-auto-register.md`](2026-09/2026-09-03-verify-code-login-auto-register.md)：定位「接口-403 邮箱不存在」为手机号未注册，把手机验证码登录补成登录注册一体（同一条验证码补注册），并区分「验证码错误」与「账号不存在」。

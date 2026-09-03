@@ -46,6 +46,82 @@ void main() {
     repository.close();
   });
 
+  test('verification login registers an unknown mobile', () async {
+    final requests = <http.Request>[];
+    final session = ApiSession(storageKey: 'backend.code-login.token');
+    final repository = HttpAppBackendRepository(
+      client: ApiClient(
+        baseUrl: 'https://example.test',
+        session: session,
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path == '/Client/User/userLoginVerifyCode') {
+            // 后端把「账号不存在」压在 403 上，文案沿用的是海外邮箱那一套。
+            return _failure(403, '邮箱不存在');
+          }
+          return _response(<String, Object?>{
+            'userToken': 'api-token',
+            'userNo': 'tuya-user',
+            'tuYaPwd': 'tuya-password',
+            'countryCode': '86',
+            'nickName': '植物守护者',
+            'userMobile': '13800138000',
+          });
+        }),
+      ),
+    );
+
+    final account = await repository.loginWithCode(
+      mobile: '13800138000',
+      code: '123456',
+    );
+    final register = jsonDecode(requests.last.body) as Map<String, dynamic>;
+
+    expect(
+      requests.map((request) => request.url.path),
+      <String>[
+        '/Client/User/userLoginVerifyCode',
+        '/Client/User/userRegisterMobile',
+      ],
+    );
+    expect(register['userMobile'], '13800138000');
+    expect(register['verifyCode'], '123456');
+    expect(register['password'], matches(RegExp(r'^[0-9a-f]{32}$')));
+    expect(register['confirmPassword'], register['password']);
+    expect(account.registered, isTrue);
+    expect(account.tuyaAccount, 'tuya-user');
+    expect(session.userToken, 'api-token');
+    repository.close();
+  });
+
+  test('a wrong verification code is not a missing account', () async {
+    final paths = <String>[];
+    final repository = HttpAppBackendRepository(
+      client: ApiClient(
+        baseUrl: 'https://example.test',
+        session: ApiSession(storageKey: 'backend.code-error.token'),
+        httpClient: MockClient((request) async {
+          paths.add(request.url.path);
+          return _failure(403, '验证码错误');
+        }),
+      ),
+    );
+
+    await expectLater(
+      repository.loginWithCode(mobile: '13800138000', code: '000000'),
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.message,
+          'message',
+          '验证码错误',
+        ),
+      ),
+    );
+
+    expect(paths, <String>['/Client/User/userLoginVerifyCode']);
+    repository.close();
+  });
+
   test('plant catalog maps tuYaRemark to the DP 116 identifier', () async {
     final session = ApiSession(storageKey: 'backend.plants.token')
       ..setToken('api-token');
@@ -80,6 +156,18 @@ void main() {
     repository.close();
   });
 }
+
+http.Response _failure(int code, String message) => http.Response(
+  jsonEncode(<String, Object?>{
+    'retCode': code,
+    'retMsg': message,
+    'retData': null,
+  }),
+  200,
+  headers: const <String, String>{
+    'content-type': 'application/json; charset=utf-8',
+  },
+);
 
 http.Response _response(Object? data) => http.Response(
   jsonEncode(<String, Object?>{

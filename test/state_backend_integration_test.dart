@@ -78,6 +78,24 @@ void main() {
     expect(state.user?.account, '13800138000');
   });
 
+  test('an auto-registered mobile is told the account was created', () async {
+    final state = FlowerpotState(
+      repository: _AuthRecordingTuya(),
+      backendRepository: _AuthBackend(registered: true),
+    );
+    addTearDown(state.dispose);
+
+    final result = await state.login(
+      account: '13800138000',
+      credential: '246810',
+      region: LoginRegion.domestic,
+      verificationCode: true,
+    );
+
+    expect(result.success, isTrue);
+    expect(result.message, '已为你创建账号并登录');
+  });
+
   test('device images load, upload and delete through the backend', () async {
     final backend = _ImageBackend(<String>[]);
     final state = FlowerpotState(
@@ -226,6 +244,10 @@ class _AuthRecordingTuya extends MockTuyaRepository {
 }
 
 class _AuthBackend extends DisabledAppBackendRepository {
+  _AuthBackend({this.registered = false});
+
+  /// 后端仓库补注册后返回的会话，用来验证登录页提示会跟着换。
+  final bool registered;
   String? mobile;
   String? code;
 
@@ -242,13 +264,14 @@ class _AuthBackend extends DisabledAppBackendRepository {
   }) async {
     this.mobile = mobile;
     this.code = code;
-    return const BackendAuthAccount(
+    return BackendAuthAccount(
       userToken: 'api-token',
       tuyaAccount: 'tuya-user-no',
       tuyaPassword: 'tuya-password',
       countryCode: '86',
       nickname: '后台昵称',
       account: '13800138000',
+      registered: registered,
     );
   }
 }

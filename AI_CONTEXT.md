@@ -64,7 +64,7 @@ lib/main.dart
                                   → Android/iOS Smart Life SDK
 ```
 
-国内账号在 APP 后端登录/注册成功后，由后端返回 `userNo` 与 `tuYaPwd`，`FlowerpotState` 再用这组映射凭据建立涂鸦会话；任一步失败都会清理 APP Token，避免半登录状态。海外邮箱和未配置 `API_BASE_URL` 的开发模式保留原涂鸦账号链。
+国内账号在 APP 后端登录/注册成功后，由后端返回 `userNo` 与 `tuYaPwd`，`FlowerpotState` 再用这组映射凭据建立涂鸦会话；任一步失败都会清理 APP Token，避免半登录状态。手机验证码登录是登录注册一体的：`userLoginVerifyCode` 以 `retCode` 403 + 「不存在/未注册」文案回绝时，`HttpAppBackendRepository` 用同一条验证码调 `userRegisterMobile` 补注册（密码随机生成占位），注册接口返回的会话字段与登录接口一致，因此不再登录第二次。海外邮箱和未配置 `API_BASE_URL` 的开发模式保留原涂鸦账号链。
 
 设备主动上报是反方向的一条单向链，不经过方法通道：
 
@@ -100,7 +100,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 
 ## 5. 当前核心模块
 
-- 账号：配置 `API_BASE_URL` 后，国内手机号短信、验证码/密码登录与注册走 APP 后端，再用返回的映射凭据登录涂鸦；海外邮箱及找回密码等原有能力保留涂鸦链路。
+- 账号：配置 `API_BASE_URL` 后，国内手机号短信、验证码/密码登录与注册走 APP 后端，再用返回的映射凭据登录涂鸦；验证码登录未注册即自动建号；海外邮箱及找回密码等原有能力保留涂鸦链路。
 - 设备实时性：DP 上报、上下线和解绑由原生监听推给 Dart，页面自动刷新；温标（146）与时间格式（147）下发后 App 自身展示跟随。
 - 首页与设备：无底部菜单，设备列表即首页、左上角头像进入「我的」、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。后端设备行按涂鸦 `deviceId` 关联；植物目录、详情、绑定/删除与设备图片使用 APP 后端。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网三页全部走真实桥接调用——搜索与选择页用 `scanWifi` 找设备在 AP 模式下拉起的热点，Wi-Fi 页带入真实 2.4G 网络列表，「开始配网」一次点击由 `FlowerpotState.pairViaHotspot` 串完取令牌 → App 连设备热点 → 配网；平台不能由 App 连热点（iOS、Android 9 及以下）时回落到手动引导；任何一步失败、用户退出页面或等待超时都会释放热点连接与进程网络绑定（`leaveDeviceHotspot` / `cancelPairing`），详见 `docs/TUYA_SDK_SETUP.md` 5.3 与 6.3。
 - 设备控制：显示、听觉、触觉、振动、行为时段、温标、时钟、校准与系统修复。
@@ -158,7 +158,8 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 - DP 116 `plant_variety` 已按可上报可下发处理：后端植物 `tuYaRemark` 是下发值，绑定成功后才下发，设备上报的已知标识符会反向更新当前植物。
 - DP 140 校准固定依次发送 `step0`、`step1`、`step2`、`step3`，取消或在最终完成卡片尚未确认 `step3` 时关闭都发送 `step5`；`step4` 保留且不调用。
 - 温度、湿度、电量、PPFD、DLI 没有历史功能点，真机上这几条曲线是空态而不是曲线；设备图片已可在 APP 后端上传/列出/删除，但 142/143/144 从云端 URL 下发到硬件的协议仍待确认。
-- 2026-08-25 核验时，提供的 `https://api.yikaltd.com` 域名返回备案阻断页；Swagger 机器端口可读取契约，但未使用真实账号执行写接口。恢复可用 HTTPS 域名后仍需完成真机端到端联调。
+- 2026-09-03 核验：`https://api.yikaltd.com` 已恢复，`/v2/api-docs` 与写死的临时地址 `http://120.25.227.36:8601` 返回同一份契约（123 条路径），`ApiConfig._temporaryBaseUrl` 及配套的 Android network-security-config、iOS ATS 例外可以按其 TODO 回滚。仍未使用真实账号执行写接口，真机端到端联调未完成。
+- 验证码登录的自动注册复用的是同一条验证码：登录接口先判验证码（未注册手机号配错误验证码回的是「验证码错误」，说明验证码在账号查找之前判），失败后再调注册接口。若后端在验证码判过之后即作废，补注册会以「验证码错误」失败——这条只在 mock 上验证过，真机需要用真实短信确认。
 - 配网三页已改为真实 `scanWifi` / `pairViaHotspot`（取令牌 → 连热点 → `pairWifiDevice`）链路，但热点识别前缀（`SmartLife-`、`TY_`、`YSplanter-`）是否覆盖量产设备实际 SSID 尚未在真机确认；iOS 不返回附近网络列表，搜索与选择页在 iOS 上只能走「手动继续」。2026-09-03 补的失败释放（`PairingResult` 包装、`cancelPairing`、Dart 侧 `leaveDeviceHotspot`）与手动回落路径在无 Flutter 工具链的环境里只做了静态复核，`flutter test` 与真机均未跑。
 - iOS 桥接已补齐配网前置、`joinDeviceHotspot`（`NEHotspotConfigurationManager`，需要 Hotspot Configuration entitlement，未配置时回 `hotspot_join_unsupported` 走手动路径）、`cancelPairing`、DP 上报与 OTA，但 iOS 侧全部改动尚未经过 Xcode 编译或真机验证；`createShareLink` 在 iOS 上仍是明确错误码（Home SDK 只有按账号分享）。
 - Android/iOS 包名与桥接正在工作区中演进；不要根据旧历史文档恢复已删除的平台文件。

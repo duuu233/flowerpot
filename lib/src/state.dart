@@ -225,6 +225,9 @@ class FlowerpotState extends ChangeNotifier {
       credential,
       verificationCode: verificationCode,
     );
+    // 登录注册一体：验证码登录遇到没注册过的手机号时，后端仓库会用同一条验证码
+    // 补一次注册，这里只负责把「新建了账号」这件事说给用户听。
+    var created = false;
     if (region == LoginRegion.domestic && _backend.enabled) {
       final backendAccount = verificationCode
           ? await _backend.loginWithCode(
@@ -235,6 +238,7 @@ class FlowerpotState extends ChangeNotifier {
               mobile: normalizedAccount,
               password: normalizedCredential,
             );
+      created = backendAccount.registered;
       _user = await _loginTuyaAccount(backendAccount);
     } else {
       _user = await _repository.login(
@@ -246,7 +250,7 @@ class FlowerpotState extends ChangeNotifier {
     }
     _sessionEpoch++;
     await _refreshDevicesForSession(ignoreErrors: true);
-    return const ActionResult(true, '登录成功');
+    return ActionResult(true, created ? '已为你创建账号并登录' : '登录成功');
   });
 
   Future<ActionResult> register({

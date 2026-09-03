@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +26,10 @@ abstract class AppBackendRepository {
     required String mobile,
     required String password,
   });
+
+  /// 手机验证码登录。登录页是登录注册一体的：手机号还没有后端账号时，实现要用
+  /// 同一条验证码补一次注册再返回会话，[BackendAuthAccount.registered] 标出走的
+  /// 是哪一条路。
   Future<BackendAuthAccount> loginWithCode({
     required String mobile,
     required String code,
@@ -223,10 +228,24 @@ class HttpAppBackendRepository implements AppBackendRepository {
   Future<BackendAuthAccount> loginWithCode({
     required String mobile,
     required String code,
-  }) => _authenticate('/Client/User/userLoginVerifyCode', <String, Object?>{
-    'userMobile': mobile,
-    'verifyCode': code,
-  });
+  }) async {
+    try {
+      return await _authenticate(
+        '/Client/User/userLoginVerifyCode',
+        <String, Object?>{'userMobile': mobile, 'verifyCode': code},
+      );
+    } on ApiException catch (error) {
+      if (!_isAccountMissing(error)) rethrow;
+      // 登录注册一体：验证码本身已经被登录接口判过一次，失败的只是账号查找，
+      // 所以用同一条验证码补注册。注册接口返回的是同一套会话字段（userToken /
+      // userNo / tuYaPwd），不需要再登录一次。
+      return registerMobile(
+        mobile: mobile,
+        code: code,
+        password: _generatedPassword(),
+      );
+    }
+  }
 
   @override
   Future<BackendAuthAccount> registerMobile({
@@ -235,18 +254,23 @@ class HttpAppBackendRepository implements AppBackendRepository {
     required String password,
   }) {
     final digest = _md5(password);
-    return _authenticate('/Client/User/userRegisterMobile', <String, Object?>{
-      'userMobile': mobile,
-      'verifyCode': code,
-      'password': digest,
-      'confirmPassword': digest,
-    });
+    return _authenticate(
+      '/Client/User/userRegisterMobile',
+      <String, Object?>{
+        'userMobile': mobile,
+        'verifyCode': code,
+        'password': digest,
+        'confirmPassword': digest,
+      },
+      registered: true,
+    );
   }
 
   Future<BackendAuthAccount> _authenticate(
     String path,
-    Map<String, Object?> body,
-  ) async {
+    Map<String, Object?> body, {
+    bool registered = false,
+  }) async {
     final data = _map(
       await _client.postJson(
         path,
@@ -263,6 +287,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
       nickname: _text(data, 'nickName', fallback: '植物守护者'),
       account: _text(data, 'userMobile'),
       avatarUrl: _nullableText(data['avatar']),
+      registered: registered,
     );
     if (result.userToken.isEmpty ||
         result.tuyaAccount.isEmpty ||
@@ -426,6 +451,29 @@ class HttpAppBackendRepository implements AppBackendRepository {
       retryOnTimeout: false,
       body: <String, Object?>{'idList': imageIds},
     );
+  }
+
+  /// 后端把「验证码错误」和「账号不存在」都压在 `retCode` 403 上，只有文案能区分；
+  /// 而且未注册手机号目前返回的是海外邮箱那套「邮箱不存在」。所以这里只认 403，
+  /// 并把文案匹配放宽到「不存在 / 未注册」；后端换了文案，验证码登录会退回直接
+  /// 报错，而不是把「验证码错误」误判成未注册去重复注册。
+  static bool _isAccountMissing(ApiException error) =>
+      error.code == 403 && _accountMissingPattern.hasMatch(error.message);
+
+  static final RegExp _accountMissingPattern = RegExp(
+    '不存在|未注册|not exist|not registered',
+    caseSensitive: false,
+  );
+
+  /// 验证码登录没有让用户设密码这一步，但注册接口要求密码，所以自动注册时生成
+  /// 一条随机密码占位。用户之后要用密码登录，得走「忘记密码」重设。
+  static String _generatedPassword() {
+    const alphabet = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final random = Random.secure();
+    return List<String>.generate(
+      16,
+      (_) => alphabet[random.nextInt(alphabet.length)],
+    ).join();
   }
 
   static String _md5(String input) =>
