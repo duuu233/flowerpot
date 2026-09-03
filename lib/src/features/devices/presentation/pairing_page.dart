@@ -7,6 +7,7 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
+import 'widgets/pairing_progress_view.dart';
 
 /// Route arguments for the Wi-Fi step, which now runs after a device is
 /// connected on the selection page.
@@ -66,6 +67,10 @@ class _PairingPageState extends State<PairingPage> {
   /// 已经不能查 InheritedWidget，所以发起时就把引用留下。
   FlowerpotState? _pairingState;
 
+  /// 本页发起的配网正在跑。用它而不是 `state.busy` 来决定是否盖进度页：busy 是
+  /// 全局操作锁，别处的写操作也会把它拉起来。
+  bool _pairing = false;
+
   @override
   void initState() {
     super.initState();
@@ -108,6 +113,15 @@ class _PairingPageState extends State<PairingPage> {
     setState(() {});
   }
 
+  /// 用户在进度页上按了「取消配网」。中止只是让 `pairViaHotspot` 以
+  /// `pair_cancelled` 返回，收尾（释放热点、作废令牌）还是它自己做，所以这里
+  /// 不动 `_pairing`——等那次 await 回来再关进度页。
+  Future<void> _cancelPairing() async {
+    final state = _pairingState;
+    if (state == null) return;
+    await state.cancelPairing();
+  }
+
   Future<void> _switchWifi() async {
     final state = FlowerpotScope.of(context);
     final value = await showModalBottomSheet<String>(
@@ -144,6 +158,7 @@ class _PairingPageState extends State<PairingPage> {
     // 外网时取，连上热点后就取不到了），交给用户按顺序点三个按钮，错一次就是两
     // 分钟超时，而失败原因从 `1006` 里看不出来。
     _pairingState = state;
+    setState(() => _pairing = true);
     final result = await state.pairViaHotspot(
       ssid: request.ssid,
       password: request.password,
@@ -152,6 +167,7 @@ class _PairingPageState extends State<PairingPage> {
     );
     _pairingState = null;
     if (!mounted) return;
+    setState(() => _pairing = false);
     if (result.code == 'hotspot_manual_required') {
       // 不是失败：令牌已取好，等用户去系统设置把热点连上再点一次。
       setState(() => _manualHotspot = true);
@@ -200,6 +216,16 @@ class _PairingPageState extends State<PairingPage> {
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
     final hotspot = widget.arguments?.hotspotSsid;
+    if (_pairing) {
+      return AppPageScaffold(
+        appBar: const AppPageHeader(title: '设备配网', leading: AppBackButton()),
+        background: AppPageBackground.account,
+        body: PairingProgressView(
+          stage: state.pairingStage,
+          onCancel: _cancelPairing,
+        ),
+      );
+    }
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接Wi-Fi', leading: AppBackButton()),
       background: AppPageBackground.account,

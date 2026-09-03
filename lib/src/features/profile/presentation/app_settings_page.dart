@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../app/app_theme.dart';
 import '../../../app/flowerpot_app.dart';
+// 只引这两个文件而不是整个 design_system：后者也导出一个 showAppMessage，
+// 和本页用的 shared 版签名不同，整包导入会变成二义引用。
+import '../../../design_system/widgets/dialogs/app_option_dialog.dart';
+import '../../../design_system/widgets/feedback/app_confirm_dialog.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/shared.dart';
 import '../../../tuya/tuya_models.dart';
@@ -111,23 +115,14 @@ class AppSettingsPage extends StatelessWidget {
 
   Future<void> _language(BuildContext context) async {
     final state = FlowerpotScope.of(context);
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-          child: SegmentedButton<String>(
-            segments: const <ButtonSegment<String>>[
-              ButtonSegment(value: 'zh', label: Text('简体中文')),
-              ButtonSegment(value: 'en', label: Text('English')),
-            ],
-            selected: <String>{state.languageCode},
-            showSelectedIcon: false,
-            onSelectionChanged: (value) => Navigator.pop(context, value.first),
-          ),
-        ),
-      ),
+    final selected = await showAppOptionDialog<String>(
+      context,
+      title: '语言',
+      selected: state.languageCode,
+      options: const <AppOption<String>>[
+        AppOption<String>(value: 'zh', label: '简体中文'),
+        AppOption<String>(value: 'en', label: 'English'),
+      ],
     );
     if (selected != null) {
       await state.setLanguage(selected);
@@ -145,26 +140,15 @@ class AppSettingsPage extends StatelessWidget {
   }
 
   Future<void> _cancelAccount(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(Icons.warning_amber_rounded, color: AppColors.danger),
-        title: const Text('确认注销账号？'),
-        content: const Text('注销后将无法恢复账号资料。设备请先完成解绑或转移。'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('确认注销'),
-          ),
-        ],
-      ),
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: '确认注销账号？',
+      message: '注销后将无法恢复账号资料。设备请先完成解绑或转移。',
+      confirmLabel: '确认注销',
+      destructive: true,
+      icon: Icons.warning_amber_rounded,
     );
-    if (confirmed != true || !context.mounted) return;
+    if (!confirmed || !context.mounted) return;
     final result = await FlowerpotScope.of(context).deleteAccount();
     if (!context.mounted) return;
     if (result.success) {

@@ -130,22 +130,20 @@ class _RenameDeviceDialogState extends State<_RenameDeviceDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('编辑设备名称'),
-      content: TextField(
+    return AppDialog(
+      title: '编辑设备名称',
+      message: '最多 20 个字符，重命名后设备列表与首页同步更新。',
+      icon: Icons.drive_file_rename_outline,
+      confirmLabel: '保存',
+      confirmKey: const Key('save-device-info-name'),
+      content: AppDialogTextField(
         key: const Key('device-info-name-field'),
         controller: _controller,
-        autofocus: true,
+        hintText: '请输入设备名称',
         maxLength: 20,
       ),
-      actions: <Widget>[
-        AppTextButton(label: '取消', onPressed: () => Navigator.pop(context)),
-        FilledButton(
-          key: const Key('save-device-info-name'),
-          onPressed: () => Navigator.pop(context, _controller.text),
-          child: const Text('保存'),
-        ),
-      ],
+      onCancel: () => Navigator.pop(context),
+      onConfirm: () => Navigator.pop(context, _controller.text),
     );
   }
 }

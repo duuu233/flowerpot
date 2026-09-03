@@ -384,6 +384,9 @@ class DeviceControlSettings {
     this.nightPeriod = '23:00-07:00',
     this.temperatureUnit = 'celsius',
     this.clockFormat = '24h',
+    this.standbyEnabled = false,
+    this.standbyDelayMinutes = 30,
+    this.deviceLanguage = 'zh',
   });
 
   final bool autoBrightness;
@@ -408,6 +411,17 @@ class DeviceControlSettings {
   final String nightPeriod;
   final String temperatureUnit;
   final String clockFormat;
+
+  /// `standby_switch` (151). The export's default is 0 — never enter standby —
+  /// so an unreported device must not be drawn as "standby on".
+  final bool standbyEnabled;
+
+  /// `standby_delay` (152), whole minutes, 1–180.
+  final int standbyDelayMinutes;
+
+  /// `language` (153), as the app's own `zh`/`en` code rather than the DP's
+  /// `Chinese`/`English`. Factory reset returns the device to Chinese.
+  final String deviceLanguage;
 
   /// Whether the device is currently set to Fahrenheit (`temp_unit_convert`).
   bool get usesFahrenheit => temperatureUnit == 'fahrenheit';
@@ -478,6 +492,9 @@ class DeviceControlSettings {
     String? nightPeriod,
     String? temperatureUnit,
     String? clockFormat,
+    bool? standbyEnabled,
+    int? standbyDelayMinutes,
+    String? deviceLanguage,
   }) => DeviceControlSettings(
     autoBrightness: autoBrightness ?? this.autoBrightness,
     soundInteraction: soundInteraction ?? this.soundInteraction,
@@ -493,6 +510,9 @@ class DeviceControlSettings {
     nightPeriod: nightPeriod ?? this.nightPeriod,
     temperatureUnit: temperatureUnit ?? this.temperatureUnit,
     clockFormat: clockFormat ?? this.clockFormat,
+    standbyEnabled: standbyEnabled ?? this.standbyEnabled,
+    standbyDelayMinutes: standbyDelayMinutes ?? this.standbyDelayMinutes,
+    deviceLanguage: deviceLanguage ?? this.deviceLanguage,
   );
 }
 
@@ -517,6 +537,9 @@ class SmartPlanterDevice {
     this.reportedDays,
     this.status = const DeviceStatusReport(),
     this.history = DeviceHistory.empty,
+    this.birthday,
+    this.weddingDay,
+    this.lastOperationResult = '',
   });
 
   final String id;
@@ -550,6 +573,27 @@ class SmartPlanterDevice {
   final DeviceStatusReport status;
   final DeviceHistory history;
 
+  /// `memorial_birthday` (158) and `memorial_wedding` (159). Null means the
+  /// device has never been given one, or it was disabled.
+  final DateTime? birthday;
+  final DateTime? weddingDay;
+
+  /// `op_result` (160), the device's receipt for the last command it ran, as
+  /// `<操作>:<对象>:<结果>`. Empty until it reports one.
+  final String lastOperationResult;
+
+  /// Whether the last receipt says the operation succeeded. Null when the
+  /// device has reported nothing, or something this app cannot parse.
+  bool? get lastOperationSucceeded {
+    final parts = lastOperationResult.split(':');
+    if (parts.length < 3) return null;
+    return switch (parts.last.trim()) {
+      'ok' => true,
+      'fail' => false,
+      _ => null,
+    };
+  }
+
   int get companionDays =>
       reportedDays ?? DateTime.now().difference(boundAt).inDays + 1;
 
@@ -566,6 +610,11 @@ class SmartPlanterDevice {
     String? plantVariety,
     DeviceStatusReport? status,
     DeviceHistory? history,
+    DateTime? birthday,
+    bool clearBirthday = false,
+    DateTime? weddingDay,
+    bool clearWeddingDay = false,
+    String? lastOperationResult,
   }) => SmartPlanterDevice(
     id: id,
     productId: productId,
@@ -586,6 +635,9 @@ class SmartPlanterDevice {
     reportedDays: reportedDays,
     status: status ?? this.status,
     history: history ?? this.history,
+    birthday: clearBirthday ? null : (birthday ?? this.birthday),
+    weddingDay: clearWeddingDay ? null : (weddingDay ?? this.weddingDay),
+    lastOperationResult: lastOperationResult ?? this.lastOperationResult,
   );
 }
 
@@ -698,6 +750,39 @@ class WifiNetwork {
         compact.startsWith('tuya') ||
         compact.startsWith('ysplanter');
   }
+}
+
+/// 配网进度，对应 `设备配网-配网中的步骤` 那三步。
+///
+/// 一次 AP 配网内部是「取令牌 → 连热点 → 下发凭据 → 等云端」，用户能理解的是
+/// 前端画的这三步，所以取令牌和连热点合成「连接设备」一步。
+enum PairingStage {
+  /// 没有配网在跑。
+  idle,
+
+  /// 取配网令牌、把手机连到设备热点上。
+  connectingDevice,
+
+  /// 已经连上热点，正在把 Wi-Fi 凭据下发给设备。
+  sendingWifi,
+
+  /// 凭据已下发，设备正在连路由器并注册到云端。
+  connectingCloud;
+
+  /// 这一步在界面上的名字。
+  String get label => switch (this) {
+    PairingStage.idle => '准备中',
+    PairingStage.connectingDevice => '连接设备',
+    PairingStage.sendingWifi => '发送Wi-Fi信息',
+    PairingStage.connectingCloud => '连接云端',
+  };
+
+  /// 界面上按顺序画出来的三步。
+  static const List<PairingStage> steps = <PairingStage>[
+    PairingStage.connectingDevice,
+    PairingStage.sendingWifi,
+    PairingStage.connectingCloud,
+  ];
 }
 
 /// Result of a nearby-network scan, used to check whether the device hotspot

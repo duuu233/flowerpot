@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 
-import '../../tokens/app_colors.dart';
+import '../dialogs/app_dialog.dart';
 
+/// Yes/no confirmation, as a plain bool for the call sites that only branch on
+/// "did the user agree".
+///
+/// The visuals live in [AppDialog]; this is the thin wrapper the app already
+/// called everywhere, kept so no page has to learn a new signature.
 Future<bool> showAppConfirmDialog(
   BuildContext context, {
   required String title,
@@ -9,26 +14,16 @@ Future<bool> showAppConfirmDialog(
   String cancelLabel = '取消',
   String confirmLabel = '确认',
   bool destructive = false,
+  IconData? icon,
 }) async {
-  return await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(title),
-          content: Text(message),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(cancelLabel),
-            ),
-            FilledButton(
-              style: destructive
-                  ? FilledButton.styleFrom(backgroundColor: AppColors.danger)
-                  : null,
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text(confirmLabel),
-            ),
-          ],
-        ),
-      ) ??
-      false;
+  final result = await showAppDialog(
+    context,
+    title: title,
+    message: message,
+    icon: icon,
+    tone: destructive ? AppDialogTone.danger : AppDialogTone.primary,
+    cancelLabel: cancelLabel,
+    confirmLabel: confirmLabel,
+  );
+  return result ?? false;
 }

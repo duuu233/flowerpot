@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:math' as math;
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -22,6 +22,10 @@ class AnimationsPage extends StatefulWidget {
 
 class _AnimationsPageState extends State<AnimationsPage> {
   bool loadingStarted = false;
+
+  /// Files ticked in the gallery. 图库管理（v2）是多选删除，所以选中态属于页面
+  /// 而不是每个格子。
+  final Set<String> _selected = <String>{};
 
   @override
   void didChangeDependencies() {
@@ -103,13 +107,16 @@ class _AnimationsPageState extends State<AnimationsPage> {
                   ),
                   if (files.isNotEmpty) ...<Widget>[
                     const SizedBox(height: AppSpacing.md),
-                    for (final file in files) ...<Widget>[
-                      _AnimationFileTile(
-                        file: file,
-                        onDelete: () => _deleteFile(context, file),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                    ],
+                    _UploadedFilesCard(
+                      files: files,
+                      selected: _selected,
+                      busy: state.busy,
+                      onToggle: _toggleSelection,
+                      onPin: (file) => _pinFile(context, file),
+                      onUpload: () => _pickFile(context),
+                      onDeleteSelected: () => _deleteSelected(context, files),
+                      onClearSelection: () => setState(_selected.clear),
+                    ),
                   ],
                 ],
               ),
@@ -159,14 +166,80 @@ class _AnimationsPageState extends State<AnimationsPage> {
     );
   }
 
-  Future<void> _deleteFile(BuildContext context, AnimationAsset file) async {
-    final result = await FlowerpotScope.of(
+  void _toggleSelection(AnimationAsset file) {
+    setState(() {
+      if (!_selected.remove(file.id)) _selected.add(file.id);
+    });
+  }
+
+  /// 删除选中的文件。
+  ///
+  /// 云端那份由 [FlowerpotState.deleteAnimation] 删；设备本地那份要另外下发
+  /// DP 155（按文件名删一张）或 156（全清），否则花盆屏幕上还会继续放这些图。
+  /// 全选时用 156：一次下发比逐张删可靠，也少几十条 DP。
+  Future<void> _deleteSelected(
+    BuildContext context,
+    List<AnimationAsset> files,
+  ) async {
+    final targets = files
+        .where((item) => _selected.contains(item.id))
+        .toList(growable: false);
+    if (targets.isEmpty) {
+      showAppMessage(context, '请先选择要删除的文件', tone: AppMessageTone.info);
+      return;
+    }
+    final all = targets.length == files.length;
+    final confirmed = await showAppConfirmDialog(
       context,
-    ).deleteAnimation(widget.deviceId, file.id);
+      title: all ? '清空全部文件' : '删除选中文件',
+      message: all
+          ? '设备上的 ${files.length} 个文件都会被清空，确定继续吗？'
+          : '选中的 ${targets.length} 个文件会从云端和设备上移除，确定继续吗？',
+      confirmLabel: '删除',
+      destructive: true,
+      icon: Icons.delete_outline,
+    );
+    if (!confirmed || !context.mounted) return;
+    final state = FlowerpotScope.of(context);
+    if (all) {
+      final cleared = await state.deleteAllDevicePhotos(widget.deviceId);
+      if (!context.mounted) return;
+      if (!cleared.success) {
+        showAppMessage(context, cleared.message, tone: AppMessageTone.error);
+        return;
+      }
+    }
+    var failed = 0;
+    for (final file in targets) {
+      if (!all) {
+        final removed = await state.deleteDevicePhoto(
+          widget.deviceId,
+          file.name,
+        );
+        if (!removed.success) failed++;
+      }
+      final result = await state.deleteAnimation(widget.deviceId, file.id);
+      if (!result.success) failed++;
+    }
     if (!context.mounted) return;
+    setState(_selected.clear);
     showAppMessage(
       context,
-      result.success ? '已删除 ${file.name}' : result.message,
+      failed == 0 ? '已删除 ${targets.length} 个文件' : '有 $failed 个文件删除失败，请重试',
+      tone: failed == 0 ? AppMessageTone.success : AppMessageTone.error,
+    );
+  }
+
+  /// DP 157：让设备优先显示这张图。云端列表的顺序也跟着挪，两边看到的第一张
+  /// 才是同一张。
+  Future<void> _pinFile(BuildContext context, AnimationAsset file) async {
+    final state = FlowerpotScope.of(context);
+    final result = await state.pinDevicePhoto(widget.deviceId, file.name);
+    if (!context.mounted) return;
+    if (result.success) state.pinAnimation(file.id);
+    showAppMessage(
+      context,
+      result.message,
       tone: result.success ? AppMessageTone.success : AppMessageTone.error,
     );
   }
@@ -334,8 +407,7 @@ class _UploadCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppSurfaceCard(
       padding: const EdgeInsets.all(12),
-      child: CustomPaint(
-        painter: const _DashedRoundedRectPainter(),
+      child: AppDashedBorder(
         child: Material(
           key: AnimationsPage.uploadZoneKey,
           color: AppColors.brandSurface.withValues(alpha: .34),
@@ -402,98 +474,253 @@ class _UploadCard extends StatelessWidget {
   }
 }
 
-class _AnimationFileTile extends StatelessWidget {
-  const _AnimationFileTile({required this.file, required this.onDelete});
+/// 已上传文件（`docs/UI/v2/智能花盆ysplanter/定制动画-已上传图片（图库管理）.png`）。
+///
+/// 三列缩略图 + 右上角勾选圈，下面一排三个圆按钮：上传 / 删除选中 / 取消选择。
+/// 长按一张是「置顶」（DP 157），frame 里没有按钮位置，放在长按上。
+class _UploadedFilesCard extends StatelessWidget {
+  const _UploadedFilesCard({
+    required this.files,
+    required this.selected,
+    required this.busy,
+    required this.onToggle,
+    required this.onPin,
+    required this.onUpload,
+    required this.onDeleteSelected,
+    required this.onClearSelection,
+  });
 
-  final AnimationAsset file;
-  final VoidCallback onDelete;
+  final List<AnimationAsset> files;
+  final Set<String> selected;
+  final bool busy;
+  final ValueChanged<AnimationAsset> onToggle;
+  final ValueChanged<AnimationAsset> onPin;
+  final VoidCallback onUpload;
+  final VoidCallback onDeleteSelected;
+  final VoidCallback onClearSelection;
 
   @override
   Widget build(BuildContext context) {
     return AppSurfaceCard(
-      padding: EdgeInsets.zero,
-      child: InkWell(
-        onLongPress: onDelete,
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          child: Row(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
             children: <Widget>[
-              const AppIconBadge(
-                icon: Icons.image_outlined,
-                color: AppColors.brandDark,
-                backgroundColor: AppColors.brandSurface,
-                size: 44,
-                iconSize: 24,
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      file.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.bodyEmphasis,
-                    ),
-                    const SizedBox(height: AppSpacing.xxs),
-                    Text(
-                      file.synced ? '已同步 · 长按删除' : '待同步 · 长按删除',
-                      style: AppTypography.smallBody,
-                    ),
-                  ],
+              const Expanded(
+                child: Text(
+                  '已上传文件',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-              Icon(
-                file.synced
-                    ? Icons.cloud_done_outlined
-                    : Icons.cloud_upload_outlined,
-                color: file.synced ? AppColors.success : AppColors.warningSoft,
+              Text(
+                '${files.length}/10',
+                key: const Key('animation-file-count'),
+                style: const TextStyle(
+                  color: AppColors.brandPrimary,
+                  fontSize: 15,
+                ),
               ),
             ],
           ),
+          const SizedBox(height: 6),
+          const Text(
+            '支持多选，选中后可删除；长按可置顶',
+            style: TextStyle(color: AppColors.textTertiary, fontSize: 14),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: files.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+            ),
+            itemBuilder: (context, index) => _GalleryTile(
+              file: files[index],
+              index: index,
+              selected: selected.contains(files[index].id),
+              onTap: () => onToggle(files[index]),
+              onLongPress: () => onPin(files[index]),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              _GalleryAction(
+                actionKey: const Key('animation-upload-action'),
+                icon: Icons.file_upload_outlined,
+                color: AppColors.brandPrimary,
+                tooltip: '上传文件',
+                onTap: busy || files.length >= 10 ? null : onUpload,
+              ),
+              const SizedBox(width: AppSpacing.xl),
+              _GalleryAction(
+                actionKey: const Key('animation-delete-action'),
+                icon: Icons.delete_outline,
+                color: AppColors.danger,
+                tooltip: '删除选中',
+                onTap: busy || selected.isEmpty ? null : onDeleteSelected,
+              ),
+              const SizedBox(width: AppSpacing.xl),
+              _GalleryAction(
+                actionKey: const Key('animation-clear-selection-action'),
+                icon: Icons.close,
+                color: AppColors.textSecondary,
+                tooltip: '取消选择',
+                onTap: selected.isEmpty ? null : onClearSelection,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GalleryTile extends StatelessWidget {
+  const _GalleryTile({
+    required this.file,
+    required this.index,
+    required this.selected,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final AnimationAsset file;
+  final int index;
+  final bool selected;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.brandSurface,
+      borderRadius: AppRadius.card,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: Key('animation-tile-$index'),
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            _Thumbnail(path: file.path),
+            Positioned(
+              top: 6,
+              right: 6,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: selected
+                      ? AppColors.brandPrimary
+                      : AppColors.surface.withValues(alpha: .72),
+                  shape: BoxShape.circle,
+                ),
+                child: SizedBox.square(
+                  dimension: 26,
+                  child: selected
+                      ? const Icon(
+                          Icons.check,
+                          size: 16,
+                          color: AppColors.surface,
+                        )
+                      : null,
+                ),
+              ),
+            ),
+            if (!file.synced)
+              const Positioned(
+                left: 6,
+                bottom: 6,
+                child: Icon(
+                  Icons.cloud_upload_outlined,
+                  size: 18,
+                  color: AppColors.warningSoft,
+                ),
+              ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _DashedRoundedRectPainter extends CustomPainter {
-  const _DashedRoundedRectPainter();
+/// 缩略图。后端返回的是 URL，本地刚选的是文件路径，读不出来就退回一个图标——
+/// 网格里留个空白格子会让人以为文件坏了。
+class _Thumbnail extends StatelessWidget {
+  const _Thumbnail({required this.path});
+
+  final String path;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..addRRect(
-        RRect.fromRectAndRadius(
-          Offset.zero & size,
-          const Radius.circular(AppRadius.md),
-        ),
+  Widget build(BuildContext context) {
+    const fallback = Center(
+      child: Icon(
+        Icons.image_outlined,
+        color: AppColors.brandDark,
+        size: 26,
+      ),
+    );
+    if (path.startsWith('http')) {
+      return Image.network(
+        path,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => fallback,
       );
-    final metrics = path.computeMetrics();
-    final paint = Paint()
-      ..color = AppColors.brandPrimary.withValues(alpha: .55)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    const dash = 5.0;
-    const gap = 5.0;
-    for (final metric in metrics) {
-      var distance = 0.0;
-      while (distance < metric.length) {
-        canvas.drawPath(
-          metric.extractPath(
-            distance,
-            math.min(distance + dash, metric.length),
-          ),
-          paint,
-        );
-        distance += dash + gap;
-      }
     }
+    if (path.startsWith('builtin://')) return fallback;
+    return Image.file(
+      File(path),
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) => fallback,
+    );
   }
+}
+
+class _GalleryAction extends StatelessWidget {
+  const _GalleryAction({
+    required this.actionKey,
+    required this.icon,
+    required this.color,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final Key actionKey;
+  final IconData icon;
+  final Color color;
+  final String tooltip;
+  final VoidCallback? onTap;
 
   @override
-  bool shouldRepaint(_DashedRoundedRectPainter oldDelegate) => false;
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: enabled ? color : AppColors.disabled,
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: actionKey,
+          onTap: onTap,
+          child: SizedBox.square(
+            dimension: 56,
+            child: Icon(icon, color: AppColors.surface, size: 24),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _FilePreviewIllustration extends StatelessWidget {

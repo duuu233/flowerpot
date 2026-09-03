@@ -91,10 +91,12 @@ class DeviceSettingsPage extends StatelessWidget {
     final route = switch (kind) {
       DeviceSettingsMenuKind.plant => AppRoutes.plantPicker,
       DeviceSettingsMenuKind.display => AppRoutes.displaySettings,
+      DeviceSettingsMenuKind.led => AppRoutes.ledSettings,
       DeviceSettingsMenuKind.hearing => AppRoutes.hearingSettings,
       DeviceSettingsMenuKind.touch => AppRoutes.touchSettings,
       DeviceSettingsMenuKind.vibration => AppRoutes.vibrationSettings,
       DeviceSettingsMenuKind.behavior => AppRoutes.behaviorSettings,
+      DeviceSettingsMenuKind.memorial => AppRoutes.memorial,
       DeviceSettingsMenuKind.other => AppRoutes.deviceOtherSettings,
     };
     Navigator.pushNamed(context, route, arguments: device.id);

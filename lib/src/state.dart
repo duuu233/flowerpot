@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +9,7 @@ import 'core/cache/image_cache_cleanup.dart';
 import 'core/network/api_exception.dart';
 import 'features/auth/domain/auth_validator.dart';
 import 'tuya/tuya_config.dart';
+import 'tuya/tuya_memorial_codec.dart';
 import 'tuya/tuya_models.dart';
 import 'tuya/tuya_repository.dart';
 
@@ -75,6 +77,13 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, DeviceControlSettings> _settingsOverrides =
       <String, DeviceControlSettings>{};
 
+  /// Custom memorial days per device id. DP 154 is write-only in practice —
+  /// the device upserts by id and never reports the set back — so this map is
+  /// the only record of which ids exist and what the user titled them, and it
+  /// is persisted with the session.
+  final Map<String, List<MemorialEntry>> _memorials =
+      <String, List<MemorialEntry>>{};
+
   /// Built-in device animations are not user-uploaded files, so the page
   /// filters their `builtin://` paths and only counts backend/local uploads.
   final List<AnimationAsset> _animations = <AnimationAsset>[
@@ -112,6 +121,17 @@ class FlowerpotState extends ChangeNotifier {
   /// Last nearby-network scan, populated by [probeWifi]. Read by the pairing
   /// flow as well as the SDK console.
   WifiScan? get wifiScan => _wifiScan;
+
+  /// 配网走到第几步了。配网页据此画「1.连接设备 / 2.发送Wi-Fi信息 / 3.连接云端」
+  /// 那张进度卡；不在配网时是 [PairingStage.idle]。
+  PairingStage get pairingStage => _pairingStage;
+  PairingStage _pairingStage = PairingStage.idle;
+
+  void _setPairingStage(PairingStage stage) {
+    if (_pairingStage == stage) return;
+    _pairingStage = stage;
+    notifyListeners();
+  }
 
   /// Tuya signs a provisioning token for 10 minutes and the bridge caches it
   /// for 8. The UI expires it earlier so switching to the device hotspot does
@@ -163,6 +183,7 @@ class FlowerpotState extends ChangeNotifier {
       _languageCode = preferences.getString('languageCode') ?? 'zh';
       _notificationsEnabled =
           preferences.getBool('notificationsEnabled') ?? true;
+      _restoreMemorials(preferences.getString(_memorialsKey));
     } catch (_) {
       // Local preference failures do not block SDK/session initialization.
     }
@@ -505,6 +526,7 @@ class FlowerpotState extends ChangeNotifier {
     // 设备用掉，失败时要作废，下次重新取。
     var hotspotRequested = false;
     var pairingStarted = false;
+    _setPairingStage(PairingStage.connectingDevice);
     try {
       if (activatorTokenReady) {
         // 上一次只走到连热点就失败了（弹框取消、手动路径），令牌没用过，还在
@@ -535,6 +557,7 @@ class FlowerpotState extends ChangeNotifier {
       );
 
       pairingStarted = true;
+      _setPairingStage(PairingStage.sendingWifi);
       final result = await _pairInternal(
         PairingRequest(ssid: ssid, password: password, mode: 'ap'),
       );
@@ -572,6 +595,10 @@ class FlowerpotState extends ChangeNotifier {
         invalidateToken: pairingStarted,
       );
       rethrow;
+    } finally {
+      // 成功、失败、等手动连热点，出口都在这里；不清掉的话进度卡会一直停在
+      // 最后一步上，看起来像还在配。
+      _setPairingStage(PairingStage.idle);
     }
   });
 
@@ -649,6 +676,7 @@ class FlowerpotState extends ChangeNotifier {
   /// 返回，[pairViaHotspot] 照常收尾。用户中途退出配网页时由页面调用；没有配网
   /// 在跑时调用也安全。
   Future<ActionResult> cancelPairing() => _run(() async {
+    _setPairingStage(PairingStage.idle);
     await _repository.cancelPairing();
     // 令牌没被消耗，但配网是否已经送到设备上说不清，保守起见重取。
     _activatorTokenAt = null;
@@ -657,6 +685,8 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<ActionResult> _pairInternal(PairingRequest request) async {
     final device = await _pairOrRecover(request);
+    // 凭据已经被设备收下，接下来是它自己连路由器、注册到云端。
+    _setPairingStage(PairingStage.connectingCloud);
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.
     _activatorTokenAt = null;
@@ -900,7 +930,10 @@ class FlowerpotState extends ChangeNotifier {
     _replaceDevice(id, (device) {
       final current = device.settings;
       final next = switch (key) {
-        'autoBrightness' => current.copyWith(autoBrightness: value as bool),
+        // 'led' 走的是同一个功能点（117），本地状态也要跟着走同一个字段。
+        'autoBrightness' || 'led' => current.copyWith(
+          autoBrightness: value as bool,
+        ),
         'soundInteraction' => current.copyWith(soundInteraction: value as bool),
         'soundSensitivity' => current.copyWith(soundSensitivity: value as int),
         'touchInteraction' => current.copyWith(touchInteraction: value as bool),
@@ -918,6 +951,13 @@ class FlowerpotState extends ChangeNotifier {
         'nightPeriod' => current.copyWith(nightPeriod: value as String),
         'temperatureUnit' => current.copyWith(temperatureUnit: value as String),
         'clockFormat' => current.copyWith(clockFormat: value as String),
+        'standby' => current.copyWith(standbyEnabled: value as bool),
+        'standbyDelay' => current.copyWith(
+          standbyDelayMinutes: (value as num)
+              .round()
+              .clamp(TuyaConfig.standbyDelayMin, TuyaConfig.standbyDelayMax),
+        ),
+        'deviceLanguage' => current.copyWith(deviceLanguage: value as String),
         _ => current,
       };
       _settingsOverrides[id] = next;
@@ -931,6 +971,182 @@ class FlowerpotState extends ChangeNotifier {
     SensorMetric metric,
     ReportRange range,
   ) => _repository.getHistory(id, metric, range);
+
+  /// The 纪念日 page's rows: the two fixed dates the device keeps on their own
+  /// DPs, then the custom entries.
+  ///
+  /// The custom list lives here rather than on the device: DP 154 is an upsert
+  /// channel, not a query — the device never reports the set back — so the app
+  /// is the only place that knows which ids exist and what the user called
+  /// them. Losing this list would leave orphaned entries on the device that
+  /// nothing can name or delete, so it is persisted with the session.
+  List<MemorialEntry> memorialsFor(String deviceId) {
+    final device = deviceById(deviceId);
+    final custom = _memorials[deviceId] ?? const <MemorialEntry>[];
+    return List<MemorialEntry>.unmodifiable(<MemorialEntry>[
+      MemorialEntry(
+        id: 0,
+        date: device?.birthday,
+        type: MemorialContentType.text,
+        content: '',
+        enabled: device?.birthday != null,
+        title: MemorialKind.birthday.label,
+        kind: MemorialKind.birthday,
+      ),
+      MemorialEntry(
+        id: 0,
+        date: device?.weddingDay,
+        type: MemorialContentType.text,
+        content: '',
+        enabled: device?.weddingDay != null,
+        title: MemorialKind.wedding.label,
+        kind: MemorialKind.wedding,
+      ),
+      ...custom,
+    ]);
+  }
+
+  /// Custom entries only, which is what the 「5/10 条」 counter counts.
+  List<MemorialEntry> customMemorialsFor(String deviceId) =>
+      List<MemorialEntry>.unmodifiable(
+        _memorials[deviceId] ?? const <MemorialEntry>[],
+      );
+
+  /// Writes one memorial day: 158/159 for the fixed pair, a 154 upsert frame
+  /// for everything else.
+  Future<ActionResult> saveMemorial(String deviceId, MemorialEntry entry) =>
+      _guard(() async {
+        if (entry.isFixed) {
+          await _publishFixedMemorial(deviceId, entry);
+          _replaceDevice(deviceId, (device) {
+            final date = entry.enabled ? entry.date : null;
+            return entry.kind == MemorialKind.birthday
+                ? device.copyWith(birthday: date, clearBirthday: date == null)
+                : device.copyWith(
+                    weddingDay: date,
+                    clearWeddingDay: date == null,
+                  );
+          });
+          return ActionResult(true, '${entry.title}已保存');
+        }
+        final date = entry.date;
+        if (date == null && entry.enabled) {
+          throw const TuyaException('memorial_date_missing', '请先选择纪念日日期');
+        }
+        final entries = _memorials.putIfAbsent(
+          deviceId,
+          () => <MemorialEntry>[],
+        );
+        final index = entries.indexWhere((item) => item.id == entry.id);
+        if (index < 0 && entries.length >= TuyaMemorialCodec.maxCustomEntries) {
+          throw TuyaException(
+            'memorial_limit_reached',
+            '自定义纪念日最多 ${TuyaMemorialCodec.maxCustomEntries} 条',
+          );
+        }
+        await _publishMemorialFrame(
+          deviceId,
+          TuyaMemorialCodec.encodeEntry(
+            id: entry.id,
+            // 停用帧不带日期，但本地要留着，用户重新开启时不用再选一次。
+            date: date ?? DateTime.now(),
+            type: entry.type,
+            content: entry.content,
+            enabled: entry.enabled,
+          ),
+        );
+        if (index >= 0) {
+          entries[index] = entry;
+        } else {
+          entries.add(entry);
+        }
+        await _persistMemorials();
+        notifyListeners();
+        return const ActionResult(true, '纪念日已保存');
+      });
+
+  /// Removes a custom entry from the device and from the local list. The fixed
+  /// pair cannot be deleted — disabling it is what the UI offers instead.
+  Future<ActionResult> deleteMemorial(String deviceId, int id) =>
+      _guard(() async {
+        await _publishMemorialFrame(
+          deviceId,
+          TuyaMemorialCodec.encodeDelete(id),
+        );
+        _memorials[deviceId]?.removeWhere((item) => item.id == id);
+        await _persistMemorials();
+        notifyListeners();
+        return const ActionResult(true, '纪念日已删除');
+      });
+
+  /// An id for a new entry. Milliseconds are unique enough for a per-device
+  /// list of at most ten, and stay inside the frame's unsigned 32 bits.
+  int nextMemorialId(String deviceId) {
+    final used = (_memorials[deviceId] ?? const <MemorialEntry>[])
+        .map((item) => item.id)
+        .toSet();
+    var id = DateTime.now().millisecondsSinceEpoch % 0xFFFFFFFF;
+    while (used.contains(id) || id == 0) {
+      id = (id + 1) % 0xFFFFFFFF;
+    }
+    return id;
+  }
+
+  /// `del_photo` (155): removes one file from the device gallery by name.
+  Future<ActionResult> deleteDevicePhoto(String deviceId, String fileName) =>
+      _guard(() async {
+        await _publishRawDp(deviceId, 'del_photo', ascii.encode(fileName));
+        return ActionResult(true, '已通知设备删除 $fileName');
+      });
+
+  /// `del_all_photos` (156).
+  Future<ActionResult> deleteAllDevicePhotos(String deviceId) =>
+      _guard(() async {
+        final dpId = TuyaConfig.dp['del_all_photos'];
+        if (dpId == null) {
+          throw const TuyaException('unsupported_dp', '当前产品未提供清空照片功能点');
+        }
+        await _repository.publishDps(deviceId, <int, Object>{dpId: true});
+        return const ActionResult(true, '已通知设备清空照片');
+      });
+
+  /// `pin_photo` (157): the device shows this file first.
+  Future<ActionResult> pinDevicePhoto(String deviceId, String fileName) =>
+      _guard(() async {
+        await _publishRawDp(deviceId, 'pin_photo', ascii.encode(fileName));
+        return ActionResult(true, '已置顶 $fileName');
+      });
+
+  Future<void> _publishFixedMemorial(
+    String deviceId,
+    MemorialEntry entry,
+  ) async {
+    final identifier = entry.kind == MemorialKind.birthday
+        ? 'memorial_birthday'
+        : 'memorial_wedding';
+    await _publishRawDp(
+      deviceId,
+      identifier,
+      TuyaMemorialCodec.encodeFixedDate(entry.enabled ? entry.date : null),
+    );
+  }
+
+  Future<void> _publishMemorialFrame(String deviceId, List<int> frame) =>
+      _publishRawDp(deviceId, 'memorial_set', frame);
+
+  Future<void> _publishRawDp(
+    String deviceId,
+    String identifier,
+    List<int> bytes,
+  ) async {
+    final dpId = TuyaConfig.dp[identifier];
+    if (dpId == null) {
+      throw TuyaException('unsupported_dp', '当前产品未提供该功能点：$identifier');
+    }
+    await _repository.publishDps(deviceId, <int, Object>{
+      dpId: TuyaMemorialCodec.encodeRaw(bytes),
+    });
+  }
 
   Future<ActionResult> addAnimation(
     String deviceId, {
@@ -1143,6 +1359,67 @@ class FlowerpotState extends ChangeNotifier {
     notifyListeners();
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString('languageCode', code);
+  }
+
+  /// Storage key for [_memorials].
+  static const String _memorialsKey = 'deviceMemorials';
+
+  Future<void> _persistMemorials() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(
+        _memorialsKey,
+        jsonEncode(<String, Object?>{
+          for (final entry in _memorials.entries)
+            entry.key: <Object?>[
+              for (final item in entry.value)
+                <String, Object?>{
+                  'id': item.id,
+                  'date': item.date == null
+                      ? null
+                      : TuyaMemorialCodec.dateValue(item.date!),
+                  'type': item.type.code,
+                  'content': item.content,
+                  'enabled': item.enabled,
+                  'title': item.title,
+                },
+            ],
+        }),
+      );
+    } catch (_) {
+      // 存不下来不该让这次保存失败：设备那边已经写进去了。
+    }
+  }
+
+  void _restoreMemorials(String? raw) {
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, Object?>) return;
+      decoded.forEach((deviceId, value) {
+        if (value is! List<Object?>) return;
+        _memorials[deviceId] = <MemorialEntry>[
+          for (final item in value)
+            if (item is Map<String, Object?>)
+              MemorialEntry(
+                id: (item['id'] as num?)?.toInt() ?? 0,
+                date: item['date'] == null
+                    ? null
+                    : TuyaMemorialCodec.dateFromValue(
+                        (item['date'] as num).toInt(),
+                      ),
+                type: MemorialContentType.fromCode(
+                  (item['type'] as num?)?.toInt() ?? 1,
+                ),
+                content: (item['content'] ?? '').toString(),
+                enabled: item['enabled'] as bool? ?? true,
+                title: (item['title'] ?? '').toString(),
+              ),
+        ];
+      });
+    } catch (_) {
+      // 存档格式变了或者被写坏了，按「本机还没有记录」处理。
+    }
   }
 
   Future<void> setNotifications(bool enabled) async {
@@ -1518,6 +1795,11 @@ class FlowerpotState extends ChangeNotifier {
     _backendAnimations.clear();
     _knownPlantsByIdentifier.clear();
     _animations.removeWhere((item) => !item.path.startsWith('builtin://'));
+    // `_memorials` deliberately survives a logout. It is the only record of
+    // which DP 154 ids exist on a device — the device never reports the set
+    // back — so dropping it would leave entries on the hardware that nothing
+    // can name or delete. It is keyed by device id, which belongs to the
+    // planter rather than to the account.
     _selectedDeviceId = null;
     _demoMode = false;
     // The native token belongs to the account that fetched it.

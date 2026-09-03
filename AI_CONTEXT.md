@@ -103,10 +103,10 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 - 账号：配置 `API_BASE_URL` 后，国内手机号短信、验证码/密码登录与注册走 APP 后端，再用返回的映射凭据登录涂鸦；验证码登录未注册即自动建号；海外邮箱及找回密码等原有能力保留涂鸦链路。
 - 设备实时性：DP 上报、上下线和解绑由原生监听推给 Dart，页面自动刷新；温标（146）与时间格式（147）下发后 App 自身展示跟随。
 - 首页与设备：无底部菜单，设备列表即首页、左上角头像进入「我的」、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。后端设备行按涂鸦 `deviceId` 关联；植物目录、详情、绑定/删除与设备图片使用 APP 后端。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网三页全部走真实桥接调用——搜索与选择页用 `scanWifi` 找设备在 AP 模式下拉起的热点，Wi-Fi 页带入真实 2.4G 网络列表，「开始配网」一次点击由 `FlowerpotState.pairViaHotspot` 串完取令牌 → App 连设备热点 → 配网；平台不能由 App 连热点（iOS、Android 9 及以下）时回落到手动引导；任何一步失败、用户退出页面或等待超时都会释放热点连接与进程网络绑定（`leaveDeviceHotspot` / `cancelPairing`），详见 `docs/TUYA_SDK_SETUP.md` 5.3 与 6.3。
-- 设备控制：显示、听觉、触觉、振动、行为时段、温标、时钟、校准与系统修复。
-- 内容与维护：动画资源、设备分享、解绑、恢复出厂和 OTA。
+- 设备控制：显示、LED、听觉、触觉、振动、行为时段、温标、时钟、校准与系统修复。LED 设置页是单开关，与显示页共用 `disp_brightness_switch`（117）——2026-09-03 的功能点表没有独立的 LED 开关。
+- 内容与维护：定制动画（图库多选、上传、删除、置顶，分别对应 155/156/157）、纪念日（固定生日/结婚走 158/159，自定义条目走 154 的 upsert 帧）、设备分享、解绑、恢复出厂和 OTA。
 - 个人中心：资料、账号安全、帮助、协议、隐私、关于与偏好。
-- 设计系统：统一色彩、间距、资源、页面骨架和公共 Widget。
+- 设计系统：统一色彩、间距、资源、页面骨架和公共 Widget。所有提示/确认弹窗走 `AppDialog`（`design_system/widgets/dialogs/app_dialog.dart`），版式取自兄弟项目 `flutter` 的同名组件、配色换成 YSplanter 的品牌青；页面里不再出现 Material `AlertDialog`。
 - 联调工具：登录页「涂鸦 SDK 联调」与「我的」页标题栏图标都指向 `/devtools/tuya`，直接调用注册、登录、会话与设备列表并显示原始失败码，配网联调前先在该页确认平台配置；debug/profile 常开，release 需 `--dart-define=TUYA_DEBUG_TOOLS=true`。
 
 功能完成度以 [`docs/PRD_IMPLEMENTATION.md`](docs/PRD_IMPLEMENTATION.md) 为跟踪入口，UI 实施要求以 [`docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`](docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md) 为准。
@@ -114,7 +114,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 ## 6. 重要设计约束
 
 1. 页面通过 `FlowerpotState` 和 Repository 使用业务能力，不直接依赖 MethodChannel 或散落 HTTP 调用。
-2. `TuyaConfig.dp` 是 UI 读写与产品 PID 功能点之间的契约；变更必须与固件、涂鸦平台和测试一起核对。
+2. `TuyaConfig.dp` 是 UI 读写与产品 PID 功能点之间的契约；变更必须与固件、涂鸦平台和测试一起核对。当前表来自 `assets/智能花盆test(yciq4kssu1fv8umn)_09_03.xlsx`，PID `yciq4kssu1fv8umn`，覆盖 101–160。
 3. `TUYA_ENABLED` 只是选择真实 Repository 的编译期开关；平台安全组件、AppKey/AppSecret、包名和签名仍必须匹配，且运行环境必须真正按 `arm64-v8a` 或 `armeabi-v7a` 启动应用（涂鸦原生库不提供 x86/x86_64）。部分 x86_64 模拟器即使 ABI 列表包含 ARM，通用 APK 仍会优先以 x86_64 运行；显式 arm64 构建与安装方法见 `docs/TUYA_SDK_SETUP.md`。Mock 业务模式不依赖涂鸦调用；本机已有安全 AAR 时 Application 仍会尽力初始化 SDK，但失败不阻止 Mock UI。
 4. 当前 `StaticPreviewConfig.enabled` 为 `true`，只表示 Mock 后端不预置演示设备；启动入口、鉴权分流和页面导航与正式流程一致（登录页 → `AppShell`）。真机链路仍需单独验证会话恢复和真实设备流程。
 5. 新 UI 优先复用 `design_system` 和 `shared` 组件，遵循项目自己的 YSplanter 视觉规范，不复制参考项目的产品 UI。界面不标注占位数据，真假以源码和 SDK 联调页的调用日志为准。
@@ -161,6 +161,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 - 2026-09-03 核验：`https://api.yikaltd.com` 已恢复，`/v2/api-docs` 与写死的临时地址 `http://120.25.227.36:8601` 返回同一份契约（123 条路径），`ApiConfig._temporaryBaseUrl` 及配套的 Android network-security-config、iOS ATS 例外可以按其 TODO 回滚。仍未使用真实账号执行写接口，真机端到端联调未完成。
 - 验证码登录的自动注册复用的是同一条验证码：登录接口先判验证码（未注册手机号配错误验证码回的是「验证码错误」，说明验证码在账号查找之前判），失败后再调注册接口。若后端在验证码判过之后即作废，补注册会以「验证码错误」失败——这条只在 mock 上验证过，真机需要用真实短信确认。
 - 配网三页已改为真实 `scanWifi` / `pairViaHotspot`（取令牌 → 连热点 → `pairWifiDevice`）链路。热点识别前缀已放宽到忽略分隔符的 `smartlif`（含量产件上见到的 `SmartLift-…`）、`tuya`、`ysplanter` 与 `ty_`/`ty-`，并且不再是门禁：选择页可展开原始扫描结果按名字挑设备，搜索页在扫到 2.4G 网络时给出入口；Android 桥接的 `scanWifi` 现在等一轮 `SCAN_RESULTS_AVAILABLE` 广播（最多 5 秒）再回，避免返回设备进入配网状态之前的缓存。iOS 不返回附近网络列表，搜索与选择页在 iOS 上只能走「手动继续」。
+- 154/155/157/158/159 都是 raw 功能点。上报按 base64 解（和历史 DP 一致），下发按十六进制串写（`TuyaMemorialCodec.encodeRaw`）——这是涂鸦 SDK 的惯例，本仓库此前没有写过任何 raw 功能点，真机未验证。另外 DP 154 只能 upsert、设备不回报整份列表，所以自定义纪念日的 id 与标题存在 App 本地（`SharedPreferences` 的 `deviceMemorials`），退出登录不清除，否则设备上会留下无法命名和删除的孤儿条目。
 - 2026-09-03 的两轮配网改动都只做了静态复核，`flutter test` 与真机均未跑（本机没有 Flutter 工具链）：热点识别放宽、选择页原始扫描结果回退、Android `scanWifi` 等待新一轮扫描结果，以及同日更早补的失败释放（`PairingResult` 包装、`cancelPairing`、Dart 侧 `leaveDeviceHotspot`）与手动回落路径。
 - iOS 桥接已补齐配网前置、`joinDeviceHotspot`（`NEHotspotConfigurationManager`，需要 Hotspot Configuration entitlement，未配置时回 `hotspot_join_unsupported` 走手动路径）、`cancelPairing`、DP 上报与 OTA，但 iOS 侧全部改动尚未经过 Xcode 编译或真机验证；`createShareLink` 在 iOS 上仍是明确错误码（Home SDK 只有按账号分享）。
 - Android/iOS 包名与桥接正在工作区中演进；不要根据旧历史文档恢复已删除的平台文件。

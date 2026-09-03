@@ -4,19 +4,27 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/behavior_settings_page_model.dart';
 import 'widgets/behavior_schedule_card.dart';
+import 'widgets/schedule_slot_dialog.dart';
 
-typedef BehaviorTimePicker =
-    Future<TimeOfDay?> Function(BuildContext context, TimeOfDay initialTime);
+/// 打开时段编辑弹窗。测试注入自己的实现来跳过真正的弹窗。
+typedef BehaviorSlotEditor =
+    Future<ScheduleSlot?> Function(
+      BuildContext context,
+      String title,
+      ScheduleSlot initial,
+    );
 
 class BehaviorSettingsPage extends StatefulWidget {
   const BehaviorSettingsPage({
     required this.deviceId,
     super.key,
-    this.timePicker,
+    this.slotEditor,
   });
 
   final String deviceId;
-  final BehaviorTimePicker? timePicker;
+
+  /// 注入点，默认是 [showScheduleSlotDialog]。
+  final BehaviorSlotEditor? slotEditor;
 
   @override
   State<BehaviorSettingsPage> createState() => _BehaviorSettingsPageState();
@@ -33,43 +41,39 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
     await _update(kind, key, value);
   }
 
-  Future<void> _pickTime(
+  /// 开始和结束在同一个弹窗里改（`编辑周四时段2` 的版式）。
+  ///
+  /// [start] 只决定弹窗里哪一根滑条更值得先看，两端都能改：分成两个系统时间
+  /// 选择器时，用户改完开始才发现时段只剩十分钟，或者不小心跨了午夜。
+  Future<void> _editSlot(
     BehaviorSchedulePageModel schedule, {
     required bool start,
   }) async {
     if (updating.contains(schedule.kind)) return;
-    final current = start ? schedule.start : schedule.end;
-    final initial = TimeOfDay(hour: current.hour, minute: current.minute);
-    final picked = await (widget.timePicker ?? _showTimePicker)(
+    final editor = widget.slotEditor ?? _showSlotDialog;
+    final edited = await editor(
       context,
-      initial,
+      '编辑${schedule.title}',
+      ScheduleSlot(
+        startMinutes: schedule.start.totalMinutes,
+        endMinutes: schedule.end.totalMinutes,
+      ),
     );
-    if (!mounted || picked == null) return;
-    final value =
-        '${picked.hour.toString().padLeft(2, '0')}:'
-        '${picked.minute.toString().padLeft(2, '0')}';
-    final period = start
-        ? '$value-${schedule.end.label}'
-        : '${schedule.start.label}-$value';
+    if (!mounted || edited == null) return;
     final key = switch (schedule.kind) {
       BehaviorScheduleKind.nap => 'napPeriod',
       BehaviorScheduleKind.night => 'nightPeriod',
     };
-    await _update(schedule.kind, key, period);
+    await _update(schedule.kind, key, edited.period);
   }
 
-  Future<TimeOfDay?> _showTimePicker(
+  Future<ScheduleSlot?> _showSlotDialog(
     BuildContext context,
-    TimeOfDay initialTime,
+    String title,
+    ScheduleSlot initial,
   ) {
-    return showTimePicker(
-      context: context,
-      initialTime: initialTime,
-      builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
-        child: child!,
-      ),
-    );
+    // 花盆的两个时段都删不掉，也没有第二个时段，所以删除按钮和冲突提示都不传。
+    return showScheduleSlotDialog(context, title: title, initial: initial);
   }
 
   Future<void> _update(
@@ -121,8 +125,8 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
                 updating: updating.contains(BehaviorScheduleKind.nap),
                 onEnabledChanged: (value) =>
                     _setEnabled(BehaviorScheduleKind.nap, value),
-                onStartTimeTap: () => _pickTime(model.nap, start: true),
-                onEndTimeTap: () => _pickTime(model.nap, start: false),
+                onStartTimeTap: () => _editSlot(model.nap, start: true),
+                onEndTimeTap: () => _editSlot(model.nap, start: false),
               ),
               const SizedBox(height: 12),
               BehaviorScheduleCard(
@@ -133,8 +137,8 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
                 updating: updating.contains(BehaviorScheduleKind.night),
                 onEnabledChanged: (value) =>
                     _setEnabled(BehaviorScheduleKind.night, value),
-                onStartTimeTap: () => _pickTime(model.night, start: true),
-                onEndTimeTap: () => _pickTime(model.night, start: false),
+                onStartTimeTap: () => _editSlot(model.night, start: true),
+                onEndTimeTap: () => _editSlot(model.night, start: false),
               ),
             ],
           ),

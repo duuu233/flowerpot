@@ -15,15 +15,18 @@ abstract final class TuyaConfig {
   /// Only used to label the table; the app never sends it. A device bound to a
   /// different PID reports different DP ids, so re-export the table instead of
   /// editing rows by hand.
-  static const productId = 'orhqsdjyigmh8bwa';
+  static const productId = 'yciq4kssu1fv8umn';
 
   /// Product DP table, keyed by the Tuya *identifier* rather than by an app
   /// concept, so a row can be diffed against the platform export character for
   /// character. App-facing names resolve through [setting] and [history];
   /// sensor reads name their identifier at the point of use.
   ///
-  /// Source: `assets/智能花盆test(orhqsdjyigmh8bwa)_08_20.xlsx`, sheet 功能点,
-  /// exported 2026-08-20.
+  /// Source: `assets/智能花盆test(yciq4kssu1fv8umn)_09_03.xlsx`, sheet 功能点,
+  /// exported 2026-09-03. That export is a different PID from the 08-20 one and
+  /// adds 151–160 (standby, language, memorial days, photo management and the
+  /// operation receipt); 101–150 came across unchanged, identifier for
+  /// identifier.
   static const dp = <String, int>{
     // Reported state.
     'device_status': 101, // string, rw
@@ -80,6 +83,19 @@ abstract final class TuyaConfig {
     'firmware_version': 148, // string
     'hardware_version': 149, // value 1-100
     're_pairing': 150, // bool, write only
+
+    // Standby, language and the memorial/photo features added by the 09-03
+    // export.
+    'standby_switch': 151, // bool, default false (never sleep)
+    'standby_delay': 152, // value 1-180 minutes
+    'language': 153, // enum Chinese/English, factory reset returns to Chinese
+    'memorial_set': 154, // raw, upsert/disable/delete one custom memorial day
+    'del_photo': 155, // raw, write only: photo file name, ASCII
+    'del_all_photos': 156, // bool, write only: true clears the gallery
+    'pin_photo': 157, // raw, write only: photo file name, ASCII
+    'memorial_birthday': 158, // raw, 8 ASCII bytes YYYYMMDD
+    'memorial_wedding': 159, // raw, 8 ASCII bytes YYYYMMDD
+    'op_result': 160, // string `<操作>:<对象>:<结果>`
   };
 
   /// DPs the device transmits as an integer scaled by a power of ten (涂鸦
@@ -95,6 +111,10 @@ abstract final class TuyaConfig {
   /// resolved by [settingDps] instead.
   static const setting = <String, String>{
     'autoBrightness': 'disp_brightness_switch',
+    // LED 设置页和显示页共用 117：2026-09-03 的功能点表里没有单独的 LED 开关，
+    // 而 117 「显示屏幕亮度开关」就是设备唯一的亮灯开关。固件补了独立功能点后，
+    // 改这一行即可，页面不用动。
+    'led': 'disp_brightness_switch',
     'soundInteraction': 'voice_interaction_switch',
     'soundSensitivity': 'sound_sensitivity',
     'touchInteraction': 'touch_interact_switch',
@@ -106,6 +126,9 @@ abstract final class TuyaConfig {
     'nightEnabled': 'night_sleep_switch',
     'temperatureUnit': 'temp_unit_convert',
     'clockFormat': 'time_format',
+    'standby': 'standby_switch',
+    'standbyDelay': 'standby_delay',
+    'deviceLanguage': 'language',
   };
 
   /// Reported history series, keyed by app metric then by range.
@@ -138,6 +161,17 @@ abstract final class TuyaConfig {
     'fahrenheit': 'F',
   };
 
+  /// `language` (153) enum values against the app's own language codes, which
+  /// are the same ones `FlowerpotState.languageCode` uses.
+  static const deviceLanguages = <String, String>{
+    'zh': 'Chinese',
+    'en': 'English',
+  };
+
+  /// Bounds of `standby_delay` (152), in minutes.
+  static const standbyDelayMin = 1;
+  static const standbyDelayMax = 180;
+
   /// Steps of `water_level_calib`, indexed by the calibration dialog step the
   /// user just confirmed.
   ///
@@ -164,6 +198,16 @@ abstract final class TuyaConfig {
         final unit = temperatureUnits[value];
         if (unit == null) return null;
         return _single('temp_unit_convert', unit);
+      case 'deviceLanguage':
+        final language = deviceLanguages[value];
+        if (language == null) return null;
+        return _single('language', language);
+      case 'standbyDelay':
+        if (value is! num) return null;
+        final minutes = value
+            .round()
+            .clamp(standbyDelayMin, standbyDelayMax);
+        return _single('standby_delay', minutes);
     }
     final identifier = setting[key];
     if (identifier == null) return null;

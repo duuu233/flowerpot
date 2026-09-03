@@ -3,6 +3,7 @@ import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/behavior_settings_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_settings_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/widgets/behavior_schedule_card.dart';
+import 'package:flowerpot/src/features/devices/presentation/widgets/schedule_slot_dialog.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -84,20 +85,28 @@ void main() {
   testWidgets('nap start time is synchronized through the device DP', (
     tester,
   ) async {
-    TimeOfDay? initialTime;
+    ScheduleSlot? initialSlot;
+    String? dialogTitle;
     final result = await _pumpBehaviorSettings(
       tester,
       const Size(375, 812),
-      timePicker: (context, initial) async {
-        initialTime = initial;
-        return const TimeOfDay(hour: 11, minute: 45);
+      slotEditor: (context, title, initial) async {
+        dialogTitle = title;
+        initialSlot = initial;
+        // 一次弹窗同时带回开始和结束，所以结束时间原样送回。
+        return ScheduleSlot(
+          startMinutes: 11 * 60 + 45,
+          endMinutes: initial.endMinutes,
+        );
       },
     );
 
     await tester.tap(find.byKey(const Key('nap-start-time')));
     await tester.pumpAndSettle();
 
-    expect(initialTime, const TimeOfDay(hour: 12, minute: 0));
+    expect(dialogTitle, '编辑中午小憩');
+    expect(initialSlot?.startMinutes, 12 * 60);
+    expect(initialSlot?.endMinutes, 13 * 60 + 30);
     expect(
       result.state.deviceById('device-01')?.settings.napPeriod,
       '11:45-13:30',
@@ -110,20 +119,24 @@ void main() {
   testWidgets('night end time keeps the next-day label and device DP', (
     tester,
   ) async {
-    TimeOfDay? initialTime;
+    ScheduleSlot? initialSlot;
     final result = await _pumpBehaviorSettings(
       tester,
       const Size(375, 812),
-      timePicker: (context, initial) async {
-        initialTime = initial;
-        return const TimeOfDay(hour: 6, minute: 45);
+      slotEditor: (context, title, initial) async {
+        initialSlot = initial;
+        return ScheduleSlot(
+          startMinutes: initial.startMinutes,
+          endMinutes: 6 * 60 + 45,
+        );
       },
     );
 
     await tester.tap(find.byKey(const Key('night-end-time')));
     await tester.pumpAndSettle();
 
-    expect(initialTime, const TimeOfDay(hour: 7, minute: 30));
+    expect(initialSlot?.startMinutes, 22 * 60);
+    expect(initialSlot?.endMinutes, 7 * 60 + 30);
     expect(
       result.state.deviceById('device-01')?.settings.nightPeriod,
       '22:00-06:45',
@@ -201,7 +214,7 @@ Future<({FlowerpotState state, _BehaviorSettingsRepository repository})>
 _pumpBehaviorSettings(
   WidgetTester tester,
   Size size, {
-  BehaviorTimePicker? timePicker,
+  BehaviorSlotEditor? slotEditor,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -216,7 +229,7 @@ _pumpBehaviorSettings(
         theme: buildAppTheme(),
         home: BehaviorSettingsPage(
           deviceId: 'device-01',
-          timePicker: timePicker,
+          slotEditor: slotEditor,
         ),
       ),
     ),

@@ -205,30 +205,22 @@ class _NicknameEditDialogState extends State<_NicknameEditDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return AppDialog(
       key: const Key('nickname-edit-dialog'),
-      title: const Text('修改昵称'),
-      content: TextField(
+      title: '修改昵称',
+      message: '最多 20 个字符，将展示在「我的」和设备分享里。',
+      icon: Icons.badge_outlined,
+      confirmKey: const Key('confirm-nickname-edit'),
+      content: AppDialogTextField(
         key: const Key('nickname-edit-field'),
         controller: _controller,
-        autofocus: true,
+        hintText: '请输入昵称',
         maxLength: 20,
-        textInputAction: TextInputAction.done,
-        decoration: const InputDecoration(hintText: '请输入昵称'),
-        onChanged: (_) => setState(() {}),
-        onSubmitted: _submit,
       ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          key: const Key('confirm-nickname-edit'),
-          onPressed: _controller.text.trim().isEmpty ? null : _submit,
-          child: const Text('确认'),
-        ),
-      ],
+      onCancel: () => Navigator.pop(context),
+      // 空昵称直接吞掉这次点击，而不是把按钮画成灰的：那需要监听输入重建，
+      // 而这个弹窗除此之外没有任何状态。
+      onConfirm: _submit,
     );
   }
 

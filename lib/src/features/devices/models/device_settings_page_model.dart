@@ -3,10 +3,12 @@ import '../../../tuya/tuya_models.dart';
 enum DeviceSettingsMenuKind {
   plant,
   display,
+  led,
   hearing,
   touch,
   vibration,
   behavior,
+  memorial,
   other,
 }
 
@@ -50,6 +52,12 @@ class DeviceSettingsPageModel {
           value: settings.autoBrightness ? '自动' : '手动',
         ),
         DeviceSettingsMenuItem(
+          kind: DeviceSettingsMenuKind.led,
+          label: 'LED设置',
+          // 与「显示」共用 DP 117，见 LedSettingsPageModel。
+          value: settings.autoBrightness ? '已开启' : '已关闭',
+        ),
+        DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.hearing,
           label: '听觉感知',
           value: settings.soundInteraction ? '已开启' : '已关闭',
@@ -64,10 +72,14 @@ class DeviceSettingsPageModel {
           label: '震动设置',
           value: settings.vibration ? '已启用' : '已禁用',
         ),
-        // The design leaves these two rows with a chevron and no value.
+        // The design leaves these rows with a chevron and no value.
         const DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.behavior,
           label: '行为',
+        ),
+        const DeviceSettingsMenuItem(
+          kind: DeviceSettingsMenuKind.memorial,
+          label: '纪念日',
         ),
         const DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.other,

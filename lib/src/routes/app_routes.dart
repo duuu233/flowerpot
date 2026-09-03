@@ -17,7 +17,10 @@ import '../features/devices/presentation/device_settings_page.dart';
 import '../features/devices/presentation/display_settings_page.dart';
 import '../features/devices/presentation/hearing_settings_page.dart';
 import '../features/devices/presentation/humidity_status_page.dart';
+import '../features/devices/presentation/led_settings_page.dart';
 import '../features/devices/presentation/light_status_page.dart';
+import '../features/devices/presentation/memorial_edit_page.dart';
+import '../features/devices/presentation/memorial_page.dart';
 import '../features/devices/presentation/pairing_page.dart';
 import '../features/devices/presentation/pairing_failure_page.dart';
 import '../features/devices/presentation/pairing_success_page.dart';
@@ -71,6 +74,9 @@ abstract final class AppRoutes {
   static const hearingSettings = '/devices/hearing';
   static const touchSettings = '/devices/touch';
   static const vibrationSettings = '/devices/vibration';
+  static const ledSettings = '/devices/led';
+  static const memorial = '/devices/memorial';
+  static const memorialEdit = '/devices/memorial-edit';
   static const behaviorSettings = '/devices/behavior';
   static const animations = '/devices/animations';
   static const profile = '/profile';
@@ -171,6 +177,11 @@ abstract final class AppRoutes {
       ),
       vibrationSettings => VibrationSettingsPage(
         deviceId: settings.arguments! as String,
+      ),
+      ledSettings => LedSettingsPage(deviceId: settings.arguments! as String),
+      memorial => MemorialPage(deviceId: settings.arguments! as String),
+      memorialEdit => MemorialEditPage(
+        arguments: settings.arguments! as MemorialEditArguments,
       ),
       behaviorSettings => BehaviorSettingsPage(
         deviceId: settings.arguments! as String,

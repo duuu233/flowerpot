@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'tuya_config.dart';
 import 'tuya_history_codec.dart';
+import 'tuya_memorial_codec.dart';
 import 'tuya_models.dart';
 
 /// 显式国家码优先；缺省时按区域回落到国内 86 / 海外 1。
@@ -633,6 +634,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       temperatureUnit:
           _temperatureUnits['${dp('temp_unit_convert')}'] ?? 'celsius',
       clockFormat: '${dp('time_format') ?? '24h'}',
+      // 151 defaults to 0 in the export: an unreported device never sleeps.
+      standbyEnabled: boolean(dp('standby_switch'), false),
+      standbyDelayMinutes: integer(dp('standby_delay'), 30),
+      deviceLanguage: _deviceLanguages['${dp('language')}'] ?? 'zh',
     );
 
     final deviceId = '${raw['deviceId'] ?? raw['devId'] ?? ''}';
@@ -682,12 +687,21 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       reportedDays: reportedDays == null ? null : integer(reportedDays, 0),
       status: status,
       history: history,
+      birthday: TuyaMemorialCodec.decodeFixedDate(dp('memorial_birthday')),
+      weddingDay: TuyaMemorialCodec.decodeFixedDate(dp('memorial_wedding')),
+      lastOperationResult: '${dp('op_result') ?? ''}',
     );
   }
 
   /// `temp_unit_convert` enum value back to the label the settings sheet uses.
   static final Map<String, String> _temperatureUnits = <String, String>{
     for (final entry in TuyaConfig.temperatureUnits.entries)
+      entry.value: entry.key,
+  };
+
+  /// `language` (153) enum value back to the app's own `zh`/`en` code.
+  static final Map<String, String> _deviceLanguages = <String, String>{
+    for (final entry in TuyaConfig.deviceLanguages.entries)
       entry.value: entry.key,
   };
 

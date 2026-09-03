@@ -3,15 +3,27 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('the product DP table matches the platform export', () {
-    // 101–150 inclusive, one row per function point in
-    // assets/智能花盆test(orhqsdjyigmh8bwa)_08_20.xlsx.
-    expect(TuyaConfig.dp.length, 50);
+    // 101–160 inclusive, one row per function point in
+    // assets/智能花盆test(yciq4kssu1fv8umn)_09_03.xlsx.
+    expect(TuyaConfig.productId, 'yciq4kssu1fv8umn');
+    expect(TuyaConfig.dp.length, 60);
     expect(TuyaConfig.dp.values.toSet().length, TuyaConfig.dp.length);
     expect(TuyaConfig.dp.values.reduce((a, b) => a < b ? a : b), 101);
-    expect(TuyaConfig.dp.values.reduce((a, b) => a > b ? a : b), 150);
+    expect(TuyaConfig.dp.values.reduce((a, b) => a > b ? a : b), 160);
     expect(TuyaConfig.dp['soil_moist'], 106);
     expect(TuyaConfig.dp['vibration_switch'], 122);
     expect(TuyaConfig.dp['water_level_calib'], 140);
+    // 09-03 新增的十条。
+    expect(TuyaConfig.dp['standby_switch'], 151);
+    expect(TuyaConfig.dp['standby_delay'], 152);
+    expect(TuyaConfig.dp['language'], 153);
+    expect(TuyaConfig.dp['memorial_set'], 154);
+    expect(TuyaConfig.dp['del_photo'], 155);
+    expect(TuyaConfig.dp['del_all_photos'], 156);
+    expect(TuyaConfig.dp['pin_photo'], 157);
+    expect(TuyaConfig.dp['memorial_birthday'], 158);
+    expect(TuyaConfig.dp['memorial_wedding'], 159);
+    expect(TuyaConfig.dp['op_result'], 160);
   });
 
   test('every app-facing name resolves to a real DP', () {
@@ -57,6 +69,30 @@ void main() {
       <int, Object>{146: 'F'},
     );
     expect(TuyaConfig.settingDps('temperatureUnit', 'kelvin'), isNull);
+  });
+
+  test('standby and language encode onto the 09-03 DPs', () {
+    expect(TuyaConfig.settingDps('standby', true), <int, Object>{151: true});
+    expect(TuyaConfig.settingDps('standbyDelay', 45), <int, Object>{152: 45});
+    // 152 的范围是 1–180，超出的值夹回边界而不是原样下发。
+    expect(TuyaConfig.settingDps('standbyDelay', 0), <int, Object>{152: 1});
+    expect(TuyaConfig.settingDps('standbyDelay', 900), <int, Object>{152: 180});
+    expect(TuyaConfig.settingDps('deviceLanguage', 'zh'), <int, Object>{
+      153: 'Chinese',
+    });
+    expect(TuyaConfig.settingDps('deviceLanguage', 'en'), <int, Object>{
+      153: 'English',
+    });
+    expect(TuyaConfig.settingDps('deviceLanguage', 'fr'), isNull);
+  });
+
+  test('LED rides on the display brightness DP', () {
+    // 09-03 的功能点表里没有单独的 LED 开关，LED 页和显示页共用 117。
+    expect(TuyaConfig.settingDps('led', false), <int, Object>{117: false});
+    expect(
+      TuyaConfig.settingDps('autoBrightness', false),
+      TuyaConfig.settingDps('led', false),
+    );
   });
 
   test('a setting the product has no DP for reports as unsupported', () {

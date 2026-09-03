@@ -42,14 +42,7 @@ class DeviceSettingsFunctionList extends StatelessWidget {
                 value: item.value,
                 minTileHeight: 46,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-                leading: Image.asset(
-                  _assetFor(item.kind),
-                  width: 25,
-                  height: 25,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
-                  semanticLabel: item.label,
-                ),
+                leading: _LeadingIcon(kind: item.kind, label: item.label),
                 titleStyle: AppTypography.sectionTitle.copyWith(fontSize: 15),
                 onTap: () => onItemTap(item.kind),
               ),
@@ -59,7 +52,40 @@ class DeviceSettingsFunctionList extends StatelessWidget {
     );
   }
 
-  String _assetFor(DeviceSettingsMenuKind kind) => switch (kind) {
+}
+
+/// 行首的小图标。
+///
+/// 老的七项都有切图；LED 设置和纪念日是 v2 才加的，Figma 还没给图，用同尺寸的
+/// Material 图标顶上——留个空位或者借用别人的切图都会让这两行看起来像画错了。
+class _LeadingIcon extends StatelessWidget {
+  const _LeadingIcon({required this.kind, required this.label});
+
+  final DeviceSettingsMenuKind kind;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = _assetFor(kind);
+    if (asset == null) {
+      return Icon(
+        _iconFor(kind),
+        size: 24,
+        color: AppColors.brandDark,
+        semanticLabel: label,
+      );
+    }
+    return Image.asset(
+      asset,
+      width: 25,
+      height: 25,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: label,
+    );
+  }
+
+  static String? _assetFor(DeviceSettingsMenuKind kind) => switch (kind) {
     DeviceSettingsMenuKind.plant => AppAssets.settingsPlantIcon,
     DeviceSettingsMenuKind.display => AppAssets.settingsDisplayIcon,
     DeviceSettingsMenuKind.hearing => AppAssets.settingsHearingIcon,
@@ -67,5 +93,11 @@ class DeviceSettingsFunctionList extends StatelessWidget {
     DeviceSettingsMenuKind.vibration => AppAssets.settingsVibrationIcon,
     DeviceSettingsMenuKind.behavior => AppAssets.settingsBehaviorIcon,
     DeviceSettingsMenuKind.other => AppAssets.settingsOtherIcon,
+    DeviceSettingsMenuKind.led || DeviceSettingsMenuKind.memorial => null,
+  };
+
+  static IconData _iconFor(DeviceSettingsMenuKind kind) => switch (kind) {
+    DeviceSettingsMenuKind.memorial => Icons.event_note_outlined,
+    _ => Icons.lightbulb_outline,
   };
 }
