@@ -263,9 +263,13 @@ flutter run --dart-define=TUYA_ENABLED=true --dart-define=API_BASE_URL=https://y
 - 会话与设备：初始化自检、查询会话、拉取设备列表、退出登录。「拉取设备列表」会先查询家庭并在没有家庭时自动建家，是配网前必须先跑通的一步；返回 0 台说明链路通了、账号下还没有绑定设备。
 - 配网：先「扫描附近 Wi-Fi」再填路由器的 Wi-Fi 名称与密码，点「开始配网」调用 `FlowerpotState.pairViaHotspot`——一次做完取令牌 → App 连设备热点 → `pairWifiDevice`（超时 120 秒）。失败只写进日志并带原始错误码和三步各自的耗时，不跳转到配网失败页，便于连续重试和对照错误码。旁边有「热点已手动连上，开始配网」（平台不能由 App 连热点时用）和「取消配网」（配网期间唯一不被操作锁禁用的按钮），见下节。
 
-「扫描附近 Wi-Fi」走的是 `scanWifi` 桥接方法（`WifiManager.startScan` + `scanResults`），不依赖涂鸦 SDK，SDK 未初始化时也能用。它有两个用途：确认手机当前连的是 2.4G 还是 5G（EZ 配网连在 5G 上必然失败），以及在 AP 模式下确认设备热点（`SmartLife-*`、`TY_*`）是否已经出现——这是配网前唯一能真实验证「设备已进入配网状态」的手段。点列表里的任意一项会把名称填进 Wi-Fi 名称输入框。
+「扫描附近 Wi-Fi」走的是 `scanWifi` 桥接方法（`WifiManager.startScan` + `scanResults`），不依赖涂鸦 SDK，SDK 未初始化时也能用。它有两个用途：确认手机当前连的是 2.4G 还是 5G（EZ 配网连在 5G 上必然失败），以及在 AP 模式下确认设备热点是否已经出现——这是配网前唯一能真实验证「设备已进入配网状态」的手段。联调页列的是**原始扫描结果**（不做任何过滤，认得出的热点名加粗高亮），点任意一项会把名称填进 Wi-Fi 名称输入框。
+
+`startScan()` 是异步的：紧接着读 `scanResults` 拿到的是**上一轮**扫描的缓存。设备刚长按进入配网状态时，那份缓存里还没有它的热点，页面就会报「没有设备」，而同一台手机过一会儿在联调页扫一次却能看见。桥接因此在 `startScan()` 之后注册 `SCAN_RESULTS_AVAILABLE_ACTION` 广播，最多等 5 秒拿这一轮的结果；`startScan()` 被限流返回 false 时不等待，直接回缓存。
 
 扫描受系统限制：Android 9 起每 2 分钟只允许前台应用扫描几次，超出后返回上一次的缓存结果；Android 9–12 还要求系统定位开关打开，否则返回 `location_disabled`；手机 Wi-Fi 关闭时返回 `wifi_disabled`。
+
+设备热点名按前缀识别（`WifiNetwork.isDeviceHotspotName`）：忽略大小写与 `-`/`_`/空格后匹配 `smartlif`（覆盖量产件上见到的 `SmartLife-…` 与 `SmartLift-…`）、`tuya`、`ysplanter`，外加保留分隔符的 `ty_` / `ty-`。这是一份猜测清单，不是契约——固件换个名字它就认不出来，所以产品页从不把它当门禁，见 6.3。
 
 ### AP 配网的三步与资源释放
 
@@ -373,14 +377,15 @@ Dart 侧 `MethodChannelTuyaRepository` 保留每台设备最近一次的原始 m
 
 | 页面 | 真实调用 | 说明 |
 | --- | --- | --- |
-| `DeviceSearchPage`（搜索设备） | `scanWifi` | 进页即扫描。扫到设备热点（`SmartLife-*`、`TY_*`、`YSplanter-*`）才自动进入选择页；扫不到、列表为空或扫描被拒绝都停在本页，显示原因、「重新扫描」和「设备已在配网状态，继续」。 |
-| `DeviceSelectionPage`（选择设备） | `scanWifi` | 列出的就是扫到的设备热点，名称与信号格来自 `WifiNetwork.ssid` / `level`。选中的热点名会随 `PairingArguments.hotspotSsid` 传到下一页。没有热点时是空态加重新扫描。 |
+| `DeviceSearchPage`（搜索设备） | `scanWifi` | 进页即扫描。认出设备热点才自动进入选择页；认不出但扫到过 2.4G 网络时，除「重新扫描」和「设备已在配网状态，继续」外还给「从附近网络中手动选择设备」，进选择页按名字挑。 |
+| `DeviceSelectionPage`（选择设备） | `scanWifi` | 认出的热点排在最前（花盆图标），名称与信号格来自 `WifiNetwork.ssid` / `level`；下面用「设备不在上面？显示附近全部网络」展开 `WifiScan.otherNetworks`（扫到的其余 2.4G 网络，滤掉 5G）。一个都没认出来时直接列原始扫描结果并给出说明。选中的名字随 `PairingArguments.hotspotSsid` 传到下一页，`joinDeviceHotspot` 用它精确匹配。 |
 | `PairingPage`（连接 Wi-Fi） | `scanWifi`、`pairViaHotspot`（内部依次 `prepareActivatorToken` → `joinDeviceHotspot` → `pairWifiDevice`）、`cancelPairing` | 进页自动带入手机当前连接的 2.4G 网络名；「切换」弹窗列的是扫到的 2.4G 路由器（滤掉 5G 与设备热点）。「开始配网」一次点击走完三步，系统弹框确认连接热点即可；平台不能由 App 连热点时页面切到手动引导，按钮变成「已连接热点，开始配网」。配网期间退出本页会中止配网并释放热点。 |
 
 几条必须知道的边界：
 
 - **三步顺序是硬要求，不是交互偏好**。取令牌是云端调用，连上设备热点后就没有外网，所以由状态层串成一次操作，用户只点一次；各步细节与失败时的资源释放见 5.3「AP 配网的三步与资源释放」。
 - **扫不到不等于没有设备**。iOS 的 `scanWifi` 只返回当前连接的 SSID，`networks` 恒为空；Android 9 起扫描受频率限制，定位关闭时返回 `location_disabled`。因此三页在列表为空时给的都是「无法列出」而不是「没有设备」，并且始终保留手动继续的入口——配网本身不依赖扫描结果。
+- **认不出热点名也不等于没有设备**。前缀清单是猜的，量产固件换个名字就落在清单外，而它明明在扫描结果里（联调页看得到）。所以选择页永远能展开原始扫描结果按名字挑，搜索页在扫到 2.4G 网络时给出通往它的入口；手动挑中的名字照样按精确 SSID 去连热点，不走前缀匹配。没有名字可用时才退到前缀 `SmartLi`（`WifiNetwork.hotspotJoinPrefix`，同时覆盖 `SmartLife-` 与 `SmartLift-`），由系统弹框列出匹配项让用户选。
 - 选择页的「连接」按钮不会去连热点，它只把热点名带到 Wi-Fi 页；真正连热点发生在「开始配网」之后，由系统弹框确认。
 - 失败页认得的失败码（`hotspot_join_cancelled` / `hotspot_join_failed` / `hotspot_join_timeout` / `hotspot_bind_failed` / `pair_cancelled` / `pair_timeout` / `1006`）会换成一句能照着做的话，原始码附在括号里；认不得的照常显示带来源标签和各步耗时的原文。
 - EZ 模式仍在桥接层可用（`PairingRequest(mode: 'ez')` + `pairDevice`），产品页和联调页都不再暴露。

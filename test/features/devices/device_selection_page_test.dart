@@ -91,9 +91,12 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('no hotspot in range leaves a rescan and a manual way on', (
+  testWidgets('a SmartLift-style hotspot is recognized like SmartLife', (
     tester,
   ) async {
+    // Reported from a real planter: the AP is called SmartLift-8987, which the
+    // old `smartlife` prefix did not match. The SDK debug console listed it,
+    // the pairing pages reported "no device".
     Object? pairingArguments;
     await _pumpDeviceSelectionPage(
       tester,
@@ -104,6 +107,111 @@ void main() {
           currentFrequency: 2437,
           networks: <WifiNetwork>[
             WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+            WifiNetwork(ssid: 'SmartLift-8987', level: -58, frequency: 2412),
+            WifiNetwork(ssid: 'TP-LINK_5G', level: -40, frequency: 5180),
+          ],
+        ),
+      ),
+      onPairingArguments: (value) => pairingArguments = value,
+    );
+
+    // Recognized, so it is the only row: the routers stay behind "show all".
+    expect(find.text('请选择需要连接的设备'), findsOneWidget);
+    expect(find.text('SmartLift-8987'), findsOneWidget);
+    expect(find.text('TP-LINK_2.4G'), findsNothing);
+    expect(find.byKey(const Key('device-selection-empty')), findsNothing);
+    expect(
+      find.byKey(const Key('device-selection-manual-notice')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const Key('connect-device-0')));
+    await tester.pumpAndSettle();
+
+    final arguments = pairingArguments! as PairingArguments;
+    expect(arguments.hotspotSsid, 'SmartLift-8987');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('nothing recognized falls back to the raw scan', (tester) async {
+    Object? pairingArguments;
+    await _pumpDeviceSelectionPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(
+        const WifiScan(
+          current: 'TP-LINK_2.4G',
+          currentFrequency: 2437,
+          networks: <WifiNetwork>[
+            WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+            WifiNetwork(ssid: 'YS-8987', level: -58, frequency: 2412),
+          ],
+        ),
+      ),
+      onPairingArguments: (value) => pairingArguments = value,
+    );
+
+    // No SSID matched, so both networks are offered rather than reporting
+    // "no device": the planter is in this list under a name we cannot guess.
+    expect(find.text('请从附近的网络中选择设备'), findsOneWidget);
+    expect(
+      find.byKey(const Key('device-selection-manual-notice')),
+      findsOneWidget,
+    );
+    expect(find.text('TP-LINK_2.4G'), findsOneWidget);
+    expect(find.text('YS-8987'), findsOneWidget);
+    expect(find.byKey(const Key('device-selection-empty')), findsNothing);
+    // Everything is already on screen, so there is nothing left to reveal.
+    expect(find.byKey(const Key('device-selection-show-all')), findsNothing);
+
+    // The notice pushes the footer past the fold on a 812pt screen.
+    final continueButton = find.byKey(const Key('device-selection-continue'));
+    await tester.ensureVisible(continueButton);
+    await tester.pumpAndSettle();
+    await tester.tap(continueButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('pairing-wifi-target'), findsOneWidget);
+    // Nothing was picked, so no device name is invented for the next page.
+    expect((pairingArguments! as PairingArguments).hotspotSsid, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the rest of the scan is one tap away when a hotspot matched', (
+    tester,
+  ) async {
+    await _pumpDeviceSelectionPage(tester, const Size(375, 812));
+
+    expect(find.text('TP-LINK_2.4G'), findsNothing);
+
+    final showAll = find.byKey(const Key('device-selection-show-all'));
+    await tester.ensureVisible(showAll);
+    await tester.pumpAndSettle();
+    await tester.tap(showAll);
+    await tester.pumpAndSettle();
+
+    // The recognized hotspot keeps the top spot, the routers follow it.
+    expect(find.text('SmartLife-A1B2'), findsOneWidget);
+    expect(find.text('TP-LINK_2.4G'), findsOneWidget);
+    expect(find.text('Xiaomi_2.4G'), findsOneWidget);
+    expect(find.text('TP-LINK_5G'), findsNothing);
+    expect(find.byKey(const Key('device-selection-show-all')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a scan with nothing on 2.4 GHz leaves a rescan and a way on', (
+    tester,
+  ) async {
+    Object? pairingArguments;
+    await _pumpDeviceSelectionPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(
+        const WifiScan(
+          current: 'TP-LINK_5G',
+          currentFrequency: 5180,
+          networks: <WifiNetwork>[
+            WifiNetwork(ssid: 'TP-LINK_5G', level: -46, frequency: 5180),
           ],
         ),
       ),

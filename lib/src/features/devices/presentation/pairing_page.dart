@@ -190,6 +190,12 @@ class _PairingPageState extends State<PairingPage> {
     );
   }
 
+  /// Used when the selection step carried no hotspot name. Naming one family
+  /// only would send the user looking for a network that is not there: the
+  /// suffix is random and the prefix varies between firmware builds.
+  static const String _hotspotDescription =
+      '设备自己放出的热点（多为 SmartLife-… / SmartLift-… 这类带随机后缀的名字）';
+
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
@@ -251,7 +257,7 @@ class _PairingPageState extends State<PairingPage> {
                       tone: AppColors.warning,
                       text:
                           '当前系统不允许 App 直接连接热点。请到系统设置连接'
-                          '${hotspot == null ? '设备热点（SmartLife-… 开头）' : '「$hotspot」'}'
+                          '${hotspot == null ? _hotspotDescription : '「$hotspot」'}'
                           '，若系统提示该网络无法上网请选择保持连接，然后回到本页点'
                           '「已连接热点，开始配网」。',
                     )

@@ -22,6 +22,42 @@ void main() {
     ]);
   });
 
+  test('hotspot naming variants across firmware builds still count', () {
+    // A shipped planter was seen raising `SmartLift-8987`; the whitelist used
+    // to require `smartlife`, so the pairing pages reported no device while
+    // the raw scan in the SDK console showed it.
+    expect(WifiNetwork.isDeviceHotspotName('SmartLift-8987'), isTrue);
+    expect(WifiNetwork.isDeviceHotspotName('SmartLife-A1B2'), isTrue);
+    expect(WifiNetwork.isDeviceHotspotName('smart_life 8987'), isTrue);
+    expect(WifiNetwork.isDeviceHotspotName('TuyaSmart-77'), isTrue);
+    expect(WifiNetwork.isDeviceHotspotName('TY_C3D4'), isTrue);
+    expect(WifiNetwork.isDeviceHotspotName('YSplanter-01'), isTrue);
+    // Near misses stay out: `ty` without its separator is an ordinary word.
+    expect(WifiNetwork.isDeviceHotspotName('Tybee_Home'), isFalse);
+    expect(WifiNetwork.isDeviceHotspotName('TP-LINK_2.4G'), isFalse);
+    expect(WifiNetwork.isDeviceHotspotName(''), isFalse);
+  });
+
+  test('other networks are the manual pick list: no hotspots, no 5 GHz', () {
+    final scan = WifiScan(
+      networks: <WifiNetwork>[
+        _network('SmartLife-A1B2', -50, 2412),
+        _network('Home', -72, 2412),
+        _network('Home', -48, 2462),
+        _network('Home_5G', -40, 5180),
+        // iOS-style entry with no band reported: unknown, so it stays.
+        _network('Unknown_Band', -60, 0),
+        _network('', -45, 2437),
+      ],
+    );
+
+    expect(scan.otherNetworks.map((item) => item.ssid), <String>[
+      'Home',
+      'Unknown_Band',
+    ]);
+    expect(scan.otherNetworks.first.level, -48);
+  });
+
   test('router networks drop 5 GHz, hotspots and duplicate SSIDs', () {
     final scan = WifiScan(
       networks: <WifiNetwork>[

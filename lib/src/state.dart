@@ -516,9 +516,10 @@ class FlowerpotState extends ChangeNotifier {
         mark('令牌');
       }
 
-      // 优先用扫描里真实看到的热点名。前缀匹配只能给一个模式，写死 `SmartLife-`
-      // 会漏掉 `ty_` / `ysplanter` 开头的那些——系统找不到匹配网络时不会弹框，
-      // 直接回 onUnavailable，看起来就像用户取消了。
+      // 优先用扫描里真实看到的热点名（选择设备页选的那个，或扫描认出来的第一
+      // 个）。退到前缀匹配时只能给一个模式，漏掉 `ty_` / `ysplanter` /
+      // `SmartLift-` 这些的话，系统找不到匹配网络就不弹框、直接回
+      // onUnavailable，看起来就像用户取消了。
       final target =
           hotspotSsid ??
           _wifiScan?.deviceHotspots.map((item) => item.ssid).firstOrNull;
@@ -589,7 +590,7 @@ class FlowerpotState extends ChangeNotifier {
       final joined = await _repository
           .joinDeviceHotspot(
             ssid: target,
-            prefix: target == null ? 'SmartLife-' : null,
+            prefix: target == null ? WifiNetwork.hotspotJoinPrefix : null,
           )
           .timeout(
             hotspotJoinDeadline,

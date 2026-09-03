@@ -17,6 +17,11 @@ import 'pairing_page.dart';
 /// `probeWifi` reads through the `scanWifi` bridge method. A hit is real
 /// evidence the device entered pairing state; anything else leaves the decision
 /// to the user instead of pretending to have found something.
+///
+/// "Anything else" includes a hotspot whose SSID is outside the known prefixes:
+/// the scan saw it, only the recognition missed it. Whenever the scan came back
+/// with 2.4 GHz networks the page therefore offers the selection list as well,
+/// where the raw scan can be picked from by name.
 class DeviceSearchPage extends StatefulWidget {
   const DeviceSearchPage({super.key, this.request});
 
@@ -99,6 +104,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     );
   }
 
+  /// Opens the selection page on the raw scan, for a planter whose hotspot
+  /// name is outside the recognized prefixes: it is in the list the phone
+  /// returned, just not under a name this app knows.
+  void _pickManually() {
+    Navigator.pushReplacementNamed(
+      context,
+      AppRoutes.deviceSelection,
+      arguments: widget.request,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scan = FlowerpotScope.of(context).wifiScan;
@@ -161,6 +177,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           _SearchActions(
                             onRescan: _scan,
                             onContinue: _continueAnyway,
+                            // Only worth offering when the scan actually
+                            // returned something pickable.
+                            onPickManually:
+                                (scan?.otherNetworks.isEmpty ?? true)
+                                ? null
+                                : _pickManually,
                           ),
                         ],
                       ],
@@ -213,11 +235,15 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       );
     }
     final current = scan.current;
+    // 认得出的热点没有，不代表设备不在列表里——量产固件的热点名可能不在白名单
+    // 上。扫到过 2.4G 网络时把手动选择指出来，那份列表就是原始扫描结果。
+    final manual = scan.otherNetworks.isNotEmpty;
     return _SearchOutcome(
       '未发现配网中的设备',
-      '扫描到 ${scan.networks.length} 个网络，其中没有设备热点。\n'
+      '扫描到 ${scan.networks.length} 个网络，其中没有认得出的设备热点。\n'
       '${current == null ? '' : '手机当前连接：$current${_band(scan)}\n'}'
-      '请长按设备按键让它进入配网状态后重新扫描。',
+      '请长按设备按键让它进入配网状态后重新扫描'
+      '${manual ? '；\n设备热点已经出现在 Wi-Fi 列表里的话，用下面的手动选择。' : '。'}',
     );
   }
 
@@ -243,10 +269,17 @@ class _SearchOutcome {
 }
 
 class _SearchActions extends StatelessWidget {
-  const _SearchActions({required this.onRescan, required this.onContinue});
+  const _SearchActions({
+    required this.onRescan,
+    required this.onContinue,
+    required this.onPickManually,
+  });
 
   final VoidCallback onRescan;
   final VoidCallback onContinue;
+
+  /// Null when the scan returned nothing to pick from.
+  final VoidCallback? onPickManually;
 
   @override
   Widget build(BuildContext context) {
@@ -267,6 +300,15 @@ class _SearchActions extends StatelessWidget {
             child: const Text('重新扫描'),
           ),
         ),
+        if (onPickManually case final VoidCallback pick)
+          TextButton(
+            key: const Key('device-search-manual-pick'),
+            onPressed: pick,
+            child: const Text(
+              '从附近网络中手动选择设备',
+              style: TextStyle(color: AppColors.brandPrimary, fontSize: 15),
+            ),
+          ),
         TextButton(
           key: const Key('device-search-continue'),
           onPressed: onContinue,

@@ -13,6 +13,12 @@ import 'pairing_page.dart';
 /// and the product has no BLE pairing, so a hotspot is the only device the
 /// phone can actually observe. Picking one carries its SSID to the Wi-Fi step,
 /// which tells the user exactly which hotspot to join before provisioning.
+///
+/// Recognition by SSID prefix is a guess, so the page never stops at it: the
+/// remaining scanned networks are one tap away (and shown outright when
+/// nothing was recognized), the same raw list the SDK debug console prints.
+/// A planter whose hotspot is named outside the whitelist showed up there and
+/// nowhere else, which left provisioning with no way forward.
 class DeviceSelectionPage extends StatefulWidget {
   const DeviceSelectionPage({super.key, this.request});
 
@@ -25,6 +31,10 @@ class DeviceSelectionPage extends StatefulWidget {
 class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
   bool _scanning = false;
   ActionResult? _result;
+
+  /// Whether the rest of the scan is listed under the recognized hotspots.
+  /// Forced on when nothing was recognized — there is nothing else to show.
+  bool _showAllNetworks = false;
 
   @override
   void initState() {
@@ -72,7 +82,14 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
   @override
   Widget build(BuildContext context) {
     final scan = FlowerpotScope.of(context).wifiScan;
-    final devices = scan?.deviceHotspots ?? const <WifiNetwork>[];
+    final hotspots = scan?.deviceHotspots ?? const <WifiNetwork>[];
+    final others = scan?.otherNetworks ?? const <WifiNetwork>[];
+    // Nothing was recognized: the raw scan is all there is, so it is listed
+    // straight away rather than behind a "show more" the user has to find.
+    final showingAll = _showAllNetworks || hotspots.isEmpty;
+    final devices = showingAll
+        ? <WifiNetwork>[...hotspots, ...others]
+        : hotspots;
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '选择设备', leading: AppBackButton()),
       background: AppPageBackground.account,
@@ -98,9 +115,7 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
                   _DeviceSelectionIllustration(compact: compact),
                   SizedBox(height: compact ? 8 : 14),
                   Text(
-                    devices.isEmpty && !pending
-                        ? '未发现配网中的设备'
-                        : '请选择需要连接的设备',
+                    _title(devices, hotspots, pending),
                     key: const Key('device-selection-title'),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
@@ -117,11 +132,26 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
                       onRescan: _scan,
                       onContinue: () => _connect(null),
                     )
-                  else
-                    _DeviceListCard(devices: devices, onConnect: _connect),
-                  if (devices.isNotEmpty) ...<Widget>[
+                  else ...<Widget>[
+                    if (hotspots.isEmpty) ...<Widget>[
+                      const _ManualPickNotice(),
+                      const SizedBox(height: 12),
+                    ],
+                    _DeviceListCard(
+                      devices: devices,
+                      recognized: hotspots.length,
+                      onConnect: _connect,
+                    ),
                     const SizedBox(height: 12),
-                    _ScanFooter(scanning: _scanning, onRescan: _scan),
+                    _ScanFooter(
+                      scanning: _scanning,
+                      onRescan: _scan,
+                      // Only offered while something is actually hidden.
+                      onShowAll: showingAll || others.isEmpty
+                          ? null
+                          : () => setState(() => _showAllNetworks = true),
+                      onContinue: () => _connect(null),
+                    ),
                   ],
                 ],
               ),
@@ -130,6 +160,20 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
         ),
       ),
     );
+  }
+
+  /// Heading for the current list. "未发现配网中的设备" is reserved for an
+  /// empty list: with rows on screen, even unrecognized ones, the user has
+  /// something to pick.
+  String _title(
+    List<WifiNetwork> devices,
+    List<WifiNetwork> hotspots,
+    bool pending,
+  ) {
+    if (devices.isEmpty) {
+      return pending ? '请选择需要连接的设备' : '未发现配网中的设备';
+    }
+    return hotspots.isEmpty ? '请从附近的网络中选择设备' : '请选择需要连接的设备';
   }
 
   /// Why the list is empty. A platform that cannot enumerate networks must not
@@ -151,8 +195,39 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
       return '当前系统不提供附近网络列表，无法列出设备热点。\n'
           '确认设备已进入配网状态后可直接继续填写 Wi-Fi。';
     }
-    return '扫描到 ${scan.networks.length} 个网络，其中没有设备热点。\n'
+    // Every network the scan saw was 5 GHz, which the planter's AP never is.
+    return '扫描到 ${scan.networks.length} 个网络，其中没有 2.4G 网络。\n'
         '请长按设备按键让它进入配网状态后重新扫描。';
+  }
+}
+
+/// Shown when no SSID matched the known planter prefixes and the rows below
+/// are therefore the raw scan.
+class _ManualPickNotice extends StatelessWidget {
+  const _ManualPickNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      key: const Key('device-selection-manual-notice'),
+      decoration: const BoxDecoration(
+        color: AppColors.brandSurfaceAlt,
+        borderRadius: AppRadius.card,
+      ),
+      child: const Padding(
+        padding: EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Text(
+          '没有自动认出设备热点，下面是手机扫描到的全部 2.4G 网络。\n'
+          '设备进入配网状态后会放出一个自己的热点（例如 SmartLife-8987），'
+          '在列表里找到它并点「连接」。',
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 13,
+            height: 1.6,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -250,28 +325,70 @@ class _EmptySelectionCard extends StatelessWidget {
 }
 
 class _ScanFooter extends StatelessWidget {
-  const _ScanFooter({required this.scanning, required this.onRescan});
+  const _ScanFooter({
+    required this.scanning,
+    required this.onRescan,
+    required this.onShowAll,
+    required this.onContinue,
+  });
 
   final bool scanning;
   final VoidCallback onRescan;
 
+  /// Null once the rest of the scan is already on screen, or when there is
+  /// nothing else to reveal.
+  final VoidCallback? onShowAll;
+  final VoidCallback onContinue;
+
   @override
   Widget build(BuildContext context) {
-    return TextButton(
-      key: const Key('device-selection-rescan'),
-      onPressed: scanning ? null : onRescan,
-      child: Text(
-        scanning ? '正在扫描...' : '没找到设备？重新扫描',
-        style: const TextStyle(color: AppColors.brandPrimary, fontSize: 14),
-      ),
+    return Column(
+      children: <Widget>[
+        TextButton(
+          key: const Key('device-selection-rescan'),
+          onPressed: scanning ? null : onRescan,
+          child: Text(
+            scanning ? '正在扫描...' : '没找到设备？重新扫描',
+            style: const TextStyle(color: AppColors.brandPrimary, fontSize: 14),
+          ),
+        ),
+        // The prefix whitelist can miss a planter, so the raw scan stays
+        // reachable even when it did match something.
+        if (onShowAll case final VoidCallback showAll)
+          TextButton(
+            key: const Key('device-selection-show-all'),
+            onPressed: showAll,
+            child: const Text(
+              '设备不在上面？显示附近全部网络',
+              style: TextStyle(color: AppColors.brandPrimary, fontSize: 14),
+            ),
+          ),
+        TextButton(
+          key: const Key('device-selection-continue'),
+          onPressed: onContinue,
+          child: const Text(
+            '设备已在配网状态，继续',
+            style: TextStyle(color: AppColors.brandPrimary, fontSize: 14),
+          ),
+        ),
+      ],
     );
   }
 }
 
 class _DeviceListCard extends StatelessWidget {
-  const _DeviceListCard({required this.devices, required this.onConnect});
+  const _DeviceListCard({
+    required this.devices,
+    required this.recognized,
+    required this.onConnect,
+  });
 
   final List<WifiNetwork> devices;
+
+  /// How many leading rows matched a known planter SSID prefix. The rest are
+  /// ordinary scanned networks offered for a manual pick and are drawn
+  /// differently, so "connect" on a router is a deliberate choice.
+  final int recognized;
   final ValueChanged<WifiNetwork> onConnect;
 
   @override
@@ -289,6 +406,7 @@ class _DeviceListCard extends StatelessWidget {
               _DeviceRow(
                 device: devices[index],
                 index: index,
+                recognized: index < recognized,
                 onConnect: () => onConnect(devices[index]),
               ),
               if (index != devices.length - 1)
@@ -305,11 +423,17 @@ class _DeviceRow extends StatelessWidget {
   const _DeviceRow({
     required this.device,
     required this.index,
+    required this.recognized,
     required this.onConnect,
   });
 
   final WifiNetwork device;
   final int index;
+
+  /// Whether the SSID matched a known planter prefix. Unrecognized rows are
+  /// plain networks the user may pick anyway, and say so instead of wearing
+  /// the planter icon.
+  final bool recognized;
   final VoidCallback onConnect;
 
   @override
@@ -320,12 +444,18 @@ class _DeviceRow extends StatelessWidget {
         children: <Widget>[
           SizedBox.square(
             dimension: 42,
-            child: Image.asset(
-              AppAssets.devicePlanterIcon,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.high,
-              semanticLabel: 'YSplanter 设备',
-            ),
+            child: recognized
+                ? Image.asset(
+                    AppAssets.devicePlanterIcon,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                    semanticLabel: 'YSplanter 设备',
+                  )
+                : const Icon(
+                    Icons.wifi_outlined,
+                    size: 26,
+                    color: AppColors.textTertiary,
+                  ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -333,10 +463,12 @@ class _DeviceRow extends StatelessWidget {
               device.ssid,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
+              style: TextStyle(
+                color: recognized
+                    ? AppColors.textPrimary
+                    : AppColors.textSecondary,
                 fontSize: 16,
-                fontWeight: FontWeight.w500,
+                fontWeight: recognized ? FontWeight.w500 : FontWeight.w400,
               ),
             ),
           ),

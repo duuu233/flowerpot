@@ -670,13 +670,33 @@ class WifiNetwork {
   /// Access points a planter raises in AP provisioning mode.
   bool get looksLikeDeviceHotspot => isDeviceHotspotName(ssid);
 
+  /// SSID prefix handed to the platform when no hotspot name is known, so the
+  /// system picker lists the matching access points itself. Deliberately
+  /// shorter than a full product name: it has to cover `SmartLife-…` and the
+  /// `SmartLift-…` variant seen on shipped planters, and a prefix that matches
+  /// nothing produces no picker at all — which on Android is indistinguishable
+  /// from the user cancelling it.
+  static const String hotspotJoinPrefix = 'SmartLi';
+
   /// Same test against a bare name, for the SSID the phone is currently on:
   /// that one arrives without a scan entry behind it.
+  ///
+  /// Separators differ between firmware builds (`SmartLife-8987`,
+  /// `smart_life 8987`), so they are dropped before matching, and the
+  /// `smartlife` prefix is cut one letter short: shipped planters have been
+  /// seen raising `SmartLift-…`. This list stays a guess either way — what a
+  /// name outside it must never do is hide the device, which is why the
+  /// pairing pages can also list the raw scan through [WifiScan.otherNetworks].
   static bool isDeviceHotspotName(String ssid) {
-    final name = ssid.toLowerCase();
-    return name.startsWith('smartlife') ||
-        name.startsWith('ty_') ||
-        name.startsWith('ysplanter');
+    final name = ssid.trim().toLowerCase();
+    if (name.isEmpty) return false;
+    // `ty_`/`ty-` keeps its separator: a bare `ty` prefix would swallow
+    // ordinary router names.
+    if (name.startsWith('ty_') || name.startsWith('ty-')) return true;
+    final compact = name.replaceAll(RegExp(r'[\s_\-]'), '');
+    return compact.startsWith('smartlif') ||
+        compact.startsWith('tuya') ||
+        compact.startsWith('ysplanter');
   }
 }
 
@@ -714,6 +734,23 @@ class WifiScan {
   /// state: the product has no BLE discovery and the SDK has no scan API.
   List<WifiNetwork> get deviceHotspots =>
       _strongestPerSsid(networks.where((item) => item.looksLikeDeviceHotspot));
+
+  /// The rest of the scan, as a fallback pick list for the pairing pages:
+  /// everything [deviceHotspots] did not claim, minus 5 GHz entries the
+  /// planter's AP can never be, strongest first.
+  ///
+  /// [WifiNetwork.isDeviceHotspotName] is a whitelist of SSID prefixes, so a
+  /// planter naming its hotspot outside it is invisible to the search and
+  /// selection pages while the SDK debug console — which prints the raw scan —
+  /// shows it. These rows are how the user picks that device by name instead
+  /// of being told there is none.
+  List<WifiNetwork> get otherNetworks => _strongestPerSsid(
+    networks.where(
+      // A missing/zero frequency is "unknown band", not 5 GHz, and has to stay
+      // in the list.
+      (item) => !item.looksLikeDeviceHotspot && item.frequency < 2500,
+    ),
+  );
 
   /// Routers the planter can be asked to join: 2.4 GHz only, device hotspots
   /// removed, strongest first.

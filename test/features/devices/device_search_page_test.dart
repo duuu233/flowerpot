@@ -121,6 +121,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('an unrecognized scan still opens the manual pick', (
+    tester,
+  ) async {
+    // The planter's hotspot can be named outside the known prefixes. It is in
+    // the scan either way, so the selection page — which lists the raw scan —
+    // has to stay reachable instead of the flow dead-ending here.
+    Object? selectionArguments = 'unset';
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(
+        const WifiScan(
+          current: 'TP-LINK_2.4G',
+          currentFrequency: 2437,
+          networks: <WifiNetwork>[
+            WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+          ],
+        ),
+      ),
+      onSelectionArguments: (value) => selectionArguments = value,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('未发现配网中的设备'), findsOneWidget);
+    expect(find.textContaining('用下面的手动选择'), findsOneWidget);
+
+    final manualPick = find.byKey(const Key('device-search-manual-pick'));
+    await tester.ensureVisible(manualPick);
+    await tester.pumpAndSettle();
+    await tester.tap(manualPick);
+    await tester.pumpAndSettle();
+
+    expect(find.text('device-selection-target'), findsOneWidget);
+    expect(selectionArguments, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a platform that cannot enumerate networks is not "no device"', (
     tester,
   ) async {

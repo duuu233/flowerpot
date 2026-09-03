@@ -1,7 +1,10 @@
 package com.common.yikaltd
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.ConnectivityManager
@@ -11,6 +14,8 @@ import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PatternMatcher
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
@@ -55,6 +60,15 @@ private val DUAL_MODE_NAMES = listOf(
  * switch networks and for the activator's own handshake.
  */
 private const val ACTIVATOR_TOKEN_TTL_MS = 8L * 60 * 1000
+
+/**
+ * How long `scanWifi` waits for the results of the sweep it just started.
+ *
+ * A Wi-Fi scan takes roughly two to four seconds; past that the cache is
+ * answered with instead, so a device that refuses to broadcast never leaves
+ * the search page spinning.
+ */
+private const val SCAN_RESULT_WAIT_MS = 5000L
 
 /** Request/response channel; mirrored by `TuyaConfig.channelName`. */
 private const val METHOD_CHANNEL = "com.common.yikaltd/tuya"
@@ -437,9 +451,53 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             )
             return
         }
+        // `startScan` is asynchronous: reading `scanResults` right after it
+        // returns the *previous* sweep. On the search page that list was taken
+        // before the user put the planter into pairing mode, so the device
+        // hotspot is missing from it and the page reports "no device" while it
+        // is right there — the SDK console, pressed a minute later against a
+        // refreshed cache, shows it. So wait for the system's own
+        // SCAN_RESULTS_AVAILABLE broadcast before answering.
+        val replied = AtomicBoolean(false)
+        val handler = Handler(Looper.getMainLooper())
+        var receiver: BroadcastReceiver? = null
+        val reply = {
+            if (replied.compareAndSet(false, true)) {
+                receiver?.let { runCatching { context.unregisterReceiver(it) } }
+                handler.removeCallbacksAndMessages(null)
+                success(result, wifiSnapshot(wifi))
+            }
+        }
+        receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                reply()
+            }
+        }
+        val filter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(
+                    receiver,
+                    filter,
+                    Context.RECEIVER_NOT_EXPORTED,
+                )
+            } else {
+                context.registerReceiver(receiver, filter)
+            }
+        }.onFailure { receiver = null }
         // Throttled since Android 9 (a few scans per two minutes). A refused
-        // start still leaves the last cached results, which is good enough.
-        runCatching { wifi.startScan() }
+        // start never broadcasts, so answer from the cache right away instead
+        // of sitting out the timeout.
+        val started = runCatching { wifi.startScan() }.getOrDefault(false)
+        if (!started) {
+            reply()
+            return
+        }
+        handler.postDelayed({ reply() }, SCAN_RESULT_WAIT_MS)
+    }
+
+    /** The scan cache and the current connection, as the Dart `WifiScan`. */
+    private fun wifiSnapshot(wifi: WifiManager): Map<String, Any?> {
         val networks = runCatching { wifi.scanResults }
             .getOrDefault(emptyList())
             .filter { !it.SSID.isNullOrBlank() }
@@ -460,13 +518,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             @Suppress("DEPRECATION")
             wifi.connectionInfo?.frequency
         }.getOrNull()
-        success(
-            result,
-            mapOf(
-                "current" to current?.takeIf { it != "<unknown ssid>" },
-                "currentFrequency" to currentFrequency,
-                "networks" to networks,
-            ),
+        return mapOf(
+            "current" to current?.takeIf { it != "<unknown ssid>" },
+            "currentFrequency" to currentFrequency,
+            "networks" to networks,
         )
     }
 
@@ -973,7 +1028,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
         val ssid = call.argument<String>("ssid").orEmpty()
         val prefix = call.argument<String>("prefix").orEmpty()
-        val target = if (ssid.isNotEmpty()) ssid else "${prefix.ifEmpty { "SmartLife-" }}*"
+        val target = if (ssid.isNotEmpty()) ssid else "${prefix.ifEmpty { "SmartLi" }}*"
         val specifier = WifiNetworkSpecifier.Builder().apply {
             // 给了确切 SSID 就精确匹配；只给前缀时让系统列出所有匹配的热点，由
             // 用户在弹框里挑——设备热点名带随机后缀，扫不到时前缀更实用。
@@ -982,7 +1037,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             } else {
                 setSsidPattern(
                     PatternMatcher(
-                        prefix.ifEmpty { "SmartLife-" },
+                        prefix.ifEmpty { "SmartLi" },
                         PatternMatcher.PATTERN_PREFIX,
                     ),
                 )
