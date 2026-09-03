@@ -455,21 +455,14 @@ class FlowerpotState extends ChangeNotifier {
     );
   });
 
-  /// 由 App 直接连上设备热点。AP 配网原本要用户自己去系统设置连，这一步是那段
-  /// 流程里最容易失败的地方（连错、系统因无互联网自动切走、超时）。
-  Future<ActionResult> joinDeviceHotspot({String? ssid}) => _guard(() async {
-    final joined = await _repository.joinDeviceHotspot(
-      ssid: ssid,
-      prefix: ssid == null ? 'SmartLife-' : null,
-    );
-    if (!joined) {
-      throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
-    }
-    return const ActionResult(true, '已连接设备热点，可以开始配网');
-  });
-
   Future<ActionResult> pairDevice(PairingRequest request) =>
       _guard(() => _pairInternal(request));
+
+  /// Dart 侧兜底的等待上限。原生各自有超时（系统弹框 60 秒、activator 120 秒），
+  /// 这里只防原生永远不回话的情况——那会让 [_guard] 的 busy 锁永远不放，整个
+  /// App 都点不动。到点后主动 [cancelPairing]，让原生把资源放掉。
+  static const Duration hotspotJoinDeadline = Duration(seconds: 90);
+  static const Duration pairingDeadline = Duration(seconds: 150);
 
   /// 一步走完 AP 配网：取令牌 → 连设备热点 → 配网。
   ///
@@ -477,10 +470,20 @@ class FlowerpotState extends ChangeNotifier {
   /// 时去云端取，而连上设备热点之后就没有外网了。拆成三个按钮让用户自己按顺序
   /// 点，中间任何一步走神都会失败，而失败原因（令牌过期、没连上热点）从涂鸦的
   /// `1006 out of time` 里完全看不出来。
+  ///
+  /// 平台连不了热点（iOS、Android 9 及以下）时回落到手动路径：先看手机是不是
+  /// 已经连在设备热点上，不是就以 `hotspot_manual_required` 失败并保留令牌，
+  /// 页面据此引导用户去系统设置连热点；用户连好后带 [hotspotJoinedManually]
+  /// 再调一次，令牌在有效期内直接复用，不再去云端取（那时已经没有外网了）。
+  ///
+  /// 任何一步失败都会释放热点连接与进程网络绑定：那是原生层的状态，不释放的话
+  /// 进程会一直绑在一个没有互联网的网络上，之后的回查设备、重试取令牌全部失败，
+  /// 看起来就像「设备被占住了」。
   Future<ActionResult> pairViaHotspot({
     required String ssid,
     required String password,
     String? hotspotSsid,
+    bool hotspotJoinedManually = false,
   }) => _guard(() async {
     // 三步各自计时并写进结果文案。整个过程只吐一个最终结果的话，卡在取令牌、
     // 连热点还是下发凭据上完全看不出来——而这三步的失败在涂鸦那边都可能表现成
@@ -492,10 +495,22 @@ class FlowerpotState extends ChangeNotifier {
       watch.reset();
     }
 
+    String withSteps(String message) => '$message｜${steps.join(' · ')}';
+
+    // 连热点这一步一旦发出去，失败时就要释放；配网一旦发出去，令牌就可能已被
+    // 设备用掉，失败时要作废，下次重新取。
+    var hotspotRequested = false;
+    var pairingStarted = false;
     try {
-      await _repository.prepareActivatorToken();
-      _activatorTokenAt = DateTime.now();
-      mark('令牌');
+      if (activatorTokenReady) {
+        // 上一次只走到连热点就失败了（弹框取消、手动路径），令牌没用过，还在
+        // 有效期内就直接用。手动路径下这时手机已经在热点上，再去取也取不到。
+        mark('令牌(复用)');
+      } else {
+        await _repository.prepareActivatorToken();
+        _activatorTokenAt = DateTime.now();
+        mark('令牌');
+      }
 
       // 优先用扫描里真实看到的热点名。前缀匹配只能给一个模式，写死 `SmartLife-`
       // 会漏掉 `ty_` / `ysplanter` 开头的那些——系统找不到匹配网络时不会弹框，
@@ -503,35 +518,136 @@ class FlowerpotState extends ChangeNotifier {
       final target =
           hotspotSsid ??
           _wifiScan?.deviceHotspots.map((item) => item.ssid).firstOrNull;
-      final joined = await _repository.joinDeviceHotspot(
-        ssid: target,
-        prefix: target == null ? 'SmartLife-' : null,
+      hotspotRequested = true;
+      final joinedByApp = await _joinHotspotForPairing(
+        target: target,
+        joinedManually: hotspotJoinedManually,
       );
-      mark('连热点${target == null ? '(前缀匹配)' : '($target)'}');
-      if (!joined) {
-        throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
-      }
+      mark(
+        joinedByApp
+            ? '连热点${target == null ? '(前缀匹配)' : '($target)'}'
+            : '连热点(手动)',
+      );
 
+      pairingStarted = true;
       final result = await _pairInternal(
         PairingRequest(ssid: ssid, password: password, mode: 'ap'),
       );
       mark('配网');
       return ActionResult(
         result.success,
-        '${result.message}｜${steps.join(' · ')}',
+        withSteps(result.message),
         code: result.code,
       );
     } on TuyaException catch (error) {
-      mark('失败');
-      throw TuyaException(error.code, '${error.message}｜${steps.join(' · ')}');
+      final manual = error.code == _manualHotspotCode;
+      mark(manual ? '待手动连热点' : '失败');
+      // 手动引导不是失败：令牌留着，热点也还没连，什么都不用放。
+      if (!manual) {
+        await _abandonPairingAttempt(
+          releaseHotspot: hotspotRequested,
+          invalidateToken: pairingStarted,
+        );
+      }
+      throw TuyaException(error.code, withSteps(error.message));
     } on ApiException catch (error) {
       mark('失败');
+      await _abandonPairingAttempt(
+        releaseHotspot: hotspotRequested,
+        invalidateToken: pairingStarted,
+      );
       throw ApiException(
         error.code,
-        '${error.message}｜${steps.join(' · ')}',
+        withSteps(error.message),
         data: error.data,
       );
+    } catch (_) {
+      await _abandonPairingAttempt(
+        releaseHotspot: hotspotRequested,
+        invalidateToken: pairingStarted,
+      );
+      rethrow;
     }
+  });
+
+  static const String _manualHotspotCode = 'hotspot_manual_required';
+
+  /// 让手机连上设备热点。返回 true 表示由 App 发起的连接（配网后由原生释放），
+  /// false 表示走的是手动路径（用户自己在系统设置里连的）。
+  ///
+  /// 只有 `hotspot_join_unsupported` 会回落到手动路径；弹框被取消、热点不存在、
+  /// 绑定失败这些都照常抛出，那是这次尝试真的失败了。
+  Future<bool> _joinHotspotForPairing({
+    required String? target,
+    required bool joinedManually,
+  }) async {
+    try {
+      final joined = await _repository
+          .joinDeviceHotspot(
+            ssid: target,
+            prefix: target == null ? 'SmartLife-' : null,
+          )
+          .timeout(
+            hotspotJoinDeadline,
+            onTimeout: () => throw const TuyaException(
+              'hotspot_join_timeout',
+              '等待连接设备热点超时',
+            ),
+          );
+      if (!joined) {
+        throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
+      }
+      return true;
+    } on TuyaException catch (error) {
+      if (error.code != 'hotspot_join_unsupported') rethrow;
+    }
+    // 平台不让 App 连热点。用户说已经连好了就信；否则看一眼当前网络——能确认
+    // 在热点上就直接配，确认不了（iOS 没有读 SSID 的权限时 current 为空）或者
+    // 明显还在路由器上，就让页面引导用户去系统设置连。
+    if (joinedManually) return false;
+    WifiScan? scan;
+    try {
+      scan = await _repository.scanWifi();
+      _wifiScan = scan;
+    } catch (_) {
+      // 扫描失败不影响判断：按「无法确认」处理。
+    }
+    if (scan != null && scan.currentIsDeviceHotspot) return false;
+    throw TuyaException(
+      _manualHotspotCode,
+      '当前系统不允许 App 直接连接热点，请到系统设置连接设备热点'
+      '${target == null ? '' : '「$target」'}后，回到本页再点「开始配网」',
+    );
+  }
+
+  /// 一次配网尝试失败后的收尾。
+  ///
+  /// [releaseHotspot] 时让原生放掉热点连接与进程网络绑定；[invalidateToken] 时
+  /// 作废本地记录的令牌时间——配网已经发出去，令牌可能已经被设备用掉，重试时
+  /// 重新取一枚。两边都不能抛：这里已经在错误路径上，原始错误才是要报的那个。
+  Future<void> _abandonPairingAttempt({
+    required bool releaseHotspot,
+    required bool invalidateToken,
+  }) async {
+    if (invalidateToken) _activatorTokenAt = null;
+    if (!releaseHotspot) return;
+    try {
+      await _repository.leaveDeviceHotspot();
+    } catch (_) {
+      // 原生没有连接可放，或平台没实现，都不影响上报原始错误。
+    }
+  }
+
+  /// 中止进行中的配网并释放热点连接与网络绑定。
+  ///
+  /// 不走 [_guard]：配网本身正占着那把锁。进行中的 `pair` 会以 `pair_cancelled`
+  /// 返回，[pairViaHotspot] 照常收尾。用户中途退出配网页时由页面调用；没有配网
+  /// 在跑时调用也安全。
+  Future<ActionResult> cancelPairing() => _run(() async {
+    await _repository.cancelPairing();
+    // 令牌没被消耗，但配网是否已经送到设备上说不清，保守起见重取。
+    _activatorTokenAt = null;
+    return const ActionResult(true, '已中止配网，设备热点连接已释放');
   });
 
   Future<ActionResult> _pairInternal(PairingRequest request) async {
@@ -568,13 +684,30 @@ class FlowerpotState extends ChangeNotifier {
   Future<SmartPlanterDevice> _pairOrRecover(PairingRequest request) async {
     final knownIds = _devices.map((item) => item.id).toSet();
     try {
-      return await _repository.pair(request);
+      return await _repository
+          .pair(request)
+          .timeout(pairingDeadline, onTimeout: _abortStalledPairing);
     } on TuyaException catch (error) {
+      // 主动中止和原生没回话这两种，设备都不可能刚好配上，不必再等六秒回查。
+      if (error.code == 'pair_cancelled' || error.code == 'pair_timeout') {
+        rethrow;
+      }
       final recovered = await _recoverPairedDevice(knownIds);
       if (recovered == null) rethrow;
       debugPrint('[pair] ${error.code} 后在云端发现新设备，按成功处理');
       return recovered;
     }
+  }
+
+  /// 原生超过 [pairingDeadline] 没回话时的收尾：让它停掉并释放资源，再以
+  /// `pair_timeout` 失败。原生若稍后才回话，那条回复会被平台通道丢弃。
+  Future<SmartPlanterDevice> _abortStalledPairing() async {
+    try {
+      await _repository.cancelPairing();
+    } catch (_) {
+      // 已经在超时路径上，取消失败没有更好的处理。
+    }
+    throw const TuyaException('pair_timeout', '配网长时间没有结果，已中止');
   }
 
   /// 配网报错后回查云端，看是否其实已经绑上了一台新设备。

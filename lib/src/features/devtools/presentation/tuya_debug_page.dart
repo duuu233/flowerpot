@@ -492,11 +492,17 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                         '不跳配网失败页，方便连续重试。\n\n'
                         '「开始配网」一步做完三件事：取配网令牌 → 连设备热点 → 下发凭据。'
                         '令牌只能在还有外网时取，连上热点后就取不到了，所以必须串在一起，'
-                        '不用手动分步。\n\n'
+                        '不用手动分步。日志里的耗时按这三步分别记，卡在哪一步一眼能看出来。'
+                        '任何一步失败都会释放热点连接和进程网络绑定，重试不需要重启 App。\n\n'
                         '① 设备长按到指示灯慢闪，Wi-Fi 列表里能看到 SmartLife-… 热点\n'
                         '② 手机先连在目标 2.4G 路由器上（要有网）\n'
                         '③ 填路由器的名称和密码——不是设备热点的\n'
                         '④ 点「开始配网」，系统会弹框问是否连接设备热点，点确认\n\n'
+                        'iOS 与 Android 9 及以下不能由 App 连热点：会以 '
+                        'hotspot_manual_required 返回并保留令牌，此时到系统设置连上设备热点，'
+                        '回来点「热点已手动连上，开始配网」。\n'
+                        '「取消配网」随时可点：停掉 activator、释放热点与网络绑定，进行中的'
+                        '配网以 pair_cancelled 返回。\n\n'
                         '设备若已被别的 App 绑定，必须先在那边解绑，否则它不会回到配网状态。',
                         style: AppTypography.smallBody.copyWith(
                           color: AppColors.textSecondary,
@@ -563,6 +569,37 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                           ),
                           usesAccount: false,
                         ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      _ActionRow(
+                        children: <Widget>[
+                          _action(
+                            key: const Key('tuya-debug-pair-manual'),
+                            label: '热点已手动连上，开始配网',
+                            busy: busy,
+                            onPressed: () => _run(
+                              '配网 AP（手动热点）',
+                              () => state.pairViaHotspot(
+                                ssid: ssidController.text.trim(),
+                                password: wifiPasswordController.text,
+                                hotspotJoinedManually: true,
+                              ),
+                              usesAccount: false,
+                            ),
+                          ),
+                          // 配网期间别的按钮都被 busy 锁住，这个必须能点：它就是
+                          // 用来解开那把锁的。
+                          _action(
+                            key: const Key('tuya-debug-cancel-pair'),
+                            label: '取消配网',
+                            busy: false,
+                            onPressed: () => _run(
+                              '取消配网',
+                              () => state.cancelPairing(),
+                              usesAccount: false,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

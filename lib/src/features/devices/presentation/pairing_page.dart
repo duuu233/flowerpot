@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 
 /// Route arguments for the Wi-Fi step, which now runs after a device is
@@ -53,6 +56,16 @@ class _PairingPageState extends State<PairingPage> {
     text: widget.arguments?.request?.password ?? '',
   );
 
+  /// 平台不让 App 自己连热点（iOS、Android 9 及以下）时切到手动路径：页面改为
+  /// 引导用户去系统设置连热点，按钮变成「已连接热点，开始配网」，下一次点击
+  /// 告诉状态层热点已经由用户连好，直接配网。
+  bool _manualHotspot = false;
+
+  /// 正在跑的那次配网所属的状态对象。用户在配网期间退出本页时据此中止：
+  /// 否则 activator 会继续跑满两分钟，手机也一直挂在设备热点上。dispose 里
+  /// 已经不能查 InheritedWidget，所以发起时就把引用留下。
+  FlowerpotState? _pairingState;
+
   @override
   void initState() {
     super.initState();
@@ -61,6 +74,11 @@ class _PairingPageState extends State<PairingPage> {
 
   @override
   void dispose() {
+    final state = _pairingState;
+    if (state != null) {
+      _pairingState = null;
+      unawaited(state.cancelPairing());
+    }
     ssidController.dispose();
     passwordController.dispose();
     super.dispose();
@@ -125,12 +143,21 @@ class _PairingPageState extends State<PairingPage> {
     // 取令牌 → 连热点 → 下发凭据串成一次操作。这三步有顺序约束（令牌只能在还有
     // 外网时取，连上热点后就取不到了），交给用户按顺序点三个按钮，错一次就是两
     // 分钟超时，而失败原因从 `1006` 里看不出来。
+    _pairingState = state;
     final result = await state.pairViaHotspot(
       ssid: request.ssid,
       password: request.password,
       hotspotSsid: widget.arguments?.hotspotSsid,
+      hotspotJoinedManually: _manualHotspot,
     );
+    _pairingState = null;
     if (!mounted) return;
+    if (result.code == 'hotspot_manual_required') {
+      // 不是失败：令牌已取好，等用户去系统设置把热点连上再点一次。
+      setState(() => _manualHotspot = true);
+      showAppMessage(context, '请先到系统设置连接设备热点', tone: AppMessageTone.info);
+      return;
+    }
     if (!result.success) {
       Navigator.pushReplacementNamed(
         context,
@@ -166,7 +193,6 @@ class _PairingPageState extends State<PairingPage> {
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
-    final scan = state.wifiScan;
     final hotspot = widget.arguments?.hotspotSsid;
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接Wi-Fi', leading: AppBackButton()),
@@ -218,8 +244,18 @@ class _PairingPageState extends State<PairingPage> {
                     passwordController: passwordController,
                     onSwitchWifi: _switchWifi,
                   ),
-                  ...<Widget>[
-                    const SizedBox(height: 12),
+                  const SizedBox(height: 12),
+                  if (_manualHotspot)
+                    _PairingHintCard(
+                      key: const Key('pairing-hotspot-manual'),
+                      tone: AppColors.warning,
+                      text:
+                          '当前系统不允许 App 直接连接热点。请到系统设置连接'
+                          '${hotspot == null ? '设备热点（SmartLife-… 开头）' : '「$hotspot」'}'
+                          '，若系统提示该网络无法上网请选择保持连接，然后回到本页点'
+                          '「已连接热点，开始配网」。',
+                    )
+                  else
                     _PairingHintCard(
                       key: const Key('pairing-hotspot-step'),
                       tone: AppColors.brandPrimary,
@@ -228,7 +264,6 @@ class _PairingPageState extends State<PairingPage> {
                           '${hotspot == null ? '设备热点' : '「$hotspot」'}，确认即可，'
                           '不必到系统设置里手动连。',
                     ),
-                  ],
                   const SizedBox(height: 38),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -280,7 +315,7 @@ class _PairingPageState extends State<PairingPage> {
                         strokeWidth: 2,
                       ),
                     )
-                  : const Text('开始配网'),
+                  : Text(_manualHotspot ? '已连接热点，开始配网' : '开始配网'),
             ),
           ),
         ],

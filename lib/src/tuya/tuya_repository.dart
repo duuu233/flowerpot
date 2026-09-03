@@ -85,7 +85,17 @@ abstract class TuyaRepository {
   Future<bool> joinDeviceHotspot({String? ssid, String? prefix});
 
   /// 释放上面那条连接，让手机回到原来的网络。
+  ///
+  /// 配网失败后必须调：热点连接和进程网络绑定都是原生层的状态，不释放的话
+  /// 进程会一直绑在一个没有互联网的网络上，之后所有云端调用都失败。没有连接
+  /// 在跑时调用也安全，什么都不做。
   Future<void> leaveDeviceHotspot();
+
+  /// 中止进行中的配网：停掉 activator，释放设备热点连接与进程网络绑定。
+  ///
+  /// 进行中的 [pair] 会以 `pair_cancelled` 失败返回，而不是等满超时。没有配网
+  /// 在跑时调用也安全。用户中途退出配网页、或 Dart 侧等待超时时调用。
+  Future<void> cancelPairing();
 
   /// 当前使用的涂鸦家庭 id。设备列表按家庭查，家庭对不上就会是空的。
   Future<String> currentHomeId();
@@ -383,6 +393,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> leaveDeviceHotspot() => _invoke<void>('leaveDeviceHotspot');
+
+  @override
+  Future<void> cancelPairing() => _invoke<void>('cancelPairing');
 
   @override
   Future<String> currentHomeId() async =>
@@ -863,6 +876,10 @@ class MockTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> leaveDeviceHotspot() => _wait();
+
+  /// Mock 的配网是一段固定延时，没有可以中止的东西。
+  @override
+  Future<void> cancelPairing() => _wait();
 
   @override
   Future<String> currentHomeId() async {

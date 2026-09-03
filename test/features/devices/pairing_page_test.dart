@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_page.dart';
@@ -184,6 +186,115 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('a platform that cannot join the hotspot switches to manual', (
+    tester,
+  ) async {
+    Object? successArguments;
+    final repository = _ManualHotspotRepository();
+    final state = await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+      arguments: const PairingArguments(hotspotSsid: 'SmartLife-A1B2'),
+      onSuccessArguments: (value) => successArguments = value,
+    );
+
+    await _enterPassword(tester);
+    await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    // Not a failure: the page stays, names the hotspot to join in Settings and
+    // relabels the button. The token was fetched while the router was still
+    // reachable and is kept for the second tap.
+    expect(find.text('pairing-failure-target'), findsNothing);
+    expect(find.byKey(const Key('pairing-hotspot-manual')), findsOneWidget);
+    expect(find.byKey(const Key('pairing-hotspot-step')), findsNothing);
+    expect(find.textContaining('「SmartLife-A1B2」'), findsOneWidget);
+    expect(find.text('已连接热点，开始配网'), findsOneWidget);
+    expect(repository.tokenCalls, 1);
+    expect(repository.pairCalls, 0);
+    expect(state.activatorTokenReady, isTrue);
+    // Expire the guidance toast.
+    await tester.pump(const Duration(seconds: 7));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    // The phone is on the hotspot now, so no second token fetch is possible;
+    // the cached one is reused and pairing runs straight away.
+    expect(repository.tokenCalls, 1);
+    expect(repository.pairCalls, 1);
+    expect(find.text('pairing-success-target'), findsOneWidget);
+    expect(successArguments, 'vdevo17235508413621');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a refused hotspot join opens the failure page and releases', (
+    tester,
+  ) async {
+    Object? failureArguments;
+    final repository = _RefusedHotspotRepository();
+    await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+      arguments: const PairingArguments(
+        hotspotSsid: 'SmartLife-A1B2',
+        request: PairingRequest(ssid: 'TP-LINK_2.4G', password: 'secret'),
+      ),
+      onFailureArguments: (value) => failureArguments = value,
+    );
+
+    await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('pairing-failure-target'), findsOneWidget);
+    final failure = failureArguments! as PairingFailureArguments;
+    expect(failure.code, 'hotspot_join_cancelled');
+    expect(repository.pairCalls, 0);
+    // Whatever the system did with the request, the app lets go of it.
+    expect(repository.leaveCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('leaving the page during pairing cancels it', (tester) async {
+    final repository = _HangingRepository();
+    final state = await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+      arguments: const PairingArguments(
+        hotspotSsid: 'SmartLife-A1B2',
+        request: PairingRequest(ssid: 'TP-LINK_2.4G', password: 'secret'),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(state.busy, isTrue);
+    expect(repository.pairCalls, 1);
+
+    // The page goes away with the pairing still running: the activator must
+    // not keep going for two minutes with the phone stuck on the hotspot.
+    await tester.pumpWidget(
+      FlowerpotScope(
+        state: state,
+        child: MaterialApp(theme: buildAppTheme(), home: const SizedBox()),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(repository.cancelCalls, 1);
+    expect(state.busy, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a provisioning error opens the failure page', (tester) async {
     Object? failureArguments;
     await _pumpPairingPage(
@@ -301,5 +412,63 @@ class _FailingRepository extends MockTuyaRepository {
   @override
   Future<SmartPlanterDevice> pair(PairingRequest request) async {
     throw const TuyaException('pair_failed', '配网失败');
+  }
+}
+
+/// The iOS / Android 9 shape: the app cannot join the hotspot itself, and the
+/// phone is still on the router when the first attempt is made.
+class _ManualHotspotRepository extends _TokenRepository {
+  @override
+  Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {
+    throw const TuyaException('hotspot_join_unsupported', '不支持');
+  }
+
+  @override
+  Future<WifiScan> scanWifi() async => const WifiScan(
+    current: 'TP-LINK_2.4G',
+    currentFrequency: 2437,
+    networks: <WifiNetwork>[
+      WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+    ],
+  );
+}
+
+/// The system dialog was dismissed, or no matching hotspot was in range.
+class _RefusedHotspotRepository extends _TokenRepository {
+  int leaveCalls = 0;
+
+  @override
+  Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {
+    throw const TuyaException('hotspot_join_cancelled', '未连上热点');
+  }
+
+  @override
+  Future<void> leaveDeviceHotspot() async => leaveCalls++;
+}
+
+/// A bridge whose pairing only ends when it is cancelled, like the real one
+/// while the activator is waiting on the device.
+class _HangingRepository extends _TokenRepository {
+  int cancelCalls = 0;
+  Completer<SmartPlanterDevice>? _pending;
+
+  @override
+  Future<SmartPlanterDevice> pair(PairingRequest request) {
+    pairCalls++;
+    final completer = Completer<SmartPlanterDevice>();
+    _pending = completer;
+    return completer.future;
+  }
+
+  @override
+  Future<void> cancelPairing() async {
+    cancelCalls++;
+    final pending = _pending;
+    _pending = null;
+    if (pending != null && !pending.isCompleted) {
+      pending.completeError(
+        const TuyaException('pair_cancelled', '配网已被中止'),
+      );
+    }
   }
 }

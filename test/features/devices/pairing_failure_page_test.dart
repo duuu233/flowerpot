@@ -90,7 +90,36 @@ void main() {
     final subtitle = tester.widget<Text>(
       find.byKey(const Key('pairing-failure-subtitle')),
     );
-    expect(subtitle.data, contains('[pair_failed] 配网超时'));
+    // An unknown code shows the state's message as it came: it already carries
+    // the source tag and the per-step timings, so nothing is prepended.
+    expect(subtitle.data, contains('配网超时'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a known failure code is explained in plain words', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: const PairingFailurePage(
+          request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
+          code: 'hotspot_join_cancelled',
+          message: '涂鸦-hotspot_join_cancelled 未连上 SmartLife-A1B2｜令牌 812ms',
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final subtitle = tester.widget<Text>(
+      find.byKey(const Key('pairing-failure-subtitle')),
+    );
+    // The raw code stays visible for diagnosis, after the actionable line.
+    expect(subtitle.data, contains('手机没有连上设备热点'));
+    expect(subtitle.data, contains('（hotspot_join_cancelled）'));
+    expect(subtitle.data, isNot(contains('令牌 812ms')));
     expect(tester.takeException(), isNull);
   });
 

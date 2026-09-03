@@ -102,7 +102,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 
 - 账号：配置 `API_BASE_URL` 后，国内手机号短信、验证码/密码登录与注册走 APP 后端，再用返回的映射凭据登录涂鸦；海外邮箱及找回密码等原有能力保留涂鸦链路。
 - 设备实时性：DP 上报、上下线和解绑由原生监听推给 Dart，页面自动刷新；温标（146）与时间格式（147）下发后 App 自身展示跟随。
-- 首页与设备：无底部菜单，设备列表即首页、左上角头像进入「我的」、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。后端设备行按涂鸦 `deviceId` 关联；植物目录、详情、绑定/删除与设备图片使用 APP 后端。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网三页全部走真实桥接调用——搜索与选择页用 `scanWifi` 找设备在 AP 模式下拉起的热点，Wi-Fi 页带入真实 2.4G 网络列表并把 AP 拆成「取令牌 → 连热点 → 开始配网」两步，详见 `docs/TUYA_SDK_SETUP.md` 6.3。
+- 首页与设备：无底部菜单，设备列表即首页、左上角头像进入「我的」、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。后端设备行按涂鸦 `deviceId` 关联；植物目录、详情、绑定/删除与设备图片使用 APP 后端。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网三页全部走真实桥接调用——搜索与选择页用 `scanWifi` 找设备在 AP 模式下拉起的热点，Wi-Fi 页带入真实 2.4G 网络列表，「开始配网」一次点击由 `FlowerpotState.pairViaHotspot` 串完取令牌 → App 连设备热点 → 配网；平台不能由 App 连热点（iOS、Android 9 及以下）时回落到手动引导；任何一步失败、用户退出页面或等待超时都会释放热点连接与进程网络绑定（`leaveDeviceHotspot` / `cancelPairing`），详见 `docs/TUYA_SDK_SETUP.md` 5.3 与 6.3。
 - 设备控制：显示、听觉、触觉、振动、行为时段、温标、时钟、校准与系统修复。
 - 内容与维护：动画资源、设备分享、解绑、恢复出厂和 OTA。
 - 个人中心：资料、账号安全、帮助、协议、隐私、关于与偏好。
@@ -159,8 +159,8 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 - DP 140 校准固定依次发送 `step0`、`step1`、`step2`、`step3`，取消或在最终完成卡片尚未确认 `step3` 时关闭都发送 `step5`；`step4` 保留且不调用。
 - 温度、湿度、电量、PPFD、DLI 没有历史功能点，真机上这几条曲线是空态而不是曲线；设备图片已可在 APP 后端上传/列出/删除，但 142/143/144 从云端 URL 下发到硬件的协议仍待确认。
 - 2026-08-25 核验时，提供的 `https://api.yikaltd.com` 域名返回备案阻断页；Swagger 机器端口可读取契约，但未使用真实账号执行写接口。恢复可用 HTTPS 域名后仍需完成真机端到端联调。
-- 配网三页已改为真实 `scanWifi` / `prepareActivatorToken` / `pairWifiDevice` 链路，但热点识别前缀（`SmartLife-`、`TY_`、`YSplanter-`）是否覆盖量产设备实际 SSID 尚未在真机确认；iOS 不返回附近网络列表，搜索与选择页在 iOS 上只能走「手动继续」。
-- iOS 桥接已补齐配网前置、DP 上报与 OTA，但 iOS 侧全部改动尚未经过 Xcode 编译或真机验证；`createShareLink` 在 iOS 上仍是明确错误码（Home SDK 只有按账号分享）。
+- 配网三页已改为真实 `scanWifi` / `pairViaHotspot`（取令牌 → 连热点 → `pairWifiDevice`）链路，但热点识别前缀（`SmartLife-`、`TY_`、`YSplanter-`）是否覆盖量产设备实际 SSID 尚未在真机确认；iOS 不返回附近网络列表，搜索与选择页在 iOS 上只能走「手动继续」。2026-09-03 补的失败释放（`PairingResult` 包装、`cancelPairing`、Dart 侧 `leaveDeviceHotspot`）与手动回落路径在无 Flutter 工具链的环境里只做了静态复核，`flutter test` 与真机均未跑。
+- iOS 桥接已补齐配网前置、`joinDeviceHotspot`（`NEHotspotConfigurationManager`，需要 Hotspot Configuration entitlement，未配置时回 `hotspot_join_unsupported` 走手动路径）、`cancelPairing`、DP 上报与 OTA，但 iOS 侧全部改动尚未经过 Xcode 编译或真机验证；`createShareLink` 在 iOS 上仍是明确错误码（Home SDK 只有按账号分享）。
 - Android/iOS 包名与桥接正在工作区中演进；不要根据旧历史文档恢复已删除的平台文件。
 - 当前工作区有大量未提交的 UI、资源、路由、平台与测试改动，任何任务都必须先识别所有权并避免覆盖。
 

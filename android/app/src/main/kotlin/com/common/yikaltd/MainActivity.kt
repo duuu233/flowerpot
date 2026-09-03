@@ -117,6 +117,9 @@ class MainActivity : FlutterActivity() {
      * the SDK holds the proxy, the proxy holds this activity.
      */
     override fun onDestroy() {
+        // 配网占着的东西也要放：热点请求的回调闭包引用着本 Activity，进程网络绑定
+        // 则会让重建后的页面一直没网。
+        bridge.releasePairing("pair_cancelled", "页面已销毁，配网中止")
         bridge.releaseDeviceListeners()
         bridge.attachEventSink(null)
         super.onDestroy()
@@ -224,6 +227,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private var activator: Any? = null
 
     /**
+     * 进行中的 pairWifiDevice 调用的回复句柄。取消、页面销毁或被新请求取代时用它
+     * 把 `pair_cancelled` 回给 Dart——不回的话那边的 Future 永远挂着，busy 锁永远
+     * 不放，整个 App 都点不动。回复过后置空。
+     */
+    private var pairingResult: MethodChannel.Result? = null
+
+    /**
      * Last provisioning token and when it was fetched.
      *
      * Kept here and never handed to Dart: it is a short-lived cloud credential
@@ -270,6 +280,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 scanWifi(result)
                 return
             }
+            // 释放类调用不依赖 SDK 就绪：SDK 没起来时也可能有残留的热点连接要放。
+            if (call.method == "cancelPairing" || call.method == "leaveDeviceHotspot") {
+                releasePairing("pair_cancelled", "配网已被中止")
+                success(result, null)
+                return
+            }
             if (!ensureReady(result)) return
             when (call.method) {
                 "initialize" -> result.success(true)
@@ -292,10 +308,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     success(result, id.toString())
                 }
                 "joinDeviceHotspot" -> joinDeviceHotspot(call, result)
-                "leaveDeviceHotspot" -> {
-                    releaseHotspotRequest()
-                    success(result, null)
-                }
                 "publishDps" -> deviceAction(call, result, "publishDps")
                 "renameDevice" -> deviceAction(call, result, "renameDevice")
                 "removeDevice" -> deviceAction(call, result, "removeDevice")
@@ -336,6 +348,49 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             } catch (error: Throwable) {
                 fail(result, error)
             }
+        }
+    }
+
+    /**
+     * 中止进行中的配网并放掉它占着的一切：activator、App 发起的热点连接、进程
+     * 网络绑定。进行中的 pairWifiDevice 以 [code] 失败返回。没有配网在跑时调用
+     * 也安全——那就只是清一遍可能残留的网络绑定。
+     */
+    fun releasePairing(code: String, message: String) {
+        val pending = pairingResult
+        pairingResult = null
+        stopActivator()
+        pending?.let { error(it, code, message) }
+    }
+
+    /**
+     * 配网调用的回复包装：无论成功、失败还是异常，回复前先把配网占着的资源放掉。
+     *
+     * 失败路径太多（查家庭、取令牌、反射找工厂/枚举、`start()` 抛异常、SDK 回调
+     * 报错），逐一补 stopActivator 迟早漏一处——漏掉的后果是进程一直绑在设备热点
+     * 上、热点请求不释放，之后每一次云端调用都无网失败，直到进程重启。之前
+     * 恰好就漏了回调注册之前的那一段。
+     */
+    private inner class PairingResult(private val delegate: MethodChannel.Result) :
+        MethodChannel.Result {
+        override fun success(result: Any?) {
+            finish()
+            delegate.success(result)
+        }
+
+        override fun error(code: String, message: String?, details: Any?) {
+            finish()
+            delegate.error(code, message, details)
+        }
+
+        override fun notImplemented() {
+            finish()
+            delegate.notImplemented()
+        }
+
+        private fun finish() {
+            if (pairingResult === this) pairingResult = null
+            stopActivator()
         }
     }
 
@@ -643,6 +698,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * router.
      */
     private fun prepareActivatorToken(result: MethodChannel.Result) {
+        // 取令牌要走云端。没有配网在跑却还绑着网络，只能是上一次失败留下的——
+        // 绑着的那个热点早就没了，不解开这次取令牌必然无网失败。
+        if (activator == null && boundNetwork != null) {
+            Log.i(TUYA_LOG_TAG, "token fetch: dropping stale network binding")
+            unbindProcessNetwork()
+        }
         withHome(result) { id ->
             fetchActivatorToken(id, result) { success(result, null) }
         }
@@ -683,11 +744,18 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         return token.takeIf { age in 0..ACTIVATOR_TOKEN_TTL_MS }
     }
 
-    private fun pairWifi(call: MethodCall, result: MethodChannel.Result) {
+    private fun pairWifi(call: MethodCall, rawResult: MethodChannel.Result) {
+        // 上一次配网还没回话就又来了一次（正常被 Dart 的 busy 锁挡住；取消后立刻
+        // 重试时可能发生）：先把旧的了结，别让它的 Future 永远挂着。
+        // 注意这一步只在还有旧配网在跑时才会动网络绑定；下面的注释说明为什么
+        // 正常路径上不能碰它。
+        if (pairingResult != null) releasePairing("pair_cancelled", "被新的配网请求取代")
+        val result = PairingResult(rawResult)
+        pairingResult = result
         // 这里**不能**清理网络绑定：joinDeviceHotspot 刚把手机连上设备热点，而那条
         // 连接是跟着 NetworkCallback 走的，一旦 unregister 系统立刻断开——凭据就再
         // 也发不到设备，只能等满 120 秒报 1006。上一次遗留的绑定由
-        // joinDeviceHotspot 自己在发起新请求前清理，配网结束由 stopActivator 清理。
+        // joinDeviceHotspot 自己在发起新请求前清理，配网结束由 PairingResult 清理。
         // 复用预取的令牌——AP 配网能成立全靠这一步：跑到这里时手机已经连在设备
         // 热点上，云端不可达。EZ 全程连在路由器上，走的就是下面这条回落路径，
         // 所以 EZ 不需要用户先点「获取配网令牌」。
@@ -926,21 +994,33 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             .setNetworkSpecifier(specifier)
             .build()
 
-        releaseHotspotRequest()
+        // 连热点之前把上一次可能残留的绑定整个清掉，而不只是热点请求：残留的
+        // 进程绑定指向一个已经不在的网络，留着的话新连接建立前 App 一直没网。
+        // 此时不可能有配网在跑（Dart 的 busy 锁保证），清理不会打断任何东西。
+        unbindProcessNetwork()
         val answered = AtomicBoolean(false)
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                boundNetwork = network
                 val bound = runCatching { manager.bindProcessToNetwork(network) }
                     .getOrDefault(false)
                 Log.i(TUYA_LOG_TAG, "hotspot joined $target, bound=$bound")
-                if (answered.compareAndSet(false, true)) success(result, bound)
+                if (!answered.compareAndSet(false, true)) return
+                if (bound) {
+                    boundNetwork = network
+                    success(result, true)
+                } else {
+                    // 连上了却绑不过去，这条连接没有用处：立刻放掉，别让手机挂在
+                    // 一个 App 用不了的热点上。
+                    activity.runOnUiThread { releaseHotspotRequest() }
+                    error(result, "hotspot_bind_failed", "已连上 $target，但进程流量未能切换到热点")
+                }
             }
 
             override fun onUnavailable() {
                 // 系统扫不到匹配的网络时也走这里，和用户点了取消无法区分，所以把
                 // 实际匹配的目标带出去——前缀写错导致一个都匹配不上时，这行是唯一
-                // 能看出问题的信息。
+                // 能看出问题的信息。请求已经结束，回调也一并注销。
+                activity.runOnUiThread { releaseHotspotRequest() }
                 if (answered.compareAndSet(false, true)) {
                     error(
                         result,

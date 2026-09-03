@@ -59,6 +59,9 @@ final class FlowerpotTuyaBridge: NSObject {
   private var activatorToken: String?
   private var activatorTokenAt: Date?
 
+  /// 由 App 发起连接的设备热点名，配网结束或取消时据此删掉临时配置。
+  private var joinedHotspotSsid: String?
+
   /// Tuya issues provisioning tokens with a 10-minute validity; 8 leaves room
   /// for the user to switch networks and for the activator's handshake.
   private static let activatorTokenTTL: TimeInterval = 8 * 60
@@ -84,12 +87,9 @@ final class FlowerpotTuyaBridge: NSObject {
     // ThingActivatorMode 是 ObjC 的 NS_ENUM，运行时拿不到常量名，没法像 Android
     // 那样让 SDK 自己报一遍。要确认 iOS 支不支持双模只能查平台文档。
     case "listActivatorModes": sdkError(result, code: "unsupported_on_ios", message: "iOS 端无法枚举配网模式常量，请查涂鸦 iOS 文档")
-    // iOS 的对应能力是 NEHotspotConfigurationManager，但它需要 Hotspot
-    // Configuration entitlement（要在 Apple 开发者后台为 App ID 开启并加进
-    // entitlements 文件）。那套配置还没做，所以这里明确报未实现，Dart 侧会
-    // 回落到引导用户去系统设置手动连接，而不是静默失败。
-    case "joinDeviceHotspot": sdkError(result, code: "hotspot_join_unsupported", message: "iOS 端需先配置 Hotspot Configuration 权限")
-    case "leaveDeviceHotspot": result(nil)
+    case "joinDeviceHotspot": joinDeviceHotspot(args, result)
+    case "leaveDeviceHotspot": leaveDeviceHotspot(result)
+    case "cancelPairing": cancelPairing(result)
     case "pairWifiDevice": pairWifi(args, result)
     case "publishDps": publishDps(args, result)
     case "renameDevice": renameDevice(args, result)
@@ -332,6 +332,9 @@ final class FlowerpotTuyaBridge: NSObject {
       sdkError(result, code: "sdk_unavailable", message: "无法获取配网实例")
       return
     }
+    // 上一次配网还没回话就又来了一次：先把旧的了结。直接覆盖 pairingResult 的话
+    // 旧那次的 FlutterResult 永远不会被调用，Dart 侧的 Future 就永远挂着。
+    finishPairing(with: FlutterError(code: "pair_cancelled", message: "被新的配网请求取代", details: nil))
     pairingResult = result
     activator.delegate = self
     // EZ 默认，AP 兜底；两者都走同一条 startConfigWiFi。
@@ -375,6 +378,85 @@ final class FlowerpotTuyaBridge: NSObject {
     } else {
       device.remove({ result(nil) }, failure: { error in self.fail(result, error) })
     }
+  }
+
+  /// 了结进行中的配网：停掉 activator，把 [value] 回给等着的那次 pairWifiDevice。
+  /// 没有配网在跑时什么都不做。
+  private func finishPairing(with value: Any?) {
+    guard let callback = pairingResult else { return }
+    pairingResult = nil
+    ThingSmartActivator.sharedInstance()?.stopConfigWiFi()
+    ThingSmartActivator.sharedInstance()?.delegate = nil
+    callback(value)
+  }
+
+  /// 中止进行中的配网并释放热点配置。没有配网在跑时也安全。
+  private func cancelPairing(_ result: @escaping FlutterResult) {
+    finishPairing(with: FlutterError(code: "pair_cancelled", message: "配网已被中止", details: nil))
+    removeHotspotConfiguration()
+    result(nil)
+  }
+
+  /// App 自己连设备热点。
+  ///
+  /// 需要 Hotspot Configuration entitlement：Apple 开发者后台为 App ID 开启
+  /// Hotspot Configuration，并在 entitlements 文件里加
+  /// `com.apple.developer.networking.HotspotConfiguration`。没有时 `apply` 会以
+  /// 错误返回，这里报 `hotspot_join_unsupported`，Dart 侧据此回落到引导用户去
+  /// 系统设置手动连接，而不是静默失败。
+  private func joinDeviceHotspot(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    let ssid = args["ssid"] as? String ?? ""
+    let prefix = args["prefix"] as? String ?? ""
+    let configuration: NEHotspotConfiguration
+    if !ssid.isEmpty {
+      configuration = NEHotspotConfiguration(ssid: ssid)
+    } else if #available(iOS 13.0, *), !prefix.isEmpty {
+      configuration = NEHotspotConfiguration(ssidPrefix: prefix)
+    } else {
+      sdkError(result, code: "hotspot_join_unsupported", message: "需要设备热点名称才能发起连接")
+      return
+    }
+    // 只连这一次：配网完成后设备会关掉热点，不能让系统记住它以后自动重连。
+    configuration.joinOnce = true
+    let joined = ssid.isEmpty ? prefix : ssid
+    NEHotspotConfigurationManager.shared.apply(configuration) { [weak self] error in
+      DispatchQueue.main.async {
+        guard let self else { return }
+        guard let error = error as NSError? else {
+          self.joinedHotspotSsid = joined
+          result(true)
+          return
+        }
+        // NS_ERROR_ENUM 在 Swift 里是带 Code 的结构体，按原始码比较最不挑 SDK 版本。
+        let hotspotError = error.domain == NEHotspotConfigurationErrorDomain
+        if hotspotError, error.code == NEHotspotConfigurationError.alreadyAssociated.rawValue {
+          // 手机本来就连在这个热点上，不算失败。
+          self.joinedHotspotSsid = joined
+          result(true)
+        } else if hotspotError, error.code == NEHotspotConfigurationError.userDenied.rawValue {
+          self.sdkError(result, code: "hotspot_join_cancelled", message: "已取消连接设备热点")
+        } else {
+          // 缺 entitlement、系统不支持等都到这里；Dart 侧回落到手动引导。
+          self.sdkError(
+            result,
+            code: "hotspot_join_unsupported",
+            message: "iOS 无法由 App 连接热点（\(error.code)）：\(error.localizedDescription)"
+          )
+        }
+      }
+    }
+  }
+
+  private func leaveDeviceHotspot(_ result: @escaping FlutterResult) {
+    removeHotspotConfiguration()
+    result(nil)
+  }
+
+  /// 删掉由 App 加的临时热点配置。joinOnce 的配置本就不持久，这里只是保险。
+  private func removeHotspotConfiguration() {
+    guard let ssid = joinedHotspotSsid else { return }
+    joinedHotspotSsid = nil
+    NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: ssid)
   }
 
   /// The network the phone is on. The list is always empty on iOS: there is no
@@ -642,6 +724,9 @@ extension FlowerpotTuyaBridge: ThingSmartActivatorDelegate {
     pairingResult = nil
     activator.stopConfigWiFi()
     activator.delegate = nil
+    // 成功时设备已经关掉热点，失败时 Dart 侧也会再调一次 leaveDeviceHotspot；
+    // 这里先删一遍，两边都不依赖对方。
+    removeHotspotConfiguration()
     if let error {
       fail(callback, error)
     } else if let deviceModel {

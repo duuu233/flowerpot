@@ -81,15 +81,9 @@ void main() {
     );
     await tester.pump();
 
-    // AP mode takes the provisioning token first: the phone loses its route to
-    // the cloud as soon as it joins the device hotspot.
-    await tester.tap(find.byKey(const Key('start-pairing-button')));
-    await tester.pumpAndSettle();
+    // One tap runs the whole AP sequence: token, hotspot join, credentials.
+    // The page only explains that the system will ask to join the hotspot.
     expect(find.byKey(const Key('pairing-hotspot-step')), findsOneWidget);
-    // Expire the confirmation toast so it does not outlive the test.
-    await tester.pump(const Duration(seconds: 7));
-    await tester.pumpAndSettle();
-
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();

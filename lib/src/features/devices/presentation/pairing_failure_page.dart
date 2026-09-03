@@ -20,10 +20,27 @@ class PairingFailurePage extends StatelessWidget {
 
   String get _subtitle {
     const generic = '设备未能成功连接到当前Wi-Fi网络';
+    final hint = hintFor(code);
+    if (hint != null) return '$generic\n$hint（$code）';
     final detail = message?.trim() ?? '';
     if (detail.isEmpty) return generic;
     return '$generic\n$detail';
   }
+
+  /// 认得的失败码换成一句能照着做的话；原始码仍附在括号里，联调时对照日志用。
+  ///
+  /// 认不得的照常显示 [message]：那里面带着来源标签、原始报错和各步耗时，真机
+  /// 上排查只能靠它。
+  static String? hintFor(String? code) => switch (code) {
+    'hotspot_join_cancelled' ||
+    'hotspot_join_failed' ||
+    'hotspot_join_timeout' => '手机没有连上设备热点：确认设备指示灯处于配网状态，并在系统弹框中点「连接」',
+    'hotspot_bind_failed' => '手机连上了设备热点但流量没能切过去，请关闭再打开 Wi-Fi 后重试',
+    'pair_cancelled' => '配网已中止',
+    'pair_timeout' => '长时间没有收到结果，请重启设备并让它重新进入配网状态',
+    '1006' => '设备没有在两分钟内连上路由器：多半是 Wi-Fi 密码有误，或所选网络不是 2.4GHz',
+    _ => null,
+  };
 
   void _retry(BuildContext context) {
     // The Wi-Fi page no longer pre-fills placeholder credentials, so a retry

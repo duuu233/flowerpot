@@ -261,26 +261,34 @@ flutter run --dart-define=TUYA_ENABLED=true --dart-define=API_BASE_URL=https://y
 - 注册：发送注册验证码（type 1）与「注册并登录」；注册成功后 SDK 直接持有会话，不需要再登录。
 - 登录：发送登录验证码（type 2）、验证码登录、密码登录。
 - 会话与设备：初始化自检、查询会话、拉取设备列表、退出登录。「拉取设备列表」会先查询家庭并在没有家庭时自动建家，是配网前必须先跑通的一步；返回 0 台说明链路通了、账号下还没有绑定设备。
-- 配网：先「扫描附近 Wi-Fi」再填 Wi-Fi 名称、密码与 EZ/AP 模式，直接调用 `pairWifiDevice`（超时 120 秒）。失败只写进日志并带原始错误码，不跳转到配网失败页，便于连续重试和对照错误码。旁边还有「获取配网令牌」，只有 AP 模式需要单独点，见下节。
+- 配网：先「扫描附近 Wi-Fi」再填路由器的 Wi-Fi 名称与密码，点「开始配网」调用 `FlowerpotState.pairViaHotspot`——一次做完取令牌 → App 连设备热点 → `pairWifiDevice`（超时 120 秒）。失败只写进日志并带原始错误码和三步各自的耗时，不跳转到配网失败页，便于连续重试和对照错误码。旁边有「热点已手动连上，开始配网」（平台不能由 App 连热点时用）和「取消配网」（配网期间唯一不被操作锁禁用的按钮），见下节。
 
 「扫描附近 Wi-Fi」走的是 `scanWifi` 桥接方法（`WifiManager.startScan` + `scanResults`），不依赖涂鸦 SDK，SDK 未初始化时也能用。它有两个用途：确认手机当前连的是 2.4G 还是 5G（EZ 配网连在 5G 上必然失败），以及在 AP 模式下确认设备热点（`SmartLife-*`、`TY_*`）是否已经出现——这是配网前唯一能真实验证「设备已进入配网状态」的手段。点列表里的任意一项会把名称填进 Wi-Fi 名称输入框。
 
 扫描受系统限制：Android 9 起每 2 分钟只允许前台应用扫描几次，超出后返回上一次的缓存结果；Android 9–12 还要求系统定位开关打开，否则返回 `location_disabled`；手机 Wi-Fi 关闭时返回 `wifi_disabled`。
 
-### AP 模式必须先取令牌
+### AP 配网的三步与资源释放
 
-`getActivatorToken` 是**云端调用**。AP 配网时手机连的是设备热点，那条链路没有外网，如果等到点「开始配网」才去取令牌，涂鸦会直接返回 `Network error please try it again`——这个报错与设备、与 Wi-Fi 密码都无关，纯粹是取令牌的时机不对。
+`getActivatorToken` 是**云端调用**。AP 配网时手机连的是设备热点，那条链路没有外网，如果等到连上热点才去取令牌，涂鸦会直接返回 `Network error please try it again`——这个报错与设备、与 Wi-Fi 密码都无关，纯粹是取令牌的时机不对。
 
-因此桥接把取令牌拆成了独立的 `prepareActivatorToken`，并在原生层缓存令牌（8 分钟，涂鸦签发的有效期是 10 分钟）。令牌**不回传 Dart**：它是短时效的云端凭据，而联调页会把收到的一切写进可见日志。`pairWifiDevice` 优先复用缓存令牌，没有或已过期才回落到云端取——EZ 全程连在路由器上，走的就是这条回落路径，所以 EZ 不需要额外操作；AP 下手机已在设备热点上、云端不可达，令牌必须提前取好。配网成功后立即清空缓存，涂鸦令牌是一次性的。
+因此 `FlowerpotState.pairViaHotspot` 把三步串成一次操作，顺序固定：
 
-AP 模式的正确顺序：
+1. `prepareActivatorToken`：手机还在路由器上时取令牌，原生层缓存 8 分钟（涂鸦签发有效期 10 分钟），令牌**不回传 Dart**——它是短时效云端凭据，而联调页会把收到的一切写进可见日志。Dart 只记录取回时间，7 分钟内再次配网直接复用，不再去云端取（手动路径下此时已经没有外网了）。
+2. `joinDeviceHotspot`：Android 10 起用 `WifiNetworkSpecifier` 发起进程专属连接，系统弹框让用户确认，连上后 `bindProcessToNetwork` 把进程流量绑到热点。iOS 用 `NEHotspotConfigurationManager`（`joinOnce`），但需要 Hotspot Configuration entitlement，没配置时 `apply` 报错、桥接回 `hotspot_join_unsupported`；Android 9 及以下同样回这个码。
+3. `pairWifiDevice`：优先复用缓存令牌，没有或过期才回落到云端取（EZ 走的就是这条回落路径）。成功后立即清空缓存，涂鸦令牌一次性。
 
-1. 手机还连在路由器上时，填好**路由器**的 Wi-Fi 名称与密码（不是热点的），模式选 AP；
-2. 点「获取配网令牌」，日志出现成功行；
-3. 去系统设置连上设备热点，Android 弹出「此 WLAN 无法访问互联网」时选择保持连接；
-4. 回到联调页点「开始配网」。
+`hotspot_join_unsupported` 不是失败，是回落到手动路径：状态层先 `scanWifi` 看手机是否已经在设备热点上，是就直接配；不是或者判断不了（iOS 没有读 SSID 的权限时 `current` 为空）就以 `hotspot_manual_required` 返回并**保留令牌**。产品页据此把提示卡换成「去系统设置连接热点」、按钮换成「已连接热点，开始配网」，第二次点击带 `hotspotJoinedManually: true`，复用令牌直接配网；联调页对应的是「热点已手动连上，开始配网」按钮。
 
-超过 8 分钟没点「开始配网」就要重新取一次令牌。
+**任何一步失败都必须把占着的东西放掉**，这是这套流程最容易出问题的地方：
+
+- 原生 `pairWifiDevice` 的回复走 `PairingResult` 包装，成功、失败、异常回复之前一律 `stopActivator()`（停 activator、解除进程网络绑定、注销热点请求）。此前只有 activator 回调那两条路径清理，查家庭、取令牌、反射找工厂/枚举、`start()` 抛异常这些在回调注册之前的失败都会让进程一直绑在设备热点上——热点早就没了，之后每一次云端调用（回查设备列表、重试取令牌）都无网失败，直到进程重启，表现就是「设备被占住了、怎么重试都失败」。
+- Dart 侧 `pairViaHotspot` 只要发出过 `joinDeviceHotspot`，失败时就调 `leaveDeviceHotspot`；配网一旦发出去过，失败时作废本地令牌时间，重试重新取。
+- `joinDeviceHotspot` 发起新请求前整个解除上一次的绑定；连上却绑不过去回 `hotspot_bind_failed` 并立刻释放；`onUnavailable`（热点不存在、弹框取消、60 秒超时）回 `hotspot_join_cancelled` 并注销回调。
+- `cancelPairing`：用户在配网期间退出 Wi-Fi 页（`dispose`）、联调页点「取消配网」、或 Dart 等待超过 150 秒原生仍未回话时调用。原生停掉 activator、释放热点与绑定，并把 `pair_cancelled` 回给进行中的 `pairWifiDevice`——否则那次调用的 Future 永远挂着，`busy` 锁永远不放，整个 App 都点不动。`MainActivity.onDestroy` 也走同一条释放。取消与超时不再做失败后的云端回查。
+- `prepareActivatorToken` 发现没有配网在跑却还绑着网络，先解绑再取令牌；这条兜底针对旧版本留下的残留状态。
+
+联调页日志里每条配网结果都带三步耗时（形如 `令牌 812ms · 连热点(SmartLife-A1B2) 9350ms · 配网 41200ms`），卡在哪一步一眼能看出来；涂鸦那边这三步失败都可能表现成同一个 `1006 out of time`。
+
 - 调用日志：时间、结果、失败码与脱敏账号，可复制或清空。页面与日志只显示脱敏账号，不显示密码、验证码或密钥。
 
 已登录时冷启动会直接进入 `AppShell`，因此「我的」页标题栏右侧同样有一个联调图标入口，不需要退出登录就能回到该页。
@@ -366,14 +374,16 @@ Dart 侧 `MethodChannelTuyaRepository` 保留每台设备最近一次的原始 m
 | 页面 | 真实调用 | 说明 |
 | --- | --- | --- |
 | `DeviceSearchPage`（搜索设备） | `scanWifi` | 进页即扫描。扫到设备热点（`SmartLife-*`、`TY_*`、`YSplanter-*`）才自动进入选择页；扫不到、列表为空或扫描被拒绝都停在本页，显示原因、「重新扫描」和「设备已在配网状态，继续」。 |
-| `DeviceSelectionPage`（选择设备） | `scanWifi` | 列出的就是扫到的设备热点，名称与信号格来自 `WifiNetwork.ssid` / `level`。选中的热点名会随 `PairingArguments.hotspotSsid` 传到下一页。没有热点时是空态加重新扫描，不再伪造 `YSplanter-01/02/03`。 |
-| `PairingPage`（连接 Wi-Fi） | `scanWifi`、`prepareActivatorToken`、`pairWifiDevice` | 进页自动带入手机当前连接的 2.4G 网络名；「切换」弹窗列的是扫到的 2.4G 路由器（滤掉 5G 与设备热点）。AP 模式拆成两步：先取令牌，再连热点后开始配网。 |
+| `DeviceSelectionPage`（选择设备） | `scanWifi` | 列出的就是扫到的设备热点，名称与信号格来自 `WifiNetwork.ssid` / `level`。选中的热点名会随 `PairingArguments.hotspotSsid` 传到下一页。没有热点时是空态加重新扫描。 |
+| `PairingPage`（连接 Wi-Fi） | `scanWifi`、`pairViaHotspot`（内部依次 `prepareActivatorToken` → `joinDeviceHotspot` → `pairWifiDevice`）、`cancelPairing` | 进页自动带入手机当前连接的 2.4G 网络名；「切换」弹窗列的是扫到的 2.4G 路由器（滤掉 5G 与设备热点）。「开始配网」一次点击走完三步，系统弹框确认连接热点即可；平台不能由 App 连热点时页面切到手动引导，按钮变成「已连接热点，开始配网」。配网期间退出本页会中止配网并释放热点。 |
 
 几条必须知道的边界：
 
-- **AP 两步是硬要求，不是交互偏好**。`getActivatorToken` 是云端调用，手机连上设备热点后就没有外网了。产品页因此和联调页一样先取令牌（按钮显示「下一步：连接设备热点」），令牌就绪后按钮才变成「开始配网」。令牌只存在原生层，Dart 侧只记录取回时间用于判断是否需要重取（7 分钟，短于原生缓存的 8 分钟）。配网成功后清空，涂鸦令牌一次性。
+- **三步顺序是硬要求，不是交互偏好**。取令牌是云端调用，连上设备热点后就没有外网，所以由状态层串成一次操作，用户只点一次；各步细节与失败时的资源释放见 5.3「AP 配网的三步与资源释放」。
 - **扫不到不等于没有设备**。iOS 的 `scanWifi` 只返回当前连接的 SSID，`networks` 恒为空；Android 9 起扫描受频率限制，定位关闭时返回 `location_disabled`。因此三页在列表为空时给的都是「无法列出」而不是「没有设备」，并且始终保留手动继续的入口——配网本身不依赖扫描结果。
-- 「连接」按钮不会真的去连热点：Android/iOS 都不允许应用静默加入某个 Wi-Fi。它只是把选中的热点名带到下一页，由 AP 引导卡片告诉用户去系统设置连哪一个，并可点「检查连接」重新扫描确认。
+- 选择页的「连接」按钮不会去连热点，它只把热点名带到 Wi-Fi 页；真正连热点发生在「开始配网」之后，由系统弹框确认。
+- 失败页认得的失败码（`hotspot_join_cancelled` / `hotspot_join_failed` / `hotspot_join_timeout` / `hotspot_bind_failed` / `pair_cancelled` / `pair_timeout` / `1006`）会换成一句能照着做的话，原始码附在括号里；认不得的照常显示带来源标签和各步耗时的原文。
+- EZ 模式仍在桥接层可用（`PairingRequest(mode: 'ez')` + `pairDevice`），产品页和联调页都不再暴露。
 
 ## 7. 发布前检查
 
