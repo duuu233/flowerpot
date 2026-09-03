@@ -17,11 +17,15 @@ class DeviceSettingsMenuItem {
     required this.kind,
     required this.label,
     this.value,
+    this.badge = false,
   });
 
   final DeviceSettingsMenuKind kind;
   final String label;
   final String? value;
+
+  /// 行尾的小红点。「其他设置」在有待装固件时点亮，用户不必先点进去才知道。
+  final bool badge;
 }
 
 class DeviceSettingsPageModel {
@@ -33,7 +37,12 @@ class DeviceSettingsPageModel {
     required this.menuItems,
   });
 
-  factory DeviceSettingsPageModel.fromDevice(SmartPlanterDevice device) {
+  /// [firmwareUpdate] 来自 `FlowerpotState.hasFirmwareUpdate`：涂鸦说有新固件
+  /// 可装。固件本身藏在「其他设置」里，所以这里只把红点带到那一行。
+  factory DeviceSettingsPageModel.fromDevice(
+    SmartPlanterDevice device, {
+    bool firmwareUpdate = false,
+  }) {
     final settings = device.settings;
     return DeviceSettingsPageModel(
       deviceId: device.id,
@@ -81,9 +90,10 @@ class DeviceSettingsPageModel {
           kind: DeviceSettingsMenuKind.memorial,
           label: '纪念日',
         ),
-        const DeviceSettingsMenuItem(
+        DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.other,
           label: '其他设置',
+          badge: firmwareUpdate,
         ),
       ],
     );

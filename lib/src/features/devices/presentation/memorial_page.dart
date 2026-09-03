@@ -28,6 +28,8 @@ class MemorialPage extends StatelessWidget {
     }
     final entries = state.memorialsFor(deviceId);
     final customCount = state.customMemorialsFor(deviceId).length;
+    // 计数按整份列表算：两条固定纪念日也占位，满的时候是 12 条，不是 10 条。
+    // 「新增」的可用性仍然只看自定义那 10 条，固定的两条删不掉也加不了。
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '纪念日', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -45,8 +47,7 @@ class MemorialPage extends StatelessWidget {
             children: <Widget>[
               _SectionHeader(
                 title: '自定义纪念日',
-                trailing:
-                    '$customCount/${TuyaMemorialCodec.maxCustomEntries}条',
+                trailing: '${entries.length}/${TuyaMemorialCodec.maxEntries}条',
               ),
               const SizedBox(height: AppSpacing.md),
               for (final entry in entries) ...<Widget>[

@@ -23,6 +23,22 @@ void main() {
     expect(selected, <DeviceSettingsMenuKind>[DeviceSettingsMenuKind.display]);
   });
 
+  testWidgets('a waiting firmware puts a red dot on 其他设置', (tester) async {
+    // 固件在「其他设置」里面，红点是用户在外面唯一能看见的提示。
+    await _pumpSettings(tester, const Size(375, 812), firmwareUpdate: true);
+
+    expect(find.byType(AppNoticeDot), findsOneWidget);
+    expect(find.text('其他设置'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('no red dot when there is nothing to install', (tester) async {
+    await _pumpSettings(tester, const Size(375, 812));
+
+    expect(find.byType(AppNoticeDot), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('device settings content scrolls at 320x568', (tester) async {
     await _pumpSettings(tester, const Size(320, 568));
 
@@ -39,45 +55,50 @@ Future<void> _pumpSettings(
   WidgetTester tester,
   Size size, {
   ValueChanged<DeviceSettingsMenuKind>? onItemTap,
+  bool firmwareUpdate = false,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  const model = DeviceSettingsPageModel(
+  final model = DeviceSettingsPageModel(
     deviceId: 'device-01',
     deviceName: 'YSplanter-01',
     plantName: '冷水花',
     companionDays: 52,
     menuItems: <DeviceSettingsMenuItem>[
-      DeviceSettingsMenuItem(
+      const DeviceSettingsMenuItem(
         kind: DeviceSettingsMenuKind.plant,
         label: '选择植物',
         value: '冷水花',
       ),
-      DeviceSettingsMenuItem(
+      const DeviceSettingsMenuItem(
         kind: DeviceSettingsMenuKind.display,
         label: '显示',
         value: '自动',
       ),
-      DeviceSettingsMenuItem(
+      const DeviceSettingsMenuItem(
         kind: DeviceSettingsMenuKind.hearing,
         label: '听觉感知',
         value: '已开启',
       ),
-      DeviceSettingsMenuItem(
+      const DeviceSettingsMenuItem(
         kind: DeviceSettingsMenuKind.touch,
         label: '触觉感知',
         value: '已开启',
       ),
-      DeviceSettingsMenuItem(
+      const DeviceSettingsMenuItem(
         kind: DeviceSettingsMenuKind.vibration,
         label: '震动设置',
         value: '已禁用',
       ),
-      DeviceSettingsMenuItem(
+      const DeviceSettingsMenuItem(
         kind: DeviceSettingsMenuKind.behavior,
         label: '行为',
       ),
-      DeviceSettingsMenuItem(kind: DeviceSettingsMenuKind.other, label: '其他设置'),
+      DeviceSettingsMenuItem(
+        kind: DeviceSettingsMenuKind.other,
+        label: '其他设置',
+        badge: firmwareUpdate,
+      ),
     ],
   );
   await tester.pumpWidget(

@@ -197,18 +197,64 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('installing available firmware refreshes the shown version', (
+  testWidgets('installing firmware waits for the device to report success', (
     tester,
   ) async {
-    final state = await _pumpOtherSettings(tester, const Size(375, 812));
+    final repository = _OtherSettingsRepository();
+    final state = await _pumpOtherSettings(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
 
     await tester.tap(find.text('固件版本更新'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('install-firmware-update')));
     await tester.pumpAndSettle();
 
+    // 点「立即更新」只是通知涂鸦给设备下发升级：设备还在下载烧录，版本号不能
+    // 提前改，行上显示的是进度。
+    expect(state.deviceById('device-01')?.firmwareVersion, '1.0.0');
+    expect(find.textContaining('升级中'), findsOneWidget);
+
+    repository.pushOtaProgress(
+      const OtaProgress(deviceId: 'device-01', status: OtaStatus.success),
+    );
+    await tester.pumpAndSettle();
+
     expect(state.deviceById('device-01')?.firmwareVersion, '1.1.2');
     expect(find.text('V1.1.2'), findsOneWidget);
+    // 装上了，红点灭掉。
+    expect(find.byType(AppNoticeDot), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a firmware waiting to be installed shows a red dot', (
+    tester,
+  ) async {
+    // 进页面就静默问一次涂鸦，用户不点也知道有新版本。
+    final state = await _pumpOtherSettings(tester, const Size(375, 812));
+    await tester.pump();
+
+    expect(state.availableFirmwareFor('device-01'), '1.1.2');
+    expect(find.byType(AppNoticeDot), findsOneWidget);
+    // 红点不代替版本号：行上仍然显示设备当前跑的那个。
+    expect(find.text('V1.0.0'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a device already on the latest firmware shows no dot', (
+    tester,
+  ) async {
+    final state = await _pumpOtherSettings(
+      tester,
+      const Size(375, 812),
+      repository: _OtherSettingsRepository(firmware: '1.0.0'),
+    );
+    await tester.pump();
+
+    expect(state.hasFirmwareUpdate('device-01'), isFalse);
+    expect(find.byType(AppNoticeDot), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -256,11 +302,12 @@ void main() {
 
 Future<FlowerpotState> _pumpOtherSettings(
   WidgetTester tester,
-  Size size,
-) async {
+  Size size, {
+  _OtherSettingsRepository? repository,
+}) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  final state = await _stateWithDevice();
+  final state = await _stateWithDevice(repository);
   addTearDown(state.dispose);
   await tester.pumpWidget(
     FlowerpotScope(
@@ -275,8 +322,12 @@ Future<FlowerpotState> _pumpOtherSettings(
   return state;
 }
 
-Future<FlowerpotState> _stateWithDevice() async {
-  final state = FlowerpotState(repository: _OtherSettingsRepository());
+Future<FlowerpotState> _stateWithDevice([
+  _OtherSettingsRepository? repository,
+]) async {
+  final state = FlowerpotState(
+    repository: repository ?? _OtherSettingsRepository(),
+  );
   await state.refreshDevices();
   return state;
 }
@@ -305,7 +356,11 @@ SmartPlanterDevice get _device => SmartPlanterDevice(
 );
 
 class _OtherSettingsRepository extends MockTuyaRepository {
-  _OtherSettingsRepository() : super(latency: Duration.zero);
+  _OtherSettingsRepository({this.firmware = '1.1.2'})
+    : super(latency: Duration.zero);
+
+  /// 云端待装的版本；给的和设备当前版本一样就表示「已是最新」。
+  final String? firmware;
 
   @override
   Future<List<SmartPlanterDevice>> getDevices() async => <SmartPlanterDevice>[
@@ -313,8 +368,9 @@ class _OtherSettingsRepository extends MockTuyaRepository {
   ];
 
   @override
-  Future<String?> checkFirmware(String deviceId) async => '1.1.2';
+  Future<String?> checkFirmware(String deviceId) async => firmware;
 
+  /// 真实桥接只把升级发起出去就返回，进度和成败走事件通道。
   @override
   Future<void> startFirmwareUpgrade(String deviceId) async {}
 }

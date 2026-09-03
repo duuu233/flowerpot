@@ -10,13 +10,31 @@ import 'plant_picker_page.dart';
 import 'widgets/device_settings_function_list.dart';
 import 'widgets/device_settings_summary_card.dart';
 
-class DeviceSettingsPage extends StatelessWidget {
+class DeviceSettingsPage extends StatefulWidget {
   const DeviceSettingsPage({required this.deviceId, super.key});
 
   final String deviceId;
 
   @override
+  State<DeviceSettingsPage> createState() => _DeviceSettingsPageState();
+}
+
+class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
+  @override
+  void initState() {
+    super.initState();
+    // 固件版本藏在「其他设置」里，用户不点进去就不知道有没有新版本。所以一进
+    // 设置页就静默问一次涂鸦（App 不直接问设备），有新版本就在那一行点红点。
+    // 失败无声，见 FlowerpotState.refreshFirmwareUpdate。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      FlowerpotScope.of(context).refreshFirmwareUpdate(widget.deviceId);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final deviceId = widget.deviceId;
     final state = FlowerpotScope.of(context);
     final device = state.deviceById(deviceId);
     if (device == null) {
@@ -25,7 +43,10 @@ class DeviceSettingsPage extends StatelessWidget {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final model = DeviceSettingsPageModel.fromDevice(device);
+    final model = DeviceSettingsPageModel.fromDevice(
+      device,
+      firmwareUpdate: state.hasFirmwareUpdate(deviceId),
+    );
     return AppPageScaffold(
       appBar: AppPageHeader(
         title: '设置',

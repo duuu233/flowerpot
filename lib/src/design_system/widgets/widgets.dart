@@ -10,6 +10,7 @@ export 'data_display/app_avatar.dart';
 export 'data_display/app_device_placeholder.dart';
 export 'data_display/app_icon_badge.dart';
 export 'data_display/app_metric_tile.dart';
+export 'data_display/app_notice_dot.dart';
 export 'data_display/app_option_tile.dart';
 export 'data_display/app_status_chip.dart';
 export 'data_display/app_step_indicator.dart';

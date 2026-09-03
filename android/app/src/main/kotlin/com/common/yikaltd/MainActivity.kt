@@ -270,6 +270,17 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      */
     private val watched = ConcurrentHashMap<String, Any>()
 
+    /**
+     * 每台设备一个 OTA 实例，按 deviceId 缓存。
+     *
+     * `newOTAInstance` 每次调用都新建一个 `IThingOta`，而升级要跑几分钟：
+     * `startOta` 一返回就把它丢掉的话，App 这边没有任何强引用，注册进去的监听
+     * 代理随时可能被回收，进度和成败回调就再也不来了——界面上表现为进度条停在
+     * 某个百分比再也不动。所以实例留在这里，直到升级结束或 Activity 销毁时才
+     * 调 `onDestroy` 放掉。
+     */
+    private val otaInstances = ConcurrentHashMap<String, Any>()
+
     /** Dart's end of [EVENT_CHANNEL], or null while nothing is listening. */
     @Volatile
     private var events: EventChannel.EventSink? = null
@@ -286,6 +297,18 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      */
     fun releaseDeviceListeners() {
         watched.keys.toList().forEach(::unwatchDevice)
+        otaInstances.keys.toList().forEach(::releaseOta)
+    }
+
+    /**
+     * 放掉一台设备的 OTA 实例，连带 SDK 内部注册的监听。
+     *
+     * `onDestroy` 在不同 SDK 版本里未必存在，反射失败当成"这个版本不需要显式
+     * 释放"处理——这里已经在收尾路径上，抛出去只会盖掉真正要报的东西。
+     */
+    private fun releaseOta(deviceId: String) {
+        val ota = otaInstances.remove(deviceId) ?: return
+        runCatching { invoke(ota, "onDestroy") }
     }
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
@@ -1243,8 +1266,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     private fun checkFirmware(call: MethodCall, result: MethodChannel.Result) {
+        val deviceId = call.argument<String>("deviceId").orEmpty()
         invokeWithCallback(
-            otaInstance(call),
+            otaInstance(deviceId),
             "getOtaInfo",
             onSuccess = { value ->
                 val list = (value as? List<*>).orEmpty().filterNotNull()
@@ -1267,7 +1291,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
 
     private fun startFirmwareUpgrade(call: MethodCall, result: MethodChannel.Result) {
         val deviceId = call.argument<String>("deviceId").orEmpty()
-        val ota = otaInstance(call)
+        val ota = otaInstance(deviceId)
         // 升级要跑几分钟，方法通道只能回答一次，所以它只回答"已发起"；下载进度
         // 和最终成败改从事件通道推给 Dart。
         val started = AtomicBoolean(false)
@@ -1275,6 +1299,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val onSuccess: (Any?) -> Unit = {
             answerStarted()
             emitOta(deviceId, "success")
+            // 升级已经结束，SDK 内部的注册可以放了；下次检查会重新建实例。
+            activity.runOnUiThread { releaseOta(deviceId) }
         }
         val onError: (String, String) -> Unit = { code, message ->
             // 还没回答过方法调用就失败，说明升级根本没起来，照常回错误；已经
@@ -1283,6 +1309,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 error(result, code, message)
             }
             emitOta(deviceId, "failed", message = message)
+            activity.runOnUiThread { releaseOta(deviceId) }
         }
         // 7.x reports progress through a listener and starts with a no-arg call;
         // older builds accept the callback directly on startOta.
@@ -1362,9 +1389,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         ),
     )
 
-    private fun otaInstance(call: MethodCall): Any =
-        invokeStatic(sdkClass(), "newOTAInstance", call.argument<String>("deviceId").orEmpty())
+    private fun otaInstance(deviceId: String): Any = otaInstances.getOrPut(deviceId) {
+        invokeStatic(sdkClass(), "newOTAInstance", deviceId)
             ?: throw IllegalStateException("当前 SDK 未提供 OTA 实例")
+    }
 
     private fun userMap(user: Any): Map<String, Any?> = mapOf(
         "uid" to optionalGetter(user, "getUid"),

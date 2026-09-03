@@ -221,6 +221,8 @@ App 侧的命名不再直接当 DP 键用，两层映射都在同一个文件里
 - **141 恢复出厂 / 150 重新配网**：恢复出厂会先向设备下发 141，再调 SDK 的 `resetFactory` 解绑（设备离线或拒绝时不阻断解绑）；设备收到 141 后的具体行为待固件确认。重新配网**不需要额外下发 150**，触发时让设备重新走一遍配网流程即可。
 - **116 植物品种**：后台 `tuYaRemark` 是固件识别的英文标识符，不使用数据库 id 或中文名。更换植物时先完成后端删除/新增，再下发；下发失败保留已成功的后端绑定并提示重试。
 - **140 水位校准**：弹窗四个主操作与 `step0`–`step3` 一一对应，最后的「完成」也必须发送 `step3`；中途取消或在最终卡片改点「关闭」都发送 `step5`，任何路径都不发送 `step4`。
+- **148/149 版本号与 OTA**：固件升级**不是功能点**。表里和固件相关的只有 148 `firmware_version` 和 149 `hardware_version` 两个只上报的版本号，升级本身走涂鸦 SDK 的 OTA 接口，不经过 DP：Android 是 `newOTAInstance` → `getOtaInfo` → `startOta`，iOS 是 `getFirmwareUpgradeInfo` → `upgradeFirmware`。所以在平台上加 DP 解决不了 OTA，要看的是 SDK 的 OTA 能力有没有开通（第 1 节勾选项里的「OTA 能力」）。
+- **154/155/157/158/159 raw 功能点**：上报按 base64 解（和历史 DP 一致），下发按十六进制串写（`TuyaMemorialCodec.encodeRaw`）。DP 154 只能 upsert、设备不回报整份集合，所以自定义纪念日的 id 与标题由 App 侧持久化。纪念日列表满员是 **12 条 = 10 条自定义 + 158 生日 + 159 结婚纪念日**，页面上的计数按这 12 条算。
 
 ## 5. 运行
 
@@ -310,6 +312,26 @@ flutter build apk --release --split-per-abi --dart-define=TUYA_DEBUG_TOOLS=true 
 `android/app/src/main/kotlin/com/common/yikaltd/MainActivity.kt` 中的桥接不硬编码涂鸦回调接口名：先按方法名与参数个数解析目标方法，再用该方法声明的最后一个接口参数生成动态代理。因此 `logout`（`ILogoutCallback`）与 `cancelAccount`（`IResultCallback`）、`getOtaInfo`、`setOtaListener` 等签名不同的接口能共用同一套调用代码，SDK 升级改名也不会静默失效。Expansion SDK 7.8.0 的初始化声明为 `ThingOptimusSdk.init(Context)`；反射查找必须使用声明类型 `Context`，实际参数仍可传入 `Application`。
 
 已接通：账号（验证码、登录、注册、找回密码、改昵称、退出、注销）、家庭查询与自动建家、AP/EZ 配网、设备列表、DP 下发、重命名、解绑、恢复出厂、OTA 查询与升级、**设备 DP 实时上报**。
+
+OTA 的形状和别的调用不一样，值得单独说：
+
+| 环节 | 走哪条路 |
+| --- | --- |
+| 查有没有新版本 | 方法通道 `checkFirmware`，返回待升级版本号；没有则返回 null |
+| 提示用户 | 版本号和设备当前版本不同就记进 `FlowerpotState._availableFirmware`，「设置」页的**其他设置**行和「其他设置」页的**固件版本更新**行各点一个小红点 |
+| 发起升级 | 方法通道 `startFirmwareUpgrade`，**只回答「已发起」**——`startOta` 返回时设备才刚开始下载 |
+| 下载/烧录进度 | 事件通道 `{deviceId, ota:{status, percent?, message?}}`，`status` 取 `running`/`success`/`failed` |
+| 版本号更新 | 只在收到 `success` 时把本地版本改成目标版本、同时熄掉红点；设备随后也会用 DP 148 上报 |
+
+App 从头到尾不和设备直接说话：问版本、下发升级、收进度，三步都是对着涂鸦 SDK，设备那端由涂鸦云去推。
+
+红点是**进页面时静默查一次**的结果：`DeviceSettingsPage` 和 `DeviceOtherSettingsPage` 在 `initState` 里调 `FlowerpotState.refreshFirmwareUpdate`，失败一声不吭（设备离线、后台没开通 OTA 能力、网络不通都会让 `getOtaInfo` 报错，而用户此刻并没有要求检查固件）。用户主动点「固件版本更新」时那条路径照常报错，并且不再问第二遍——直接把已知的版本号摆进「检查更新」弹窗。
+
+三条容易踩的：
+
+- **Android 的 OTA 实例必须被持有**。`newOTAInstance` 每次都新建一个 `IThingOta`，升级要跑几分钟；`startOta` 一返回就丢掉引用的话，注册进去的监听代理随时可能被回收，进度就再也不来了，界面上表现成进度条停住不动。桥接按 deviceId 缓存实例，升级出终态或 Activity 销毁时才调 `onDestroy` 放掉。
+- **iOS 同理，而且还要设 delegate**。`ThingSmartDevice.delegate` 是 weak、SDK 也不持有实例：`startFirmwareUpgrade` 里临时 new 出来的那台一返回就没人引用，`firmwareUpgradeProgress` 和成败回调都不会来。桥接用 `otaDevice(_:)`——已经在 `watched` 里的直接复用，否则新建、设 delegate 并留在 `upgrading` 里，出终态或 `releaseDeviceListeners()` 时才放。
+- **涂鸦不保证一定回终态**。设备掉电、掉线或校验失败时，`onProgress` 之后可能什么都不再来。`FlowerpotState.otaStalled` 以 10 分钟无事件判定中断，「其他设置」页据此让用户重新检查（这条路径会强制重新问云端，不吃缓存），而不是把他锁在一个永远不动的进度上。
 
 iOS 桥接（`ios/Runner/AppDelegate.swift`）现在覆盖同一组方法名：账号、家庭、设备列表、配网（含 `scanWifi` 与 `prepareActivatorToken`）、DP 下发、重命名、解绑、恢复出厂、DP 实时上报、OTA 查询与升级。两端方法名、参数名和错误码保持一致，Dart 侧只有一套 Repository。
 

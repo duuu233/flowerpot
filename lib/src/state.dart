@@ -35,8 +35,18 @@ class FlowerpotState extends ChangeNotifier {
   /// 每台设备最近一次的固件升级进度，界面据此显示进度条。
   final Map<String, OtaProgress> _otaProgress = <String, OtaProgress>{};
 
+  /// 每台设备最后一次收到升级事件的时刻，用来判断升级是不是断在半路。见
+  /// [otaStalled]。
+  final Map<String, DateTime> _otaUpdatedAt = <String, DateTime>{};
+
   /// 已发起升级但尚未收到 success 的目标版本号，收到后才写回设备。
   final Map<String, String> _pendingOtaVersion = <String, String>{};
+
+  /// 云端说这台设备可以装、但还没装上的固件版本号。
+  ///
+  /// 值由涂鸦 SDK 给出（App 不和设备直接说话），已经和设备当前版本比过，所以
+  /// 「有值」就等于「有新版本」——小红点看的就是这个。
+  final Map<String, String> _availableFirmware = <String, String>{};
 
   /// [probeWifi] 自己的重入保护，见那里的说明。
   bool _wifiScanning = false;
@@ -1227,7 +1237,57 @@ class FlowerpotState extends ChangeNotifier {
     return ActionResult(true, link);
   });
 
-  Future<String?> checkFirmware(String id) => _repository.checkFirmware(id);
+  /// 问云端有没有待升级的固件，没有时返回 null。
+  ///
+  /// OTA 不是功能点：2026-09-03 的表里只有 148 `firmware_version` 和 149
+  /// `hardware_version` 两个只读版本号，升级本身走涂鸦 SDK 的 OTA 接口
+  /// （Android `newOTAInstance`/`getOtaInfo`/`startOta`，iOS
+  /// `getFirmwareUpgradeInfo`/`upgradeFirmware`），由原生桥接封装。App 自始至
+  /// 终不和设备直接说话：问版本、发起升级、收进度，三步都是对着 SDK。
+  Future<String?> checkFirmware(String id) async {
+    final version = await _repository.checkFirmware(id);
+    _rememberFirmwareUpdate(id, version);
+    return version;
+  }
+
+  /// 静默查一次新版本，只为了让小红点亮起来。
+  ///
+  /// 页面一打开就跑，所以失败必须无声：设备离线、涂鸦后台没开通 OTA 能力、网络
+  /// 不通都会让 `getOtaInfo` 报错，但用户此刻并没有要求检查固件，弹一个红色
+  /// toast 只会像是页面自己坏了。真正需要交代结果的是用户点「固件版本更新」
+  /// 那一次，那条路径仍然照常报错。
+  Future<void> refreshFirmwareUpdate(String id) async {
+    try {
+      await checkFirmware(id);
+    } catch (_) {
+      // 查不到就当作「这次没查到新版本」，保留上一次的结论。
+    }
+  }
+
+  /// 这台设备有没有待装的新固件（小红点）。
+  bool hasFirmwareUpdate(String deviceId) =>
+      _availableFirmware.containsKey(deviceId);
+
+  /// 待装的新版本号，没有新版本时为 null。
+  String? availableFirmwareFor(String deviceId) => _availableFirmware[deviceId];
+
+  /// 记下（或抹掉）一台设备的待升级版本。
+  ///
+  /// 涂鸦在设备已是最新时可能回 null、空串，也可能把当前版本原样回来，三种都
+  /// 是「没有新版本」；只有确实不同的版本号才点亮小红点。
+  void _rememberFirmwareUpdate(String id, String? version) {
+    final current = deviceById(id)?.firmwareVersion;
+    final next = version == null || version.isEmpty || version == current
+        ? null
+        : version;
+    if (next == null) {
+      if (_availableFirmware.remove(id) == null) return;
+    } else {
+      if (_availableFirmware[id] == next) return;
+      _availableFirmware[id] = next;
+    }
+    notifyListeners();
+  }
 
   /// 发起固件升级。
   ///
@@ -1243,12 +1303,39 @@ class FlowerpotState extends ChangeNotifier {
         status: OtaStatus.running,
         percent: 0,
       );
+      _otaUpdatedAt[id] = DateTime.now();
       return const ActionResult(true, '升级已开始，请保持设备通电并留在网络中');
     },
   );
 
   /// 某台设备最近一次的升级进度，没有发起过升级时为 null。
   OtaProgress? otaProgressFor(String deviceId) => _otaProgress[deviceId];
+
+  /// 多久没有新的进度事件就认为这次升级已经断了。
+  ///
+  /// 涂鸦不保证一定回终态：设备掉电、掉线或固件包校验失败时，`onProgress`
+  /// 之后可能什么都不再来。没有这条判断的话，界面会永远停在「升级中 42%」，
+  /// 用户既看不出出了问题，也没法重试——只能杀掉 App。
+  static const Duration otaStallTimeout = Duration(minutes: 10);
+
+  /// 这台设备的升级是不是卡住了（仍处于 running，但已经 [otaStallTimeout]
+  /// 没有任何事件）。
+  bool otaStalled(String deviceId) {
+    if (_otaProgress[deviceId]?.status != OtaStatus.running) return false;
+    final at = _otaUpdatedAt[deviceId];
+    if (at == null) return false;
+    return DateTime.now().difference(at) > otaStallTimeout;
+  }
+
+  /// 丢掉本地记着的升级状态，让界面回到「可以重新检查」。
+  ///
+  /// 只动 App 这边：设备那头是不是真的还在升级，只有它自己知道。
+  void clearOtaProgress(String deviceId) {
+    if (_otaProgress.remove(deviceId) == null) return;
+    _otaUpdatedAt.remove(deviceId);
+    _pendingOtaVersion.remove(deviceId);
+    notifyListeners();
+  }
 
   /// Advances `water_level_calib` (DP 140) by one step.
   ///
@@ -1442,7 +1529,10 @@ class FlowerpotState extends ChangeNotifier {
   /// 更新——`startOta` 返回只代表升级发起成功。失败和进度都留在这里给界面读。
   void _applyOtaProgress(OtaProgress progress) {
     _otaProgress[progress.deviceId] = progress;
+    _otaUpdatedAt[progress.deviceId] = DateTime.now();
     if (progress.status == OtaStatus.success) {
+      // 装上了就不再是「待装」，小红点跟着灭掉。
+      _availableFirmware.remove(progress.deviceId);
       final target = _pendingOtaVersion.remove(progress.deviceId);
       if (target != null) {
         _replaceDevice(

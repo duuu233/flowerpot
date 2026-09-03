@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import '../../../tuya/tuya_repository.dart' show TuyaException;
 import 'widgets/water_level_calibration_dialog.dart';
 
 class DeviceOtherSettingsPage extends StatefulWidget {
@@ -18,6 +19,18 @@ class DeviceOtherSettingsPage extends StatefulWidget {
 
 class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
   bool _updatingFirmware = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 进页面就静默问一次涂鸦有没有新固件，用户不必先点一下才知道。查到了就在
+    // 「固件版本更新」那行点个红点；查失败什么都不说，见
+    // FlowerpotState.refreshFirmwareUpdate。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      FlowerpotScope.of(context).refreshFirmwareUpdate(widget.deviceId);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +65,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
                     device: device,
                     updatingFirmware: _updatingFirmware,
                     ota: ota,
+                    firmwareUpdate: state.hasFirmwareUpdate(widget.deviceId),
                     onTemperatureUnit: () => _chooseTemperatureUnit(device),
                     onClockFormat: () => _chooseClockFormat(device),
                     onCalibration: _calibrateWaterLevel,
@@ -134,22 +148,48 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
     showAppMessage(context, '系统修复暂未开放');
   }
 
+  /// 检查固件，有新版本就弹确认框并发起升级。
+  ///
+  /// 「发起」和「完成」是两件事：涂鸦的 `startOta` 返回时设备才刚开始下载，
+  /// 之后几分钟的进度和最终成败都从事件通道回来（见 `FlowerpotState.otaUpdates`），
+  /// 所以这里只负责起头，进度显示在功能行上。
   Future<void> _checkFirmware(SmartPlanterDevice device) async {
     if (_updatingFirmware) return;
+    final state = FlowerpotScope.of(context);
     // 升级发起后本地标志就复位了，真正的进行中状态在 state 里，否则用户能在
     // 设备还在烧录时再发起一次。
     final running =
-        FlowerpotScope.of(context).otaProgressFor(widget.deviceId)?.status ==
-        OtaStatus.running;
+        state.otaProgressFor(widget.deviceId)?.status == OtaStatus.running;
+    // 进页面时静默查过一次，红点就是那次的结论；只有用户点的是「重新检查」时
+    // 才不能拿那份旧结论糊弄他。
+    var useKnownVersion = true;
     if (running) {
-      showAppMessage(context, '固件正在升级中，请等待完成', tone: AppMessageTone.info);
-      return;
+      // 设备掉电、掉线或校验失败时，涂鸦可能再也不回终态。十分钟没有任何事件
+      // 就让用户重新检查，而不是把他锁在一个永远不动的进度上。
+      if (!state.otaStalled(widget.deviceId)) {
+        showAppMessage(context, '固件正在升级中，请等待完成', tone: AppMessageTone.info);
+        return;
+      }
+      final retry = await showAppConfirmDialog(
+        context,
+        title: '升级似乎已中断',
+        message:
+            '设备已经很久没有回报升级进度。可以重新检查固件；'
+            '若设备仍在升级中，请等它完成后再试。',
+        confirmLabel: '重新检查',
+        icon: Icons.sync_problem_outlined,
+      );
+      if (!retry || !mounted) return;
+      useKnownVersion = false;
+      state.clearOtaProgress(widget.deviceId);
     }
     setState(() => _updatingFirmware = true);
     try {
-      final version = await FlowerpotScope.of(
-        context,
-      ).checkFirmware(widget.deviceId);
+      // 已经知道版本号就不再问第二遍，直接把两个版本摆给用户看。
+      final known = useKnownVersion
+          ? state.availableFirmwareFor(widget.deviceId)
+          : null;
+      final version = known ?? await state.checkFirmware(widget.deviceId);
       if (!mounted) return;
       if (version == null || version == device.firmwareVersion) {
         showAppMessage(context, '当前已是最新固件版本');
@@ -163,15 +203,23 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       );
       if (!confirmed || !mounted) return;
       setState(() => _updatingFirmware = true);
-      final result = await FlowerpotScope.of(
-        context,
-      ).upgradeFirmware(widget.deviceId, version);
+      final result = await state.upgradeFirmware(widget.deviceId, version);
       if (!mounted) return;
       showAppMessage(
         context,
         result.message,
         tone: result.success ? AppMessageTone.success : AppMessageTone.error,
       );
+    } on TuyaException catch (error) {
+      // SDK 的原始码对用户没有意义，但 message 是能照着做的那句；直接把
+      // `Instance of 'TuyaException'` 丢到界面上是之前的行为。
+      if (mounted) {
+        showAppMessage(
+          context,
+          '固件检查失败：${error.message}',
+          tone: AppMessageTone.error,
+        );
+      }
     } catch (error) {
       if (mounted) {
         showAppMessage(context, '固件检查失败：$error', tone: AppMessageTone.error);
@@ -580,6 +628,7 @@ class _GeneralSettingsCard extends StatelessWidget {
     required this.onCalibration,
     required this.onSystemFiles,
     required this.ota,
+    required this.firmwareUpdate,
     required this.onFirmware,
     required this.onRepair,
   });
@@ -591,6 +640,9 @@ class _GeneralSettingsCard extends StatelessWidget {
   final VoidCallback onCalibration;
   final VoidCallback onSystemFiles;
   final OtaProgress? ota;
+
+  /// 涂鸦报了一个和当前版本不同的固件，行尾点红点。
+  final bool firmwareUpdate;
   final VoidCallback onFirmware;
   final VoidCallback onRepair;
 
@@ -628,8 +680,11 @@ class _GeneralSettingsCard extends StatelessWidget {
           ),
           const _SystemFileNotice(),
           _SettingsRow(
+            key: const Key('firmware-update-setting'),
             assetPath: AppAssets.chipUpdateIcon,
             title: '固件版本更新',
+            // 升级中就别再点红点了，那一行已经在讲进度。
+            badge: firmwareUpdate && ota?.status != OtaStatus.running,
             // 升级要跑几分钟，把设备回报的百分比顶到这一行，否则用户只能对着
             // 一个不动的加载态干等。
             value: switch (ota?.status) {
@@ -637,7 +692,9 @@ class _GeneralSettingsCard extends StatelessWidget {
               OtaStatus.failed => ota?.message ?? '升级失败',
               _ => 'V${device.firmwareVersion}',
             },
-            loading: updatingFirmware || ota?.status == OtaStatus.running,
+            // 转圈只用在"正在问云端"这几百毫秒上：升级期间也转的话，上面那个
+            // 百分比就被它顶掉了（一行只显示其中之一），用户反而看不见进度。
+            loading: updatingFirmware,
             onTap: onFirmware,
           ),
           _SettingsRow(
@@ -748,6 +805,7 @@ class _SettingsRow extends StatelessWidget {
     this.value,
     this.titleColor,
     this.loading = false,
+    this.badge = false,
   });
 
   final String assetPath;
@@ -755,6 +813,7 @@ class _SettingsRow extends StatelessWidget {
   final String? value;
   final Color? titleColor;
   final bool loading;
+  final bool badge;
   final VoidCallback onTap;
 
   @override
@@ -779,6 +838,10 @@ class _SettingsRow extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
+          if (badge) ...<Widget>[
+            const AppNoticeDot(semanticLabel: '有新固件'),
+            const SizedBox(width: AppSpacing.xs),
+          ],
           if (loading)
             const SizedBox.square(
               dimension: 16,

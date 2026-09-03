@@ -35,7 +35,7 @@
 
 ### 3. v2 页面
 
-- **纪念日**（`memorial_page.dart`）：固定的生日、结婚纪念日两行 + 自定义条目，`N/10条` 计数、左滑删除、虚线「新增纪念日」。
+- **纪念日**（`memorial_page.dart`）：固定的生日、结婚纪念日两行 + 自定义条目，`N/12条` 计数（见「追加」一节）、左滑删除、虚线「新增纪念日」。
 - **编辑纪念日**（`memorial_edit_page.dart`）：启用开关、标题（固定条目只读）、日期选择、内容区（固定条目是说明胶囊；自定义分「文字」「图片」两页签，文字带 `0/15` 计数，图片是虚线上传位）。
 - **定制动画/图库管理**（`animations_page.dart`）：原来的竖排文件列表换成三列缩略图网格，右上角勾选圈、`6/10` 计数、底部三个圆按钮（上传 / 删除选中 / 取消选择），长按置顶。删除选中时逐张下发 155，全选时改为一次 156；置顶下发 157。
 - **配网中的步骤**（`widgets/pairing_progress_view.dart`）：配网期间盖在「连接 Wi-Fi」页上，画「1.连接设备 / 2.发送Wi-Fi信息 / 3.连接云端」，状态来自新增的 `FlowerpotState.pairingStage`，底部「取消配网」调 `cancelPairing`。
@@ -79,6 +79,70 @@
 - `showDatePicker` 会显示英文月份和按钮：项目没有接 `flutter_localizations`，`MaterialApp` 只设了 `locale` 没设 delegates。这是既有限制，本次没有一并处理。
 - `docs/UI/v2/智能花盆ysplanter/编辑周四时段2.png` 画的是带「每周计划」和底部导航的排程页，功能点表里并没有每周计划相关的 DP，因此只取了它的**时段编辑弹窗**版式用在「行为」页，没有实现每周计划。
 - `docs/UI/v2/割草机/` 整套是另一个产品的设计，本次未处理。
+
+## 追加（同日第二轮）
+
+### 纪念日计数上限
+
+产品口径更正：列表满员是 **12 条 = 10 条自定义 + 生日 + 结婚纪念日**，不是 10 条。新增
+`TuyaMemorialCodec.maxEntries`（= `maxCustomEntries + 2`），页面计数改成按整份列表算
+（固定的两条也占位）；「新增纪念日」的可用性仍然只看自定义那 10 条，因为固定的两条既加不了
+也删不掉。测试断言由 `0/10条` 改为 `2/12条`。
+
+### OTA
+
+先回答功能点的问题：**OTA 不是功能点**。09-03 的表里和固件相关的只有 148 `firmware_version`
+和 149 `hardware_version` 两个只上报的版本号；升级本身走涂鸦 SDK 的 OTA 接口
+（Android `newOTAInstance`/`getOtaInfo`/`startOta`，iOS `getFirmwareUpgradeInfo`/`upgradeFirmware`），
+两端桥接此前已经接好，事件通道也已在推 `{status, percent, message}`。所以这一轮不是"接入"，
+而是补它缺的那几块：
+
+- **Android 桥接持有 OTA 实例**（真正的 bug）。`newOTAInstance` 每次新建一个 `IThingOta`，
+  而升级要跑几分钟；原来 `startOta` 一返回就把引用丢了，App 侧没有任何强引用，注册进去的监听
+  代理随时可能被回收，进度和成败回调就再也不来——界面表现为进度停在某个百分比不动。改为按
+  deviceId 缓存实例（`otaInstances`），升级出终态或 `releaseDeviceListeners()` 时调 `onDestroy` 放掉。
+- **中断逃生**。涂鸦不保证一定回终态（设备掉电、掉线、校验失败之后可能什么都不再来）。新增
+  `FlowerpotState.otaStalled`（10 分钟无事件）与 `clearOtaProgress`，「其他设置」页在卡住时
+  弹确认框让用户重新检查，而不是永远被挡在「固件正在升级中」上。
+- **失败文案**。`checkFirmware` 抛 `TuyaException` 时原来直接把异常对象插进字符串，界面上是
+  `固件检查失败：Instance of 'TuyaException'`；改为显示 `error.message`。
+- 新增 `test/state_ota_test.dart`：覆盖「没有 OTA 功能点」这条事实、发起后版本号不能提前改、
+  进度事件驱动、success 才采用新版本、failed 保留旧版本、卡住后可清除重试。
+
+这几条同样**没有跑过** `flutter analyze` / `flutter test`，Kotlin 侧也没编译过。真机上还需要
+确认：`IThingOta.onDestroy` 在当前 SDK 版本里存在（不存在时按"该版本不需要显式释放"吞掉）、
+以及涂鸦后台的「OTA 能力」是否已开通——没开通的话 `getOtaInfo` 会直接报错，和固件版本无关。
+
+### OTA（同日第三轮：小红点与两端补齐）
+
+补的是产品要的那条动线：**拿到新版本号就点个小红点，用户点一下，App 通知涂鸦让设备升级**。
+App 全程不和设备直接说话——问版本、下发升级、收进度，三步都是对着涂鸦 SDK。
+
+- **状态**。`FlowerpotState` 新增 `_availableFirmware`：`checkFirmware` 拿到的版本号和设备当前
+  版本比过之后才记进去（涂鸦在「已最新」时可能回 null、空串或把当前版本原样回来，三种都不算
+  新版本）。配套 `hasFirmwareUpdate` / `availableFirmwareFor`，以及静默版
+  `refreshFirmwareUpdate`——失败一声不吭，因为它是页面自己发起的，用户此刻并没有要求检查固件。
+  收到 `success` 事件时连同版本号一起把红点熄掉。
+- **红点在哪**。「设置」页的**其他设置**行（`DeviceSettingsMenuItem.badge` → 新增的
+  `AppNoticeDot`）和「其他设置」页的**固件版本更新**行。两页都在 `initState` 里静默查一次，用户
+  不点进去也能看见。首页那排「动画 / 电量 / 设置」没有动——那要改首页模型和卡片，超出这次范围。
+- **点击**。已经知道版本号就不再问第二遍，直接弹「检查更新」，确认后 `upgradeFirmware` 通知涂鸦
+  给设备下发升级。只有「升级似乎已中断 → 重新检查」那条路径会强制重新问云端。
+- **进度百分比被转圈顶掉了**（真正的 bug）。`_SettingsRow` 的 `loading` 和 `value` 是二选一，而
+  原来写的是 `loading: updatingFirmware || ota?.status == running`——升级期间永远在转圈，那句
+  「升级中 42%」一次也没显示过。改成只有"正在问云端"那几百毫秒才转圈。
+- **iOS 桥接的实例同样没被持有**（和上一轮修的 Android 是同一个 bug）。
+  `ThingSmartDevice.delegate` 是 weak、SDK 也不持有实例，`startFirmwareUpgrade` 里临时 new 出来
+  的那台方法一返回就没人引用了，`firmwareUpgradeProgress` 和成败回调都不会来。改为
+  `otaDevice(_:)`：`watched` 里有就复用，否则新建、设 delegate、留在 `upgrading` 里，出终态或
+  `releaseDeviceListeners()` 时才放；`checkFirmware` 的两个闭包也显式捕获了 device。
+- **测试**。`state_ota_test.dart` 补了红点四例（有新版本、同版本不算新、静默失败不出声但主动检查
+  照常抛、success 后熄灭）；`device_other_settings_page_test.dart` 补了红点/无红点两例，并修好一条
+  从 08-29 起就和实现对不上的旧断言——它还在期待「点了立即更新版本号就变」，而版本号从那次改动
+  起就只在收到 success 事件后才变；`device_settings_page_test.dart` 补了菜单行红点两例。
+
+这一轮同样**没有跑过** `flutter analyze` / `flutter test`：这台机器上没有 Flutter SDK，两端桥接
+也没编译过。真机上仍要先确认涂鸦后台的「OTA 能力」已开通。
 
 ## 回滚或恢复
 

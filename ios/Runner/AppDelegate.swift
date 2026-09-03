@@ -53,6 +53,15 @@ final class FlowerpotTuyaBridge: NSObject {
   /// instance, so dropping it here would silently stop the reports.
   private var watched: [String: ThingSmartDevice] = [:]
 
+  /// 正在升级、但不在 [watched] 里的设备实例，按 deviceId 缓存。
+  ///
+  /// 和 [watched] 是同一个道理，只是更容易踩：升级要跑几分钟，而
+  /// `upgradeFirmware` 一返回，方法里临时 new 出来的那个 `ThingSmartDevice`
+  /// 就没人引用了——delegate 是 weak，实例一释放，`firmwareUpgradeProgress`
+  /// 和成败回调就再也不来，界面上表现成进度条停着不动。所以升级期间把它留在
+  /// 这里，出终态或收尾时才放。
+  private var upgrading: [String: ThingSmartDevice] = [:]
+
   /// Last provisioning token and when it was fetched. Never handed to Dart:
   /// it is a short-lived cloud credential and the debug console logs whatever
   /// it receives.
@@ -528,16 +537,18 @@ final class FlowerpotTuyaBridge: NSObject {
       sdkError(result, code: "bad_args", message: "设备参数错误")
       return
     }
-    device.getFirmwareUpgradeInfo({ models in
+    // 闭包显式捕获 device：回调是异步的，不捕获的话实例可能在云端回话之前就被
+    // ARC 释放，结果既不 success 也不 failure。
+    device.getFirmwareUpgradeInfo({ [device] models in
       // One model per upgradable component; upgradeStatus 1 is "an update is
       // waiting". Anything else means there is nothing to offer.
       let pending = models?.first { $0.upgradeStatus == 1 }
       result(pending?.version)
-    }, failure: { [weak self] error in self?.fail(result, error) })
+    }, failure: { [weak self, device] error in self?.fail(result, error) })
   }
 
   private func startFirmwareUpgrade(_ args: [String: Any], _ result: @escaping FlutterResult) {
-    guard let id = args["deviceId"] as? String, let device = ThingSmartDevice(deviceId: id) else {
+    guard let id = args["deviceId"] as? String, let device = otaDevice(id) else {
       sdkError(result, code: "bad_args", message: "设备参数错误")
       return
     }
@@ -546,15 +557,42 @@ final class FlowerpotTuyaBridge: NSObject {
     device.getFirmwareUpgradeInfo({ [weak self] models in
       guard let self else { return }
       guard let pending = models?.first(where: { $0.upgradeStatus == 1 }) else {
+        self.releaseOta(id)
         self.sdkError(result, code: "firmware_up_to_date", message: "当前固件已是最新版本")
         return
       }
       device.upgradeFirmware(
         pending.type,
+        // 只回答"已发起"：下载和烧录之后几分钟的进度、成败都从 delegate 走
+        // 事件通道，和 Android 一致。
         success: { result(nil) },
-        failure: { error in self.fail(result, error) }
+        failure: { error in
+          self.releaseOta(id)
+          self.fail(result, error)
+        }
       )
-    }, failure: { [weak self] error in self?.fail(result, error) })
+    }, failure: { [weak self] error in
+      self?.releaseOta(id)
+      self?.fail(result, error)
+    })
+  }
+
+  /// 升级期间用的设备实例：已经在监听的那台直接复用（它的 delegate 已经是
+  /// 自己），否则新建一台、设上 delegate 并留住引用。
+  private func otaDevice(_ deviceId: String) -> ThingSmartDevice? {
+    if let device = watched[deviceId] ?? upgrading[deviceId] { return device }
+    guard !deviceId.isEmpty, let device = ThingSmartDevice(deviceId: deviceId) else {
+      return nil
+    }
+    device.delegate = self
+    upgrading[deviceId] = device
+    return device
+  }
+
+  /// 放掉升级用的实例。[watched] 里那台不归这里管：它还要继续收 DP 上报。
+  private func releaseOta(_ deviceId: String) {
+    guard let device = upgrading.removeValue(forKey: deviceId) else { return }
+    device.delegate = nil
   }
 
   /// Keeps a delegate registered for exactly [deviceIds].
@@ -587,6 +625,8 @@ final class FlowerpotTuyaBridge: NSObject {
   fileprivate func releaseDeviceListeners() {
     watched.values.forEach { $0.delegate = nil }
     watched.removeAll()
+    upgrading.values.forEach { $0.delegate = nil }
+    upgrading.removeAll()
   }
 
   /// DP ids arrive as dictionary keys of either type depending on the
@@ -677,11 +717,14 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
   func deviceFirmwareUpgradeSuccess(_ device: ThingSmartDevice, type: Int) {
     guard let id = device.deviceModel?.devId else { return }
     emitOta(id, "success")
+    // 升级结束，实例可以放了；下次检查会重新建。
+    DispatchQueue.main.async { [weak self] in self?.releaseOta(id) }
   }
 
   func deviceFirmwareUpgradeFailure(_ device: ThingSmartDevice, type: Int) {
     guard let id = device.deviceModel?.devId else { return }
     emitOta(id, "failed", message: "固件升级失败")
+    DispatchQueue.main.async { [weak self] in self?.releaseOta(id) }
   }
 
   private func emitOta(

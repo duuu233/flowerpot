@@ -34,8 +34,14 @@ abstract final class TuyaMemorialCodec {
   /// The export's cap on custom text: 15 CJK characters, 45 bytes.
   static const int maxTextCharacters = 15;
 
-  /// Entries the 纪念日 page allows on top of the two fixed dates.
+  /// Custom entries the device accepts on top of the two fixed dates.
   static const int maxCustomEntries = 10;
+
+  /// Rows the 纪念日 page can ever show: [maxCustomEntries] plus the birthday
+  /// and the wedding day, which live on their own DPs (158/159) and are always
+  /// present. This is the number the page's counter is measured against — the
+  /// list is 12 long when it is full, not 10.
+  static const int maxEntries = maxCustomEntries + 2;
 
   /// Builds one `memorial_set` frame for an upsert.
   static Uint8List encodeEntry({

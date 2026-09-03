@@ -44,6 +44,10 @@ class DeviceSettingsFunctionList extends StatelessWidget {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                 leading: _LeadingIcon(kind: item.kind, label: item.label),
                 titleStyle: AppTypography.sectionTitle.copyWith(fontSize: 15),
+                // 默认的 trailing 只有取值和箭头，红点得自己拼一遍。
+                trailing: item.badge
+                    ? _BadgedTrailing(value: item.value)
+                    : null,
                 onTap: () => onItemTap(item.kind),
               ),
           ],
@@ -51,7 +55,29 @@ class DeviceSettingsFunctionList extends StatelessWidget {
       ],
     );
   }
+}
 
+/// 行尾：小红点 + 原本的取值和箭头。
+class _BadgedTrailing extends StatelessWidget {
+  const _BadgedTrailing({this.value});
+
+  final String? value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        const AppNoticeDot(semanticLabel: '有新固件'),
+        const SizedBox(width: AppSpacing.xs),
+        if (value != null) ...<Widget>[
+          Text(value!, style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(width: AppSpacing.xs),
+        ],
+        const AppTrailingChevron(),
+      ],
+    );
+  }
 }
 
 /// 行首的小图标。

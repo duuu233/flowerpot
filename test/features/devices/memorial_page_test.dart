@@ -21,8 +21,8 @@ void main() {
     expect(find.text('自定义纪念日'), findsOneWidget);
     expect(find.text('生日'), findsOneWidget);
     expect(find.text('结婚纪念日'), findsOneWidget);
-    // 自定义那一条都还没有，计数只数自定义。
-    expect(find.text('0/10条'), findsOneWidget);
+    // 计数是整份列表：固定两条已经占了 2/12，上限 12 = 10 条自定义 + 生日 + 结婚。
+    expect(find.text('2/12条'), findsOneWidget);
     expect(find.byKey(const Key('memorial-add')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
