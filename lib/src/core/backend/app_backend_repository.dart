@@ -67,6 +67,66 @@ abstract class AppBackendRepository {
     required String filePath,
   });
   Future<void> deleteImages(List<int> imageIds);
+
+  // ── 用户资料 / 账号 ────────────────────────────────────────────────
+  Future<BackendUserInfo> getUserInfo();
+  Future<void> changeNickname(String nickname);
+  Future<void> changeAvatar(String avatarUrl);
+
+  /// 已登录用户的短信验证码，改密码/改绑手机用，不用再传手机号。
+  Future<void> sendSmsToCurrentUser();
+  Future<void> changePassword({
+    required String verifyCode,
+    required String password,
+  });
+  Future<void> resetPassword({
+    required String mobile,
+    required String verifyCode,
+    required String password,
+  });
+  Future<void> logout();
+  Future<void> deactivateAccount();
+
+  // ── 基础数据 ──────────────────────────────────────────────────────
+  Future<BackendAppVersion?> getLastVersion(String appVersionNo);
+  Future<BackendBasicData> getBasicData();
+  Future<List<BackendFaq>> getFaqs({String keyword = ''});
+  Future<BackendFaq?> getFaqDetail(int faqId);
+
+  /// 通用文件上传，返回可以直接写进 DP 帧或提交给后端的 URL。设备图库走的是
+  /// [uploadImage]（会进设备图片列表），头像和纪念日图片走这一条。
+  Future<String> uploadFile(String filePath);
+
+  /// 编辑设备信息：改名，以及「一键清除设备图片」。
+  Future<void> editUserProduct({
+    required int userProductId,
+    required String productName,
+    int? productId,
+    bool clearImages = false,
+  });
+
+  // ── 纪念日 ────────────────────────────────────────────────────────
+  Future<List<BackendAnniversary>> getAnniversaries(int userProductId);
+  Future<BackendAnniversary?> getAnniversaryDetail(int anniversaryId);
+
+  /// 返回后端分配的 `anniversaryId`，它同时也是写进 DP 154 的帧 id。
+  Future<int> addAnniversary({
+    required int userProductId,
+    required String title,
+    required String content,
+    required bool imageContent,
+    required DateTime date,
+  });
+  Future<void> editAnniversary({
+    required int anniversaryId,
+    required int userProductId,
+    required String title,
+    required String content,
+    required bool imageContent,
+    required DateTime date,
+  });
+  Future<void> setAnniversaryEnabled(List<int> anniversaryIds, bool enabled);
+  Future<void> deleteAnniversary(int anniversaryId);
 }
 
 /// Used when no REST origin was supplied. This preserves the existing
@@ -172,6 +232,98 @@ class DisabledAppBackendRepository implements AppBackendRepository {
 
   @override
   Future<void> deleteImages(List<int> imageIds) async => _disabled();
+
+  @override
+  Future<BackendUserInfo> getUserInfo() async => _disabled();
+
+  @override
+  Future<void> changeNickname(String nickname) async => _disabled();
+
+  @override
+  Future<void> changeAvatar(String avatarUrl) async => _disabled();
+
+  @override
+  Future<void> sendSmsToCurrentUser() async => _disabled();
+
+  @override
+  Future<void> changePassword({
+    required String verifyCode,
+    required String password,
+  }) async => _disabled();
+
+  @override
+  Future<void> resetPassword({
+    required String mobile,
+    required String verifyCode,
+    required String password,
+  }) async => _disabled();
+
+  @override
+  Future<void> logout() async {}
+
+  @override
+  Future<void> deactivateAccount() async => _disabled();
+
+  @override
+  Future<BackendAppVersion?> getLastVersion(String appVersionNo) async =>
+      _disabled();
+
+  @override
+  Future<BackendBasicData> getBasicData() async => BackendBasicData.empty;
+
+  @override
+  Future<List<BackendFaq>> getFaqs({String keyword = ''}) async =>
+      const <BackendFaq>[];
+
+  @override
+  Future<BackendFaq?> getFaqDetail(int faqId) async => null;
+
+  @override
+  Future<String> uploadFile(String filePath) async => _disabled();
+
+  @override
+  Future<void> editUserProduct({
+    required int userProductId,
+    required String productName,
+    int? productId,
+    bool clearImages = false,
+  }) async => _disabled();
+
+  @override
+  Future<List<BackendAnniversary>> getAnniversaries(int userProductId) async =>
+      const <BackendAnniversary>[];
+
+  @override
+  Future<BackendAnniversary?> getAnniversaryDetail(int anniversaryId) async =>
+      null;
+
+  @override
+  Future<int> addAnniversary({
+    required int userProductId,
+    required String title,
+    required String content,
+    required bool imageContent,
+    required DateTime date,
+  }) async => _disabled();
+
+  @override
+  Future<void> editAnniversary({
+    required int anniversaryId,
+    required int userProductId,
+    required String title,
+    required String content,
+    required bool imageContent,
+    required DateTime date,
+  }) async => _disabled();
+
+  @override
+  Future<void> setAnniversaryEnabled(
+    List<int> anniversaryIds,
+    bool enabled,
+  ) async => _disabled();
+
+  @override
+  Future<void> deleteAnniversary(int anniversaryId) async => _disabled();
 }
 
 class HttpAppBackendRepository implements AppBackendRepository {
@@ -452,6 +604,485 @@ class HttpAppBackendRepository implements AppBackendRepository {
       body: <String, Object?>{'idList': imageIds},
     );
   }
+
+
+  @override
+  Future<BackendUserInfo> getUserInfo() async =>
+      _userInfo(_map(await _client.getJson('/Client/User/getUserInfo')));
+
+  @override
+  Future<void> changeNickname(String nickname) async {
+    await _client.postJson(
+      '/Client/User/changeNickName',
+      retryOnTimeout: false,
+      body: <String, Object?>{'nickName': nickname},
+    );
+  }
+
+  @override
+  Future<void> changeAvatar(String avatarUrl) async {
+    await _client.postJson(
+      '/Client/User/changeAvatar',
+      retryOnTimeout: false,
+      body: <String, Object?>{'avatar': avatarUrl},
+    );
+  }
+
+  @override
+  Future<void> sendSmsToCurrentUser() async {
+    await _client.postJson('/Client/Basic/smsUser', retryOnTimeout: false);
+  }
+
+  @override
+  Future<void> changePassword({
+    required String verifyCode,
+    required String password,
+  }) async {
+    final digest = _md5(password);
+    await _client.postJson(
+      '/Client/User/changePassword',
+      retryOnTimeout: false,
+      body: <String, Object?>{
+        'verifyCode': verifyCode,
+        'password': digest,
+        'confirmPassword': digest,
+      },
+    );
+  }
+
+  @override
+  Future<void> resetPassword({
+    required String mobile,
+    required String verifyCode,
+    required String password,
+  }) async {
+    final digest = _md5(password);
+    await _client.postJson(
+      '/Client/User/resetPassword',
+      auth: false,
+      retryOnTimeout: false,
+      body: <String, Object?>{
+        'userMobile': mobile,
+        'verifyCode': verifyCode,
+        'password': digest,
+        'confirmPassword': digest,
+      },
+    );
+  }
+
+  @override
+  Future<void> logout() async {
+    try {
+      await _client.postJson('/Client/User/loginOut', retryOnTimeout: false);
+    } finally {
+      // 服务端退不掉也要把本地令牌丢掉，否则下一次启动会拿着一条已经没用的
+      // 令牌去恢复会话。
+      _session.clear();
+    }
+  }
+
+  @override
+  Future<void> deactivateAccount() async {
+    await _client.postJson('/Client/User/userOff', retryOnTimeout: false);
+    _session.clear();
+  }
+
+  @override
+  Future<BackendAppVersion?> getLastVersion(String appVersionNo) async {
+    final data = await _client.getJson(
+      '/Client/Basic/getLastVersion',
+      query: <String, Object?>{'appVersionNo': appVersionNo},
+    );
+    if (data is! Map) return null;
+    final row = _map(data);
+    final latest = _text(
+      row,
+      'appVersionNo',
+      fallback: _text(row, 'versionNo', fallback: _text(row, 'version')),
+    );
+    if (latest.isEmpty) return null;
+    final flag =
+        row['isUpdate'] ?? row['hasUpdate'] ?? row['needUpdate'] ?? row['isNew'];
+    return BackendAppVersion(
+      versionNo: latest,
+      // 后端没给判定标记时按版本号比对兜底，而不是默认「有更新」——那会让
+      // 关于页天天弹红点。
+      hasUpdate: flag == null ? latest != appVersionNo.trim() : _boolean(flag),
+      forceUpdate: _boolean(
+        row['isForce'] ?? row['forceUpdate'] ?? row['isCoerce'],
+      ),
+      downloadUrl: _text(
+        row,
+        'downloadUrl',
+        fallback: _text(row, 'downUrl', fallback: _text(row, 'url')),
+      ),
+      releaseNotes: _lines(
+        _text(
+          row,
+          'updateContent',
+          fallback: _text(row, 'content', fallback: _text(row, 'remark')),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Future<BackendBasicData> getBasicData() async {
+    // 这个接口没有 swagger 模型，后台配了什么字段就返回什么。把整棵树拍平成
+    // 小写键值对，再由 [BackendBasicData] 去认协议、隐私政策这些常见命名。
+    final flattened = <String, String>{};
+    void register(String key, String? value) {
+      if (key.isEmpty || value == null || value.isEmpty) return;
+      flattened.putIfAbsent(key.toLowerCase(), () => value);
+    }
+
+    void walk(Object? value) {
+      if (value is Map) {
+        // 配置也可能是 `[{configKey: 'userAgreement', configValue: '...'}]`
+        // 这种键值对行。那种形状下字面字段名是 configKey/configValue，直接按
+        // 字段名收集是认不出协议正文的，所以先把这一对还原成一条配置。
+        register(
+          _nullableText(
+                value['configKey'] ??
+                    value['keyName'] ??
+                    value['code'] ??
+                    value['name'],
+              ) ??
+              '',
+          _nullableText(
+            value['configValue'] ??
+                value['keyValue'] ??
+                value['value'] ??
+                value['content'],
+          ),
+        );
+        value.forEach((key, item) {
+          if (item is Map || item is List) {
+            walk(item);
+          } else {
+            register(key.toString(), _nullableText(item));
+          }
+        });
+      } else if (value is List) {
+        for (final item in value) {
+          walk(item);
+        }
+      }
+    }
+
+    walk(await _client.getJson('/Client/Basic/getBasicData'));
+    return BackendBasicData(flattened);
+  }
+
+  @override
+  Future<List<BackendFaq>> getFaqs({String keyword = ''}) async =>
+      extractApiRows(
+            await _client.getJson(
+              '/Client/Product/getProductFaqList',
+              query: <String, Object?>{
+                'pageIndex': 1,
+                'pageSize': 50,
+                if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
+              },
+            ),
+          )
+          .map(_faq)
+          .where((item) => item.question.isNotEmpty)
+          .toList(growable: false);
+
+  @override
+  Future<BackendFaq?> getFaqDetail(int faqId) async {
+    final data = await _client.getJson(
+      '/Client/Product/getProductFaqDetail',
+      query: <String, Object?>{'faqId': faqId},
+    );
+    if (data is! Map) return null;
+    final faq = _faq(_map(data));
+    return faq.question.isEmpty && faq.answer.isEmpty ? null : faq;
+  }
+
+  @override
+  Future<String> uploadFile(String filePath) async {
+    final url = _uploadedUrl(
+      await _client.upload(
+        '/Client/Basic/setFileUpload',
+        filePaths: <String>[filePath],
+      ),
+    );
+    if (url == null) {
+      throw const ApiException('UPLOAD_URL_MISSING', '文件已上传，但接口没有返回访问地址');
+    }
+    return url;
+  }
+
+  @override
+  Future<void> editUserProduct({
+    required int userProductId,
+    required String productName,
+    int? productId,
+    bool clearImages = false,
+  }) async {
+    await _client.postJson(
+      '/Client/UserProduct/editUserProduct',
+      retryOnTimeout: false,
+      body: <String, Object?>{
+        'userProductId': userProductId,
+        'productName': productName,
+        if (productId != null) 'productId': productId,
+        'isClearImg': clearImages ? 1 : 0,
+      },
+    );
+  }
+
+  @override
+  Future<List<BackendAnniversary>> getAnniversaries(int userProductId) async =>
+      extractApiRows(
+            await _client.getJson(
+              '/Client/UserProduct/getProductAnniversaryList',
+              query: <String, Object?>{
+                'pageIndex': 1,
+                'pageSize': 100,
+                'userProductId': userProductId,
+              },
+            ),
+          )
+          .map(_anniversary)
+          .where(
+            (item) =>
+                item.anniversaryId > 0 &&
+                // 列表接口的 userProductId 过滤是后加的。旧版本会忽略它、把
+                // 账号下所有设备的纪念日一起返回，所以这里再滤一次；返回体没
+                // 带这个字段（解析成 0）时按「就是这台设备的」处理，否则会把
+                // 整份列表滤空。
+                (item.userProductId == 0 ||
+                    item.userProductId == userProductId),
+          )
+          .toList(growable: false);
+
+  @override
+  Future<BackendAnniversary?> getAnniversaryDetail(int anniversaryId) async {
+    final data = await _client.getJson(
+      '/Client/UserProduct/getProductAnniversaryDetail',
+      query: <String, Object?>{'id': anniversaryId},
+    );
+    if (data is! Map) return null;
+    final entry = _anniversary(_map(data));
+    return entry.anniversaryId > 0 ? entry : null;
+  }
+
+  @override
+  Future<int> addAnniversary({
+    required int userProductId,
+    required String title,
+    required String content,
+    required bool imageContent,
+    required DateTime date,
+  }) async {
+    final id = _newAnniversaryId(
+      await _client.postJson(
+        '/Client/UserProduct/addUserProductAnniversary',
+        retryOnTimeout: false,
+        body: _anniversaryBody(
+          userProductId: userProductId,
+          title: title,
+          content: content,
+          imageContent: imageContent,
+          date: date,
+        ),
+      ),
+    );
+    if (id > 0) return id;
+    // 新增接口没有 swagger 模型，返回体里不一定带 id。DP 154 的帧必须带 id，
+    // 拿不到就回列表里按标题 + 日期找回刚写进去的那条，取 id 最大的一条。
+    final candidates = (await getAnniversaries(userProductId))
+        .where(
+          (row) => row.title == title && _isoDate(row.date) == _isoDate(date),
+        )
+        .map((row) => row.anniversaryId)
+        .toList(growable: false);
+    if (candidates.isEmpty) {
+      throw const ApiException('ANNIVERSARY_ID_MISSING', '纪念日已保存，但接口没有返回记录 id');
+    }
+    return candidates.reduce(max);
+  }
+
+  @override
+  Future<void> editAnniversary({
+    required int anniversaryId,
+    required int userProductId,
+    required String title,
+    required String content,
+    required bool imageContent,
+    required DateTime date,
+  }) async {
+    await _client.postJson(
+      '/Client/UserProduct/editUserProductAnniversary',
+      retryOnTimeout: false,
+      body: <String, Object?>{
+        'anniversaryId': anniversaryId,
+        ..._anniversaryBody(
+          userProductId: userProductId,
+          title: title,
+          content: content,
+          imageContent: imageContent,
+          date: date,
+        ),
+      },
+    );
+  }
+
+  @override
+  Future<void> setAnniversaryEnabled(
+    List<int> anniversaryIds,
+    bool enabled,
+  ) async {
+    if (anniversaryIds.isEmpty) return;
+    await _client.postJson(
+      '/Client/UserProduct/setUserProductAnniversaryVerify',
+      retryOnTimeout: false,
+      body: <String, Object?>{
+        'commonIds': anniversaryIds.join(','),
+        'verify': enabled ? 1 : 0,
+      },
+    );
+  }
+
+  @override
+  Future<void> deleteAnniversary(int anniversaryId) async {
+    await _client.postJson(
+      '/Client/UserProduct/deleteUserProductAnniversary',
+      retryOnTimeout: false,
+      body: <String, Object?>{'id': anniversaryId},
+    );
+  }
+
+  static Map<String, Object?> _anniversaryBody({
+    required int userProductId,
+    required String title,
+    required String content,
+    required bool imageContent,
+    required DateTime date,
+  }) => <String, Object?>{
+    'userProductId': userProductId,
+    'title': title,
+    'content': content,
+    'contentType': imageContent ? 1 : 0,
+    'anniversaryDate': _isoDate(date),
+  };
+
+  static BackendUserInfo _userInfo(Map<String, dynamic> row) => BackendUserInfo(
+    nickname: _text(row, 'nickName', fallback: _text(row, 'nickname')),
+    account: _text(
+      row,
+      'userMobile',
+      fallback: _text(row, 'mobile', fallback: _text(row, 'userEmail')),
+    ),
+    avatarUrl: _nullableText(
+      row['avatar'] ?? row['avatarUrl'] ?? row['headImg'],
+    ),
+    email: _text(row, 'userEmail', fallback: _text(row, 'email')),
+    userNo: _text(row, 'userNo'),
+  );
+
+  static BackendFaq _faq(Map<String, dynamic> row) => BackendFaq(
+    faqId: _integer(row['faqId'] ?? row['productFaqId'] ?? row['id']),
+    question: _text(
+      row,
+      'title',
+      fallback: _text(row, 'question', fallback: _text(row, 'faqTitle')),
+    ),
+    answer: _text(
+      row,
+      'content',
+      fallback: _text(row, 'answer', fallback: _text(row, 'faqContent')),
+    ),
+  );
+
+  static BackendAnniversary _anniversary(Map<String, dynamic> row) {
+    final verify =
+        row['isVerify'] ?? row['verify'] ?? row['isEnable'] ?? row['status'];
+    return BackendAnniversary(
+      anniversaryId: _integer(
+        row['anniversaryId'] ?? row['userProductAnniversaryId'] ?? row['id'],
+      ),
+      userProductId: _integer(row['userProductId']),
+      title: _text(row, 'title'),
+      content: _text(row, 'content'),
+      imageContent: _integer(row['contentType']) == 1,
+      date: _date(_text(row, 'anniversaryDate')),
+      // 字段缺失按启用处理：禁用是用户的显式操作，认不出来时不该把设备上正在
+      // 显示的一条画成「已停用」。
+      enabled: verify == null ? true : _boolean(verify),
+    );
+  }
+
+  static int _newAnniversaryId(Object? data) {
+    if (data is num) return data.round();
+    if (data is String) return int.tryParse(data.trim()) ?? 0;
+    if (data is Map) {
+      final row = data.map((key, value) => MapEntry(key.toString(), value));
+      return _integer(
+        row['anniversaryId'] ??
+            row['userProductAnniversaryId'] ??
+            row['id'] ??
+            row['commonId'],
+      );
+    }
+    return 0;
+  }
+
+  static String? _uploadedUrl(Object? data) {
+    if (data is String) return _nullableText(data);
+    if (data is List) {
+      for (final item in data) {
+        final url = _uploadedUrl(item);
+        if (url != null) return url;
+      }
+      return null;
+    }
+    if (data is Map) {
+      final row = data.map((key, value) => MapEntry(key.toString(), value));
+      for (final key in const <String>[
+        'url',
+        'fileUrl',
+        'filePath',
+        'imgUrl',
+        'img',
+        'fullPath',
+        'path',
+        'avatar',
+      ]) {
+        final value = _nullableText(row[key]);
+        if (value != null) return value;
+      }
+      for (final item in extractApiRows(row)) {
+        final url = _uploadedUrl(item);
+        if (url != null) return url;
+      }
+    }
+    return null;
+  }
+
+  static String _isoDate(DateTime? date) {
+    if (date == null) return '';
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
+  static DateTime? _date(String value) {
+    if (value.isEmpty) return null;
+    final parsed = DateTime.tryParse(value.trim().replaceFirst(' ', 'T'));
+    return parsed == null
+        ? null
+        : DateTime(parsed.year, parsed.month, parsed.day);
+  }
+
+  static List<String> _lines(String value) => value
+      .split(RegExp(r'[\r\n;；]+'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
 
   /// 后端把「验证码错误」和「账号不存在」都压在 `retCode` 403 上，只有文案能区分；
   /// 而且未注册手机号目前返回的是海外邮箱那套「邮箱不存在」。所以这里只认 403，

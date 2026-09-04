@@ -11,10 +11,29 @@ import 'memorial_edit_page.dart';
 /// 两条固定纪念日（生日 / 结婚纪念日）走 DP 158 / 159，自定义条目走 DP 154 的
 /// upsert 帧。固定的两条只能停用或改日期，删不掉——设备上那两个功能点一直在，
 /// 「删除」只会把它们清成停用态，和列表里少一行不是一回事。
-class MemorialPage extends StatelessWidget {
+class MemorialPage extends StatefulWidget {
   const MemorialPage({required this.deviceId, super.key});
 
   final String deviceId;
+
+  @override
+  State<MemorialPage> createState() => _MemorialPageState();
+}
+
+class _MemorialPageState extends State<MemorialPage> {
+  bool _requested = false;
+
+  String get deviceId => widget.deviceId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_requested) return;
+    _requested = true;
+    // 自定义条目以后端为准（`/Client/UserProduct/getProductAnniversaryList`），
+    // 进页面拉一次。没接后端时这是个空操作，页面继续显示本地那份清单。
+    FlowerpotScope.of(context).refreshMemorials(deviceId);
+  }
 
   @override
   Widget build(BuildContext context) {

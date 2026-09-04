@@ -225,4 +225,12 @@ class FlowerpotScope extends InheritedNotifier<FlowerpotState> {
     assert(scope != null, 'FlowerpotScope is missing above this context.');
     return scope!.notifier!;
   }
+
+  /// 没有 scope 时返回 null，而不是断言失败。
+  ///
+  /// 关于页、协议页、帮助中心的正文都自带一份内置文案，后端只是把它换成后台
+  /// 配的那份，所以这几页在没有状态层的地方（Widget 测试、静态预览）也应该
+  /// 能独立渲染。
+  static FlowerpotState? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<FlowerpotScope>()?.notifier;
 }

@@ -122,15 +122,15 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
     if (result.success) Navigator.pop(context);
   }
 
-  /// What goes into the frame. An image entry carries a URL; a locally picked
-  /// file has not been uploaded anywhere yet, so its path is kept as the
-  /// preview and the previously saved URL is what is sent.
+  /// 帧里放什么。图片条目放的是 URL；刚从相册挑的还是本地路径，交给
+  /// [FlowerpotState.saveMemorial]，它会先上传换成 URL 再写帧和后端。没重新挑
+  /// 图就沿用上次存下来的地址。
   String _content() {
     if (_fixed) return '';
     if (_entry.type == MemorialContentType.text) {
       return _textController.text.trim();
     }
-    return _entry.content;
+    return _pickedImagePath ?? _entry.content;
   }
 
   @override

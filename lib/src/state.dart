@@ -325,12 +325,22 @@ class FlowerpotState extends ChangeNotifier {
       newPassword,
       minimumLength: 6,
     );
-    await _repository.resetPassword(
-      account: normalizedAccount,
-      newPassword: normalizedPassword,
-      code: normalizedCode,
-      region: region,
-    );
+    // 国内账号的登录密码归 APP 后端管——涂鸦那边用的是后端下发的 tuYaPwd，
+    // 用户根本没见过——所以重置要打后端。海外仍然是涂鸦自己的邮箱账号体系。
+    if (region == LoginRegion.domestic && _backend.enabled) {
+      await _backend.resetPassword(
+        mobile: normalizedAccount,
+        verifyCode: normalizedCode,
+        password: normalizedPassword,
+      );
+    } else {
+      await _repository.resetPassword(
+        account: normalizedAccount,
+        newPassword: normalizedPassword,
+        code: normalizedCode,
+        region: region,
+      );
+    }
     return const ActionResult(true, '密码已更新，请使用新密码登录');
   });
 
@@ -455,6 +465,13 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   Future<ActionResult> logout() => _guard(() async {
+    if (_backend.enabled && _backend.hasSession) {
+      try {
+        await _backend.logout();
+      } catch (_) {
+        // 服务端退登失败不该把用户卡在已登录界面，本地令牌照样清掉。
+      }
+    }
     try {
       await _repository.logout();
     } catch (_) {
@@ -466,6 +483,11 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   Future<ActionResult> deleteAccount() => _guard(() async {
+    // 先注销 APP 后端账号，它才是登录入口。反过来先删涂鸦账号的话，一旦这步
+    // 失败，用户还能登录进来、却拿不到可用的涂鸦会话，设备一台都出不来。
+    if (_backend.enabled && _backend.hasSession) {
+      await _backend.deactivateAccount();
+    }
     await _repository.deleteAccount();
     _backend.clearSession();
     _clearLocalSession();
@@ -786,6 +808,26 @@ class FlowerpotState extends ChangeNotifier {
     if (trimmed.isEmpty) throw const TuyaException('name', '设备名称不能为空');
     await _repository.renameDevice(id, trimmed);
     _replaceDevice(id, (device) => device.copyWith(name: trimmed));
+    // 后端也要跟着改，否则管理后台看到的还是绑定时那个名字。改名在涂鸦那边
+    // 已经生效了，这一步失败只降级成一句提示，不把整次改名判成失败。
+    if (_backendReady) {
+      final backendDevice = _backendDevices[id];
+      if (backendDevice != null) {
+        try {
+          await _backend.editUserProduct(
+            userProductId: backendDevice.userProductId,
+            productName: trimmed,
+            productId: backendDevice.productId,
+          );
+        } on ApiException catch (error) {
+          return ActionResult(
+            true,
+            '设备名称已更新；后台同步待重试：${error.message}',
+            code: 'backend_device_rename_pending',
+          );
+        }
+      }
+    }
     return const ActionResult(true, '设备名称已更新');
   });
 
@@ -1054,21 +1096,26 @@ class FlowerpotState extends ChangeNotifier {
             '自定义纪念日最多 ${TuyaMemorialCodec.maxCustomEntries} 条',
           );
         }
+        // 先写后端：帧里的 id 用的就是后端分配的 anniversaryId，新增时得先拿到
+        // 它才写得了 DP。图片内容也在这一步上传换成 URL。
+        final saved = _backendReady
+            ? await _saveMemorialOnBackend(deviceId, entry, isNew: index < 0)
+            : entry;
         await _publishMemorialFrame(
           deviceId,
           TuyaMemorialCodec.encodeEntry(
-            id: entry.id,
+            id: saved.id,
             // 停用帧不带日期，但本地要留着，用户重新开启时不用再选一次。
-            date: date ?? DateTime.now(),
-            type: entry.type,
-            content: entry.content,
-            enabled: entry.enabled,
+            date: saved.date ?? DateTime.now(),
+            type: saved.type,
+            content: saved.content,
+            enabled: saved.enabled,
           ),
         );
         if (index >= 0) {
-          entries[index] = entry;
+          entries[index] = saved;
         } else {
-          entries.add(entry);
+          entries.add(saved);
         }
         await _persistMemorials();
         notifyListeners();
@@ -1079,15 +1126,98 @@ class FlowerpotState extends ChangeNotifier {
   /// pair cannot be deleted — disabling it is what the UI offers instead.
   Future<ActionResult> deleteMemorial(String deviceId, int id) =>
       _guard(() async {
+        // 设备先删、后端后删：删帧是幂等的，后端这步失败时条目还在列表里，用户
+        // 再点一次就能补上；反过来后端先删的话，失败重试要面对一条列表里已经
+        // 没有、设备上还在显示的孤儿记录。
         await _publishMemorialFrame(
           deviceId,
           TuyaMemorialCodec.encodeDelete(id),
         );
+        if (_backendReady) {
+          await _backend.deleteAnniversary(id);
+        }
         _memorials[deviceId]?.removeWhere((item) => item.id == id);
         await _persistMemorials();
         notifyListeners();
         return const ActionResult(true, '纪念日已删除');
       });
+
+  /// APP 后端此刻是否可用。没配后端（纯涂鸦链路、体验模式）或会话已经失效
+  /// 时，纪念日、设备改名这些会退回接后端之前的行为，而不是直接报错。
+  bool get _backendReady => _backend.enabled && _backend.hasSession;
+
+  /// 拉一次这台设备的纪念日列表。纪念日页进来时调用。
+  ///
+  /// 接上后端之前这份清单只存在 [SharedPreferences] 里，换台手机就全丢、设备上
+  /// 会留下没人能命名和删除的孤儿条目；现在本地那份退化成缓存。
+  Future<void> refreshMemorials(String deviceId) async {
+    if (!_backendReady) return;
+    try {
+      final backendDevice = await _ensureBackendDevice(deviceId);
+      final rows = await _backend.getAnniversaries(backendDevice.userProductId);
+      _memorials[deviceId] = rows
+          .map(_memorialFromBackend)
+          .toList(growable: true);
+      await _persistMemorials();
+      notifyListeners();
+    } catch (_) {
+      // 拉不到就继续显示本地缓存那份，不把页面变成错误页。
+    }
+  }
+
+  /// 把一条自定义纪念日写进后端，返回换上后端 id、图片换成 URL 之后的条目。
+  Future<MemorialEntry> _saveMemorialOnBackend(
+    String deviceId,
+    MemorialEntry entry, {
+    required bool isNew,
+  }) async {
+    final backendDevice = await _ensureBackendDevice(deviceId);
+    var content = entry.content.trim();
+    if (entry.type == MemorialContentType.image &&
+        content.isNotEmpty &&
+        !_isRemoteUrl(content)) {
+      content = await _backend.uploadFile(content);
+    }
+    final imageContent = entry.type == MemorialContentType.image;
+    final date = entry.date ?? DateTime.now();
+    final id = isNew
+        ? await _backend.addAnniversary(
+            userProductId: backendDevice.userProductId,
+            title: entry.title,
+            content: content,
+            imageContent: imageContent,
+            date: date,
+          )
+        : entry.id;
+    if (!isNew) {
+      await _backend.editAnniversary(
+        anniversaryId: id,
+        userProductId: backendDevice.userProductId,
+        title: entry.title,
+        content: content,
+        imageContent: imageContent,
+        date: date,
+      );
+    }
+    // 启用/停用是后端单独的一个接口，新增和编辑的入参里没有这个字段。
+    await _backend.setAnniversaryEnabled(<int>[id], entry.enabled);
+    return entry.copyWith(id: id, content: content);
+  }
+
+  static MemorialEntry _memorialFromBackend(BackendAnniversary row) =>
+      MemorialEntry(
+        id: row.anniversaryId,
+        date: row.date,
+        type: row.imageContent
+            ? MemorialContentType.image
+            : MemorialContentType.text,
+        content: row.content,
+        enabled: row.enabled,
+        title: row.title,
+      );
+
+  static bool _isRemoteUrl(String value) =>
+      value.startsWith('http://') || value.startsWith('https://');
 
   /// An id for a new entry. Milliseconds are unique enough for a per-device
   /// list of at most ten, and stay inside the frame's unsigned 32 bits.
@@ -1435,10 +1565,127 @@ class FlowerpotState extends ChangeNotifier {
     if (value.isEmpty) {
       throw const TuyaException('nickname', '用户名不能为空');
     }
+    // 相册里挑出来的是本地路径，先传上去换成 URL：本地路径换台手机就没了，
+    // 后端和其它端也读不到。
+    var resolvedAvatar = avatarUrl?.trim();
+    if (_backend.enabled && _backend.hasSession) {
+      if (resolvedAvatar != null &&
+          resolvedAvatar.isNotEmpty &&
+          !_isRemoteUrl(resolvedAvatar)) {
+        resolvedAvatar = await _backend.uploadFile(resolvedAvatar);
+      }
+      if (value != _user?.nickname) {
+        await _backend.changeNickname(value);
+      }
+      if (resolvedAvatar != null &&
+          resolvedAvatar.isNotEmpty &&
+          resolvedAvatar != _user?.avatarUrl) {
+        await _backend.changeAvatar(resolvedAvatar);
+      }
+    }
     await _repository.updateNickname(value);
-    _user = _user?.copyWith(nickname: value, avatarUrl: avatarUrl);
+    _user = _user?.copyWith(nickname: value, avatarUrl: resolvedAvatar);
     return const ActionResult(true, '基本信息已保存');
   });
+
+  /// 用后端的资料覆盖登录时缓存的昵称和头像。
+  ///
+  /// 登录接口只回了建号时那份，用户在别的端改过之后这边不会自己更新，所以每次
+  /// 会话刷新和进个人信息页都重新拉一次。
+  Future<void> refreshUserInfo({bool notify = true}) async {
+    final current = _user;
+    if (!_backend.enabled || !_backend.hasSession || current == null) return;
+    try {
+      final info = await _backend.getUserInfo();
+      _user = AppUser(
+        id: current.id,
+        nickname: info.nickname.isEmpty ? current.nickname : info.nickname,
+        account: info.account.isEmpty ? current.account : info.account,
+        avatarUrl: info.avatarUrl ?? current.avatarUrl,
+      );
+      if (notify) notifyListeners();
+    } catch (_) {
+      // 资料拉不到不影响主流程，继续用登录时那份。
+    }
+  }
+
+  /// 给当前登录用户发一条短信验证码（改密码、改绑手机用），不用再传手机号。
+  Future<ActionResult> sendCurrentUserCode() => _guard(() async {
+    if (!_backendReady) {
+      throw const ApiException(
+        'BACKEND_SESSION_REQUIRED',
+        'APP 后端登录状态已失效，请重新登录',
+      );
+    }
+    await _backend.sendSmsToCurrentUser();
+    return const ActionResult(true, '验证码已发送');
+  });
+
+  /// 已登录状态下修改登录密码。
+  ///
+  /// 后端 `/Client/User/changePassword` 校验的是短信验证码，入参里根本没有
+  /// 「原密码」；而 `docs/UI/修改密码.png` 画的是原密码 + 新密码 + 确认密码。
+  /// 两边对不上，所以修改密码页现在还没接上这条链路——页面加一个验证码输入
+  /// （配 [sendCurrentUserCode]），或者后端补一个按原密码改的接口，二选一之后
+  /// 直接调这里就行。
+  Future<ActionResult> changeLoginPassword({
+    required String verifyCode,
+    required String newPassword,
+  }) => _guard(() async {
+    if (!_backendReady) {
+      throw const ApiException(
+        'BACKEND_SESSION_REQUIRED',
+        'APP 后端登录状态已失效，请重新登录',
+      );
+    }
+    await _backend.changePassword(
+      verifyCode: AuthValidator.code(verifyCode),
+      password: AuthValidator.password(newPassword, minimumLength: 6),
+    );
+    return const ActionResult(true, '密码已更新，请使用新密码登录');
+  });
+
+  /// 后端给出的最新版本，null = 还没查过或后端没开。
+  BackendAppVersion? _appVersion;
+  BackendAppVersion? get appVersion => _appVersion;
+
+  /// 查一次 App 版本更新状态。[currentVersion] 传本机版本号，例如 `1.0.0`。
+  Future<BackendAppVersion?> checkAppVersion(String currentVersion) async {
+    if (!_backend.enabled || !_backend.hasSession) return null;
+    try {
+      _appVersion = await _backend.getLastVersion(currentVersion);
+      notifyListeners();
+    } catch (_) {
+      // 查不到按「已是最新」处理，关于页照常可用。
+    }
+    return _appVersion;
+  }
+
+  /// 后台配的基础数据（用户协议、隐私政策、关于我们等），只拉一次。
+  BackendBasicData _basicData = BackendBasicData.empty;
+  BackendBasicData get basicData => _basicData;
+
+  Future<BackendBasicData> loadBasicData() async {
+    if (!_backend.enabled || !_backend.hasSession) return _basicData;
+    if (!_basicData.isEmpty) return _basicData;
+    try {
+      _basicData = await _backend.getBasicData();
+      notifyListeners();
+    } catch (_) {
+      // 后台没配就用 App 内置的那份文案。
+    }
+    return _basicData;
+  }
+
+  /// 帮助中心的常见问题。拉不到返回空，页面回落到内置的几条。
+  Future<List<BackendFaq>> loadFaqs() async {
+    if (!_backend.enabled || !_backend.hasSession) return const <BackendFaq>[];
+    try {
+      return await _backend.getFaqs();
+    } catch (_) {
+      return const <BackendFaq>[];
+    }
+  }
 
   Future<void> setLanguage(String code) async {
     _languageCode = code;
@@ -1678,6 +1925,8 @@ class FlowerpotState extends ChangeNotifier {
       if (epoch != _sessionEpoch) return;
       _devices = devices.map(_withLocalOverrides).toList();
       if (_backend.enabled && _backend.hasSession) {
+        await refreshUserInfo(notify: false);
+        if (epoch != _sessionEpoch) return;
         try {
           await _syncBackendDevices(epoch);
         } catch (_) {

@@ -39,7 +39,7 @@ class PairingProgressView extends StatelessWidget {
                 SizedBox(
                   height: 220,
                   child: Image.asset(
-                    AppAssets.pairingDeviceSearchIllustration,
+                    AppAssets.pairingWifiSetupIllustration,
                     fit: BoxFit.contain,
                     filterQuality: FilterQuality.high,
                     excludeFromSemantics: true,

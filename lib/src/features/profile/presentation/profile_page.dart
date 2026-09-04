@@ -27,8 +27,12 @@ class _ProfilePageState extends State<ProfilePage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_seeded) {
-      _localAvatarPath = FlowerpotScope.of(context).user?.avatarUrl;
+      final state = FlowerpotScope.of(context);
+      _localAvatarPath = state.user?.avatarUrl;
       _seeded = true;
+      // 别的端改过昵称/头像时这里要能看到，所以进页面重新拉一次
+      // `/Client/User/getUserInfo`。
+      state.refreshUserInfo();
     }
   }
 

@@ -56,16 +56,18 @@ class LegalDocumentCard extends StatelessWidget {
             index < model.sections.length;
             index++
           ) ...<Widget>[
-            Text(
-              model.sections[index].heading,
-              key: Key('legal-section-$index'),
-              style: AppTypography.sectionTitle.copyWith(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w700,
-                height: 1.35,
+            if (model.sections[index].heading.isNotEmpty) ...<Widget>[
+              Text(
+                model.sections[index].heading,
+                key: Key('legal-section-$index'),
+                style: AppTypography.sectionTitle.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  height: 1.35,
+                ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
+              const SizedBox(height: AppSpacing.sm),
+            ],
             Text(
               model.sections[index].body,
               style: AppTypography.body.copyWith(

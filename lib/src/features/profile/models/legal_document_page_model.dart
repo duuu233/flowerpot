@@ -154,6 +154,15 @@ class LegalDocumentPageModel {
   final String updatedAt;
   final String effectiveAt;
   final List<LegalDocumentSection> sections;
+
+  LegalDocumentPageModel copyWith({List<LegalDocumentSection>? sections}) =>
+      LegalDocumentPageModel(
+        pageTitle: pageTitle,
+        documentTitle: documentTitle,
+        updatedAt: updatedAt,
+        effectiveAt: effectiveAt,
+        sections: sections ?? this.sections,
+      );
 }
 
 class LegalDocumentSection {

@@ -155,6 +155,167 @@ void main() {
     expect(plants.single.imageUrl, 'https://cdn.example.test/monstera.png');
     repository.close();
   });
+
+  test('anniversary list keeps only the requested device', () async {
+    final session = ApiSession(storageKey: 'backend.anniversary.token')
+      ..setToken('api-token');
+    final repository = HttpAppBackendRepository(
+      client: ApiClient(
+        baseUrl: 'https://example.test',
+        session: session,
+        httpClient: MockClient((request) async {
+          expect(
+            request.url.path,
+            '/Client/UserProduct/getProductAnniversaryList',
+          );
+          expect(request.url.queryParameters['userProductId'], '5');
+          return _response(<String, Object?>{
+            'pageData': <Object?>[
+              <String, Object?>{
+                'anniversaryId': 42,
+                'userProductId': 5,
+                'title': '相识纪念日',
+                'content': '第一次见面',
+                'contentType': 0,
+                'anniversaryDate': '2026-09-02',
+                'isVerify': 1,
+              },
+              // 过滤参数是后加的，旧版本会把别的设备也一起返回。
+              <String, Object?>{
+                'anniversaryId': 43,
+                'userProductId': 6,
+                'title': '别的设备',
+                'content': '不该出现',
+                'contentType': 0,
+                'anniversaryDate': '2026-09-03',
+                'isVerify': 0,
+              },
+            ],
+          });
+        }),
+      ),
+    );
+
+    final rows = await repository.getAnniversaries(5);
+
+    expect(rows, hasLength(1));
+    expect(rows.single.anniversaryId, 42);
+    expect(rows.single.title, '相识纪念日');
+    expect(rows.single.imageContent, isFalse);
+    expect(rows.single.date, DateTime(2026, 9, 2));
+    expect(rows.single.enabled, isTrue);
+    repository.close();
+  });
+
+  test('adding an anniversary sends the API shape and returns the id', () async {
+    late http.Request captured;
+    final session = ApiSession(storageKey: 'backend.anniversary-add.token')
+      ..setToken('api-token');
+    final repository = HttpAppBackendRepository(
+      client: ApiClient(
+        baseUrl: 'https://example.test',
+        session: session,
+        httpClient: MockClient((request) async {
+          captured = request;
+          return _response(<String, Object?>{'anniversaryId': 77});
+        }),
+      ),
+    );
+
+    final id = await repository.addAnniversary(
+      userProductId: 5,
+      title: '相识纪念日',
+      content: 'https://cdn.example.test/day.png',
+      imageContent: true,
+      date: DateTime(2026, 9, 2),
+    );
+    final body = jsonDecode(captured.body) as Map<String, dynamic>;
+
+    expect(
+      captured.url.path,
+      '/Client/UserProduct/addUserProductAnniversary',
+    );
+    expect(body['userProductId'], 5);
+    expect(body['title'], '相识纪念日');
+    // 后端的 contentType 是 0=文字/1=图片，和 DP 154 的 1/2 不是一套编码。
+    expect(body['contentType'], 1);
+    expect(body['anniversaryDate'], '2026-09-02');
+    expect(id, 77);
+    repository.close();
+  });
+
+  test('adding an anniversary recovers the id from the list', () async {
+    final paths = <String>[];
+    final session = ApiSession(storageKey: 'backend.anniversary-recover.token')
+      ..setToken('api-token');
+    final repository = HttpAppBackendRepository(
+      client: ApiClient(
+        baseUrl: 'https://example.test',
+        session: session,
+        httpClient: MockClient((request) async {
+          paths.add(request.url.path);
+          if (request.url.path.endsWith('addUserProductAnniversary')) {
+            // 新增接口没有 swagger 模型，返回体里不一定带 id。
+            return _response(null);
+          }
+          return _response(<String, Object?>{
+            'pageData': <Object?>[
+              <String, Object?>{
+                'anniversaryId': 91,
+                'userProductId': 5,
+                'title': '相识纪念日',
+                'content': '第一次见面',
+                'contentType': 0,
+                'anniversaryDate': '2026-09-02',
+              },
+            ],
+          });
+        }),
+      ),
+    );
+
+    final id = await repository.addAnniversary(
+      userProductId: 5,
+      title: '相识纪念日',
+      content: '第一次见面',
+      imageContent: false,
+      date: DateTime(2026, 9, 2),
+    );
+
+    expect(id, 91);
+    expect(paths, <String>[
+      '/Client/UserProduct/addUserProductAnniversary',
+      '/Client/UserProduct/getProductAnniversaryList',
+    ]);
+    repository.close();
+  });
+
+  test('anniversary enable/disable posts the comma separated ids', () async {
+    late http.Request captured;
+    final session = ApiSession(storageKey: 'backend.anniversary-verify.token')
+      ..setToken('api-token');
+    final repository = HttpAppBackendRepository(
+      client: ApiClient(
+        baseUrl: 'https://example.test',
+        session: session,
+        httpClient: MockClient((request) async {
+          captured = request;
+          return _response(null);
+        }),
+      ),
+    );
+
+    await repository.setAnniversaryEnabled(<int>[42, 43], false);
+    final body = jsonDecode(captured.body) as Map<String, dynamic>;
+
+    expect(
+      captured.url.path,
+      '/Client/UserProduct/setUserProductAnniversaryVerify',
+    );
+    expect(body['commonIds'], '42,43');
+    expect(body['verify'], 0);
+    repository.close();
+  });
 }
 
 http.Response _failure(int code, String message) => http.Response(

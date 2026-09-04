@@ -23,9 +23,22 @@ class AboutPageModel {
 
   final String appName;
   final String tagline;
+
+  /// 本机安装的版本号，用来发给 `/Client/Basic/getLastVersion` 做比对。
   final String version;
   final String updateStatus;
   final List<String> releaseNotes;
+
+  AboutPageModel copyWith({
+    String? updateStatus,
+    List<String>? releaseNotes,
+  }) => AboutPageModel(
+    appName: appName,
+    tagline: tagline,
+    version: version,
+    updateStatus: updateStatus ?? this.updateStatus,
+    releaseNotes: releaseNotes ?? this.releaseNotes,
+  );
 
   String get displayVersion => 'V$version';
 }
