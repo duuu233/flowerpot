@@ -2,7 +2,7 @@
 
 > 文档类型：当前项目上下文
 > 状态：Active
-> 最后核验：2026-08-17
+> 最后核验：2026-09-05
 > 适用范围：`flowerpot` 当前工作树
 > 事实来源：源码与 CodeGraph、`pubspec.yaml`、平台配置和 `docs/` 中的当前文档
 
@@ -36,7 +36,7 @@ flutter run
 flutter run --dart-define=TUYA_ENABLED=true
 ```
 
-`TUYA_ENABLED=true` 会选择真实 Repository；`StaticPreviewConfig.enabled` 只控制 Mock 后端是否预置演示设备，不需要为真实模式修改。真实设备流程仍必须准备好平台密钥、安全组件和签名。若接入独立 REST 服务，通过 `--dart-define=API_BASE_URL=https://...` 注入地址。各环境应使用 PATH 中的 Flutter/Dart；README 中的绝对路径只可视为单机示例。
+`TUYA_ENABLED=true` 会选择真实 Repository；`StaticPreviewConfig.enabled` 只控制 Mock 后端是否预置演示设备，不需要为真实模式修改。真实设备流程仍必须准备好平台密钥、安全组件和签名。通过 `--dart-define=API_BASE_URL=https://...` 注入 REST 地址；当前未配置时仍回落临时 HTTP，只有显式 `API_BASE_URL=none` 才禁用后端，这是发布前待修复项。各环境应使用 PATH 中的 Flutter/Dart；README 中的绝对路径只可视为单机示例。
 
 ## 3. 架构与数据流
 
@@ -55,7 +55,7 @@ lib/main.dart
 页面
   → FlowerpotScope.of(context)
   → FlowerpotState
-      ├─ AppBackendRepository（配置 API_BASE_URL 后启用）
+      ├─ AppBackendRepository（显式地址或当前临时回落；none 禁用）
       │   → ApiClient / ApiSession
       │   → 国内短信、登录/注册、用户设备、植物、设备图片
       └─ TuyaRepository
@@ -124,7 +124,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 ## 7. 环境与秘密管理
 
 - `TUYA_ENABLED`、`API_BASE_URL`、`TUYA_DEBUG_TOOLS` 通过 `--dart-define` 注入。
-- `API_BASE_URL` 必须是服务源站（例如 `https://api.example.com`），不能填写 `/swagger-ui.html#/` 页面地址；未配置时使用禁用型 Repository，不会发 REST 请求。
+- `API_BASE_URL` 必须是服务源站（例如 `https://api.example.com`），不能填写 `/swagger-ui.html#/` 页面地址；当前空值回落临时 HTTP，显式 `none` 才使用禁用型 Repository。Mock 测试应同时注入 Fake/禁用型后端。
 - Android 涂鸦密钥放在未提交的 `android/local.properties`；安全组件按接入文档放置，不得写入普通 Markdown。
 - iOS 安全组件、Bundle ID、Universal Link/App Link 和签名资料按平台受控管理。
 - 文档、源码、历史记录和提交信息不得包含 Token、AppSecret、密码、签名材料、真实 Wi-Fi 凭据或用户数据。
@@ -161,11 +161,11 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 - 2026-09-03 核验：`https://api.yikaltd.com` 已恢复，`/v2/api-docs` 与写死的临时地址 `http://120.25.227.36:8601` 返回同一份契约（123 条路径），`ApiConfig._temporaryBaseUrl` 及配套的 Android network-security-config、iOS ATS 例外可以按其 TODO 回滚。仍未使用真实账号执行写接口，真机端到端联调未完成。
 - 验证码登录的自动注册复用的是同一条验证码：登录接口先判验证码（未注册手机号配错误验证码回的是「验证码错误」，说明验证码在账号查找之前判），失败后再调注册接口。若后端在验证码判过之后即作废，补注册会以「验证码错误」失败——这条只在 mock 上验证过，真机需要用真实短信确认。
 - 配网三页已改为真实 `scanWifi` / `pairViaHotspot`（取令牌 → 连热点 → `pairWifiDevice`）链路。热点识别前缀已放宽到忽略分隔符的 `smartlif`（含量产件上见到的 `SmartLift-…`）、`tuya`、`ysplanter` 与 `ty_`/`ty-`，并且不再是门禁：选择页可展开原始扫描结果按名字挑设备，搜索页在扫到 2.4G 网络时给出入口；Android 桥接的 `scanWifi` 现在等一轮 `SCAN_RESULTS_AVAILABLE` 广播（最多 5 秒）再回，避免返回设备进入配网状态之前的缓存。iOS 不返回附近网络列表，搜索与选择页在 iOS 上只能走「手动继续」。
-- 154/155/157/158/159 都是 raw 功能点。上报按 base64 解（和历史 DP 一致），下发按十六进制串写（`TuyaMemorialCodec.encodeRaw`）——这是涂鸦 SDK 的惯例，本仓库此前没有写过任何 raw 功能点，真机未验证。另外 DP 154 只能 upsert、设备不回报整份列表，所以自定义纪念日的 id 与标题存在 App 本地（`SharedPreferences` 的 `deviceMemorials`），退出登录不清除，否则设备上会留下无法命名和删除的孤儿条目。
+- 154/155/157/158/159 都是 raw 功能点，当前代码上报按 base64 解、下发按十六进制串写（`TuyaMemorialCodec.encodeRaw`），真机未验证。设备不回报整份自定义纪念日列表；当前已接后端纪念日接口，后端会话可用时分配 id、保存并刷新列表，本地 `deviceMemorials` 是缓存，后端不可用时保留本地路径。退出登录暂不清此缓存，账号隔离及迟到响应仍需加固。
 - 2026-09-03 的两轮配网改动都只做了静态复核，`flutter test` 与真机均未跑（本机没有 Flutter 工具链）：热点识别放宽、选择页原始扫描结果回退、Android `scanWifi` 等待新一轮扫描结果，以及同日更早补的失败释放（`PairingResult` 包装、`cancelPairing`、Dart 侧 `leaveDeviceHotspot`）与手动回落路径。
 - iOS 桥接已补齐配网前置、`joinDeviceHotspot`（`NEHotspotConfigurationManager`，需要 Hotspot Configuration entitlement，未配置时回 `hotspot_join_unsupported` 走手动路径）、`cancelPairing`、DP 上报与 OTA，但 iOS 侧全部改动尚未经过 Xcode 编译或真机验证；`createShareLink` 在 iOS 上仍是明确错误码（Home SDK 只有按账号分享）。
-- Android/iOS 包名与桥接正在工作区中演进；不要根据旧历史文档恢复已删除的平台文件。
-- 当前工作区有大量未提交的 UI、资源、路由、平台与测试改动，任何任务都必须先识别所有权并避免覆盖。
+- 不要根据旧历史文档恢复已删除的平台文件；每次任务以实时 Git 状态确认工作区所有权，不将某次“有未提交改动”的状态视为跨环境事实。
+- 2026-09-05 源码评审发现明文回落、URL 携带令牌、安全组件副本仍被 Git 跟踪、资料刷新会话竞态、写请求网络异常重试、体验模式退出未恢复真实仓库及配网销毁通知异常。静态分析有 2 warning / 1 info，全量测试有失败且运行未正常结束；本轮未修代码、未构建发布包。依据和整改优先级见 `docs/RELEASE_READINESS_REVIEW.md`，实际验证见对应历史记录。
 
 ## 10. 文档地图
 

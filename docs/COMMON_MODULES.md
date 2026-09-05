@@ -18,4 +18,4 @@
 - 国内登录注册先由 `AppBackendRepository` 建立 APP Token，再用返回的 `userNo` / `tuYaPwd` 通过 `TuyaRepository` 建立设备会话；失败时清理 APP Token，避免双会话不一致。海外邮箱和未配置 REST 的开发模式保留原链路。
 - 相框 BLE、投屏、图库和 OTA 等产品专属模块不迁移。
 
-REST 服务接入时通过 `--dart-define=API_BASE_URL=https://...` 提供服务源站（不含 `/swagger-ui.html#/`），由 `FlowerpotApp` 创建 `HttpAppBackendRepository`。未配置时使用 `DisabledAppBackendRepository`，Mock/涂鸦原链路不发 HTTP。业务页面只通过 `FlowerpotState` 使用这些能力。
+REST 服务接入时通过 `--dart-define=API_BASE_URL=https://...` 提供服务源站（不含 `/swagger-ui.html#/`），由 `FlowerpotApp` 创建 `HttpAppBackendRepository`。当前未配置时会回落到 `ApiConfig` 中的临时 HTTP 地址；显式传 `API_BASE_URL=none` 才使用 `DisabledAppBackendRepository`。仅注入 Mock 涂鸦仓库不会禁用 REST，测试还应显式注入禁用型或 Fake 后端。业务页面只通过 `FlowerpotState` 使用这些能力。明文回落、令牌存储、写请求重试及会话隔离的待整改项见 [`RELEASE_READINESS_REVIEW.md`](RELEASE_READINESS_REVIEW.md)。
