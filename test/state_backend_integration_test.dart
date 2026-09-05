@@ -1,4 +1,5 @@
 import 'package:flowerpot/src/core/backend/backend.dart';
+import 'package:flowerpot/src/core/network/network.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
@@ -6,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('plant binding completes before DP 116 is written', () async {
+  test('DP 116 is written before the backend records the choice', () async {
     final events = <String>[];
     final tuya = _RecordingTuya(events);
     final backend = _RecordingBackend(events);
@@ -25,7 +26,31 @@ void main() {
     );
 
     expect(result.success, isTrue);
-    expect(events, <String>['backend:add', 'tuya:116=monstera_en']);
+    expect(events, <String>['tuya:116=monstera_en', 'backend:add']);
+    expect(state.selectedDevice?.plant.tuyaIdentifier, 'monstera_en');
+  });
+
+  test('a backend failure keeps the device binding and still succeeds', () async {
+    final events = <String>[];
+    final tuya = _RecordingTuya(events);
+    final backend = _RecordingBackend(events, failAdd: true);
+    final state = FlowerpotState(repository: tuya, backendRepository: backend);
+    addTearDown(state.dispose);
+    await state.login(
+      account: 'demo@example.test',
+      credential: 'demo',
+      region: LoginRegion.overseas,
+      verificationCode: false,
+    );
+
+    final result = await state.selectPlant(
+      state.devices.single.id,
+      _serverPlant,
+    );
+
+    expect(result.success, isTrue);
+    expect(result.message, contains('设备ID有效长度(1-20)位字符'));
+    expect(events, <String>['tuya:116=monstera_en']);
     expect(state.selectedDevice?.plant.tuyaIdentifier, 'monstera_en');
   });
 
@@ -180,9 +205,12 @@ class _RecordingTuya extends MockTuyaRepository {
 }
 
 class _RecordingBackend extends DisabledAppBackendRepository {
-  _RecordingBackend(this.events);
+  _RecordingBackend(this.events, {this.failAdd = false});
 
   final List<String> events;
+
+  /// 后端拒收这次存档（联调期真实撞到过：deviceId 字段只放得下 20 位）。
+  final bool failAdd;
   bool bound = false;
 
   @override
@@ -212,6 +240,9 @@ class _RecordingBackend extends DisabledAppBackendRepository {
     required int userProductId,
     required int productPlantId,
   }) async {
+    if (failAdd) {
+      throw const ApiException(500, '设备ID有效长度(1-20)位字符');
+    }
     events.add('backend:add');
     bound = true;
   }

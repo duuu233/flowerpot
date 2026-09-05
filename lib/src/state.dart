@@ -69,6 +69,10 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, PlantProfile> _knownPlantsByIdentifier =
       <String, PlantProfile>{};
 
+  /// 「涂鸦 PID → 后端产品 id」的解析结果，按设备缓存。植物列表与植物详情只需要
+  /// 这一层映射，不需要 [_backendDevices] 里那条 userProduct 记录。
+  final Map<String, int> _backendProductIds = <String, int>{};
+
   /// Live device reports. See [_applyDeviceUpdate].
   StreamSubscription<DeviceUpdate>? _deviceUpdates;
   StreamSubscription<OtaProgress>? _otaUpdates;
@@ -854,11 +858,7 @@ class FlowerpotState extends ChangeNotifier {
         'APP 后端登录状态已失效，请重新登录',
       );
     }
-    final backendDevice = await _ensureBackendDevice(deviceId);
-    final productId = backendDevice.productId;
-    if (productId == null || productId <= 0) {
-      throw const ApiException('PRODUCT_ID_MISSING', '后台设备未关联产品，无法加载植物列表');
-    }
+    final productId = await _resolveBackendProductId(deviceId);
     final plants = await _backend.getProductPlants(
       productId: productId,
       keyword: keyword,
@@ -877,97 +877,71 @@ class FlowerpotState extends ChangeNotifier {
     return detail;
   }
 
-  /// Persists the selection first, then writes its backend English identifier
-  /// to reportable/writable DP 116. A DP failure deliberately keeps the server
-  /// binding so the same selection can be retried without losing user data.
+  /// 先把植物写进设备（DP 116），再尽力把这次选择记到后端。
+  ///
+  /// 设备侧是权威：植物品种本来就是涂鸦的功能点，配网成功后不依赖 APP 后端也要
+  /// 能选、能看。后端在这一步只负责把参数存下来，所以它失败只在结果文案里带一
+  /// 句，不回滚设备上已经生效的选择，也不阻断流程。
   Future<ActionResult> selectPlant(String id, PlantProfile plant) =>
       _guard(() async {
         final identifier = plant.tuyaIdentifier.trim();
         if (identifier.isEmpty) {
           throw const ApiException(
             'PLANT_IDENTIFIER_MISSING',
-            '该植物尚未配置英文标识符，请先在后端植物管理中补充',
+            '该植物尚未配置涂鸦标识符（tuYaRemark），请先在后台植物管理中补充',
           );
         }
-
-        var boundPlant = plant;
-        if (_backend.enabled) {
-          final backendDevice = await _ensureBackendDevice(id);
-          final productPlantId = plant.productPlantId;
-          if (productPlantId == null || productPlantId <= 0) {
-            throw const ApiException(
-              'PRODUCT_PLANT_ID_MISSING',
-              '该植物缺少后台编号，无法绑定',
-            );
-          }
-
-          var current =
-              _backendPlants[id] ??
-              await _backend.getUserPlants(backendDevice.userProductId);
-          final same = current.where(
-            (item) =>
-                item.productPlantId == productPlantId ||
-                item.tuyaIdentifier == identifier,
-          );
-          if (same.isEmpty) {
-            final activeIdentifier =
-                deviceById(id)?.plantVariety.trim().toLowerCase() ?? '';
-            final previous =
-                current
-                    .where(
-                      (item) =>
-                          activeIdentifier.isNotEmpty &&
-                          item.tuyaIdentifier.trim().toLowerCase() ==
-                              activeIdentifier,
-                    )
-                    .firstOrNull ??
-                current.firstOrNull;
-            if (previous?.userProductPlantId case final previousId?) {
-              await _backend.deleteUserPlant(previousId);
-            }
-            try {
-              await _backend.addUserPlant(
-                userProductId: backendDevice.userProductId,
-                productPlantId: productPlantId,
-              );
-            } catch (_) {
-              // Restore the previous binding where possible. The original
-              // error is still reported to the user.
-              final rollbackId = previous?.productPlantId;
-              if (rollbackId != null) {
-                try {
-                  await _backend.addUserPlant(
-                    userProductId: backendDevice.userProductId,
-                    productPlantId: rollbackId,
-                  );
-                } catch (_) {}
-              }
-              rethrow;
-            }
-            current = await _backend.getUserPlants(backendDevice.userProductId);
-          }
-          _backendPlants[id] = current;
-          _rememberPlants(current);
-          boundPlant = current.firstWhere(
-            (item) =>
-                item.productPlantId == productPlantId ||
-                item.tuyaIdentifier == identifier,
-            orElse: () => plant,
-          );
-        }
-
-        _setPlantSelection(id, boundPlant);
-        try {
-          await _publishPlantVariety(id, identifier);
-        } on TuyaException catch (error) {
-          return ActionResult(
-            false,
-            '植物已绑定，但同步到设备失败：${error.message}，请重试',
-            code: error.code,
-          );
-        }
-        return ActionResult(true, '已选择${boundPlant.name}并同步到设备');
+        await _publishPlantVariety(id, identifier);
+        _setPlantSelection(id, plant);
+        final archiveError = await _archivePlantOnBackend(id, plant);
+        return ActionResult(
+          true,
+          archiveError == null
+              ? '已选择${plant.name}并同步到设备'
+              : '已选择${plant.name}并同步到设备（后台未记录：$archiveError）',
+        );
       });
+
+  /// 把这次植物选择存到后端；成功返回 null，失败返回给用户看的原因。
+  ///
+  /// 拿 `userProductId` 要先建 userProduct 记录，这条链路只服务于后端自己的存
+  /// 档。它断了不该影响设备上已经生效的绑定，所以这里把异常收敛成一句提示。
+  Future<String?> _archivePlantOnBackend(
+    String deviceId,
+    PlantProfile plant,
+  ) async {
+    final productPlantId = plant.productPlantId;
+    if (!_backendReady || productPlantId == null || productPlantId <= 0) {
+      return null;
+    }
+    final identifier = plant.tuyaIdentifier.trim();
+    try {
+      final backendDevice = await _ensureBackendDevice(deviceId);
+      var current = await _backend.getUserPlants(backendDevice.userProductId);
+      final already = current.where(
+        (item) =>
+            item.productPlantId == productPlantId ||
+            item.tuyaIdentifier == identifier,
+      );
+      if (already.isEmpty) {
+        // 一台设备只种一株，换植物就把旧的那条顶掉。DP 已经写成新标识符了，
+        // 所以这里不能再按设备上报的品种去找旧记录。
+        if (current.firstOrNull?.userProductPlantId case final previousId?) {
+          await _backend.deleteUserPlant(previousId);
+        }
+        await _backend.addUserPlant(
+          userProductId: backendDevice.userProductId,
+          productPlantId: productPlantId,
+        );
+        current = await _backend.getUserPlants(backendDevice.userProductId);
+      }
+      _backendPlants[deviceId] = current;
+      _rememberPlants(current);
+      return null;
+    } on ApiException catch (error) {
+      return error.message;
+    }
+  }
 
   Future<ActionResult> updateSetting(
     String id,
@@ -2017,6 +1991,49 @@ class FlowerpotState extends ChangeNotifier {
     _devices = _devices.map(_withLocalOverrides).toList(growable: false);
   }
 
+  /// 解析「涂鸦 PID → 后端产品 id」。植物列表和植物详情只要这一层映射。
+  ///
+  /// 不走 [_ensureBackendDevice]：那条链路会顺带查、必要时新建后端的 userProduct
+  /// 记录，属于后端自己的存档。选植物是涂鸦侧的功能，不该被它挡住。
+  Future<int> _resolveBackendProductId(String deviceId) async {
+    final cached =
+        _backendProductIds[deviceId] ?? _backendDevices[deviceId]?.productId;
+    if (cached != null && cached > 0) {
+      _backendProductIds[deviceId] = cached;
+      return cached;
+    }
+    final device = deviceById(deviceId);
+    if (device == null) {
+      throw const ApiException('DEVICE_NOT_FOUND', '未找到需要关联的设备');
+    }
+    final products = await _backend.getProducts();
+    final pid = device.productId.trim();
+    final normalized = pid.toLowerCase();
+    final matches = products
+        .where(
+          (product) =>
+              product.broadcastId.trim().toLowerCase() == normalized,
+        )
+        .toList(growable: false);
+    // 后台只配了一个产品时不较真广播ID，联调期间这是常态。
+    final product = matches.length == 1
+        ? matches.single
+        : matches.isEmpty && products.length == 1
+        ? products.single
+        : null;
+    if (product == null) {
+      // 「一条都没匹配上」和「配重了多条」是两种要去后台做的事，分开讲。
+      final reason = switch (matches.length) {
+        0 when products.isEmpty => '后台产品列表为空，请先添加产品并把广播ID配成涂鸦 PID $pid',
+        0 => '后台没有广播ID等于涂鸦 PID $pid 的产品，请先补上这个映射',
+        _ => '后台有 ${matches.length} 条产品的广播ID都是 $pid，请只保留一条',
+      };
+      throw ApiException('PRODUCT_MAPPING_NOT_FOUND', reason);
+    }
+    _backendProductIds[deviceId] = product.productId;
+    return product.productId;
+  }
+
   Future<BackendUserProduct> _ensureBackendDevice(String deviceId) async {
     if (!_backend.enabled || !_backend.hasSession) {
       throw const ApiException(
@@ -2130,6 +2147,7 @@ class FlowerpotState extends ChangeNotifier {
     _plantOverrides.clear();
     _settingsOverrides.clear();
     _backendDevices.clear();
+    _backendProductIds.clear();
     _backendPlants.clear();
     _backendAnimations.clear();
     _knownPlantsByIdentifier.clear();
