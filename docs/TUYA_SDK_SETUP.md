@@ -1,6 +1,8 @@
 # 涂鸦 Smart Life App SDK 配置
 
-当前桥接按 Android Home SDK `thingsmart:7.5.1`、Expansion SDK `thingsmart-expansion-sdk:7.8.0` 与 iOS 7.5.x 结构准备。Home 版本以平台下载包内的 `thingsmart_home_sdk/dependencies.txt` 为准；两套 Android SDK 使用各自的版本号，不能共用一个版本变量。涂鸦应用的包名必须与本项目 `com.common.yikaltd` 一致；若要更换包名，应在创建 SDK App 和下载安全组件前完成。
+当前桥接按 Android Home SDK `thingsmart:7.5.1`、Expansion SDK `thingsmart-expansion-sdk:7.8.0` 与 iOS `ThingSmartHomeKit ~> 7.8.0` 配置。Home 版本以平台下载包内的 `thingsmart_home_sdk/dependencies.txt` 为准；两套 Android SDK 使用各自的版本号，不能共用一个版本变量。涂鸦应用的包名必须与本项目 `com.common.yikaltd` 一致；若要更换包名，应在创建 SDK App 和下载安全组件前完成。
+
+2026-09-05 发布评审发现：安全 AAR 的一个下载副本仍被 Git 跟踪、未配置后端地址时仍回落 HTTP、iOS entitlement 尚未进入版本库，且现有测试有失败及运行未退出问题。以下接入步骤不代表当前版本已通过发布验收，整改与验证边界见 [`RELEASE_READINESS_REVIEW.md`](RELEASE_READINESS_REVIEW.md)。
 
 ## 1. 开发者平台
 
@@ -192,7 +194,7 @@ Podfile 与 Android 一样是条件接入：只有 `ios/TuyaSDK/ThingSmartCrypti
 
 ## 4. 产品 DP
 
-`lib/src/tuya/tuya_config.dart` 的 `TuyaConfig.dp` 是 PID `orhqsdjyigmh8bwa`（智能花盆test）在 2026-08-20 导出的功能点表，DP 101–150 共 50 条，键是涂鸦标识符本身，可以和平台导出逐行对照。原始导出件是 `assets/智能花盆test(orhqsdjyigmh8bwa)_08_20.xlsx`。换 PID 或改功能点后要重新导出替换整张表，不要手工改单行。
+`lib/src/tuya/tuya_config.dart` 的 `TuyaConfig.dp` 当前对应 PID `yciq4kssu1fv8umn`（智能花盆test），源自 `assets/智能花盆test(yciq4kssu1fv8umn)_09_03.xlsx`，覆盖 DP 101–160 共 60 条。键是涂鸦标识符本身，可以和平台导出逐行对照；101–150 沿用此前标识符，151–160 新增待机、语言、纪念日、图库操作及回执。换 PID 或改功能点后要重新导出替换整张表，不要手工改单行。
 
 App 侧的命名不再直接当 DP 键用，两层映射都在同一个文件里：
 
@@ -222,7 +224,7 @@ App 侧的命名不再直接当 DP 键用，两层映射都在同一个文件里
 - **116 植物品种**：后台 `tuYaRemark` 是固件识别的英文标识符，不使用数据库 id 或中文名。更换植物时先完成后端删除/新增，再下发；下发失败保留已成功的后端绑定并提示重试。
 - **140 水位校准**：弹窗四个主操作与 `step0`–`step3` 一一对应，最后的「完成」也必须发送 `step3`；中途取消或在最终卡片改点「关闭」都发送 `step5`，任何路径都不发送 `step4`。
 - **148/149 版本号与 OTA**：固件升级**不是功能点**。表里和固件相关的只有 148 `firmware_version` 和 149 `hardware_version` 两个只上报的版本号，升级本身走涂鸦 SDK 的 OTA 接口，不经过 DP：Android 是 `newOTAInstance` → `getOtaInfo` → `startOta`，iOS 是 `getFirmwareUpgradeInfo` → `upgradeFirmware`。所以在平台上加 DP 解决不了 OTA，要看的是 SDK 的 OTA 能力有没有开通（第 1 节勾选项里的「OTA 能力」）。
-- **154/155/157/158/159 raw 功能点**：上报按 base64 解（和历史 DP 一致），下发按十六进制串写（`TuyaMemorialCodec.encodeRaw`）。DP 154 只能 upsert、设备不回报整份集合，所以自定义纪念日的 id 与标题由 App 侧持久化。纪念日列表满员是 **12 条 = 10 条自定义 + 158 生日 + 159 结婚纪念日**，页面上的计数按这 12 条算。
+- **154/155/157/158/159 raw 功能点**：当前代码上报按 base64 解、下发按十六进制串写（`TuyaMemorialCodec.encodeRaw`），仍需真机确认。设备不回报整份自定义纪念日集合；后端会话可用时使用后端纪念日接口分配 id 并同步列表，本地 `deviceMemorials` 是缓存；后端不可用时保留本地路径。纪念日列表满员是 **12 条 = 10 条自定义 + 158 生日 + 159 结婚纪念日**，页面上的计数按这 12 条算。
 
 ## 5. 运行
 
