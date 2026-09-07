@@ -2,6 +2,7 @@ import '../../../tuya/tuya_models.dart';
 
 enum DeviceSettingsMenuKind {
   plant,
+  plantDetection,
   display,
   led,
   hearing,
@@ -17,12 +18,16 @@ class DeviceSettingsMenuItem {
     required this.kind,
     required this.label,
     this.value,
+    this.toggle,
     this.badge = false,
   });
 
   final DeviceSettingsMenuKind kind;
   final String label;
   final String? value;
+
+  /// 非空时这一行是纯开关：行尾画 Switch 而不是取值和箭头，点击切换而不是跳页。
+  final bool? toggle;
 
   /// 行尾的小红点。「其他设置」在有待装固件时点亮，用户不必先点进去才知道。
   final bool badge;
@@ -54,6 +59,11 @@ class DeviceSettingsPageModel {
           kind: DeviceSettingsMenuKind.plant,
           label: '选择植物',
           value: device.plant.name,
+        ),
+        DeviceSettingsMenuItem(
+          kind: DeviceSettingsMenuKind.plantDetection,
+          label: '自动检测植物',
+          toggle: settings.plantDetection,
         ),
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.display,

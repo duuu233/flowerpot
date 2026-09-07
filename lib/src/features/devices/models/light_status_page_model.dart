@@ -1,4 +1,5 @@
 import '../../../tuya/tuya_models.dart';
+import '../../../tuya/tuya_status_copy.dart';
 
 class LightStatusPageModel {
   const LightStatusPageModel({
@@ -16,34 +17,20 @@ class LightStatusPageModel {
     List<double> dliValues = const <double>[],
   }) {
     final illuminance = device.sensors.illuminance;
-    // `lighting_condition` (DP 108) when the device has reported it, otherwise
-    // the app's own lux thresholds.
-    final status = switch (device.status.lighting) {
-      LightingCondition.shortage => '偏低',
-      LightingCondition.good => '一般',
-      LightingCondition.veryGood => '充足',
-      null => switch (illuminance) {
-        < 200 => '偏低',
-        > 1200 => '充足',
-        _ => '一般',
-      },
-    };
-    final description = switch (status) {
-      '偏低' => '当前光照低于植物光合作用补偿点，植物新陈代谢水平较低。',
-      '充足' => '当前光照能够满足植物生长需求，请避免长时间强光直射。',
-      // Previously said the light was *above* the compensation point while the
-      // advice below said it was below it, and 「高略于」 was a typo.
-      _ => '当前光照略高于植物光合作用补偿点，可以维持正常的新陈代谢。',
-    };
-    final advice = switch (status) {
-      '偏低' => '当前光照略低于植物光合作用补偿点，建议将植物移至明亮散射光处，或每天补光1-2小时。',
-      '充足' => '当前光照较为充足，建议保持稳定的明亮散射光，并留意叶片是否出现灼伤。',
-      _ => '当前光照基本够用，建议保持在明亮散射光处；若叶色变浅可每天补光1小时。',
+    // `lighting_condition` (DP 108)，设备没上报时按照度兜底。
+    final condition =
+        device.status.lighting ?? TuyaStatusCopy.lightingFor(illuminance);
+    final copy = TuyaStatusCopy.lighting[condition]!;
+    final advice = switch (condition) {
+      LightingCondition.shortage =>
+        '当前光照略低于植物光合作用补偿点，建议将植物移至明亮散射光处，或每天补光1-2小时。',
+      LightingCondition.good => '当前光照基本够用，建议保持在明亮散射光处；若叶色变浅可每天补光1小时。',
+      LightingCondition.veryGood => '当前光照较为充足，建议保持稳定的明亮散射光，并留意叶片是否出现灼伤。',
     };
     return LightStatusPageModel(
       deviceId: device.id,
-      status: status,
-      description: description,
+      status: copy.label,
+      description: copy.description,
       illuminance: illuminance,
       ppfd: device.sensors.ppfd,
       dliValues: dliValues,

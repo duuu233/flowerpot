@@ -14,7 +14,7 @@ void main() {
   testWidgets('temperature widgets expose the Figma content', (tester) async {
     await _pumpTemperatureWidgets(tester, const Size(375, 812));
 
-    expect(find.text('适宜'), findsOneWidget);
+    expect(find.text('正舒适'), findsOneWidget);
     expect(find.text('26.9°C'), findsOneWidget);
     expect(find.text('当前空气温度'), findsOneWidget);
     expect(find.text('空气温度变化'), findsOneWidget);
@@ -65,7 +65,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('空气温度'), findsOneWidget);
-    expect(find.text('适宜'), findsOneWidget);
+    expect(find.text('正舒适'), findsOneWidget);
     expect(find.text('26.9°C'), findsOneWidget);
     expect(find.byType(TemperatureTrendChartCard), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -77,8 +77,8 @@ Future<void> _pumpTemperatureWidgets(WidgetTester tester, Size size) async {
   addTearDown(() => tester.binding.setSurfaceSize(null));
   const model = TemperatureStatusPageModel(
     deviceId: 'device-01',
-    status: '适宜',
-    description: '温度适宜植物生长。',
+    status: '正舒适',
+    description: '温度刚刚好，植物正舒服地长着呢，继续保持。',
     temperature: 26.9,
     advice: '适宜温度范围为18°C~28°C。\n温度过高或过低都会影响植物健康生长哦。',
   );

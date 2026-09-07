@@ -30,6 +30,43 @@ enum LightingCondition { shortage, good, veryGood }
 /// `air_humidity_status` (dry/suitable/damp), which differ only in wording.
 enum ComfortLevel { low, suitable, high }
 
+/// `plant_confirm` (162)：设备与 App 之间关于「盆里到底是哪种植物」的握手。
+///
+/// 这条在 09-07 的导出里是数值，不是开关：设备发现盆里的植物和下发的 116 不是
+/// 同一种时先只报 [mismatch]，**不上报新的植物标识**，等 App 把用户的处置写回来
+/// 才继续——[confirmed] 让设备改用盆里那株并重新上报 116，[ignored] 让设备保持
+/// 旧的 116 再回报一次。
+enum PlantConfirmState {
+  /// 0 正常：设备判定一致。
+  normal(0),
+
+  /// 1 异常：设备判定不一致，等 App 处置。
+  mismatch(1),
+
+  /// 2 确认：以花盆里的植物为准。
+  confirmed(2),
+
+  /// 3 忽略：保留 App 现在的植物。
+  ignored(3);
+
+  const PlantConfirmState(this.dpValue);
+
+  /// 上报和下发用的数值。
+  final int dpValue;
+
+  /// 设备没上报过这条时按 [normal] 处理：「没报异常」不等于「异常」，默认成
+  /// [mismatch] 会让 09-07 之前固件的设备每次进详情页都被问一次。
+  static PlantConfirmState fromDp(Object? raw) {
+    final value = raw is num ? raw.toInt() : int.tryParse('${raw ?? ''}');
+    return switch (value) {
+      1 => mismatch,
+      2 => confirmed,
+      3 => ignored,
+      _ => normal,
+    };
+  }
+}
+
 class DeviceStatusReport {
   const DeviceStatusReport({
     this.battery,
@@ -176,6 +213,7 @@ class PlantProfile {
     this.growthCharacteristics = '',
     this.careInstructions = '',
     this.difficultyMaintenance,
+    this.plantType,
   });
 
   final String id;
@@ -209,6 +247,12 @@ class PlantProfile {
   final String careInstructions;
   final int? difficultyMaintenance;
 
+  /// 后台配的植物分类，下发进 `plant_type` (161) 的枚举 `1`/`2`/`3`。
+  ///
+  /// 后台没配（或配了范围外的值）时为 null，绑定植物时就只下发 116。分类是设备
+  /// 侧的养护策略输入，猜一个填进去比缺一个更糟。
+  final int? plantType;
+
   PlantProfile copyWith({
     int? userProductPlantId,
     bool clearUserProductPlantId = false,
@@ -235,6 +279,7 @@ class PlantProfile {
     growthCharacteristics: growthCharacteristics,
     careInstructions: careInstructions,
     difficultyMaintenance: difficultyMaintenance,
+    plantType: plantType,
   );
 }
 
@@ -387,6 +432,7 @@ class DeviceControlSettings {
     this.standbyEnabled = false,
     this.standbyDelayMinutes = 30,
     this.deviceLanguage = 'zh',
+    this.plantDetection = true,
   });
 
   final bool autoBrightness;
@@ -422,6 +468,12 @@ class DeviceControlSettings {
   /// `language` (153), as the app's own `zh`/`en` code rather than the DP's
   /// `Chinese`/`English`. Factory reset returns the device to Chinese.
   final String deviceLanguage;
+
+  /// `plant_detect_switch`：自动检测植物的总开关，关掉之后设备不再比对盆里的
+  /// 植物，也就不会再报 `plant_confirm` 异常。
+  ///
+  /// 未上报时按开启处理：这是设备的默认行为，按关闭画会让开关和实际状态相反。
+  final bool plantDetection;
 
   /// Whether the device is currently set to Fahrenheit (`temp_unit_convert`).
   bool get usesFahrenheit => temperatureUnit == 'fahrenheit';
@@ -495,6 +547,7 @@ class DeviceControlSettings {
     bool? standbyEnabled,
     int? standbyDelayMinutes,
     String? deviceLanguage,
+    bool? plantDetection,
   }) => DeviceControlSettings(
     autoBrightness: autoBrightness ?? this.autoBrightness,
     soundInteraction: soundInteraction ?? this.soundInteraction,
@@ -513,6 +566,7 @@ class DeviceControlSettings {
     standbyEnabled: standbyEnabled ?? this.standbyEnabled,
     standbyDelayMinutes: standbyDelayMinutes ?? this.standbyDelayMinutes,
     deviceLanguage: deviceLanguage ?? this.deviceLanguage,
+    plantDetection: plantDetection ?? this.plantDetection,
   );
 }
 
@@ -533,6 +587,7 @@ class SmartPlanterDevice {
     required this.macAddress,
     this.hardwareVersion = '--',
     this.plantVariety = '',
+    this.plantConfirm = PlantConfirmState.normal,
     this.deviceStatus = '',
     this.reportedDays,
     this.status = const DeviceStatusReport(),
@@ -562,6 +617,10 @@ class SmartPlanterDevice {
   /// `plant_variety`: the backend `tuYaRemark` identifier. DP 116 is both
   /// writable and reportable, so a device report can become the active [plant].
   final String plantVariety;
+
+  /// `plant_confirm` (162)：设备对「盆里的植物和 [plantVariety] 是不是同一种」
+  /// 的判定，以及 App 写回去的处置。取值见 [PlantConfirmState]。
+  final PlantConfirmState plantConfirm;
 
   /// `device_status`, an opaque product-defined string.
   final String deviceStatus;
@@ -608,6 +667,7 @@ class SmartPlanterDevice {
     DeviceControlSettings? settings,
     String? firmwareVersion,
     String? plantVariety,
+    PlantConfirmState? plantConfirm,
     DeviceStatusReport? status,
     DeviceHistory? history,
     DateTime? birthday,
@@ -631,6 +691,7 @@ class SmartPlanterDevice {
     macAddress: macAddress,
     hardwareVersion: hardwareVersion,
     plantVariety: plantVariety ?? this.plantVariety,
+    plantConfirm: plantConfirm ?? this.plantConfirm,
     deviceStatus: deviceStatus,
     reportedDays: reportedDays,
     status: status ?? this.status,

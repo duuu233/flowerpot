@@ -14,7 +14,7 @@ void main() {
   testWidgets('light status widgets expose the Figma content', (tester) async {
     await _pumpLightStatus(tester, const Size(375, 812));
 
-    expect(find.text('一般'), findsOneWidget);
+    expect(find.text('正合适'), findsOneWidget);
     expect(find.text('305'), findsOneWidget);
     expect(find.text('5.642'), findsOneWidget);
     expect(find.text('DLI（每日光量积分）'), findsOneWidget);
@@ -65,7 +65,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('光照状态'), findsOneWidget);
-    expect(find.text('一般'), findsOneWidget);
+    expect(find.text('正合适'), findsOneWidget);
     expect(find.text('305'), findsOneWidget);
     expect(find.text('5.642'), findsOneWidget);
     expect(
@@ -98,12 +98,12 @@ Future<void> _pumpLightStatus(WidgetTester tester, Size size) async {
   addTearDown(() => tester.binding.setSurfaceSize(null));
   const model = LightStatusPageModel(
     deviceId: 'device-01',
-    status: '一般',
-    description: '光照强度高略于植物光合作用补偿点。植物新陈代谢水平较低。',
+    status: '正合适',
+    description: '光线刚刚好，光合作用很顺畅，继续保持。',
     illuminance: 305,
     ppfd: 5.642,
     dliValues: <double>[.74, .67, .58, .61, .90, .63, .45],
-    advice: '当前光照略低于植物光合作用补偿点，建议将植物移至明亮散射光处，或每天补光1-2小时。',
+    advice: '当前光照基本够用，建议保持在明亮散射光处；若叶色变浅可每天补光1小时。',
   );
   await tester.pumpWidget(
     MaterialApp(

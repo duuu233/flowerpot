@@ -141,7 +141,7 @@ Future<void> _pumpWaterWidgets(WidgetTester tester, Size size) async {
   const model = WaterStatusPageModel(
     deviceId: 'device-01',
     status: '喝水中',
-    description: '植物正在从水仓中直接吸取水分，请保持当前状态。',
+    description: '植物正在从水仓中吸取水分，请保持当前状态。',
     waterLevel: 80,
     soilMoisture: 97,
     advice: '当前湿度适宜，建议保持现有浇水频率，避免盆土长期过湿，确保植物根系健康。',

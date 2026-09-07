@@ -67,6 +67,10 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, PlantProfile> _knownPlantsByIdentifier =
       <String, PlantProfile>{};
 
+  /// 拉过植物目录仍然对不上的 DP 116 标识符。设备每次上报都会走一遍解析，没有
+  /// 这份记录就会为同一个对不上的标识符反复打接口。
+  final Set<String> _unresolvedPlantIdentifiers = <String>{};
+
   /// Live device reports. See [_applyDeviceUpdate].
   StreamSubscription<DeviceUpdate>? _deviceUpdates;
   StreamSubscription<OtaProgress>? _otaUpdates;
@@ -174,8 +178,29 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
-  bool hasPlant(String? deviceId) =>
-      deviceId != null && _plantedDevices.contains(deviceId);
+  /// 设备有没有植物，以 DP 116 `plant_variety` 为准。
+  ///
+  /// 只看 [_plantedDevices] 会漏判：那个集合要等 116 的标识符能在植物目录里解析
+  /// 成 [PlantProfile] 才会加进去，冷启动后目录还没拉的设备明明有植物也会被当成
+  /// 空的，然后被详情页入口直接送去添加植物。
+  bool hasPlant(String? deviceId) {
+    if (deviceId == null) return false;
+    if (_plantedDevices.contains(deviceId)) return true;
+    return deviceById(deviceId)?.plantVariety.trim().isNotEmpty ?? false;
+  }
+
+  /// DP 162 `plant_confirm`：设备对盆里植物的判定，取值见 [PlantConfirmState]。
+  PlantConfirmState plantConfirmState(String? deviceId) {
+    if (deviceId == null) return PlantConfirmState.normal;
+    return deviceById(deviceId)?.plantConfirm ?? PlantConfirmState.normal;
+  }
+
+  /// 自动检测植物开关（`plant_detect_switch`）。关掉之后设备不再比对盆里的植物，
+  /// App 也就不再弹植物确认——包括关之前设备已经报上来、还没处置的那次异常。
+  bool plantDetectionEnabled(String? deviceId) {
+    if (deviceId == null) return true;
+    return deviceById(deviceId)?.settings.plantDetection ?? true;
+  }
 
   SmartPlanterDevice? deviceById(String id) {
     for (final device in _devices) {
@@ -858,10 +883,83 @@ class FlowerpotState extends ChangeNotifier {
             '该植物尚未配置涂鸦标识符（tuYaRemark），请先在后台植物管理中补充',
           );
         }
-        await _publishPlantVariety(id, identifier);
+        final withType = await _publishPlantSelection(
+          id,
+          identifier,
+          plant.plantType,
+        );
         _setPlantSelection(id, plant);
-        return ActionResult(true, '已选择${plant.name}并同步到设备');
+        return ActionResult(
+          true,
+          withType
+              ? '已选择${plant.name}并同步到设备'
+              : '已选择${plant.name}并同步到设备；该植物未配置分类，未下发 161',
+        );
       });
+
+  /// 把「植物确认」的处置写回 DP 162。
+  ///
+  /// [PlantConfirmState.confirmed] 让设备改用盆里那一株并重新上报 116；
+  /// [PlantConfirmState.ignored] 让设备保持旧的 116 再回报一次。两条路径 App 都
+  /// **不在这里改植物**——等设备把 116 报回来由 [_applyDeviceUpdate] 更新，显示
+  /// 的才是设备真正在用的那一株。
+  ///
+  /// 写失败就保持异常状态，下次进详情页再问一次，不在本地假装处置过。
+  Future<ActionResult> answerPlantConfirm(
+    String id,
+    PlantConfirmState answer,
+  ) => _guard(() async {
+    assert(
+      answer == PlantConfirmState.confirmed ||
+          answer == PlantConfirmState.ignored,
+      'App 只会下发确认(2)和忽略(3)，正常(0)和异常(1)由设备上报',
+    );
+    final dpId = TuyaConfig.dp['plant_confirm'];
+    if (dpId == null) {
+      throw const TuyaException('unsupported_dp', '当前产品未提供植物确认功能点');
+    }
+    await _repository.publishDps(id, <int, Object>{dpId: answer.dpValue});
+    _replaceDevice(id, (device) => device.copyWith(plantConfirm: answer));
+    return ActionResult(
+      true,
+      answer == PlantConfirmState.confirmed ? '已确认，正在同步花盆植物' : '已忽略本次检测',
+    );
+  });
+
+  /// 按 DP 116 的标识符补齐这台设备的植物静态内容（图片、别名、引导文案、环境
+  /// 需求），详情页进来时调用。
+  ///
+  /// 走的仍然是主流程唯一那个后端调用 `getProductPlantList`；标识符已经在目录缓存
+  /// 里时不再打接口。拉不到就保留本地目录兜底，不打断详情页——光照、需水那些 DP
+  /// 业务数据来自设备上报，与这次请求无关。
+  Future<void> ensurePlantProfile(String deviceId) async {
+    final identifier = deviceById(deviceId)?.plantVariety.trim() ?? '';
+    if (identifier.isEmpty) return;
+    final normalized = identifier.toLowerCase();
+    // 拉过一次目录仍然对不上的标识符不再反复拉：设备每次上报都会走到这里。
+    if (_unresolvedPlantIdentifiers.contains(normalized)) return;
+    final cached = _knownPlantsByIdentifier.containsKey(normalized);
+    if (_backend.enabled && !cached) {
+      try {
+        await loadPlantCatalog();
+      } catch (_) {
+        // 后端不可用时保留本地目录兜底，详情页照常显示设备上报的数据。
+        return;
+      }
+    }
+    final plant = _plantForIdentifier(identifier);
+    if (plant == null) {
+      _unresolvedPlantIdentifiers.add(normalized);
+      return;
+    }
+    final device = deviceById(deviceId);
+    if (device != null &&
+        device.plant.id == plant.id &&
+        _plantedDevices.contains(deviceId)) {
+      return;
+    }
+    _setPlantSelection(deviceId, plant);
+  }
 
   Future<ActionResult> updateSetting(
     String id,
@@ -904,6 +1002,7 @@ class FlowerpotState extends ChangeNotifier {
               .clamp(TuyaConfig.standbyDelayMin, TuyaConfig.standbyDelayMax),
         ),
         'deviceLanguage' => current.copyWith(deviceLanguage: value as String),
+        'plantDetection' => current.copyWith(plantDetection: value as bool),
         _ => current,
       };
       _settingsOverrides[id] = next;
@@ -1410,12 +1509,28 @@ class FlowerpotState extends ChangeNotifier {
     await _repository.publishDps(id, <int, Object>{dpId: step});
   }
 
-  Future<void> _publishPlantVariety(String id, String identifier) async {
-    final dpId = TuyaConfig.dp['plant_variety'];
-    if (dpId == null) {
+  /// 下发植物：116 植物品种和 161 植物分类走同一条指令。
+  ///
+  /// 设备靠这两条一起确定养护策略，分开发会让设备短暂拿到「新品种 + 旧分类」。
+  /// 后台没给分类（或给了 1–3 之外的值）时只发 116，并把这件事回给调用方，由
+  /// 页面提示，而不是猜一个分类填进去。
+  ///
+  /// 返回值：161 是否一起发出去了。
+  Future<bool> _publishPlantSelection(
+    String id,
+    String identifier,
+    int? category,
+  ) async {
+    final varietyDp = TuyaConfig.dp['plant_variety'];
+    if (varietyDp == null) {
       throw const TuyaException('unsupported_dp', '当前产品未提供植物品种功能点');
     }
-    await _repository.publishDps(id, <int, Object>{dpId: identifier});
+    final dps = <int, Object>{varietyDp: identifier};
+    final typeDp = TuyaConfig.dp['plant_type'];
+    final typeValue = TuyaConfig.plantTypeValue(category);
+    if (typeDp != null && typeValue != null) dps[typeDp] = typeValue;
+    await _repository.publishDps(id, dps);
+    return dps.length > 1;
   }
 
   Future<ActionResult> removeDevice(String id, {required bool resetFactory}) =>
@@ -1726,6 +1841,12 @@ class FlowerpotState extends ChangeNotifier {
       plant: reportedPlant ?? _plantOverrides[device.id],
     );
     notifyListeners();
+    // 设备换到了一株 App 目录里还没有的植物——「植物确认」下发 2 之后设备重新上报
+    // 116 就是这条路径。补拉一次目录再解析，成功了由 ensurePlantProfile 自己刷新
+    // 界面。必须放在上面这次替换之后：它读的是设备当前的 116。
+    if (reportedPlant == null && device.plantVariety.trim().isNotEmpty) {
+      unawaited(ensurePlantProfile(device.id));
+    }
   }
 
   @override
@@ -1976,6 +2097,7 @@ class FlowerpotState extends ChangeNotifier {
     _backendDevices.clear();
     _backendAnimations.clear();
     _knownPlantsByIdentifier.clear();
+    _unresolvedPlantIdentifiers.clear();
     _animations.removeWhere((item) => !item.path.startsWith('builtin://'));
     // `_memorials` deliberately survives a logout. It is the only record of
     // which DP 154 ids exist on a device — the device never reports the set

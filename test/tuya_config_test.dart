@@ -3,13 +3,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('the product DP table matches the platform export', () {
-    // 101–160 inclusive, one row per function point in
-    // assets/智能花盆test(yciq4kssu1fv8umn)_09_03.xlsx.
+    // 101–162 来自 docs/智能花盆test(yciq4kssu1fv8umn)_09_07.xlsx，163 是自动
+    // 检测植物开关的本地占位，平台补完导出后要回来核对这一行。
     expect(TuyaConfig.productId, 'yciq4kssu1fv8umn');
-    expect(TuyaConfig.dp.length, 60);
+    expect(TuyaConfig.dp.length, 63);
     expect(TuyaConfig.dp.values.toSet().length, TuyaConfig.dp.length);
     expect(TuyaConfig.dp.values.reduce((a, b) => a < b ? a : b), 101);
-    expect(TuyaConfig.dp.values.reduce((a, b) => a > b ? a : b), 160);
+    expect(TuyaConfig.dp.values.reduce((a, b) => a > b ? a : b), 163);
     expect(TuyaConfig.dp['soil_moist'], 106);
     expect(TuyaConfig.dp['vibration_switch'], 122);
     expect(TuyaConfig.dp['water_level_calib'], 140);
@@ -24,6 +24,24 @@ void main() {
     expect(TuyaConfig.dp['memorial_birthday'], 158);
     expect(TuyaConfig.dp['memorial_wedding'], 159);
     expect(TuyaConfig.dp['op_result'], 160);
+    // 09-07 新增的两条植物功能点，加上还没进导出的检测开关。
+    expect(TuyaConfig.dp['plant_type'], 161);
+    expect(TuyaConfig.dp['plant_confirm'], 162);
+    expect(TuyaConfig.dp['plant_detect_switch'], 163);
+  });
+
+  test('植物分类只接受 161 的枚举值 1/2/3', () {
+    expect(TuyaConfig.plantTypeValue(1), '1');
+    expect(TuyaConfig.plantTypeValue(3), '3');
+    expect(TuyaConfig.plantTypeValue(0), isNull);
+    expect(TuyaConfig.plantTypeValue(4), isNull);
+    expect(TuyaConfig.plantTypeValue(null), isNull);
+  });
+
+  test('自动检测植物是一条普通的开关设置', () {
+    expect(TuyaConfig.settingDps('plantDetection', false), <int, Object>{
+      163: false,
+    });
   });
 
   test('every app-facing name resolves to a real DP', () {

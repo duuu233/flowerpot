@@ -17,7 +17,7 @@
 2. **登录后无设备**：没有底部菜单，首页直接是设备列表；无设备时显示「暂无设备」页。
 3. **添加设备**：搜索设备 → 选择设备 → 连接 Wi-Fi → 连接成功（「已完成」回到首页）。
 4. **设备列表**：绑定设备后首页即设备列表；左上角头像进入「我的」（普通路由，可返回），右上角是添加设备。
-5. **设备详情**：点击设备先进入「未添加植物」，选择植物后进入详情页；两页左上角都是返回按钮。
+5. **设备详情**：点击在线设备，没有植物的直接进「添加植物」，选完植物进入详情页；离线设备点不进去，只提示「请打开设备并保持在线」。详情页左上角是返回按钮。
 
 ## 页面归属
 
@@ -26,7 +26,7 @@
 | 首页（无设备） | `HomePage` → `HomeEmptyDeviceContent` |
 | 首页（有设备） | `DeviceListPage` |
 | 我的（左上角头像推入） | `MinePage` |
-| 设备页（未添加植物） | `HomePage(scene: withoutPlant, showBackButton: true)` |
+| 设备页（未添加植物） | `HomePage(scene: withoutPlant, showBackButton: true)`，主动线上不再经过，保留给设计稿与组件测试 |
 | 设备页（详情） | `HomePage(scene: withCompanionSummary, showBackButton: true)` |
 
 ## 相关文件

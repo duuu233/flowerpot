@@ -1,4 +1,5 @@
 import '../../../tuya/tuya_models.dart';
+import '../../../tuya/tuya_status_copy.dart';
 
 class HumidityStatusPageModel {
   const HumidityStatusPageModel({
@@ -11,29 +12,21 @@ class HumidityStatusPageModel {
 
   factory HumidityStatusPageModel.fromDevice(SmartPlanterDevice device) {
     final humidity = device.sensors.relativeHumidity;
-    // `air_humidity_status` (DP 115) when the device has reported it, otherwise
-    // the app's own thresholds.
-    final status = switch (device.status.humidity) {
-      ComfortLevel.low => '偏低',
-      ComfortLevel.suitable => '适宜',
-      ComfortLevel.high => '偏高',
-      null => switch (humidity) {
-        < 40 => '偏低',
-        > 70 => '偏高',
-        _ => '适宜',
-      },
-    };
-    final description = switch (status) {
-      '偏低' => '当前相对湿度偏低，请适当增加环境湿度。',
-      '偏高' => '当前相对湿度偏高，请保持环境通风。',
-      _ => '相对湿度适宜植物生长。',
-    };
+    // `air_humidity_status` (DP 115)，设备没上报时按相对湿度兜底。
+    final level =
+        device.status.humidity ?? TuyaStatusCopy.humidityFor(humidity);
+    final copy = TuyaStatusCopy.airHumidity[level]!;
     return HumidityStatusPageModel(
       deviceId: device.id,
-      status: status,
-      description: description,
+      status: copy.label,
+      description: copy.description,
       humidity: humidity,
-      advice: '当前湿度适宜，继续保持现有养护环境，有助于植物健康生长。',
+      // 原来这句无论干湿都写「当前湿度适宜」，和上面的状态文字直接打架。
+      advice: switch (level) {
+        ComfortLevel.low => '空气偏干，可在花盆附近放一杯水或开加湿器，缓解叶片失水。',
+        ComfortLevel.suitable => '当前湿度适宜，继续保持现有养护环境，有助于植物健康生长。',
+        ComfortLevel.high => '空气偏潮，请加强通风，避免叶面长时间凝结水膜诱发病害。',
+      },
     );
   }
 

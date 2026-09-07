@@ -1,4 +1,5 @@
 import '../../../tuya/tuya_models.dart';
+import '../../../tuya/tuya_status_copy.dart';
 
 enum HomeMetricKind { water, light, temperature, humidity }
 
@@ -51,9 +52,17 @@ class HomeDashboardModel {
     HomeDashboardScene scene = HomeDashboardScene.withCompanionSummary,
   }) {
     final sensors = device?.sensors;
-    final soilMoisture = sensors?.soilMoisture ?? 58;
+    final waterLevel = sensors?.waterLevel ?? 78;
     final illuminance = sensors?.illuminance ?? 800;
     final humidity = sensors?.relativeHumidity ?? 60;
+    // 三张状态卡片的取值和状态页顶部是同一个来源：设备上报的 107/108/115，没上报
+    // 时用同一套阈值兜底。首页自己算一套的话，同一台设备会在首页写「偏湿」、在
+    // 需水状态页写「喝水中」。
+    final report = device?.status ?? const DeviceStatusReport();
+    final waterNeeds =
+        report.waterNeeds ?? TuyaStatusCopy.waterNeedsFor(waterLevel);
+    final lighting = report.lighting ?? TuyaStatusCopy.lightingFor(illuminance);
+    final airHumidity = report.humidity ?? TuyaStatusCopy.humidityFor(humidity);
 
     return HomeDashboardModel(
       userLabel: userLabel,
@@ -66,20 +75,12 @@ class HomeDashboardModel {
         HomeMetricData(
           kind: HomeMetricKind.water,
           label: '需水状态',
-          value: switch (soilMoisture) {
-            < 40 => '需浇水',
-            > 75 => '偏湿',
-            _ => '喝水中',
-          },
+          value: TuyaStatusCopy.waterNeeds[waterNeeds]!.label,
         ),
         HomeMetricData(
           kind: HomeMetricKind.light,
           label: '光照状态',
-          value: switch (illuminance) {
-            < 500 => '偏弱',
-            > 1200 => '偏强',
-            _ => '适中',
-          },
+          value: TuyaStatusCopy.lighting[lighting]!.label,
         ),
         HomeMetricData(
           kind: HomeMetricKind.temperature,
@@ -92,17 +93,13 @@ class HomeDashboardModel {
         HomeMetricData(
           kind: HomeMetricKind.humidity,
           label: '相对湿度',
-          value: switch (humidity) {
-            < 40 => '偏低',
-            > 70 => '偏高',
-            _ => '适宜',
-          },
+          value: TuyaStatusCopy.airHumidity[airHumidity]!.label,
         ),
       ],
       careMessage: _careMessage(
-        soilMoisture: soilMoisture,
-        illuminance: illuminance,
-        humidity: humidity,
+        waterNeeds: waterNeeds,
+        lighting: lighting,
+        humidity: airHumidity,
       ),
       actions: const <HomeActionData>[
         HomeActionData(kind: HomeActionKind.animation, label: '定制动画'),
@@ -120,17 +117,21 @@ class HomeDashboardModel {
 
   /// Advice that follows the readings shown right above it. A constant line
   /// read as "今天状态良好" while the cards said 偏湿 and 偏弱.
+  ///
+  /// 现在直接读三条状态功能点，和上面几张卡片同源；`very_good` 不再算警告——按 DP
+  /// 108 的定义那是「光合效率高」的好状态，不是原来那句「光照偏强」。
   static String _careMessage({
-    required int soilMoisture,
-    required int illuminance,
-    required int humidity,
+    required WaterNeedsStatus waterNeeds,
+    required LightingCondition lighting,
+    required ComfortLevel humidity,
   }) {
-    if (soilMoisture < 40) return '土壤偏干，建议今天补一次水';
-    if (soilMoisture > 75) return '土壤偏湿，先暂停浇水并保持通风';
-    if (illuminance < 500) return '光照偏弱，可以把花盆挪到更明亮的位置';
-    if (illuminance > 1200) return '光照偏强，注意避开正午的直射阳光';
-    if (humidity < 40) return '空气偏干，可在附近放一杯水提高湿度';
-    if (humidity > 70) return '空气偏潮，注意通风避免闷根';
+    if (waterNeeds == WaterNeedsStatus.shortage) return '水仓快见底了，记得今天加一次水';
+    if (waterNeeds == WaterNeedsStatus.watery) return '水有点多，先暂停加水并保持通风';
+    if (lighting == LightingCondition.shortage) {
+      return '光线有点弱，可以把花盆挪到更亮堂的地方';
+    }
+    if (humidity == ComfortLevel.low) return '空气有点干，可以喷点水雾提高湿度';
+    if (humidity == ComfortLevel.high) return '空气有点潮，多通通风避免闷根';
     return '今天状态良好，傍晚可适度通风';
   }
 

@@ -1103,6 +1103,15 @@ class HttpAppBackendRepository implements AppBackendRepository {
       growthCharacteristics: _text(row, 'growthCharacteristics'),
       careInstructions: care,
       difficultyMaintenance: _nullableInteger(row['difficultyMaintenance']),
+      // TODO(后端): 植物分类的字段名还没确认——swagger 里没有模型，按几个常见
+      // 命名兜底。取不到就只下发 DP 116，不猜分类，见
+      // `FlowerpotState._publishPlantSelection`。
+      plantType: _nullableInteger(
+        row['plantType'] ??
+            row['plantTypeId'] ??
+            row['plantCategory'] ??
+            row['categoryId'],
+      ),
     );
   }
 

@@ -14,7 +14,7 @@ void main() {
   testWidgets('humidity widgets expose the Figma content', (tester) async {
     await _pumpHumidityWidgets(tester, const Size(375, 812));
 
-    expect(find.text('适宜'), findsOneWidget);
+    expect(find.text('正舒服'), findsOneWidget);
     expect(find.text('52 %'), findsOneWidget);
     expect(find.text('当前相对湿度'), findsOneWidget);
     expect(find.text('相对湿度变化'), findsOneWidget);
@@ -65,7 +65,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('相对湿度'), findsOneWidget);
-    expect(find.text('适宜'), findsOneWidget);
+    expect(find.text('正舒服'), findsOneWidget);
     expect(find.text('52 %'), findsOneWidget);
     final chart = tester.widget<HumidityTrendChartCard>(
       find.byType(HumidityTrendChartCard),
@@ -80,8 +80,8 @@ Future<void> _pumpHumidityWidgets(WidgetTester tester, Size size) async {
   addTearDown(() => tester.binding.setSurfaceSize(null));
   const model = HumidityStatusPageModel(
     deviceId: 'device-01',
-    status: '适宜',
-    description: '相对湿度适宜植物生长。',
+    status: '正舒服',
+    description: '湿度刚刚好，叶子呼吸很顺畅，继续保持。',
     humidity: 52,
     advice: '当前湿度适宜，继续保持现有养护环境，有助于植物健康生长。',
   );

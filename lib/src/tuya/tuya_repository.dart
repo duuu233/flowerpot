@@ -638,6 +638,8 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       standbyEnabled: boolean(dp('standby_switch'), false),
       standbyDelayMinutes: integer(dp('standby_delay'), 30),
       deviceLanguage: _deviceLanguages['${dp('language')}'] ?? 'zh',
+      // 163 未上报时按「开」处理，见 DeviceControlSettings.plantDetection。
+      plantDetection: boolean(dp('plant_detect_switch'), true),
     );
 
     final deviceId = '${raw['deviceId'] ?? raw['devId'] ?? ''}';
@@ -683,6 +685,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       macAddress: '${raw['mac'] ?? '--'}',
       hardwareVersion: '${dp('hardware_version') ?? '--'}',
       plantVariety: '${dp('plant_variety') ?? ''}',
+      plantConfirm: PlantConfirmState.fromDp(dp('plant_confirm')),
       deviceStatus: '${dp('device_status') ?? ''}',
       reportedDays: reportedDays == null ? null : integer(reportedDays, 0),
       status: status,

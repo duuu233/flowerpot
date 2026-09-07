@@ -55,3 +55,4 @@
 - [`2026-09/2026-09-03-verify-code-login-auto-register.md`](2026-09/2026-09-03-verify-code-login-auto-register.md)：定位「接口-403 邮箱不存在」为手机号未注册，把手机验证码登录补成登录注册一体（同一条验证码补注册），并区分「验证码错误」与「账号不存在」。
 - [`2026-09/2026-09-03-pairing-device-discovery-from-raw-scan.md`](2026-09/2026-09-03-pairing-device-discovery-from-raw-scan.md)：把联调页「看到什么就列什么」的扫描逻辑搬进搜索与选择页，放宽热点前缀识别并让 Android `scanWifi` 等一轮新扫描结果。
 - [`2026-09/2026-09-04-dialogs-dp-09-03-v2-pages.md`](2026-09/2026-09-04-dialogs-dp-09-03-v2-pages.md)：统一全项目弹窗样式，并入 09-03 功能点表的 151–160，落地纪念日/图库管理/配网进度/时段编辑等 v2 页面并新增 LED 设置页。
+- [`2026-09/2026-09-07-device-entry-plant-confirm.md`](2026-09/2026-09-07-device-entry-plant-confirm.md)：并入 09-07 功能点表的 161/162 与占位的 163，落地设备详情页入口的「离线拦截 → 无植物直接添加 → DP 162 植物确认握手」，以及 116+161 同批下发和设置页的自动检测植物开关。

@@ -1,6 +1,7 @@
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_list_page.dart';
+import 'package:flowerpot/src/features/devices/presentation/plant_picker_page.dart';
 import 'package:flowerpot/src/features/home/models/home_dashboard_model.dart';
 import 'package:flowerpot/src/features/home/presentation/home_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
@@ -65,23 +66,49 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('device card opens the unplanted device page', (tester) async {
-    Object? deviceArguments;
+  testWidgets('a device without a plant goes straight to the plant picker', (
+    tester,
+  ) async {
+    Object? pickerArguments;
     final state = await _pumpDeviceList(
       tester,
       const Size(375, 812),
       withRoutes: true,
-      onDeviceArguments: (value) => deviceArguments = value,
+      onPlantPickerArguments: (value) => pickerArguments = value,
     );
 
     await tester.tap(find.byKey(const Key('device-list-item-device-02')));
     await tester.pumpAndSettle();
 
-    expect(find.text('device-home-target'), findsOneWidget);
+    expect(find.text('plant-picker-target'), findsOneWidget);
     expect(state.selectedDevice?.id, 'device-02');
-    final arguments = deviceArguments! as HomeDeviceArguments;
+    final arguments = pickerArguments! as PlantPickerArguments;
     expect(arguments.deviceId, 'device-02');
-    expect(arguments.scene, HomeDashboardScene.withoutPlant);
+    expect(arguments.mode, PlantPickerMode.add);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an offline device is not allowed into the device page', (
+    tester,
+  ) async {
+    Object? deviceArguments;
+    Object? pickerArguments;
+    await _pumpDeviceList(
+      tester,
+      const Size(375, 812),
+      withRoutes: true,
+      onDeviceArguments: (value) => deviceArguments = value,
+      onPlantPickerArguments: (value) => pickerArguments = value,
+    );
+
+    await tester.tap(find.byKey(const Key('device-list-item-device-03')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('请打开设备并保持在线'), findsOneWidget);
+    expect(deviceArguments, isNull);
+    expect(pickerArguments, isNull);
+    // 还留在列表页。
+    expect(find.text('设备列表'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -112,6 +139,7 @@ Future<FlowerpotState> _pumpDeviceList(
   Size size, {
   bool withRoutes = false,
   ValueChanged<Object?>? onDeviceArguments,
+  ValueChanged<Object?>? onPlantPickerArguments,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -138,6 +166,14 @@ Future<FlowerpotState> _pumpDeviceList(
                   return MaterialPageRoute<void>(
                     builder: (_) => const Scaffold(
                       body: Center(child: Text('device-home-target')),
+                    ),
+                  );
+                }
+                if (settings.name == AppRoutes.plantPicker) {
+                  onPlantPickerArguments?.call(settings.arguments);
+                  return MaterialPageRoute<void>(
+                    builder: (_) => const Scaffold(
+                      body: Center(child: Text('plant-picker-target')),
                     ),
                   );
                 }

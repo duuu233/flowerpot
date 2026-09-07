@@ -27,9 +27,36 @@ void main() {
 
     expect(result.success, isTrue);
     expect(result.message, '已选择龟背竹并同步到设备');
-    // 后端那几个接口只要被碰到就会往 events 里记一笔，这里必须只剩 DP 写入。
-    expect(events, <String>['tuya:116=monstera_en']);
+    // 后端那几个接口只要被碰到就会往 events 里记一笔，这里必须只剩 DP 写入；
+    // 116 植物品种和 161 植物分类要在同一条 publishDps 里一起发出去。
+    expect(events, <String>['tuya:116=monstera_en', 'tuya:161=2']);
     expect(state.selectedDevice?.plant.tuyaIdentifier, 'monstera_en');
+  });
+
+  test('后台没配植物分类时只下发 116，并在结果里说明', () async {
+    final events = <String>[];
+    final state = FlowerpotState(
+      repository: _RecordingTuya(events),
+      backendRepository: _RecordingBackend(events),
+    );
+    addTearDown(state.dispose);
+    await state.login(
+      account: 'demo@example.test',
+      credential: 'demo',
+      region: LoginRegion.overseas,
+      verificationCode: false,
+    );
+    events.clear();
+
+    final result = await state.selectPlant(
+      state.devices.single.id,
+      _uncategorizedPlant,
+    );
+
+    expect(result.success, isTrue);
+    expect(result.message, '已选择薄荷并同步到设备；该植物未配置分类，未下发 161');
+    // 分类猜不得：宁可少发一条，也不给设备一个错的养护策略。
+    expect(events, <String>['tuya:116=mint_en']);
   });
 
   test('water calibration sends 0 through 3 and cancel 5, never 4', () async {
@@ -167,6 +194,20 @@ const _serverPlant = PlantProfile(
   tip: '明亮散射光',
   productPlantId: 17,
   tuyaIdentifier: 'monstera_en',
+  plantType: 2,
+);
+
+/// 后台「植物管理」还没填分类的那一类行。
+const _uncategorizedPlant = PlantProfile(
+  id: 'server-mint',
+  name: '薄荷',
+  latinName: 'Mentha',
+  color: Color(0xFF2F7D5D),
+  moistureTarget: 60,
+  lightTarget: 150,
+  tip: '通风充足',
+  productPlantId: 18,
+  tuyaIdentifier: 'mint_en',
 );
 
 class _RecordingTuya extends MockTuyaRepository {

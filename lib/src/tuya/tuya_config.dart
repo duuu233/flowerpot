@@ -22,11 +22,12 @@ abstract final class TuyaConfig {
   /// character. App-facing names resolve through [setting] and [history];
   /// sensor reads name their identifier at the point of use.
   ///
-  /// Source: `assets/智能花盆test(yciq4kssu1fv8umn)_09_03.xlsx`, sheet 功能点,
-  /// exported 2026-09-03. That export is a different PID from the 08-20 one and
-  /// adds 151–160 (standby, language, memorial days, photo management and the
-  /// operation receipt); 101–150 came across unchanged, identifier for
-  /// identifier.
+  /// Source: `docs/智能花盆test(yciq4kssu1fv8umn)_09_07.xlsx`, sheet 功能点,
+  /// exported 2026-09-07. Same PID as the 09-03 export, which it reproduces row
+  /// for row and extends with 161 (植物分类) and 162 (植物确认); 09-03 in turn
+  /// had added 151–160 (standby, language, memorial days, photo management and
+  /// the operation receipt) over the 08-20 table. The one row that is *not* in
+  /// any export is 163 — see its TODO below.
   static const dp = <String, int>{
     // Reported state.
     'device_status': 101, // string, rw
@@ -96,6 +97,15 @@ abstract final class TuyaConfig {
     'memorial_birthday': 158, // raw, 8 ASCII bytes YYYYMMDD
     'memorial_wedding': 159, // raw, 8 ASCII bytes YYYYMMDD
     'op_result': 160, // string `<操作>:<对象>:<结果>`
+
+    // Added by the 09-07 export.
+    'plant_type': 161, // enum 1/2/3, rw: 后台植物分类，随 116 一起下发
+    'plant_confirm': 162, // value, rw: 0 正常 / 1 异常 / 2 确认 / 3 忽略
+
+    // TODO(固件/平台): 自动检测植物的开关。产品要求设备设置页有这个纯开关，但
+    // 09-07 的导出里还没有这条功能点，163 与标识符都是本地占位。平台补完导出后
+    // 只需要改这一行——App 侧统一走 `TuyaConfig.setting['plantDetection']`。
+    'plant_detect_switch': 163, // bool, rw
   };
 
   /// DPs the device transmits as an integer scaled by a power of ten (涂鸦
@@ -129,6 +139,8 @@ abstract final class TuyaConfig {
     'standby': 'standby_switch',
     'standbyDelay': 'standby_delay',
     'deviceLanguage': 'language',
+    // 自动检测植物。关掉之后设备不再比对盆里的植物，也就不会再报 162 异常。
+    'plantDetection': 'plant_detect_switch',
   };
 
   /// Reported history series, keyed by app metric then by range.
@@ -167,6 +179,18 @@ abstract final class TuyaConfig {
     'zh': 'Chinese',
     'en': 'English',
   };
+
+  /// `plant_type` (161) 的合法枚举值。后台植物分类是数字，枚举 DP 下发的是
+  /// 字符串，两边在 [plantTypeValue] 里换算。
+  static const plantTypes = <String>['1', '2', '3'];
+
+  /// 把后台的植物分类换成 161 能接受的枚举值；超出 1–3 或为空时返回 null，
+  /// 绑定植物时就只下发 116。
+  static String? plantTypeValue(int? category) {
+    if (category == null) return null;
+    final label = '$category';
+    return plantTypes.contains(label) ? label : null;
+  }
 
   /// Bounds of `standby_delay` (152), in minutes.
   static const standbyDelayMin = 1;
