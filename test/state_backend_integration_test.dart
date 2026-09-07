@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('DP 116 is written before the backend records the choice', () async {
+  test('登录和选植物都不打多余的后端接口，只写 DP 116', () async {
     final events = <String>[];
     final tuya = _RecordingTuya(events);
     final backend = _RecordingBackend(events);
@@ -26,30 +26,8 @@ void main() {
     );
 
     expect(result.success, isTrue);
-    expect(events, <String>['tuya:116=monstera_en', 'backend:add']);
-    expect(state.selectedDevice?.plant.tuyaIdentifier, 'monstera_en');
-  });
-
-  test('a backend failure keeps the device binding and still succeeds', () async {
-    final events = <String>[];
-    final tuya = _RecordingTuya(events);
-    final backend = _RecordingBackend(events, failAdd: true);
-    final state = FlowerpotState(repository: tuya, backendRepository: backend);
-    addTearDown(state.dispose);
-    await state.login(
-      account: 'demo@example.test',
-      credential: 'demo',
-      region: LoginRegion.overseas,
-      verificationCode: false,
-    );
-
-    final result = await state.selectPlant(
-      state.devices.single.id,
-      _serverPlant,
-    );
-
-    expect(result.success, isTrue);
-    expect(result.message, contains('设备ID有效长度(1-20)位字符'));
+    expect(result.message, '已选择龟背竹并同步到设备');
+    // 后端那几个接口只要被碰到就会往 events 里记一笔，这里必须只剩 DP 写入。
     expect(events, <String>['tuya:116=monstera_en']);
     expect(state.selectedDevice?.plant.tuyaIdentifier, 'monstera_en');
   });
@@ -204,14 +182,13 @@ class _RecordingTuya extends MockTuyaRepository {
   }
 }
 
+/// 主流程（登录 → 配网 → 给设备加植物）只允许 `getProductPlantList` 一个后端
+/// 调用。这里把它以外、以前被这条链路用到的接口都改成「记一笔再抛错」，谁再把
+/// 它们接回主流程，测试就会红。
 class _RecordingBackend extends DisabledAppBackendRepository {
-  _RecordingBackend(this.events, {this.failAdd = false});
+  _RecordingBackend(this.events);
 
   final List<String> events;
-
-  /// 后端拒收这次存档（联调期真实撞到过：deviceId 字段只放得下 20 位）。
-  final bool failAdd;
-  bool bound = false;
 
   @override
   bool get enabled => true;
@@ -219,33 +196,30 @@ class _RecordingBackend extends DisabledAppBackendRepository {
   @override
   bool get hasSession => true;
 
+  Never _forbidden(String name) {
+    events.add('backend:$name');
+    throw const ApiException(500, '主流程不该调用这个接口');
+  }
+
+  @override
+  Future<List<BackendProduct>> getProducts() async => _forbidden('getProducts');
+
   @override
   Future<List<BackendUserProduct>> getUserProducts() async =>
-      const <BackendUserProduct>[
-        BackendUserProduct(
-          userProductId: 5,
-          productId: 9,
-          deviceId: 'vdevo17235508413621',
-          productName: '智能花盆',
-        ),
-      ];
+      _forbidden('getUserProducts');
 
   @override
-  Future<List<PlantProfile>> getUserPlants(int userProductId) async => bound
-      ? <PlantProfile>[_serverPlant.copyWith(userProductPlantId: 23)]
-      : const <PlantProfile>[];
+  Future<BackendUserProduct> getUserProductDetail(int userProductId) async =>
+      _forbidden('getUserProductDetail');
 
   @override
-  Future<void> addUserPlant({
-    required int userProductId,
-    required int productPlantId,
-  }) async {
-    if (failAdd) {
-      throw const ApiException(500, '设备ID有效长度(1-20)位字符');
-    }
-    events.add('backend:add');
-    bound = true;
-  }
+  Future<BackendUserProduct> addUserProduct({
+    required String deviceId,
+    required BackendProduct product,
+  }) async => _forbidden('addUserProduct');
+
+  @override
+  Future<BackendUserInfo> getUserInfo() async => _forbidden('getUserInfo');
 }
 
 class _AuthRecordingTuya extends MockTuyaRepository {
@@ -318,6 +292,18 @@ class _ImageBackend extends _RecordingBackend {
       url: 'https://cdn.example.test/first.gif',
     ),
   ];
+
+  /// 设备图库不在主流程上，它仍旧要靠 userProduct 记录拿 `userProductId`。
+  @override
+  Future<List<BackendUserProduct>> getUserProducts() async =>
+      const <BackendUserProduct>[
+        BackendUserProduct(
+          userProductId: 5,
+          productId: 9,
+          deviceId: 'vdevo17235508413621',
+          productName: '智能花盆',
+        ),
+      ];
 
   @override
   Future<List<BackendImage>> getImages(int userProductId) async =>

@@ -57,9 +57,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
 
   Future<void> _loadPlants(PlantProfile? current) async {
     try {
-      final loaded = await FlowerpotScope.of(
-        context,
-      ).loadPlantCatalog(widget.deviceId);
+      final loaded = await FlowerpotScope.of(context).loadPlantCatalog();
       if (!mounted) return;
       setState(() {
         plants = loaded;
@@ -95,10 +93,9 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
 
   /// 开发构建下把后端原始响应直接贴进 toast。
   ///
-  /// 这条链路只有 `/Client/Product/getProductList` 和
-  /// `getProductPlantList` 两个接口，接口一异常就只剩一句兜底文案，现场很难
-  /// 判断是网关错误页还是业务返回。正式包里 [ApiException.body] 恒为 null，
-  /// 展示的仍旧只有原来那句话。
+  /// 这条链路只剩 `/Client/Product/getProductPlantList` 一个接口，它一异常就
+  /// 只剩一句兜底文案，现场很难判断是网关错误页还是业务返回。正式包里
+  /// [ApiException.body] 恒为 null，展示的仍旧只有原来那句话。
   String _loadErrorText(ApiException error) {
     const base = '植物列表加载失败：';
     final body = error.body;

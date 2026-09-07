@@ -62,16 +62,10 @@ class FlowerpotState extends ChangeNotifier {
   /// require `userProductId`, so this mapping is resolved once and reused.
   final Map<String, BackendUserProduct> _backendDevices =
       <String, BackendUserProduct>{};
-  final Map<String, List<PlantProfile>> _backendPlants =
-      <String, List<PlantProfile>>{};
   final Map<String, List<AnimationAsset>> _backendAnimations =
       <String, List<AnimationAsset>>{};
   final Map<String, PlantProfile> _knownPlantsByIdentifier =
       <String, PlantProfile>{};
-
-  /// 「涂鸦 PID → 后端产品 id」的解析结果，按设备缓存。植物列表与植物详情只需要
-  /// 这一层映射，不需要 [_backendDevices] 里那条 userProduct 记录。
-  final Map<String, int> _backendProductIds = <String, int>{};
 
   /// Live device reports. See [_applyDeviceUpdate].
   StreamSubscription<DeviceUpdate>? _deviceUpdates;
@@ -731,18 +725,9 @@ class FlowerpotState extends ChangeNotifier {
       device,
     ];
     _selectedDeviceId = device.id;
-    if (_backend.enabled && _backend.hasSession) {
-      try {
-        await _ensureBackendDevice(device.id);
-      } on ApiException catch (error) {
-        return ActionResult(
-          true,
-          '设备已配网；后台关联待重试：'
-          '${_tagged(_apiSource(error.code), error.code, error.message)}',
-          code: 'backend_device_pending',
-        );
-      }
-    }
+    // 配网是涂鸦侧的事，这里不再顺带去后端建 userProduct 记录：那条链路
+    // （getUserProductList / getProductList / addUserProduct）只服务后端自己的
+    // 存档，却会把「配网成功」拖成失败提示。
     return const ActionResult(true, '设备配网成功');
   }
 
@@ -835,12 +820,9 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '设备名称已更新');
   });
 
-  /// Loads the plants configured for this device's backend product. The local
-  /// catalog remains the offline/demo fallback only.
-  Future<List<PlantProfile>> loadPlantCatalog(
-    String deviceId, {
-    String keyword = '',
-  }) async {
+  /// 拉后台配置的植物列表（`Client/Product/getProductPlantList`）。这是「登录 →
+  /// 配网 → 给设备加植物」这条主流程上唯一的后端调用；本地目录只当离线/演示回落。
+  Future<List<PlantProfile>> loadPlantCatalog({String keyword = ''}) async {
     if (!_backend.enabled) {
       final normalized = keyword.trim().toLowerCase();
       if (normalized.isEmpty) return PlantCatalog.items;
@@ -858,30 +840,15 @@ class FlowerpotState extends ChangeNotifier {
         'APP 后端登录状态已失效，请重新登录',
       );
     }
-    final productId = await _resolveBackendProductId(deviceId);
-    final plants = await _backend.getProductPlants(
-      productId: productId,
-      keyword: keyword,
-    );
+    final plants = await _backend.getProductPlants(keyword: keyword);
     _rememberPlants(plants);
     return plants;
   }
 
-  Future<PlantProfile> loadPlantDetail(PlantProfile plant) async {
-    final productPlantId = plant.productPlantId;
-    if (!_backend.enabled || !_backend.hasSession || productPlantId == null) {
-      return plant;
-    }
-    final detail = await _backend.getPlantDetail(productPlantId);
-    _rememberPlants(<PlantProfile>[detail]);
-    return detail;
-  }
-
-  /// 先把植物写进设备（DP 116），再尽力把这次选择记到后端。
+  /// 把植物写进设备（DP 116）。
   ///
-  /// 设备侧是权威：植物品种本来就是涂鸦的功能点，配网成功后不依赖 APP 后端也要
-  /// 能选、能看。后端在这一步只负责把参数存下来，所以它失败只在结果文案里带一
-  /// 句，不回滚设备上已经生效的选择，也不阻断流程。
+  /// 设备侧是权威：植物品种本来就是涂鸦的功能点，选完就写 DP，不再往后端存一份
+  /// 存档（那条链路要先建 userProduct 记录，只会挡住主流程）。
   Future<ActionResult> selectPlant(String id, PlantProfile plant) =>
       _guard(() async {
         final identifier = plant.tuyaIdentifier.trim();
@@ -893,55 +860,8 @@ class FlowerpotState extends ChangeNotifier {
         }
         await _publishPlantVariety(id, identifier);
         _setPlantSelection(id, plant);
-        final archiveError = await _archivePlantOnBackend(id, plant);
-        return ActionResult(
-          true,
-          archiveError == null
-              ? '已选择${plant.name}并同步到设备'
-              : '已选择${plant.name}并同步到设备（后台未记录：$archiveError）',
-        );
+        return ActionResult(true, '已选择${plant.name}并同步到设备');
       });
-
-  /// 把这次植物选择存到后端；成功返回 null，失败返回给用户看的原因。
-  ///
-  /// 拿 `userProductId` 要先建 userProduct 记录，这条链路只服务于后端自己的存
-  /// 档。它断了不该影响设备上已经生效的绑定，所以这里把异常收敛成一句提示。
-  Future<String?> _archivePlantOnBackend(
-    String deviceId,
-    PlantProfile plant,
-  ) async {
-    final productPlantId = plant.productPlantId;
-    if (!_backendReady || productPlantId == null || productPlantId <= 0) {
-      return null;
-    }
-    final identifier = plant.tuyaIdentifier.trim();
-    try {
-      final backendDevice = await _ensureBackendDevice(deviceId);
-      var current = await _backend.getUserPlants(backendDevice.userProductId);
-      final already = current.where(
-        (item) =>
-            item.productPlantId == productPlantId ||
-            item.tuyaIdentifier == identifier,
-      );
-      if (already.isEmpty) {
-        // 一台设备只种一株，换植物就把旧的那条顶掉。DP 已经写成新标识符了，
-        // 所以这里不能再按设备上报的品种去找旧记录。
-        if (current.firstOrNull?.userProductPlantId case final previousId?) {
-          await _backend.deleteUserPlant(previousId);
-        }
-        await _backend.addUserPlant(
-          userProductId: backendDevice.userProductId,
-          productPlantId: productPlantId,
-        );
-        current = await _backend.getUserPlants(backendDevice.userProductId);
-      }
-      _backendPlants[deviceId] = current;
-      _rememberPlants(current);
-      return null;
-    } on ApiException catch (error) {
-      return error.message;
-    }
-  }
 
   Future<ActionResult> updateSetting(
     String id,
@@ -1516,7 +1436,6 @@ class FlowerpotState extends ChangeNotifier {
         _backendDevices.remove(id);
         _devices.removeWhere((device) => device.id == id);
         _plantedDevices.remove(id);
-        _backendPlants.remove(id);
         _backendAnimations.remove(id);
         _plantOverrides.remove(id);
         _settingsOverrides.remove(id);
@@ -1782,7 +1701,6 @@ class FlowerpotState extends ChangeNotifier {
       _devices = _devices.where((device) => device.id != removedId).toList();
       _plantedDevices.remove(removedId);
       _backendDevices.remove(removedId);
-      _backendPlants.remove(removedId);
       _backendAnimations.remove(removedId);
       _plantOverrides.remove(removedId);
       _settingsOverrides.remove(removedId);
@@ -1897,16 +1815,9 @@ class FlowerpotState extends ChangeNotifier {
     try {
       final devices = await _repository.getDevices();
       if (epoch != _sessionEpoch) return;
+      // 设备清单以涂鸦为准。登录后不再顺带拉 getUserInfo / getUserProductList /
+      // getUserProductPlantList——主流程只允许 getProductPlantList 一个后端调用。
       _devices = devices.map(_withLocalOverrides).toList();
-      if (_backend.enabled && _backend.hasSession) {
-        await refreshUserInfo(notify: false);
-        if (epoch != _sessionEpoch) return;
-        try {
-          await _syncBackendDevices(epoch);
-        } catch (_) {
-          if (!ignoreErrors) rethrow;
-        }
-      }
       if (_devices.isEmpty) {
         _selectedDeviceId = null;
       } else if (_devices.every((item) => item.id != _selectedDeviceId)) {
@@ -1948,90 +1859,6 @@ class FlowerpotState extends ChangeNotifier {
       account: backendAccount.account,
       avatarUrl: backendAccount.avatarUrl,
     );
-  }
-
-  Future<void> _syncBackendDevices(int epoch) async {
-    final rows = await _backend.getUserProducts();
-    if (epoch != _sessionEpoch) return;
-    final activeIds = _devices.map((device) => device.id).toSet();
-    _backendDevices.removeWhere((id, _) => !activeIds.contains(id));
-    _backendPlants.removeWhere((id, _) => !activeIds.contains(id));
-    _backendAnimations.removeWhere((id, _) => !activeIds.contains(id));
-
-    for (final device in _devices) {
-      final summary = rows
-          .where((row) => row.deviceId == device.id)
-          .firstOrNull;
-      if (summary == null) continue;
-      final detail = summary.productId == null
-          ? await _backend.getUserProductDetail(summary.userProductId)
-          : summary;
-      if (epoch != _sessionEpoch) return;
-      _backendDevices[device.id] = detail;
-      final plants = await _backend.getUserPlants(detail.userProductId);
-      if (epoch != _sessionEpoch) return;
-      _backendPlants[device.id] = plants;
-      _rememberPlants(plants);
-      final reportedIdentifier = device.plantVariety.trim().toLowerCase();
-      final activePlant =
-          plants
-              .where(
-                (plant) =>
-                    reportedIdentifier.isNotEmpty &&
-                    plant.tuyaIdentifier.trim().toLowerCase() ==
-                        reportedIdentifier,
-              )
-              .firstOrNull ??
-          plants.firstOrNull;
-      if (activePlant != null) {
-        _setPlantSelection(device.id, activePlant, notify: false);
-      }
-    }
-
-    _devices = _devices.map(_withLocalOverrides).toList(growable: false);
-  }
-
-  /// 解析「涂鸦 PID → 后端产品 id」。植物列表和植物详情只要这一层映射。
-  ///
-  /// 不走 [_ensureBackendDevice]：那条链路会顺带查、必要时新建后端的 userProduct
-  /// 记录，属于后端自己的存档。选植物是涂鸦侧的功能，不该被它挡住。
-  Future<int> _resolveBackendProductId(String deviceId) async {
-    final cached =
-        _backendProductIds[deviceId] ?? _backendDevices[deviceId]?.productId;
-    if (cached != null && cached > 0) {
-      _backendProductIds[deviceId] = cached;
-      return cached;
-    }
-    final device = deviceById(deviceId);
-    if (device == null) {
-      throw const ApiException('DEVICE_NOT_FOUND', '未找到需要关联的设备');
-    }
-    final products = await _backend.getProducts();
-    final pid = device.productId.trim();
-    final normalized = pid.toLowerCase();
-    final matches = products
-        .where(
-          (product) =>
-              product.broadcastId.trim().toLowerCase() == normalized,
-        )
-        .toList(growable: false);
-    // 后台只配了一个产品时不较真广播ID，联调期间这是常态。
-    final product = matches.length == 1
-        ? matches.single
-        : matches.isEmpty && products.length == 1
-        ? products.single
-        : null;
-    if (product == null) {
-      // 「一条都没匹配上」和「配重了多条」是两种要去后台做的事，分开讲。
-      final reason = switch (matches.length) {
-        0 when products.isEmpty => '后台产品列表为空，请先添加产品并把广播ID配成涂鸦 PID $pid',
-        0 => '后台没有广播ID等于涂鸦 PID $pid 的产品，请先补上这个映射',
-        _ => '后台有 ${matches.length} 条产品的广播ID都是 $pid，请只保留一条',
-      };
-      throw ApiException('PRODUCT_MAPPING_NOT_FOUND', reason);
-    }
-    _backendProductIds[deviceId] = product.productId;
-    return product.productId;
   }
 
   Future<BackendUserProduct> _ensureBackendDevice(String deviceId) async {
@@ -2147,8 +1974,6 @@ class FlowerpotState extends ChangeNotifier {
     _plantOverrides.clear();
     _settingsOverrides.clear();
     _backendDevices.clear();
-    _backendProductIds.clear();
-    _backendPlants.clear();
     _backendAnimations.clear();
     _knownPlantsByIdentifier.clear();
     _animations.removeWhere((item) => !item.path.startsWith('builtin://'));

@@ -131,7 +131,8 @@ void main() {
         session: session,
         httpClient: MockClient((request) async {
           expect(request.url.path, '/Client/Product/getProductPlantList');
-          expect(request.url.queryParameters['productId'], '9');
+          // 主流程不再先查 getProductList 换 productId，所以这个参数必须不出现。
+          expect(request.url.queryParameters.containsKey('productId'), isFalse);
           return _response(<String, Object?>{
             'pageData': <Object?>[
               <String, Object?>{
@@ -147,7 +148,7 @@ void main() {
       ),
     );
 
-    final plants = await repository.getProductPlants(productId: 9);
+    final plants = await repository.getProductPlants();
 
     expect(plants, hasLength(1));
     expect(plants.single.productPlantId, 17);

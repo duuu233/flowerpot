@@ -1,8 +1,5 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
-import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
 
@@ -13,36 +10,14 @@ class PlantDetailArguments {
   final bool bound;
 }
 
-class PlantDetailPage extends StatefulWidget {
+/// 详情内容全部来自植物列表那一行——`getProductPlantList` 已经把字段带齐了，
+/// 主流程不再单独打一次植物详情接口。
+class PlantDetailPage extends StatelessWidget {
   const PlantDetailPage({required this.arguments, super.key});
 
   final PlantDetailArguments arguments;
 
-  @override
-  State<PlantDetailPage> createState() => _PlantDetailPageState();
-}
-
-class _PlantDetailPageState extends State<PlantDetailPage> {
-  late PlantProfile plant = widget.arguments.plant;
-  bool loadingStarted = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (loadingStarted) return;
-    loadingStarted = true;
-    unawaited(_loadDetail());
-  }
-
-  Future<void> _loadDetail() async {
-    try {
-      final detail = await FlowerpotScope.of(context).loadPlantDetail(plant);
-      if (mounted) setState(() => plant = detail);
-    } catch (_) {
-      // The summary passed by the picker remains usable while the network is
-      // unavailable; binding will still validate the server id later.
-    }
-  }
+  PlantProfile get plant => arguments.plant;
 
   @override
   Widget build(BuildContext context) {
@@ -65,7 +40,7 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
               _PlantSummaryCard(
                 plant: plant,
                 data: data,
-                bound: widget.arguments.bound,
+                bound: arguments.bound,
               ),
               const SizedBox(height: 12),
               _PlantBasicInfoCard(plant: plant, data: data),

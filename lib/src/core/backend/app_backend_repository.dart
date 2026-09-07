@@ -49,17 +49,9 @@ abstract class AppBackendRepository {
   });
   Future<void> deleteUserProduct(int userProductId);
 
-  Future<List<PlantProfile>> getProductPlants({
-    required int productId,
-    String keyword = '',
-  });
-  Future<PlantProfile> getPlantDetail(int productPlantId);
-  Future<List<PlantProfile>> getUserPlants(int userProductId);
-  Future<void> addUserPlant({
-    required int userProductId,
-    required int productPlantId,
-  });
-  Future<void> deleteUserPlant(int userProductPlantId);
+  /// 产品下的植物列表。主流程（登录 → 配网 → 给设备加植物）只走这一个后端接口，
+  /// 所以不再先查 `getProductList` 换 productId——不传就是后台配置的全部植物。
+  Future<List<PlantProfile>> getProductPlants({String keyword = ''});
 
   Future<List<BackendImage>> getImages(int userProductId);
   Future<void> uploadImage({
@@ -200,26 +192,8 @@ class DisabledAppBackendRepository implements AppBackendRepository {
   Future<void> deleteUserProduct(int userProductId) async => _disabled();
 
   @override
-  Future<List<PlantProfile>> getProductPlants({
-    required int productId,
-    String keyword = '',
-  }) async => _disabled();
-
-  @override
-  Future<PlantProfile> getPlantDetail(int productPlantId) async => _disabled();
-
-  @override
-  Future<List<PlantProfile>> getUserPlants(int userProductId) async =>
+  Future<List<PlantProfile>> getProductPlants({String keyword = ''}) async =>
       _disabled();
-
-  @override
-  Future<void> addUserPlant({
-    required int userProductId,
-    required int productPlantId,
-  }) async => _disabled();
-
-  @override
-  Future<void> deleteUserPlant(int userProductPlantId) async => _disabled();
 
   @override
   Future<List<BackendImage>> getImages(int userProductId) async => _disabled();
@@ -505,70 +479,17 @@ class HttpAppBackendRepository implements AppBackendRepository {
   }
 
   @override
-  Future<List<PlantProfile>> getProductPlants({
-    required int productId,
-    String keyword = '',
-  }) async => extractApiRows(
-    await _client.getJson(
-      '/Client/Product/getProductPlantList',
-      query: <String, Object?>{
-        'pageIndex': 1,
-        'pageSize': 500,
-        'productId': productId,
-        if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
-      },
-    ),
-  ).map(_plant).toList(growable: false);
-
-  @override
-  Future<PlantProfile> getPlantDetail(int productPlantId) async => _plant(
-    _map(
-      await _client.getJson(
-        '/Client/UserProduct/getUserProductPlantDetail',
-        query: <String, Object?>{'id': productPlantId},
-      ),
-    ),
-  );
-
-  @override
-  Future<List<PlantProfile>> getUserPlants(int userProductId) async =>
+  Future<List<PlantProfile>> getProductPlants({String keyword = ''}) async =>
       extractApiRows(
-            await _client.getJson(
-              '/Client/UserProduct/getUserProductPlantList',
-              query: <String, Object?>{
-                'pageIndex': 1,
-                'pageSize': 100,
-                'userProductId': userProductId,
-              },
-            ),
-          )
-          .where((row) => !_boolean(row['isDel']))
-          .map(_plant)
-          .toList(growable: false);
-
-  @override
-  Future<void> addUserPlant({
-    required int userProductId,
-    required int productPlantId,
-  }) async {
-    await _client.postJson(
-      '/Client/UserProduct/addUserProductPlant',
-      retryOnTimeout: false,
-      body: <String, Object?>{
-        'userProductId': userProductId,
-        'productPlantId': productPlantId,
-      },
-    );
-  }
-
-  @override
-  Future<void> deleteUserPlant(int userProductPlantId) async {
-    await _client.postJson(
-      '/Client/UserProduct/delUserProductPlant',
-      retryOnTimeout: false,
-      body: <String, Object?>{'id': userProductPlantId},
-    );
-  }
+        await _client.getJson(
+          '/Client/Product/getProductPlantList',
+          query: <String, Object?>{
+            'pageIndex': 1,
+            'pageSize': 500,
+            if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
+          },
+        ),
+      ).map(_plant).toList(growable: false);
 
   @override
   Future<List<BackendImage>> getImages(int userProductId) async =>
