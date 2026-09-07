@@ -122,7 +122,7 @@ void main() {
     repository.close();
   });
 
-  test('plant catalog maps tuYaRemark to the DP 116 identifier', () async {
+  test('联调期植物标识写死成 17，行 id 仍按后端值区分', () async {
     final session = ApiSession(storageKey: 'backend.plants.token')
       ..setToken('api-token');
     final repository = HttpAppBackendRepository(
@@ -152,7 +152,10 @@ void main() {
 
     expect(plants, hasLength(1));
     expect(plants.single.productPlantId, 17);
-    expect(plants.single.tuyaIdentifier, 'monstera_en');
+    // 后台补完 tuYaRemark、`_debugPlantIdentifier` 改回 null 之后，这里要改回
+    // 断言 'monstera_en'。
+    expect(plants.single.tuyaIdentifier, '17');
+    expect(plants.single.id, 'monstera_en');
     expect(plants.single.imageUrl, 'https://cdn.example.test/monstera.png');
     repository.close();
   });

@@ -1046,16 +1046,26 @@ class HttpAppBackendRepository implements AppBackendRepository {
         deleted: _boolean(row['isDel']),
       );
 
+  /// TODO(联调): 后台「植物管理」还没填 `tuYaRemark`，而 DP 116 只认 `"0"`~`"19"`
+  /// 这套 ID（见 `assets/智能花盆test(yciq4kssu1fv8umn)_09_03.xlsx` 第 116 行）。
+  /// 联调期先把下发给设备的标识统一写死成「冷水花」的 `17`，让「选植物 → 写
+  /// DP 116」这条链路能跑通。后台补完这个字段后，把这里改回 `null` 即可恢复成
+  /// 用后端返回值，其余代码不用动。
+  static const String? _debugPlantIdentifier = '17';
+
   static PlantProfile _plant(Map<String, dynamic> row) {
     final productPlantId = _integer(row['productPlantId']);
-    final identifier = _text(
+    final reported = _text(
       row,
       'tuYaRemark',
       fallback: _text(row, 'tuyaRemark'),
     );
+    // 写死只作用在「下发给设备的标识」上。列表行的 id 仍按后端返回值区分，否则
+    // 选植物页每张卡片的 id 都一样，点哪张都会落到同一条。
+    final identifier = _debugPlantIdentifier ?? reported;
     final name = _text(row, 'plantName', fallback: '未命名植物');
     final fallback =
-        PlantCatalog.findByTuyaIdentifier(identifier) ??
+        PlantCatalog.findByTuyaIdentifier(reported) ??
         PlantCatalog.items.where((item) => item.name == name).firstOrNull;
     final scientificName = _text(
       row,
@@ -1065,8 +1075,8 @@ class HttpAppBackendRepository implements AppBackendRepository {
     final care = _text(row, 'careInstructions');
     final introduction = _text(row, 'introduction');
     return PlantProfile(
-      id: identifier.isNotEmpty
-          ? identifier
+      id: reported.isNotEmpty
+          ? reported
           : productPlantId > 0
           ? 'product_plant_$productPlantId'
           : name,
