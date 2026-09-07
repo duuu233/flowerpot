@@ -51,7 +51,7 @@ class AppToast {
     final wanted = readingTime > duration.inMilliseconds
         ? readingTime
         : duration.inMilliseconds;
-    return Duration(milliseconds: wanted.clamp(2000, 6000));
+    return Duration(milliseconds: wanted.clamp(2000, 10000));
   }
 
   static void warn(BuildContext context, String message) {
@@ -141,7 +141,13 @@ class _ToastBubble extends StatelessWidget {
                 ),
               ),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 300, minWidth: 96),
+                // 限高之后长文案（例如开发构建里贴出来的接口原始响应）只会被
+                // 裁掉尾巴，不会撑破气泡。
+                constraints: BoxConstraints(
+                  maxWidth: 300,
+                  minWidth: 96,
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.6,
+                ),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: const Color(0xFF17201B).withValues(alpha: 0.92),
@@ -165,15 +171,17 @@ class _ToastBubble extends StatelessWidget {
                         Icon(icon, size: 19, color: accent),
                         const SizedBox(width: 9),
                         Flexible(
-                          child: Text(
-                            message,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              height: 1.45,
-                              fontWeight: FontWeight.w500,
-                              decoration: TextDecoration.none,
+                          child: SingleChildScrollView(
+                            child: Text(
+                              message,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                height: 1.45,
+                                fontWeight: FontWeight.w500,
+                                decoration: TextDecoration.none,
+                              ),
                             ),
                           ),
                         ),

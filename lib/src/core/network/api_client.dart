@@ -5,6 +5,7 @@ import 'dart:io' show FileSystemException, IOException;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../config/debug_tools_config.dart';
 import 'api_config.dart';
 import 'api_exception.dart';
 import 'api_session.dart';
@@ -17,6 +18,9 @@ typedef SessionExpiredCallback = void Function();
 /// retries transport failures only, parses the `retCode/retMsg/retData`
 /// envelope, and redacts credentials from debug logs.
 class ApiClient {
+  /// 异常里最多带多长的原始响应体。
+  static const int _debugBodyLimit = 2000;
+
   ApiClient({
     required String baseUrl,
     ApiSession? session,
@@ -244,20 +248,28 @@ class ApiClient {
 
     final retCode = body['retCode'];
     final retMessage = body['retMsg']?.toString();
+    final rawBody = _debugBody(response);
     if (response.statusCode == 401 || retCode == 401 || retCode == 406) {
       session.clear();
       onSessionExpired?.call();
-      throw ApiException(retCode ?? 401, retMessage ?? '登录状态已失效，请重新登录');
+      throw ApiException(
+        retCode ?? 401,
+        retMessage ?? '登录状态已失效，请重新登录',
+        body: rawBody,
+      );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      // 状态码进文案：这一支专门对应“后端没回 2xx”，不带上状态码时界面只剩一
+      // 句无差别的兜底话，502 和 404 长得一模一样，没法定位。
       throw ApiException(
         response.statusCode,
-        retMessage ?? '服务器暂时不可用，请稍后重试',
+        '${retMessage ?? '服务器暂时不可用，请稍后重试'}（HTTP ${response.statusCode}）',
         authError: false,
+        body: rawBody,
       );
     }
     if (parseFailed) {
-      throw const ApiException('PARSE_ERROR', '服务器返回的数据格式不正确');
+      throw ApiException('PARSE_ERROR', '服务器返回的数据格式不正确', body: rawBody);
     }
     if (body.containsKey('retCode')) {
       if (retCode != 200) {
@@ -265,6 +277,7 @@ class ApiClient {
           retCode ?? -1,
           retMessage ?? '请求失败，请稍后重试',
           data: body['retData'],
+          body: rawBody,
         );
       }
       return body['retData'];
@@ -295,6 +308,20 @@ class ApiClient {
         'userToken': '***',
       },
     );
+  }
+
+  /// 原始响应体，供界面在开发构建里直接展示。
+  ///
+  /// 正式包返回 null；凭证字段沿用日志那套打码规则；超过 [_debugBodyLimit]
+  /// 截断，避免把整页 HTML 错误页塞进异常。
+  String? _debugBody(http.Response response) {
+    if (!DebugToolsConfig.enabled) return null;
+    final text = utf8.decode(response.bodyBytes, allowMalformed: true).trim();
+    if (text.isEmpty) return null;
+    final redacted = _redactJson(text);
+    final rendered = redacted is String ? redacted : jsonEncode(redacted);
+    if (rendered.length <= _debugBodyLimit) return rendered;
+    return '${rendered.substring(0, _debugBodyLimit)}…';
   }
 
   Object? _redactJson(String text) {

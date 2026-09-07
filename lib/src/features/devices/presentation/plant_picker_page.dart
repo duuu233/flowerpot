@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../core/config/debug_tools_config.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
@@ -86,10 +87,25 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
       }
       showAppMessage(
         context,
-        '植物列表加载失败：${error.message}',
+        _loadErrorText(error),
         tone: AppMessageTone.error,
       );
     }
+  }
+
+  /// 开发构建下把后端原始响应直接贴进 toast。
+  ///
+  /// 这条链路只有 `/Client/Product/getProductList` 和
+  /// `getProductPlantList` 两个接口，接口一异常就只剩一句兜底文案，现场很难
+  /// 判断是网关错误页还是业务返回。正式包里 [ApiException.body] 恒为 null，
+  /// 展示的仍旧只有原来那句话。
+  String _loadErrorText(ApiException error) {
+    const base = '植物列表加载失败：';
+    final body = error.body;
+    if (!DebugToolsConfig.enabled || body == null || body.isEmpty) {
+      return '$base${error.message}';
+    }
+    return '$base${error.message}\n$body';
   }
 
   @override
