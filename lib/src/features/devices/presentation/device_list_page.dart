@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
-import '../../../shared/shared.dart';
+import '../../../shared/user_avatar.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../home/models/home_dashboard_model.dart';
