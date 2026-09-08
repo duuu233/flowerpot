@@ -212,6 +212,10 @@ class PlantProfile {
     this.wateringFrequency = '',
     this.growthCharacteristics = '',
     this.careInstructions = '',
+    this.lightingSuggestion = '',
+    this.waterSuggestion = '',
+    this.temperatureSuggestion = '',
+    this.humiditySuggestion = '',
     this.difficultyMaintenance,
     this.plantType,
   });
@@ -245,6 +249,17 @@ class PlantProfile {
   final String wateringFrequency;
   final String growthCharacteristics;
   final String careInstructions;
+
+  /// 后台「植物资料」里单独维护的四条建议文案（`lightingSuggestions` /
+  /// `waterSuggestion` / `temperatureSuggestion` / `humiditySuggestion`）。
+  ///
+  /// 与上面的 *Requirement 不是一回事：那几个是阈值区间（如 `18-29℃`），
+  /// 这四条是给用户看的建议。后台没配就是空串，页面不显示对应行，不编造。
+  final String lightingSuggestion;
+  final String waterSuggestion;
+  final String temperatureSuggestion;
+  final String humiditySuggestion;
+
   final int? difficultyMaintenance;
 
   /// 后台配的植物分类，下发进 `plant_type` (161) 的枚举 `1`/`2`/`3`。
@@ -278,6 +293,10 @@ class PlantProfile {
     wateringFrequency: wateringFrequency,
     growthCharacteristics: growthCharacteristics,
     careInstructions: careInstructions,
+    lightingSuggestion: lightingSuggestion,
+    waterSuggestion: waterSuggestion,
+    temperatureSuggestion: temperatureSuggestion,
+    humiditySuggestion: humiditySuggestion,
     difficultyMaintenance: difficultyMaintenance,
     plantType: plantType,
   );

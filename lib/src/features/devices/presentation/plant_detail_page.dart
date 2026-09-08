@@ -319,6 +319,25 @@ class _PlantBasicInfoCard extends StatelessWidget {
             _DetailRow(label: '浇水频率', child: Text(data.watering)),
             const SizedBox(height: 12),
             _DetailRow(label: '生长特点', child: Text(data.growth)),
+            if (data.lightingSuggestion.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 12),
+              _DetailRow(label: '光照建议', child: Text(data.lightingSuggestion)),
+            ],
+            if (data.waterSuggestion.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 12),
+              _DetailRow(label: '需水建议', child: Text(data.waterSuggestion)),
+            ],
+            if (data.temperatureSuggestion.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 12),
+              _DetailRow(
+                label: '空气温度建议',
+                child: Text(data.temperatureSuggestion),
+              ),
+            ],
+            if (data.humiditySuggestion.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 12),
+              _DetailRow(label: '湿度建议', child: Text(data.humiditySuggestion)),
+            ],
           ],
         ),
       ),
@@ -546,6 +565,10 @@ class _PlantDetailData {
     required this.watering,
     required this.growth,
     required this.careAdvice,
+    this.lightingSuggestion = '',
+    this.waterSuggestion = '',
+    this.temperatureSuggestion = '',
+    this.humiditySuggestion = '',
   });
 
   final String temperature;
@@ -557,6 +580,13 @@ class _PlantDetailData {
   final String watering;
   final String growth;
   final List<String> careAdvice;
+
+  /// 后台单独维护的四条建议文案。**没有本地兜底**：写死的 `_byId` / `_generic`
+  /// 里都是空串，后台没配就整行不显示，不拿阈值区间冒充建议。
+  final String lightingSuggestion;
+  final String waterSuggestion;
+  final String temperatureSuggestion;
+  final String humiditySuggestion;
 
   /// Written per plant. The generic fallback produced near-identical cards —
   /// same temperature range, same three tips, and `别名` echoing the plant's
@@ -572,6 +602,10 @@ class _PlantDetailData {
         plant.wateringFrequency.isNotEmpty ||
         plant.growthCharacteristics.isNotEmpty ||
         plant.careInstructions.isNotEmpty ||
+        plant.lightingSuggestion.isNotEmpty ||
+        plant.waterSuggestion.isNotEmpty ||
+        plant.temperatureSuggestion.isNotEmpty ||
+        plant.humiditySuggestion.isNotEmpty ||
         plant.difficultyMaintenance != null;
     if (!hasBackendDetail) return fallback;
     final careAdvice = plant.careInstructions
@@ -601,6 +635,10 @@ class _PlantDetailData {
           ? fallback.growth
           : plant.growthCharacteristics,
       careAdvice: careAdvice.isEmpty ? fallback.careAdvice : careAdvice,
+      lightingSuggestion: plant.lightingSuggestion,
+      waterSuggestion: plant.waterSuggestion,
+      temperatureSuggestion: plant.temperatureSuggestion,
+      humiditySuggestion: plant.humiditySuggestion,
     );
   }
 

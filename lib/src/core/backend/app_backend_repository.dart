@@ -1102,16 +1102,16 @@ class HttpAppBackendRepository implements AppBackendRepository {
       wateringFrequency: _text(row, 'wateringFrequency'),
       growthCharacteristics: _text(row, 'growthCharacteristics'),
       careInstructions: care,
+      lightingSuggestion: _text(row, 'lightingSuggestions'),
+      waterSuggestion: _text(row, 'waterSuggestion'),
+      temperatureSuggestion: _text(row, 'temperatureSuggestion'),
+      humiditySuggestion: _text(row, 'humiditySuggestion'),
       difficultyMaintenance: _nullableInteger(row['difficultyMaintenance']),
-      // TODO(后端): 植物分类的字段名还没确认——swagger 里没有模型，按几个常见
-      // 命名兜底。取不到就只下发 DP 116，不猜分类，见
+      // 2026-09-08 后端确认植物分类的字段名是 `categoryType`（1 水培 / 2 适中 /
+      // 3 耐旱），此前那串 plantType/plantTypeId/plantCategory/categoryId 都是
+      // 字段名未定时的猜测，已删。取不到就只下发 DP 116、不猜分类，见
       // `FlowerpotState._publishPlantSelection`。
-      plantType: _nullableInteger(
-        row['plantType'] ??
-            row['plantTypeId'] ??
-            row['plantCategory'] ??
-            row['categoryId'],
-      ),
+      plantType: _nullableInteger(row['categoryType']),
     );
   }
 
