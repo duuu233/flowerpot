@@ -62,6 +62,37 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('两个凭据输入框有聚焦态，且不再被压在 24px 里', (tester) async {
+    await _pumpPairingPage(tester, const Size(375, 812));
+
+    for (final key in const <Key>[
+      Key('pairing-ssid-field'),
+      Key('pairing-password-field'),
+    ]) {
+      final field = tester.widget<TextField>(find.byKey(key));
+      final decoration = field.decoration!;
+      // 收起焦点时下划线透明（静态版式与设计稿一致），聚焦时是品牌色细线。
+      expect(decoration.enabledBorder, isA<UnderlineInputBorder>());
+      expect(
+        (decoration.enabledBorder! as UnderlineInputBorder).borderSide.color,
+        Colors.transparent,
+      );
+      expect(
+        (decoration.focusedBorder! as UnderlineInputBorder).borderSide.color,
+        AppColors.brandPrimary,
+      );
+      expect(decoration.isDense, isTrue);
+      // 高度交给输入框自己撑：外面不再套固定 24 的盒子。
+      expect(tester.getSize(find.byKey(key)).height, greaterThan(24));
+    }
+
+    // 点进密码框后仍在同一张卡里，行高没有把内容挤掉。
+    await tester.tap(find.byKey(const Key('pairing-password-field')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('the wifi sheet offers the 2.4G networks the phone can see', (
     tester,
   ) async {

@@ -526,36 +526,15 @@ class _WifiCredentialsCardState extends State<_WifiCredentialsCard> {
                     semanticLabel: 'Wi-Fi 名称',
                   ),
                   const SizedBox(width: 12),
+                  // Editable: the switcher lists what the phone can actually
+                  // see, which is nothing on iOS, so the real network always
+                  // has to be typable.
                   Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        const Text(
-                          'Wi-Fi名称',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                        SizedBox(
-                          height: 24,
-                          // Editable: the switcher lists what the phone can
-                          // actually see, which is nothing on iOS, so the real
-                          // network always has to be typable.
-                          child: TextField(
-                            key: const Key('pairing-ssid-field'),
-                            controller: widget.ssidController,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 15,
-                            ),
-                            decoration: const InputDecoration.collapsed(
-                              hintText: '输入 2.4G 名称',
-                            ),
-                          ),
-                        ),
-                      ],
+                    child: _CredentialInput(
+                      fieldKey: const Key('pairing-ssid-field'),
+                      label: 'Wi-Fi名称',
+                      hintText: '输入 2.4G 名称',
+                      controller: widget.ssidController,
                     ),
                   ),
                   TextButton(
@@ -577,36 +556,15 @@ class _WifiCredentialsCardState extends State<_WifiCredentialsCard> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        const Text(
-                          'Wi-Fi密码',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                          ),
-                        ),
-                        SizedBox(
-                          height: 24,
-                          child: TextField(
-                            key: const Key('pairing-password-field'),
-                            controller: widget.passwordController,
-                            obscureText: _obscurePassword,
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 15,
-                              // 圆点之间要留空才看得清位数；明文时恢复正常字距，
-                              // 否则路由器密码会被拉得很难读。
-                              letterSpacing: _obscurePassword ? 3 : 0,
-                            ),
-                            decoration: const InputDecoration.collapsed(
-                              hintText: '请输入密码',
-                            ),
-                          ),
-                        ),
-                      ],
+                    child: _CredentialInput(
+                      fieldKey: const Key('pairing-password-field'),
+                      label: 'Wi-Fi密码',
+                      hintText: '请输入密码',
+                      controller: widget.passwordController,
+                      obscureText: _obscurePassword,
+                      // 圆点之间要留空才看得清位数；明文时恢复正常字距，否则
+                      // 路由器密码会被拉得很难读。
+                      letterSpacing: _obscurePassword ? 3 : 0,
                     ),
                   ),
                   IconButton(
@@ -635,6 +593,77 @@ class _WifiCredentialsCardState extends State<_WifiCredentialsCard> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 凭据卡里的一格：上面一行小标签，下面是可编辑的值。
+///
+/// 两格（Wi-Fi 名称 / 密码）共用同一份版式。原来各写一遍，且把输入框压在
+/// `SizedBox(height: 24)` 里配 `InputDecoration.collapsed`——15px 的字加上光标本就
+/// 接近这个高度，聚焦时光标上下顶格、点击热区也只有 24px，是「上下太窄」的来源。
+/// 现在交给 `isDense` + 上下留白自己撑开（约 33px），并且聚焦时在值下面画一条品牌
+/// 色细线，让「哪一格正在输入」看得见——收起焦点后这条线是透明的，静态版式与设计
+/// 稿一致。
+class _CredentialInput extends StatelessWidget {
+  const _CredentialInput({
+    required this.fieldKey,
+    required this.label,
+    required this.hintText,
+    required this.controller,
+    this.obscureText = false,
+    this.letterSpacing = 0,
+  });
+
+  final Key fieldKey;
+  final String label;
+  final String hintText;
+  final TextEditingController controller;
+  final bool obscureText;
+  final double letterSpacing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 13,
+          ),
+        ),
+        TextField(
+          key: fieldKey,
+          controller: controller,
+          obscureText: obscureText,
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 15,
+            letterSpacing: letterSpacing,
+          ),
+          decoration: InputDecoration(
+            isDense: true,
+            contentPadding: const EdgeInsets.only(top: 4, bottom: 6),
+            hintText: hintText,
+            hintStyle: const TextStyle(
+              color: AppColors.textTertiary,
+              fontSize: 15,
+            ),
+            border: const UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.transparent),
+            ),
+            enabledBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.transparent),
+            ),
+            focusedBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: AppColors.brandPrimary, width: 1.5),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
