@@ -10,6 +10,7 @@ import '../features/preview/preview_config.dart';
 import '../features/shell/presentation/shell_page.dart';
 import '../features/splash/presentation/splash_page.dart';
 import '../routes/app_routes.dart';
+import '../shared/l10n/app_l10n.dart';
 import '../state.dart';
 import '../tuya/tuya_repository.dart';
 
@@ -172,7 +173,7 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
             title: '智能花盆',
             debugShowCheckedModeBanner: false,
             theme: buildAppTheme(),
-            locale: Locale(state.languageCode),
+            locale: state.language.locale,
             // The first screen is built here rather than through
             // `initialRoute`, so the splash can be swapped for the real entry
             // point without a route transition. Pushed routes still go through
@@ -205,6 +206,12 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
             onGenerateRoute: (settings) => AppRoutes.onGenerateRoute(
               settings,
               authenticated: state.authenticated,
+            ),
+            // 语言作用域挂在 Navigator 之上，push 出来的业务页也在它下面：
+            // 切语言时所有读 AppL10n 的页面一起重译，不需要各页自己监听。
+            builder: (context, child) => AppLocalizationsScope(
+              language: state.language,
+              child: child ?? const SizedBox.shrink(),
             ),
           ),
         );

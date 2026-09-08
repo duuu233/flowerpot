@@ -8,6 +8,7 @@ import 'core/backend/backend.dart';
 import 'core/cache/image_cache_cleanup.dart';
 import 'core/network/api_exception.dart';
 import 'features/auth/domain/auth_validator.dart';
+import 'shared/l10n/app_language.dart';
 import 'tuya/tuya_config.dart';
 import 'tuya/tuya_memorial_codec.dart';
 import 'tuya/tuya_models.dart';
@@ -128,6 +129,10 @@ class FlowerpotState extends ChangeNotifier {
   bool get usingMockBackend => _repository is MockTuyaRepository;
   bool get usingAppBackend => _backend.enabled;
   String get languageCode => _languageCode;
+
+  /// 界面语言。文案目录 `AppL10n` 和 `MaterialApp` 都读这一个来源，
+  /// 认不出的历史取值按简体中文处理，见 [AppLanguage.fromCode]。
+  AppLanguage get language => AppLanguage.fromCode(_languageCode);
   AppUser? get user => _user;
 
   /// Last nearby-network scan, populated by [probeWifi]. Read by the pairing
@@ -1287,12 +1292,9 @@ class FlowerpotState extends ChangeNotifier {
     required String path,
   }) => _guard(() async {
     if (_backend.enabled) {
-      final backendDevice = await _ensureBackendDevice(deviceId);
-      await _backend.uploadImage(
-        userProductId: backendDevice.userProductId,
-        filePath: path,
-      );
-      await _refreshBackendImages(deviceId, backendDevice);
+      _requireBackendSession();
+      await _backend.uploadImage(deviceId: deviceId, filePath: path);
+      await _refreshBackendImages(deviceId);
       return const ActionResult(true, '图片已上传');
     }
     final asset = AnimationAsset(
@@ -1306,24 +1308,6 @@ class FlowerpotState extends ChangeNotifier {
     final index = _animations.indexWhere((item) => item.id == asset.id);
     if (index >= 0) _animations[index] = asset.copyWith(synced: true);
     return const ActionResult(true, '图片已上传并同步');
-  });
-
-  Future<ActionResult> syncAnimations(String deviceId) => _guard(() async {
-    if (_backend.enabled) {
-      final backendDevice = await _ensureBackendDevice(deviceId);
-      await _refreshBackendImages(deviceId, backendDevice);
-      return ActionResult(true, '已同步 ${animationsFor(deviceId).length} 个云端文件');
-    }
-    final files = _animations
-        .where((item) => !item.path.startsWith('builtin://'))
-        .toList(growable: false);
-    if (files.isEmpty) return const ActionResult(true, '暂无需要同步的文件');
-    for (final file in files) {
-      await _repository.uploadAnimation(deviceId, file);
-      final index = _animations.indexWhere((item) => item.id == file.id);
-      if (index >= 0) _animations[index] = file.copyWith(synced: true);
-    }
-    return ActionResult(true, '已同步 ${files.length} 个文件');
   });
 
   void pinAnimation(String id) {
@@ -1351,8 +1335,7 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<void> refreshAnimations(String deviceId) async {
     if (!_backend.enabled || !_backend.hasSession) return;
-    final backendDevice = await _ensureBackendDevice(deviceId);
-    await _refreshBackendImages(deviceId, backendDevice);
+    await _refreshBackendImages(deviceId);
   }
 
   Future<ActionResult> createShareLink(String id) => _guard(() async {
@@ -1982,13 +1965,18 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
+  /// 没有后端会话时按「登录失效」报错，图库上传和 [_ensureBackendDevice] 共用
+  /// 这一句，避免无 token 的请求打出去再靠 401 兜回来。
+  void _requireBackendSession() {
+    if (_backend.enabled && _backend.hasSession) return;
+    throw const ApiException(
+      'BACKEND_SESSION_REQUIRED',
+      'APP 后端登录状态已失效，请重新登录',
+    );
+  }
+
   Future<BackendUserProduct> _ensureBackendDevice(String deviceId) async {
-    if (!_backend.enabled || !_backend.hasSession) {
-      throw const ApiException(
-        'BACKEND_SESSION_REQUIRED',
-        'APP 后端登录状态已失效，请重新登录',
-      );
-    }
+    _requireBackendSession();
     final cached = _backendDevices[deviceId];
     if (cached != null && cached.productId != null) return cached;
 
@@ -2036,11 +2024,8 @@ class FlowerpotState extends ChangeNotifier {
     return created;
   }
 
-  Future<void> _refreshBackendImages(
-    String deviceId,
-    BackendUserProduct backendDevice,
-  ) async {
-    final images = await _backend.getImages(backendDevice.userProductId);
+  Future<void> _refreshBackendImages(String deviceId) async {
+    final images = await _backend.getImages(deviceId);
     _backendAnimations[deviceId] = images
         .map(
           (image) => AnimationAsset(

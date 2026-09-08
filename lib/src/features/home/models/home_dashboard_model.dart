@@ -34,10 +34,12 @@ class HomeDashboardModel {
   const HomeDashboardModel({
     required this.userLabel,
     required this.deviceId,
+    this.deviceName,
     required this.companionDays,
     required this.battery,
     required this.metrics,
-    required this.careMessage,
+    required this.careTitle,
+    required this.careMessages,
     required this.actions,
     required this.helpTopics,
     this.emptyTitle = '还未添加植物',
@@ -50,7 +52,10 @@ class HomeDashboardModel {
     required SmartPlanterDevice? device,
     required String userLabel,
     HomeDashboardScene scene = HomeDashboardScene.withCompanionSummary,
+    String language = 'zh',
   }) {
+    final english = language.trim().toLowerCase().startsWith('en');
+    final settings = device?.settings ?? const DeviceControlSettings();
     final sensors = device?.sensors;
     final waterLevel = sensors?.waterLevel ?? 78;
     final illuminance = sensors?.illuminance ?? 800;
@@ -63,10 +68,24 @@ class HomeDashboardModel {
         report.waterNeeds ?? TuyaStatusCopy.waterNeedsFor(waterLevel);
     final lighting = report.lighting ?? TuyaStatusCopy.lightingFor(illuminance);
     final airHumidity = report.humidity ?? TuyaStatusCopy.humidityFor(humidity);
+    // 温度卡片显示的是读数，但养护建议要的是 113 的冷热判断，兜底阈值和温度状态
+    // 页共用一份，先换算到设备当前上报的单位再比。
+    final airTemperature =
+        report.temperature ??
+        TuyaStatusCopy.temperatureFor(
+          sensors?.airTemperature ?? 25.5,
+          low: settings.temperatureFromCelsius(
+            TuyaStatusCopy.comfortableLowCelsius,
+          ),
+          high: settings.temperatureFromCelsius(
+            TuyaStatusCopy.comfortableHighCelsius,
+          ),
+        );
 
     return HomeDashboardModel(
       userLabel: userLabel,
       deviceId: device?.id,
+      deviceName: device?.name,
       // The same device must not read "已陪伴1天" here and "已陪伴127天" one
       // tap later, so both scenes use the bound date.
       companionDays: device?.companionDays ?? 52,
@@ -74,32 +93,40 @@ class HomeDashboardModel {
       metrics: <HomeMetricData>[
         HomeMetricData(
           kind: HomeMetricKind.water,
-          label: '需水状态',
-          value: TuyaStatusCopy.waterNeeds[waterNeeds]!.label,
+          label: english ? 'Water' : '需水状态',
+          value: TuyaStatusCopy.waterNeedsCopy(
+            waterNeeds,
+            language: language,
+          ).label,
         ),
         HomeMetricData(
           kind: HomeMetricKind.light,
-          label: '光照状态',
-          value: TuyaStatusCopy.lighting[lighting]!.label,
+          label: english ? 'Light' : '光照状态',
+          value: TuyaStatusCopy.lightingCopy(lighting, language: language).label,
         ),
         HomeMetricData(
           kind: HomeMetricKind.temperature,
-          label: '空气温度',
+          label: english ? 'Temperature' : '空气温度',
           // The reading is already in the unit `temp_unit_convert` selects, so
           // only the label follows the device.
-          value: (device?.settings ?? const DeviceControlSettings())
-              .formatTemperature(sensors?.airTemperature ?? 25.5),
+          value: settings.formatTemperature(sensors?.airTemperature ?? 25.5),
         ),
         HomeMetricData(
           kind: HomeMetricKind.humidity,
-          label: '相对湿度',
-          value: TuyaStatusCopy.airHumidity[airHumidity]!.label,
+          label: english ? 'Humidity' : '相对湿度',
+          value: TuyaStatusCopy.airHumidityCopy(
+            airHumidity,
+            language: language,
+          ).label,
         ),
       ],
-      careMessage: _careMessage(
+      careTitle: english ? "Today's care" : '今日养护',
+      careMessages: _careMessages(
         waterNeeds: waterNeeds,
         lighting: lighting,
+        temperature: airTemperature,
         humidity: airHumidity,
+        language: language,
       ),
       actions: const <HomeActionData>[
         HomeActionData(kind: HomeActionKind.animation, label: '定制动画'),
@@ -115,32 +142,43 @@ class HomeDashboardModel {
     );
   }
 
-  /// Advice that follows the readings shown right above it. A constant line
-  /// read as "今天状态良好" while the cards said 偏湿 and 偏弱.
+  /// 养护建议：四条状态功能点（107 / 108 / 113 / 115）当前取值各自对应的一句话，
+  /// 顺序和上面四张卡片一致（需水 → 光照 → 温度 → 湿度），由首页的养护卡片
+  /// `HomeCareBanner` 轮播。
   ///
-  /// 现在直接读三条状态功能点，和上面几张卡片同源；`very_good` 不再算警告——按 DP
-  /// 108 的定义那是「光合效率高」的好状态，不是原来那句「光照偏强」。
-  static String _careMessage({
+  /// 文案和状态详情页读同一张 [TuyaStatusCopy] 表：以前这里是自己写的一句总结，
+  /// 卡片说「偏湿」而这条说「今天状态良好」的情况就是这么来的。`very_good` 不算
+  /// 警告——按 DP 108 的定义那是「光合效率高」的好状态。
+  static List<String> _careMessages({
     required WaterNeedsStatus waterNeeds,
     required LightingCondition lighting,
+    required ComfortLevel temperature,
     required ComfortLevel humidity,
-  }) {
-    if (waterNeeds == WaterNeedsStatus.shortage) return '水仓快见底了，记得今天加一次水';
-    if (waterNeeds == WaterNeedsStatus.watery) return '水有点多，先暂停加水并保持通风';
-    if (lighting == LightingCondition.shortage) {
-      return '光线有点弱，可以把花盆挪到更亮堂的地方';
-    }
-    if (humidity == ComfortLevel.low) return '空气有点干，可以喷点水雾提高湿度';
-    if (humidity == ComfortLevel.high) return '空气有点潮，多通通风避免闷根';
-    return '今天状态良好，傍晚可适度通风';
-  }
+    required String language,
+  }) => <String>[
+    TuyaStatusCopy.waterNeedsCopy(waterNeeds, language: language).description,
+    TuyaStatusCopy.lightingCopy(lighting, language: language).description,
+    TuyaStatusCopy.airTemperatureCopy(
+      temperature,
+      language: language,
+    ).description,
+    TuyaStatusCopy.airHumidityCopy(humidity, language: language).description,
+  ];
 
   final String userLabel;
   final String? deviceId;
+
+  /// 设备名称，首页顶栏正中显示它。没有设备时为 null。
+  final String? deviceName;
   final int companionDays;
   final int battery;
   final List<HomeMetricData> metrics;
-  final String careMessage;
+
+  /// 养护卡片左边那几个字（「今日养护」）。
+  final String careTitle;
+
+  /// 轮播的四条养护建议，顺序与 [metrics] 一致。
+  final List<String> careMessages;
   final List<HomeActionData> actions;
   final List<String> helpTopics;
   final String emptyTitle;

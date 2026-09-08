@@ -80,7 +80,7 @@ class HomeEmptyDeviceContent extends StatelessWidget {
                           left: 18,
                           right: 18,
                           child: Text(
-                            '还没有连接智能花盆，请先添加设备开始养护吧',
+                            '还没有连接智能设备，请先添加设备开始养护吧',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: AppColors.textSecondary,

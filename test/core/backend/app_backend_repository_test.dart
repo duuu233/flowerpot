@@ -160,6 +160,45 @@ void main() {
     repository.close();
   });
 
+  test('设备图库按涂鸦 deviceId 查，不再换 userProductId', () async {
+    final session = ApiSession(storageKey: 'backend.images.token')
+      ..setToken('api-token');
+    final repository = HttpAppBackendRepository(
+      client: ApiClient(
+        baseUrl: 'https://example.test',
+        session: session,
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/Client/UserProduct/getUserProductImgList');
+          expect(
+            request.url.queryParameters['deviceId'],
+            'vdevo17235508413621',
+          );
+          // userProduct 那条前置链路已经删掉，这个参数不该再出现。
+          expect(
+            request.url.queryParameters.containsKey('userProductId'),
+            isFalse,
+          );
+          return _response(<String, Object?>{
+            'pageData': <Object?>[
+              <String, Object?>{
+                'uProductImgId': 31,
+                'img': 'https://cdn.example.test/first.gif',
+              },
+            ],
+          });
+        }),
+      ),
+    );
+
+    final images = await repository.getImages('vdevo17235508413621');
+
+    expect(images, hasLength(1));
+    expect(images.single.id, 31);
+    expect(images.single.name, 'first.gif');
+    expect(images.single.url, 'https://cdn.example.test/first.gif');
+    repository.close();
+  });
+
   test('anniversary list keeps only the requested device', () async {
     final session = ApiSession(storageKey: 'backend.anniversary.token')
       ..setToken('api-token');

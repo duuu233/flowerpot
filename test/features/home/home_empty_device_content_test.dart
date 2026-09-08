@@ -17,7 +17,7 @@ void main() {
 
     expect(find.bySemanticsLabel('YSplanter'), findsOneWidget);
     expect(find.text('暂无设备'), findsOneWidget);
-    expect(find.text('还没有连接智能花盆，请先添加设备开始养护吧'), findsOneWidget);
+    expect(find.text('还没有连接智能设备，请先添加设备开始养护吧'), findsOneWidget);
     expect(find.text('添加设备'), findsOneWidget);
     expect(find.text('小提示'), findsOneWidget);
     expect(find.text('1. 打开设备电源\n2. 请将设备放在手机附近'), findsOneWidget);

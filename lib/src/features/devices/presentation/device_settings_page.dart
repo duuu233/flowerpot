@@ -20,9 +20,6 @@ class DeviceSettingsPage extends StatefulWidget {
 }
 
 class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
-  /// 有开关正在下发。期间开关置灰，避免连点堆出一串指令。
-  bool updatingToggle = false;
-
   @override
   void initState() {
     super.initState();
@@ -86,9 +83,6 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
                   DeviceSettingsFunctionList(
                     items: model.menuItems,
                     onItemTap: (kind) => _openMenu(context, device, kind),
-                    onToggle: (kind, value) =>
-                        _setToggle(device.id, kind, value),
-                    togglesBusy: updatingToggle,
                   ),
                 ],
               ),
@@ -125,34 +119,10 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
       DeviceSettingsMenuKind.behavior => AppRoutes.behaviorSettings,
       DeviceSettingsMenuKind.memorial => AppRoutes.memorial,
       DeviceSettingsMenuKind.other => AppRoutes.deviceOtherSettings,
-      // 纯开关行不跳页，走 onToggle。
-      DeviceSettingsMenuKind.plantDetection => null,
+      DeviceSettingsMenuKind.plantDetection => AppRoutes.plantDetectionSettings,
     };
     if (route == null) return;
     Navigator.pushNamed(context, route, arguments: device.id);
-  }
-
-  /// 设置页上的纯开关。目前只有「自动检测植物」一条。
-  Future<void> _setToggle(
-    String deviceId,
-    DeviceSettingsMenuKind kind,
-    bool value,
-  ) async {
-    if (updatingToggle) return;
-    final key = switch (kind) {
-      DeviceSettingsMenuKind.plantDetection => 'plantDetection',
-      _ => null,
-    };
-    if (key == null) return;
-    setState(() => updatingToggle = true);
-    final result = await FlowerpotScope.of(
-      context,
-    ).updateSetting(deviceId, key, value);
-    if (!mounted) return;
-    setState(() => updatingToggle = false);
-    if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
-    }
   }
 
   Future<void> _share(BuildContext context, String id) async {

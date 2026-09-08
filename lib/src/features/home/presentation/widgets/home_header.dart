@@ -6,10 +6,15 @@ class HomeHeader extends StatelessWidget {
   const HomeHeader({
     required this.userLabel,
     super.key,
+    this.title,
     this.avatarImage,
     this.onAvatarTap,
     this.onBack,
   });
+
+  /// 顶栏正中显示的标题。已绑定设备的首页放设备名称；没有设备（或名字是空的）
+  /// 时退回品牌标识，未添加设备那一屏仍然是原来的样子。
+  final String? title;
 
   final String userLabel;
   final ImageProvider<Object>? avatarImage;
@@ -52,7 +57,24 @@ class HomeHeader extends StatelessWidget {
                     ),
                   ),
           ),
-          const _YsplanterLogo(),
+          if (title?.trim().isNotEmpty ?? false)
+            Padding(
+              // 左右让开头像/返回键和它们的点击热区，长名字省略号收尾。
+              padding: const EdgeInsets.symmetric(horizontal: 48),
+              child: Text(
+                title!.trim(),
+                key: const Key('home-device-name'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: AppTypography.pageTitle.copyWith(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else
+            const _YsplanterLogo(),
         ],
       ),
     );

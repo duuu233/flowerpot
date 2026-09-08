@@ -18,16 +18,12 @@ class DeviceSettingsMenuItem {
     required this.kind,
     required this.label,
     this.value,
-    this.toggle,
     this.badge = false,
   });
 
   final DeviceSettingsMenuKind kind;
   final String label;
   final String? value;
-
-  /// 非空时这一行是纯开关：行尾画 Switch 而不是取值和箭头，点击切换而不是跳页。
-  final bool? toggle;
 
   /// 行尾的小红点。「其他设置」在有待装固件时点亮，用户不必先点进去才知道。
   final bool badge;
@@ -63,7 +59,8 @@ class DeviceSettingsPageModel {
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.plantDetection,
           label: '自动检测植物',
-          toggle: settings.plantDetection,
+          // 和 LED 设置同款：这一行只显示状态，开关放在自己的页面里。
+          value: settings.plantDetection ? '已开启' : '已关闭',
         ),
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.display,

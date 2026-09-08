@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
+import '../../../routes/app_routes.dart';
+import '../../../shared/l10n/app_l10n.dart';
 import '../models/behavior_settings_page_model.dart';
 import 'widgets/behavior_schedule_card.dart';
 import 'widgets/schedule_slot_dialog.dart';
@@ -139,6 +141,29 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
                     _setEnabled(BehaviorScheduleKind.night, value),
                 onStartTimeTap: () => _editSlot(model.night, start: true),
                 onEndTimeTap: () => _editSlot(model.night, start: false),
+              ),
+              const SizedBox(height: 12),
+              // 休眠是「多久没人理就睡」，和午休/夜间这两个时段同属行为，所以入口
+              // 放在这一页；开关和延迟时间在自己的页面里改（DP 151 / 152）。
+              AppSettingsList(
+                showDividers: false,
+                borderRadius: AppRadius.large,
+                children: <Widget>[
+                  AppSettingsTile(
+                    key: const Key('standby-settings-entry'),
+                    title: AppL10n.of(context).standby,
+                    value: device.settings.standbyEnabled
+                        ? AppL10n.of(context).on
+                        : AppL10n.of(context).off,
+                    minTileHeight: 46,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      AppRoutes.standbySettings,
+                      arguments: widget.deviceId,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

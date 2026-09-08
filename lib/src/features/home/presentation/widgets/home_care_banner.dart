@@ -1,14 +1,81 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../design_system/design_system.dart';
 
-class HomeCareBanner extends StatelessWidget {
-  const HomeCareBanner({required this.message, super.key});
+/// 首页「今日养护」：把四条状态建议轮流播出来。
+///
+/// 一条状态一句话（需水 → 光照 → 温度 → 湿度，与上面四张卡片同序同源），每
+/// [interval] 换一条：旧的一句往下淡出、新的一句从下面淡入。只有一条时不轮播，
+/// 也不起定时器。
+class HomeCareBanner extends StatefulWidget {
+  const HomeCareBanner({
+    required this.messages,
+    this.title = '今日养护',
+    this.interval = const Duration(seconds: 5),
+    super.key,
+  });
 
-  final String message;
+  /// 轮播内容，顺序由 `HomeDashboardModel.careMessages` 决定。
+  final List<String> messages;
+
+  /// 左边那几个字，跟着界面语言走。
+  final String title;
+
+  /// 切换间隔。
+  final Duration interval;
+
+  @override
+  State<HomeCareBanner> createState() => _HomeCareBannerState();
+}
+
+class _HomeCareBannerState extends State<HomeCareBanner> {
+  /// 文字区固定两行高。建议长短不一（「继续保持。」和「水仓快见底了，根系快吸
+  /// 不到水了，该加水啦。」差一倍），不固定住的话每切一条卡片就会抽一下。
+  static const double _messageHeight = 36;
+
+  static const Duration _transition = Duration(milliseconds: 420);
+
+  int _index = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _restartTimer();
+  }
+
+  @override
+  void didUpdateWidget(HomeCareBanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.messages.length != oldWidget.messages.length ||
+        widget.interval != oldWidget.interval) {
+      // 条数变了（例如换了设备）先把下标收回有效范围，再按新的间隔重新计时。
+      _index = widget.messages.isEmpty ? 0 : _index % widget.messages.length;
+      _restartTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _restartTimer() {
+    _timer?.cancel();
+    if (widget.messages.length < 2) return;
+    _timer = Timer.periodic(widget.interval, (_) {
+      if (!mounted) return;
+      setState(() => _index = (_index + 1) % widget.messages.length);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final messages = widget.messages;
+    final message = messages.isEmpty ? '' : messages[_index % messages.length];
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 44),
       child: AppSurfaceCard(
@@ -24,11 +91,11 @@ class HomeCareBanner extends StatelessWidget {
               height: 18,
               fit: BoxFit.contain,
               filterQuality: FilterQuality.high,
-              semanticLabel: '今日养护',
+              semanticLabel: widget.title,
             ),
             const SizedBox(width: AppSpacing.lg),
             Text(
-              '今日养护',
+              widget.title,
               style: AppTypography.compactBody.copyWith(
                 color: AppColors.brandPrimary,
                 fontWeight: FontWeight.w500,
@@ -36,14 +103,35 @@ class HomeCareBanner extends StatelessWidget {
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  message,
-                  maxLines: 1,
-                  style: AppTypography.compactBody.copyWith(
-                    color: AppColors.textPrimary,
+              child: SizedBox(
+                height: _messageHeight,
+                child: AnimatedSwitcher(
+                  duration: _transition,
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, .35),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  ),
+                  child: Align(
+                    // 语言切换后同一个下标也要重播，所以键里带上文案本身。
+                    key: ValueKey<String>('$_index:$message'),
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.compactBody.copyWith(
+                        color: AppColors.textPrimary,
+                        height: 1.35,
+                      ),
+                    ),
                   ),
                 ),
               ),

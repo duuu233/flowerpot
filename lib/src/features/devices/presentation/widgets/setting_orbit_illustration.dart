@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../design_system/design_system.dart';
 
-enum DeviceSettingSymbol { brightness, sound, vibration, touch }
+enum DeviceSettingSymbol { brightness, sound, vibration, touch, plant }
 
 class DeviceSettingOrbitIllustration extends StatelessWidget {
   const DeviceSettingOrbitIllustration({required this.symbol, super.key});
@@ -16,6 +16,7 @@ class DeviceSettingOrbitIllustration extends StatelessWidget {
       DeviceSettingSymbol.sound => 78.0,
       DeviceSettingSymbol.vibration => 76.0,
       DeviceSettingSymbol.touch => 68.0,
+      DeviceSettingSymbol.plant => 66.0,
     };
     return RepaintBoundary(
       child: Stack(
@@ -47,6 +48,7 @@ class DeviceSettingOrbitIllustration extends StatelessWidget {
     DeviceSettingSymbol.sound => AppAssets.hearingWaveformSymbol,
     DeviceSettingSymbol.vibration => AppAssets.vibrationSymbol,
     DeviceSettingSymbol.touch => AppAssets.touchGestureSymbol,
+    DeviceSettingSymbol.plant => AppAssets.selectPlantIcon,
   };
 
   String _semanticLabelFor(DeviceSettingSymbol symbol) => switch (symbol) {
@@ -54,5 +56,6 @@ class DeviceSettingOrbitIllustration extends StatelessWidget {
     DeviceSettingSymbol.sound => '听觉感知',
     DeviceSettingSymbol.vibration => '震动设置',
     DeviceSettingSymbol.touch => '触觉感知',
+    DeviceSettingSymbol.plant => '自动检测植物',
   };
 }

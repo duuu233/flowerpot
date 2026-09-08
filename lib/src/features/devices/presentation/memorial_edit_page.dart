@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
+import '../../../shared/l10n/app_l10n.dart';
 import '../../../tuya/tuya_memorial_codec.dart';
 
 /// Route arguments for [MemorialEditPage].
@@ -87,6 +88,15 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
     final title = _fixed ? _entry.title : _titleController.text.trim();
     if (!_fixed && title.isEmpty) {
       showAppMessage(context, '请输入纪念日标题', tone: AppMessageTone.error);
+      return;
+    }
+    // 日期是纪念日的主键信息，没选就存下去，设备侧只会拿到一个空日期。
+    if (_entry.date == null) {
+      showAppMessage(
+        context,
+        AppL10n.of(context).memorialPickDate,
+        tone: AppMessageTone.error,
+      );
       return;
     }
     final content = _content();
@@ -302,6 +312,12 @@ class _FieldLabel extends StatelessWidget {
   }
 }
 
+/// 三个输入框（标题 / 日期 / 文字内容）共用的圆角。
+///
+/// 设计稿上这三个框是同一个形状，之前统一用 `AppRadius.card`（16），在这种矮框上
+/// 显得过圆；12 更贴设计稿，也不会把 46~56 高的框做成胶囊。
+const BorderRadius _fieldRadius = BorderRadius.all(Radius.circular(12));
+
 class _FilledField extends StatelessWidget {
   const _FilledField({required this.child, this.height = 56});
 
@@ -313,7 +329,7 @@ class _FilledField extends StatelessWidget {
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: AppColors.canvas,
-        borderRadius: AppRadius.card,
+        borderRadius: _fieldRadius,
       ),
       child: SizedBox(
         height: height,
@@ -336,10 +352,10 @@ class _DateField extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: AppColors.canvas,
-      borderRadius: AppRadius.card,
+      borderRadius: _fieldRadius,
       child: InkWell(
         key: const Key('memorial-date-field'),
-        borderRadius: AppRadius.card,
+        borderRadius: _fieldRadius,
         onTap: onTap,
         child: SizedBox(
           height: 56,
@@ -500,15 +516,17 @@ class _TextContentFieldState extends State<_TextContentField> {
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: AppColors.canvas,
-        borderRadius: AppRadius.card,
+        borderRadius: _fieldRadius,
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+        // 左右和标题、日期两个输入框对齐（16），上下留出与之相称的呼吸；原来是
+        // 14/10 的不对称边距，配上 16 的大圆角，看着比上面两个框圆一圈也挤一圈。
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             SizedBox(
-              height: 92,
+              height: 104,
               child: TextField(
                 key: const Key('memorial-text-field'),
                 controller: widget.controller,
@@ -521,7 +539,7 @@ class _TextContentFieldState extends State<_TextContentField> {
                 onChanged: (_) => setState(() {}),
                 style: const TextStyle(
                   color: AppColors.textPrimary,
-                  fontSize: 16,
+                  fontSize: 17,
                   height: 1.5,
                 ),
                 decoration: const InputDecoration(
@@ -531,7 +549,7 @@ class _TextContentFieldState extends State<_TextContentField> {
                   hintText: '请输入纪念日文字内容...',
                   hintStyle: TextStyle(
                     color: AppColors.textTertiary,
-                    fontSize: 16,
+                    fontSize: 17,
                   ),
                 ),
               ),

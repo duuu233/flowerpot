@@ -102,14 +102,14 @@ void main() {
       ),
       onPairingArguments: (value) => pairingArguments = value,
     );
-    await tester.pumpAndSettle();
+    await _runOutSearchWindow(tester);
 
     expect(find.text('device-selection-target'), findsNothing);
     expect(find.text('未发现配网中的设备'), findsOneWidget);
-    expect(
-      find.textContaining('手机当前连接：TP-LINK_5G（5G，配网需要 2.4G）'),
-      findsOneWidget,
-    );
+    // 扫描台数、手机当前连接、手动选择这三段都已下线。
+    expect(find.textContaining('扫描到'), findsNothing);
+    expect(find.textContaining('手机当前连接'), findsNothing);
+    expect(find.byKey(const Key('device-search-manual-pick')), findsNothing);
     expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
 
     // Provisioning still has to be reachable: the scan is evidence, not a gate.
@@ -121,13 +121,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('an unrecognized scan still opens the manual pick', (
-    tester,
-  ) async {
-    // The planter's hotspot can be named outside the known prefixes. It is in
-    // the scan either way, so the selection page — which lists the raw scan —
-    // has to stay reachable instead of the flow dead-ending here.
-    Object? selectionArguments = 'unset';
+  testWidgets('认不出热点时不再提供手动选择，只剩重新扫描和继续', (tester) async {
     await _pumpDeviceSearchPage(
       tester,
       const Size(375, 812),
@@ -140,17 +134,28 @@ void main() {
           ],
         ),
       ),
-      onSelectionArguments: (value) => selectionArguments = value,
     );
-    await tester.pumpAndSettle();
+    await _runOutSearchWindow(tester);
 
     expect(find.text('未发现配网中的设备'), findsOneWidget);
-    expect(find.textContaining('用下面的手动选择'), findsOneWidget);
+    expect(find.textContaining('手动选择'), findsNothing);
+    expect(find.byKey(const Key('device-search-manual-pick')), findsNothing);
+    expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
+    expect(find.byKey(const Key('device-search-continue')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
-    final manualPick = find.byKey(const Key('device-search-manual-pick'));
-    await tester.ensureVisible(manualPick);
-    await tester.pumpAndSettle();
-    await tester.tap(manualPick);
+  testWidgets('45 秒窗口内会反复扫描，中途出现的设备热点照样能进下一步', (tester) async {
+    // 用户长按设备让它进配网时，第一次扫描往往还看不到热点。窗口没走完就一直
+    // 重扫，热点一出现就走，不用用户自己点「重新扫描」。
+    Object? selectionArguments = 'unset';
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: _LateHotspotRepository(silentScans: 2),
+      onSelectionArguments: (value) => selectionArguments = value,
+    );
+    await tester.pump(const Duration(seconds: 6));
     await tester.pumpAndSettle();
 
     expect(find.text('device-selection-target'), findsOneWidget);
@@ -169,7 +174,7 @@ void main() {
         const WifiScan(current: 'Home_2.4G', networks: <WifiNetwork>[]),
       ),
     );
-    await tester.pumpAndSettle();
+    await _runOutSearchWindow(tester);
 
     expect(find.text('无法列出附近设备'), findsOneWidget);
     expect(find.byKey(const Key('device-search-continue')), findsOneWidget);
@@ -189,6 +194,12 @@ void main() {
     expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+}
+
+/// 跑满一整轮搜索窗口：窗口内页面一直显示「搜索中」，走完才给出结论。
+Future<void> _runOutSearchWindow(WidgetTester tester) async {
+  await tester.pump(DeviceSearchPage.searchWindow + const Duration(seconds: 1));
+  await tester.pumpAndSettle();
 }
 
 Future<FlowerpotState> _pumpDeviceSearchPage(
@@ -246,6 +257,37 @@ class _ScanRepository extends MockTuyaRepository {
 
   @override
   Future<WifiScan> scanWifi() async => scan;
+}
+
+/// 前 [silentScans] 次扫描只看得到路由器，之后设备热点才出现。
+class _LateHotspotRepository extends MockTuyaRepository {
+  _LateHotspotRepository({required this.silentScans})
+    : super(latency: Duration.zero);
+
+  final int silentScans;
+  int _calls = 0;
+
+  @override
+  Future<WifiScan> scanWifi() async {
+    final seen = _calls++;
+    if (seen < silentScans) {
+      return const WifiScan(
+        current: 'TP-LINK_2.4G',
+        currentFrequency: 2437,
+        networks: <WifiNetwork>[
+          WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+        ],
+      );
+    }
+    return const WifiScan(
+      current: 'TP-LINK_2.4G',
+      currentFrequency: 2437,
+      networks: <WifiNetwork>[
+        WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+        WifiNetwork(ssid: 'SmartLife-A1B2', level: -58, frequency: 2412),
+      ],
+    );
+  }
 }
 
 class _FailingScanRepository extends MockTuyaRepository {

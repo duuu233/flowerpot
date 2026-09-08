@@ -53,9 +53,12 @@ abstract class AppBackendRepository {
   /// 所以不再先查 `getProductList` 换 productId——不传就是后台配置的全部植物。
   Future<List<PlantProfile>> getProductPlants({String keyword = ''});
 
-  Future<List<BackendImage>> getImages(int userProductId);
+  /// 设备图库按涂鸦 `deviceId` 走，不再先用 `getUserProductList` 换后端的
+  /// `userProductId`：设备档案由涂鸦提供，看一眼图片不该先在后端建一条用户产品
+  /// 记录，那条链路上任何一个接口不可用（例如 404）都会把图库整页顶掉。
+  Future<List<BackendImage>> getImages(String deviceId);
   Future<void> uploadImage({
-    required int userProductId,
+    required String deviceId,
     required String filePath,
   });
   Future<void> deleteImages(List<int> imageIds);
@@ -196,11 +199,11 @@ class DisabledAppBackendRepository implements AppBackendRepository {
       _disabled();
 
   @override
-  Future<List<BackendImage>> getImages(int userProductId) async => _disabled();
+  Future<List<BackendImage>> getImages(String deviceId) async => _disabled();
 
   @override
   Future<void> uploadImage({
-    required int userProductId,
+    required String deviceId,
     required String filePath,
   }) async => _disabled();
 
@@ -492,27 +495,27 @@ class HttpAppBackendRepository implements AppBackendRepository {
       ).map(_plant).toList(growable: false);
 
   @override
-  Future<List<BackendImage>> getImages(int userProductId) async =>
+  Future<List<BackendImage>> getImages(String deviceId) async =>
       extractApiRows(
         await _client.getJson(
           '/Client/UserProduct/getUserProductImgList',
           query: <String, Object?>{
             'pageIndex': 1,
             'pageSize': 100,
-            'userProductId': userProductId,
+            'deviceId': deviceId,
           },
         ),
       ).map(_image).where((item) => item.id > 0).toList(growable: false);
 
   @override
   Future<void> uploadImage({
-    required int userProductId,
+    required String deviceId,
     required String filePath,
   }) async {
     await _client.upload(
       '/Client/Basic/setUserProductUpload',
       filePaths: <String>[filePath],
-      query: <String, Object?>{'userProductId': userProductId},
+      query: <String, Object?>{'deviceId': deviceId},
     );
   }
 

@@ -143,6 +143,7 @@ void main() {
 
     await state.refreshAnimations(deviceId);
     expect(state.animations.map((item) => item.id), <String>['31']);
+    expect(backend.lastListDeviceId, deviceId);
 
     final upload = await state.addAnimation(
       deviceId,
@@ -150,6 +151,7 @@ void main() {
       path: 'C:/tmp/new.gif',
     );
     expect(upload.success, isTrue);
+    expect(backend.lastUploadDeviceId, deviceId);
     expect(state.animations.map((item) => item.id), <String>['31', '32']);
 
     final deletion = await state.deleteAnimation(deviceId, '31');
@@ -334,27 +336,24 @@ class _ImageBackend extends _RecordingBackend {
     ),
   ];
 
-  /// 设备图库不在主流程上，它仍旧要靠 userProduct 记录拿 `userProductId`。
-  @override
-  Future<List<BackendUserProduct>> getUserProducts() async =>
-      const <BackendUserProduct>[
-        BackendUserProduct(
-          userProductId: 5,
-          productId: 9,
-          deviceId: 'vdevo17235508413621',
-          productName: '智能花盆',
-        ),
-      ];
+  /// 图库只认涂鸦 `deviceId`：userProduct 那几个接口在 `_RecordingBackend` 里仍是
+  /// `_forbidden`，图库流程一旦又去换 `userProductId` 就会让用例失败。下面两个字段
+  /// 记下实际传给后端的设备号。
+  String? lastListDeviceId;
+  String? lastUploadDeviceId;
 
   @override
-  Future<List<BackendImage>> getImages(int userProductId) async =>
-      List<BackendImage>.of(images);
+  Future<List<BackendImage>> getImages(String deviceId) async {
+    lastListDeviceId = deviceId;
+    return List<BackendImage>.of(images);
+  }
 
   @override
   Future<void> uploadImage({
-    required int userProductId,
+    required String deviceId,
     required String filePath,
   }) async {
+    lastUploadDeviceId = deviceId;
     events.add('backend:upload:$filePath');
     images.add(
       const BackendImage(

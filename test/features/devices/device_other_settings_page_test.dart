@@ -21,11 +21,12 @@ void main() {
     expect(find.text('时钟模式'), findsOneWidget);
     expect(find.text('24小时'), findsOneWidget);
     expect(find.text('水位传感器校准'), findsOneWidget);
-    expect(find.text('系统文件更新'), findsOneWidget);
-    expect(find.textContaining('YSplanter的表情'), findsOneWidget);
+    // 「系统文件更新」「修复系统文件」及其说明条已下线（都只是弹一句「暂未开放」）。
+    expect(find.text('系统文件更新'), findsNothing);
+    expect(find.textContaining('YSplanter的表情'), findsNothing);
+    expect(find.text('修复系统文件'), findsNothing);
     expect(find.text('固件版本更新'), findsOneWidget);
     expect(find.text('V1.0.0'), findsOneWidget);
-    expect(find.text('修复系统文件'), findsOneWidget);
     expect(find.text('重新配网'), findsOneWidget);
     expect(find.text('恢复出厂设置'), findsOneWidget);
     expect(find.text('移除设备'), findsOneWidget);

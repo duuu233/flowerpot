@@ -146,6 +146,7 @@ class _HomePageState extends State<HomePage> {
           device: device,
           userLabel: state.user?.nickname ?? '用户',
           scene: widget.scene,
+          language: state.languageCode,
         );
     final avatarImage = resolveUserAvatar(state.user?.avatarUrl);
     void goBack() => Navigator.of(context).maybePop();
@@ -200,6 +201,7 @@ class _HomePageState extends State<HomePage> {
                             children: <Widget>[
                               HomeHeader(
                                 userLabel: model.userLabel,
+                                title: model.deviceName,
                                 avatarImage: avatarImage,
                                 onAvatarTap: onAvatarTap,
                                 onBack: onBack,
@@ -225,7 +227,10 @@ class _HomePageState extends State<HomePage> {
                               SizedBox(
                                 height: model.showCompanionSummary ? 18 : 9,
                               ),
-                              HomeCareBanner(message: model.careMessage),
+                              HomeCareBanner(
+                                title: model.careTitle,
+                                messages: model.careMessages,
+                              ),
                               const SizedBox(height: 12),
                               HomeQuickActions(
                                 actions: model.actions,

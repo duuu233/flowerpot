@@ -12,8 +12,11 @@ void main() {
     final state = await _pumpAnimationsPage(tester, const Size(375, 812));
 
     expect(find.text('定制动画'), findsOneWidget);
-    expect(find.text('文件同步'), findsOneWidget);
-    expect(find.text('仅支持屏幕录制或本地文件。'), findsOneWidget);
+    // 「文件同步」和权限提示条已经下线，上传说明也只提本地图片。
+    expect(find.text('文件同步'), findsNothing);
+    expect(find.text('仅支持屏幕录制或本地文件。'), findsNothing);
+    expect(find.text('点击这里重新授权'), findsNothing);
+    expect(find.text('支持本地图片文件上传'), findsOneWidget);
     expect(find.text('提示'), findsOneWidget);
     expect(find.text('上传文件'), findsOneWidget);
     expect(find.text('Files  0/10'), findsOneWidget);
@@ -58,15 +61,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('sync action reports an empty user file list', (tester) async {
-    await _pumpAnimationsPage(tester, const Size(375, 812));
-
-    await tester.tap(find.text('文件同步'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('暂无需要同步的文件'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
 }
 
 Future<FlowerpotState> _pumpAnimationsPage(

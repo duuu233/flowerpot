@@ -3,9 +3,10 @@ import '../../../tuya/tuya_status_copy.dart';
 
 /// The comfortable band this app falls back on, in Celsius. The device
 /// reports its own verdict through `air_temperature_status`; these numbers
-/// only fill in until it does, and get converted for display.
-const _comfortableLow = 18.0;
-const _comfortableHigh = 28.0;
+/// only fill in until it does, and get converted for display. 首页的养护建议读
+/// 的是同一份，所以放在 [TuyaStatusCopy] 上而不是各写一份。
+const _comfortableLow = TuyaStatusCopy.comfortableLowCelsius;
+const _comfortableHigh = TuyaStatusCopy.comfortableHighCelsius;
 
 class TemperatureStatusPageModel {
   const TemperatureStatusPageModel({

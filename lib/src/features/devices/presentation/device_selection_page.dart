@@ -32,10 +32,6 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
   bool _scanning = false;
   ActionResult? _result;
 
-  /// Whether the rest of the scan is listed under the recognized hotspots.
-  /// Forced on when nothing was recognized — there is nothing else to show.
-  bool _showAllNetworks = false;
-
   @override
   void initState() {
     super.initState();
@@ -66,13 +62,13 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
   /// Nothing is "connected" here: joining a hotspot is a system-level action
   /// the app cannot perform. The name is
   /// carried so the next page can name the hotspot to join in AP mode.
-  void _connect(WifiNetwork? device) {
+  void _connect(WifiNetwork device) {
     Navigator.pushNamed(
       context,
       AppRoutes.pairing,
       arguments: PairingArguments(
-        deviceName: device?.ssid,
-        hotspotSsid: device?.ssid,
+        deviceName: device.ssid,
+        hotspotSsid: device.ssid,
         // Carries the credentials back when arriving from the failure page.
         request: widget.request,
       ),
@@ -86,8 +82,7 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
     final others = scan?.otherNetworks ?? const <WifiNetwork>[];
     // Nothing was recognized: the raw scan is all there is, so it is listed
     // straight away rather than behind a "show more" the user has to find.
-    final showingAll = _showAllNetworks || hotspots.isEmpty;
-    final devices = showingAll
+    final devices = hotspots.isEmpty
         ? <WifiNetwork>[...hotspots, ...others]
         : hotspots;
     return AppPageScaffold(
@@ -130,7 +125,6 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
                       message: _emptyMessage(scan, pending),
                       scanning: pending,
                       onRescan: _scan,
-                      onContinue: () => _connect(null),
                     )
                   else ...<Widget>[
                     if (hotspots.isEmpty) ...<Widget>[
@@ -143,15 +137,7 @@ class _DeviceSelectionPageState extends State<DeviceSelectionPage> {
                       onConnect: _connect,
                     ),
                     const SizedBox(height: 12),
-                    _ScanFooter(
-                      scanning: _scanning,
-                      onRescan: _scan,
-                      // Only offered while something is actually hidden.
-                      onShowAll: showingAll || others.isEmpty
-                          ? null
-                          : () => setState(() => _showAllNetworks = true),
-                      onContinue: () => _connect(null),
-                    ),
+                    _ScanFooter(scanning: _scanning, onRescan: _scan),
                   ],
                 ],
               ),
@@ -255,13 +241,11 @@ class _EmptySelectionCard extends StatelessWidget {
     required this.message,
     required this.scanning,
     required this.onRescan,
-    required this.onContinue,
   });
 
   final String message;
   final bool scanning;
   final VoidCallback onRescan;
-  final VoidCallback onContinue;
 
   @override
   Widget build(BuildContext context) {
@@ -309,14 +293,6 @@ class _EmptySelectionCard extends StatelessWidget {
                     : const Text('重新扫描'),
               ),
             ),
-            TextButton(
-              key: const Key('device-selection-continue'),
-              onPressed: onContinue,
-              child: const Text(
-                '设备已在配网状态，继续',
-                style: TextStyle(color: AppColors.brandPrimary, fontSize: 14),
-              ),
-            ),
           ],
         ),
       ),
@@ -325,20 +301,10 @@ class _EmptySelectionCard extends StatelessWidget {
 }
 
 class _ScanFooter extends StatelessWidget {
-  const _ScanFooter({
-    required this.scanning,
-    required this.onRescan,
-    required this.onShowAll,
-    required this.onContinue,
-  });
+  const _ScanFooter({required this.scanning, required this.onRescan});
 
   final bool scanning;
   final VoidCallback onRescan;
-
-  /// Null once the rest of the scan is already on screen, or when there is
-  /// nothing else to reveal.
-  final VoidCallback? onShowAll;
-  final VoidCallback onContinue;
 
   @override
   Widget build(BuildContext context) {
@@ -350,25 +316,6 @@ class _ScanFooter extends StatelessWidget {
           child: Text(
             scanning ? '正在扫描...' : '没找到设备？重新扫描',
             style: const TextStyle(color: AppColors.brandPrimary, fontSize: 14),
-          ),
-        ),
-        // The prefix whitelist can miss a planter, so the raw scan stays
-        // reachable even when it did match something.
-        if (onShowAll case final VoidCallback showAll)
-          TextButton(
-            key: const Key('device-selection-show-all'),
-            onPressed: showAll,
-            child: const Text(
-              '设备不在上面？显示附近全部网络',
-              style: TextStyle(color: AppColors.brandPrimary, fontSize: 14),
-            ),
-          ),
-        TextButton(
-          key: const Key('device-selection-continue'),
-          onPressed: onContinue,
-          child: const Text(
-            '设备已在配网状态，继续',
-            style: TextStyle(color: AppColors.brandPrimary, fontSize: 14),
           ),
         ),
       ],

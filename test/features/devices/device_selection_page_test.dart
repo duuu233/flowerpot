@@ -161,48 +161,36 @@ void main() {
     expect(find.text('TP-LINK_2.4G'), findsOneWidget);
     expect(find.text('YS-8987'), findsOneWidget);
     expect(find.byKey(const Key('device-selection-empty')), findsNothing);
-    // Everything is already on screen, so there is nothing left to reveal.
+    // 「显示附近全部网络」「设备已在配网状态，继续」都已下线。
     expect(find.byKey(const Key('device-selection-show-all')), findsNothing);
+    expect(find.byKey(const Key('device-selection-continue')), findsNothing);
 
-    // The notice pushes the footer past the fold on a 812pt screen.
-    final continueButton = find.byKey(const Key('device-selection-continue'));
-    await tester.ensureVisible(continueButton);
-    await tester.pumpAndSettle();
-    await tester.tap(continueButton);
+    // 往下走只剩「从列表里挑一个」这一条路。
+    await tester.tap(find.byKey(const Key('connect-device-0')));
     await tester.pumpAndSettle();
 
     expect(find.text('pairing-wifi-target'), findsOneWidget);
-    // Nothing was picked, so no device name is invented for the next page.
-    expect((pairingArguments! as PairingArguments).hotspotSsid, isNull);
+    expect(
+      (pairingArguments! as PairingArguments).hotspotSsid,
+      'TP-LINK_2.4G',
+    );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the rest of the scan is one tap away when a hotspot matched', (
-    tester,
-  ) async {
+  testWidgets('认出热点时只列设备，不再提供「显示附近全部网络」', (tester) async {
     await _pumpDeviceSelectionPage(tester, const Size(375, 812));
 
-    expect(find.text('TP-LINK_2.4G'), findsNothing);
-
-    final showAll = find.byKey(const Key('device-selection-show-all'));
-    await tester.ensureVisible(showAll);
-    await tester.pumpAndSettle();
-    await tester.tap(showAll);
-    await tester.pumpAndSettle();
-
-    // The recognized hotspot keeps the top spot, the routers follow it.
+    // 认出来的热点是唯一一行，路由器不再能被展开出来。
     expect(find.text('SmartLife-A1B2'), findsOneWidget);
-    expect(find.text('TP-LINK_2.4G'), findsOneWidget);
-    expect(find.text('Xiaomi_2.4G'), findsOneWidget);
-    expect(find.text('TP-LINK_5G'), findsNothing);
+    expect(find.text('TP-LINK_2.4G'), findsNothing);
+    expect(find.text('Xiaomi_2.4G'), findsNothing);
     expect(find.byKey(const Key('device-selection-show-all')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a scan with nothing on 2.4 GHz leaves a rescan and a way on', (
+  testWidgets('a scan with nothing on 2.4 GHz leaves a rescan', (
     tester,
   ) async {
-    Object? pairingArguments;
     await _pumpDeviceSelectionPage(
       tester,
       const Size(375, 812),
@@ -215,20 +203,13 @@ void main() {
           ],
         ),
       ),
-      onPairingArguments: (value) => pairingArguments = value,
     );
 
     expect(find.text('未发现配网中的设备'), findsOneWidget);
     expect(find.byKey(const Key('device-selection-empty')), findsOneWidget);
     expect(find.byKey(const Key('connect-device-0')), findsNothing);
     expect(find.byKey(const Key('device-selection-rescan')), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('device-selection-continue')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('pairing-wifi-target'), findsOneWidget);
-    // Nothing was observed, so no device name is invented for the next page.
-    expect((pairingArguments! as PairingArguments).hotspotSsid, isNull);
+    expect(find.byKey(const Key('device-selection-continue')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

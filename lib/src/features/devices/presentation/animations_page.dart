@@ -56,30 +56,7 @@ class _AnimationsPageState extends State<AnimationsPage> {
         .where((item) => !item.path.startsWith('builtin://'))
         .toList(growable: false);
     return AppPageScaffold(
-      appBar: AppPageHeader(
-        title: '定制动画',
-        leading: const AppBackButton(),
-        actions: <Widget>[
-          TextButton.icon(
-            onPressed: state.busy ? null : () => _syncFiles(context),
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.textSecondary,
-              backgroundColor: AppColors.surface.withValues(alpha: .72),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              shape: const StadiumBorder(),
-            ),
-            icon: Image.asset(
-              AppAssets.refreshIcon,
-              width: 20,
-              height: 20,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.high,
-              excludeFromSemantics: true,
-            ),
-            label: const Text('文件同步'),
-          ),
-        ],
-      ),
+      appBar: const AppPageHeader(title: '定制动画', leading: AppBackButton()),
       background: AppPageBackground.standard,
       body: CustomScrollView(
         slivers: <Widget>[
@@ -94,10 +71,6 @@ class _AnimationsPageState extends State<AnimationsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  _PermissionBanner(
-                    onAuthorize: state.busy ? null : () => _pickFile(context),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
                   const _AnimationTipsCard(),
                   const SizedBox(height: AppSpacing.md),
                   _UploadCard(
@@ -147,17 +120,6 @@ class _AnimationsPageState extends State<AnimationsPage> {
       name: file.name,
       path: file.path,
     );
-    if (!context.mounted) return;
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
-  }
-
-  Future<void> _syncFiles(BuildContext context) async {
-    final state = FlowerpotScope.of(context);
-    final result = await state.syncAnimations(widget.deviceId);
     if (!context.mounted) return;
     showAppMessage(
       context,
@@ -245,60 +207,6 @@ class _AnimationsPageState extends State<AnimationsPage> {
   }
 }
 
-class _PermissionBanner extends StatelessWidget {
-  const _PermissionBanner({required this.onAuthorize});
-
-  final VoidCallback? onAuthorize;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.dangerSurface,
-      borderRadius: AppRadius.card,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        child: Row(
-          children: <Widget>[
-            Image.asset(
-              AppAssets.warningIcon,
-              width: 40,
-              height: 40,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.high,
-              semanticLabel: '权限提示',
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    '仅支持屏幕录制或本地文件。',
-                    style: AppTypography.body.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  InkWell(
-                    onTap: onAuthorize,
-                    child: Text(
-                      '点击这里重新授权',
-                      style: AppTypography.body.copyWith(
-                        color: AppColors.brandPrimary,
-                        decoration: TextDecoration.underline,
-                        decorationColor: AppColors.brandPrimary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _AnimationTipsCard extends StatelessWidget {
   const _AnimationTipsCard();
 
@@ -350,7 +258,7 @@ class _AnimationTipsCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                const _TipLine(text: '支持屏幕录制文件或本地文件上传'),
+                const _TipLine(text: '支持本地图片文件上传'),
                 const SizedBox(height: AppSpacing.xs),
                 const _TipLine(text: '长按文件可删除已选文件'),
               ],

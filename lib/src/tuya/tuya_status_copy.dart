@@ -20,6 +20,11 @@ class DeviceStatusCopy {
 ///
 /// 113 和 115 在 Dart 侧共用 [ComfortLevel]（low/suitable/high），但设备的枚举名
 /// 和文案都不一样（cold/suitable/heat 对 dry/suitable/damp），所以分成两张表。
+///
+/// 多语种：设置页目前提供简体中文和英文两种（`FlowerpotState.languageCode`）。
+/// 每条状态都备了中英两份文案，取用走 [waterNeedsCopy] 这类按语言查表的方法，
+/// 没有对应语言时回落简体中文。整个 App 还没有引入 `flutter_localizations`/arb，
+/// 这里是这批文案自己的一张小表，不是全局方案。
 abstract final class TuyaStatusCopy {
   /// `water_needs_status` (107)：shortage / drinking / watery。
   static const waterNeeds = <WaterNeedsStatus, DeviceStatusCopy>{
@@ -84,6 +89,114 @@ abstract final class TuyaStatusCopy {
       '空气湿乎乎的，容易滋生细菌，多通通风吧。',
     ),
   };
+
+  /// 英文文案，键与上面四张中文表一一对应。
+  static const waterNeedsEn = <WaterNeedsStatus, DeviceStatusCopy>{
+    WaterNeedsStatus.shortage: DeviceStatusCopy(
+      'Thirsty',
+      'The tank is nearly empty and the roots can barely drink. Time to add '
+          'water.',
+    ),
+    WaterNeedsStatus.drinking: DeviceStatusCopy(
+      'Drinking',
+      'The plant is taking water from the tank. Keep things as they are.',
+    ),
+    WaterNeedsStatus.watery: DeviceStatusCopy(
+      'Too full',
+      'There is too much water for the roots to breathe. Hold off on '
+          'refilling and let it air out.',
+    ),
+  };
+
+  static const lightingEn = <LightingCondition, DeviceStatusCopy>{
+    LightingCondition.shortage: DeviceStatusCopy(
+      'Needs light',
+      'The light is a little weak for photosynthesis. Move it somewhere '
+          'brighter.',
+    ),
+    LightingCondition.good: DeviceStatusCopy(
+      'Just right',
+      'The light is just right and photosynthesis is running smoothly. Keep '
+          'it that way.',
+    ),
+    LightingCondition.veryGood: DeviceStatusCopy(
+      'Sunbathing',
+      'Plenty of sun and photosynthesis is in full swing. Keep it that way.',
+    ),
+  };
+
+  static const airTemperatureEn = <ComfortLevel, DeviceStatusCopy>{
+    ComfortLevel.low: DeviceStatusCopy(
+      'A bit cold',
+      'It is colder than the plant likes to grow in. Warm it up a little.',
+    ),
+    ComfortLevel.suitable: DeviceStatusCopy(
+      'Comfortable',
+      'The temperature is just right and the plant is growing happily. Keep '
+          'it that way.',
+    ),
+    ComfortLevel.high: DeviceStatusCopy(
+      'A bit hot',
+      'It is hotter than the leaves like. Move it somewhere cooler.',
+    ),
+  };
+
+  static const airHumidityEn = <ComfortLevel, DeviceStatusCopy>{
+    ComfortLevel.low: DeviceStatusCopy(
+      'Too dry',
+      'The air is dry and the leaves lose water easily. Give them a light '
+          'mist.',
+    ),
+    ComfortLevel.suitable: DeviceStatusCopy(
+      'Comfortable',
+      'The humidity is just right and the leaves breathe easily. Keep it '
+          'that way.',
+    ),
+    ComfortLevel.high: DeviceStatusCopy(
+      'Too damp',
+      'The air is muggy and bacteria thrive in it. Let it air out more.',
+    ),
+  };
+
+  /// 设备没上报 113 时用的舒适区间（摄氏）。温度状态页和首页养护建议共用这一份，
+  /// 免得两处各写一个阈值、同一台设备在两个页面得出不同的冷热判断。
+  static const double comfortableLowCelsius = 18;
+  static const double comfortableHighCelsius = 28;
+
+  /// 除英文外一律回落简体中文——App 里还有繁体和日文的语言码，但这批文案没有
+  /// 对应译文，宁可显示中文也不显示占位符。
+  static bool _isEnglish(String language) =>
+      language.trim().toLowerCase().startsWith('en');
+
+  /// 按界面语言取 107 的文案。
+  static DeviceStatusCopy waterNeedsCopy(
+    WaterNeedsStatus value, {
+    String language = 'zh',
+  }) =>
+      (_isEnglish(language) ? waterNeedsEn[value] : null) ??
+      waterNeeds[value]!;
+
+  /// 按界面语言取 108 的文案。
+  static DeviceStatusCopy lightingCopy(
+    LightingCondition value, {
+    String language = 'zh',
+  }) => (_isEnglish(language) ? lightingEn[value] : null) ?? lighting[value]!;
+
+  /// 按界面语言取 113 的文案。
+  static DeviceStatusCopy airTemperatureCopy(
+    ComfortLevel value, {
+    String language = 'zh',
+  }) =>
+      (_isEnglish(language) ? airTemperatureEn[value] : null) ??
+      airTemperature[value]!;
+
+  /// 按界面语言取 115 的文案。
+  static DeviceStatusCopy airHumidityCopy(
+    ComfortLevel value, {
+    String language = 'zh',
+  }) =>
+      (_isEnglish(language) ? airHumidityEn[value] : null) ??
+      airHumidity[value]!;
 
   /// 设备没上报 107 时按水仓水位兜底。
   ///

@@ -69,9 +69,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
                     onTemperatureUnit: () => _chooseTemperatureUnit(device),
                     onClockFormat: () => _chooseClockFormat(device),
                     onCalibration: _calibrateWaterLevel,
-                    onSystemFiles: _showSystemFileMessage,
                     onFirmware: () => _checkFirmware(device),
-                    onRepair: _showRepairMessage,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _DeviceActionsCard(
@@ -135,17 +133,6 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       },
       onCancel: () => scope.cancelWaterLevelCalibration(widget.deviceId),
     );
-  }
-
-  void _showSystemFileMessage() {
-    showAppMessage(context, '系统文件更新暂未开放');
-  }
-
-  /// The product has no repair DP: the exported function point table goes
-  /// straight from 水位校准 (140) to 恢复出厂设置 (141). Say so rather than
-  /// sending a command the device will reject.
-  void _showRepairMessage() {
-    showAppMessage(context, '系统修复暂未开放');
   }
 
   /// 检查固件，有新版本就弹确认框并发起升级。
@@ -626,11 +613,9 @@ class _GeneralSettingsCard extends StatelessWidget {
     required this.onTemperatureUnit,
     required this.onClockFormat,
     required this.onCalibration,
-    required this.onSystemFiles,
     required this.ota,
     required this.firmwareUpdate,
     required this.onFirmware,
-    required this.onRepair,
   });
 
   final SmartPlanterDevice device;
@@ -638,13 +623,11 @@ class _GeneralSettingsCard extends StatelessWidget {
   final VoidCallback onTemperatureUnit;
   final VoidCallback onClockFormat;
   final VoidCallback onCalibration;
-  final VoidCallback onSystemFiles;
   final OtaProgress? ota;
 
   /// 涂鸦报了一个和当前版本不同的固件，行尾点红点。
   final bool firmwareUpdate;
   final VoidCallback onFirmware;
-  final VoidCallback onRepair;
 
   @override
   Widget build(BuildContext context) {
@@ -674,12 +657,6 @@ class _GeneralSettingsCard extends StatelessWidget {
             onTap: onCalibration,
           ),
           _SettingsRow(
-            assetPath: AppAssets.fileSyncIcon,
-            title: '系统文件更新',
-            onTap: onSystemFiles,
-          ),
-          const _SystemFileNotice(),
-          _SettingsRow(
             key: const Key('firmware-update-setting'),
             assetPath: AppAssets.chipUpdateIcon,
             title: '固件版本更新',
@@ -696,55 +673,6 @@ class _GeneralSettingsCard extends StatelessWidget {
             // 百分比就被它顶掉了（一行只显示其中之一），用户反而看不见进度。
             loading: updatingFirmware,
             onTap: onFirmware,
-          ),
-          _SettingsRow(
-            assetPath: AppAssets.deviceRepairIcon,
-            title: '修复系统文件',
-            onTap: onRepair,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SystemFileNotice extends StatelessWidget {
-  const _SystemFileNotice();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: const Key('system-file-notice'),
-      margin: const EdgeInsets.fromLTRB(51, 0, 16, AppSpacing.xxs),
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      decoration: const BoxDecoration(
-        color: AppColors.dangerSurface,
-        borderRadius: BorderRadius.all(Radius.circular(6)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Image.asset(
-            AppAssets.infoOutlineIcon,
-            width: 18,
-            height: 18,
-            fit: BoxFit.contain,
-            filterQuality: FilterQuality.high,
-            semanticLabel: '系统文件说明',
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          const Expanded(
-            child: Text(
-              '系统文件包括YSplanter的表情、行为模型、语言包，和其他系统所需文件。',
-              style: TextStyle(
-                color: AppColors.danger,
-                fontSize: 12,
-                height: 1.45,
-              ),
-            ),
           ),
         ],
       ),

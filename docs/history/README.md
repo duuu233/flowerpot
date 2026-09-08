@@ -32,6 +32,12 @@
 
 ## 索引
 
+- [`2026-09/2026-09-08-i18n-scaffold-and-device-settings-batch.md`](2026-09/2026-09-08-i18n-scaffold-and-device-settings-batch.md)：落地可扩展的多语言框架（简中 + 英文），并完成首页顶栏设备名、自动检测植物独立页、其他设置清理、纪念日校验与样式、休眠模式（DP 151/152）七项。
+
+- [`2026-09/2026-09-08-home-care-advice-carousel.md`](2026-09/2026-09-08-home-care-advice-carousel.md)：首页「今日养护」改为轮播四条状态（107/108/113/115）的养护建议，5 秒一条，并给这批状态文案补中英双语表。
+
+- [`2026-09/2026-09-08-gallery-device-id-and-pairing-cleanup.md`](2026-09/2026-09-08-gallery-device-id-and-pairing-cleanup.md)：设备图库改按涂鸦 `deviceId` 调 `getUserProductImgList`（删掉换 `userProductId` 的前置链路），并清理配网搜索/选择页文案、加 45 秒搜索窗口、修首页指标卡对齐。
+
 - [`2026-09/2026-09-05-release-readiness-review.md`](2026-09/2026-09-05-release-readiness-review.md)：核对客户端安全、会话竞态、配网取消、测试与双端发布准备度，记录性能建议及未验证边界。
 
 - [`2026-08/2026-08-12-ai-context-codegraph-maintenance.md`](2026-08/2026-08-12-ai-context-codegraph-maintenance.md)：建立项目专属 AI 上下文、文档入口与 CodeGraph/历史记录规则。

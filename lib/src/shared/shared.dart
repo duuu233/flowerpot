@@ -1,3 +1,5 @@
+export 'l10n/app_l10n.dart';
+export 'l10n/app_language.dart';
 export 'user_avatar.dart';
 export 'widgets/app_widgets.dart';
 export 'widgets/app_toast.dart';

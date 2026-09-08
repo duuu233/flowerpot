@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -18,12 +19,17 @@ import 'pairing_page.dart';
 /// evidence the device entered pairing state; anything else leaves the decision
 /// to the user instead of pretending to have found something.
 ///
-/// "Anything else" includes a hotspot whose SSID is outside the known prefixes:
-/// the scan saw it, only the recognition missed it. Whenever the scan came back
-/// with 2.4 GHz networks the page therefore offers the selection list as well,
-/// where the raw scan can be picked from by name.
+/// 一次扫描只是那一瞬间的快照：用户长按设备让它进入配网状态时，热点往往还没
+/// 广播出来。所以这一页在 [DeviceSearchPage.searchWindow] 的窗口里反复扫描，
+/// 扫到就直接进下一步，窗口走完仍然没有才给结论——用户不必自己反复点「重新
+/// 扫描」。扫不到时页面只留「重新扫描」和「设备已在配网状态，继续」两条路，
+/// 从附近网络里手动挑一个的入口已经下线。
 class DeviceSearchPage extends StatefulWidget {
   const DeviceSearchPage({super.key, this.request});
+
+  /// 一轮搜索的时长。一次扫描只是那一瞬间的快照，设备刚长按进入配网时热点往往
+  /// 还没广播出来，所以在这个窗口里反复扫，扫到就走，走完才落到「未发现」。
+  static const Duration searchWindow = Duration(seconds: 45);
 
   final PairingRequest? request;
 
@@ -33,6 +39,10 @@ class DeviceSearchPage extends StatefulWidget {
 
 class _DeviceSearchPageState extends State<DeviceSearchPage>
     with SingleTickerProviderStateMixin {
+  /// 两次扫描之间的间隔。原生一次扫描最多等 5 秒（被系统限流时直接回缓存），
+  /// 加上这个间隔，一轮窗口里大约能扫六七次。
+  static const Duration _rescanGap = Duration(seconds: 2);
+
   late final AnimationController _radarController;
 
   /// What the page shows: the radar sweep and the "searching" copy.
@@ -42,6 +52,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// the state's single-operation guard and report "busy" as a scan failure.
   bool _inFlight = false;
   ActionResult? _result;
+
+  /// 本轮搜索窗口的截止时间，到点之前扫不到就一直重扫。
+  DateTime? _searchEndsAt;
+  Timer? _retryTimer;
 
   @override
   void initState() {
@@ -55,11 +69,19 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   @override
   void dispose() {
+    _retryTimer?.cancel();
     _radarController.dispose();
     super.dispose();
   }
 
-  Future<void> _scan() async {
+  /// 开始一轮搜索：重置 [DeviceSearchPage.searchWindow] 窗口，立刻扫一次。
+  void _scan() {
+    _retryTimer?.cancel();
+    _searchEndsAt = DateTime.now().add(DeviceSearchPage.searchWindow);
+    unawaited(_runScan());
+  }
+
+  Future<void> _runScan() async {
     if (!mounted || _inFlight) return;
     _inFlight = true;
     setState(() {
@@ -85,6 +107,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       );
       return;
     }
+    // 扫描本身成功、只是这一轮没看见设备热点时，窗口没走完就再扫一次，页面保持
+    // 「搜索中」。Wi-Fi 没开、没权限这类失败重扫多少次都是同一个结果，直接报出来。
+    final retryable = result.success || result.code == 'wifi_scanning';
+    final endsAt = _searchEndsAt;
+    if (retryable && endsAt != null && DateTime.now().isBefore(endsAt)) {
+      _retryTimer = Timer(_rescanGap, _runScan);
+      return;
+    }
     setState(() {
       _scanning = false;
       _result = result;
@@ -101,17 +131,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       context,
       AppRoutes.pairing,
       arguments: PairingArguments(request: widget.request),
-    );
-  }
-
-  /// Opens the selection page on the raw scan, for a planter whose hotspot
-  /// name is outside the recognized prefixes: it is in the list the phone
-  /// returned, just not under a name this app knows.
-  void _pickManually() {
-    Navigator.pushReplacementNamed(
-      context,
-      AppRoutes.deviceSelection,
-      arguments: widget.request,
     );
   }
 
@@ -177,12 +196,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           _SearchActions(
                             onRescan: _scan,
                             onContinue: _continueAnyway,
-                            // Only worth offering when the scan actually
-                            // returned something pickable.
-                            onPickManually:
-                                (scan?.otherNetworks.isEmpty ?? true)
-                                ? null
-                                : _pickManually,
                           ),
                         ],
                       ],
@@ -234,24 +247,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         '当前系统不提供附近网络列表。\n确认设备指示灯已进入配网状态后继续下一步。',
       );
     }
-    final current = scan.current;
-    // 认得出的热点没有，不代表设备不在列表里——量产固件的热点名可能不在白名单
-    // 上。扫到过 2.4G 网络时把手动选择指出来，那份列表就是原始扫描结果。
-    final manual = scan.otherNetworks.isNotEmpty;
-    return _SearchOutcome(
+    return const _SearchOutcome(
       '未发现配网中的设备',
-      '扫描到 ${scan.networks.length} 个网络，其中没有认得出的设备热点。\n'
-      '${current == null ? '' : '手机当前连接：$current${_band(scan)}\n'}'
-      '请长按设备按键让它进入配网状态后重新扫描'
-      '${manual ? '；\n设备热点已经出现在 Wi-Fi 列表里的话，用下面的手动选择。' : '。'}',
+      '请长按设备按键让它进入配网状态后重新扫描。',
     );
   }
-
-  String _band(WifiScan scan) => switch (scan.currentIs24g) {
-    true => '（2.4G）',
-    false => '（5G，配网需要 2.4G）',
-    null => '',
-  };
 
   String _failureHint(ActionResult result) => switch (result.code) {
     'wifi_disabled' => '请先打开手机 Wi-Fi 再重新扫描。',
@@ -269,17 +269,10 @@ class _SearchOutcome {
 }
 
 class _SearchActions extends StatelessWidget {
-  const _SearchActions({
-    required this.onRescan,
-    required this.onContinue,
-    required this.onPickManually,
-  });
+  const _SearchActions({required this.onRescan, required this.onContinue});
 
   final VoidCallback onRescan;
   final VoidCallback onContinue;
-
-  /// Null when the scan returned nothing to pick from.
-  final VoidCallback? onPickManually;
 
   @override
   Widget build(BuildContext context) {
@@ -300,15 +293,6 @@ class _SearchActions extends StatelessWidget {
             child: const Text('重新扫描'),
           ),
         ),
-        if (onPickManually case final VoidCallback pick)
-          TextButton(
-            key: const Key('device-search-manual-pick'),
-            onPressed: pick,
-            child: const Text(
-              '从附近网络中手动选择设备',
-              style: TextStyle(color: AppColors.brandPrimary, fontSize: 15),
-            ),
-          ),
         TextButton(
           key: const Key('device-search-continue'),
           onPressed: onContinue,

@@ -119,9 +119,10 @@ class AppSettingsPage extends StatelessWidget {
       context,
       title: '语言',
       selected: state.languageCode,
-      options: const <AppOption<String>>[
-        AppOption<String>(value: 'zh', label: '简体中文'),
-        AppOption<String>(value: 'en', label: 'English'),
+      // 语言列表由 AppLanguage 枚举生成：以后加语种只改枚举，这一页不用动。
+      options: <AppOption<String>>[
+        for (final language in AppLanguage.values)
+          AppOption<String>(value: language.code, label: language.label),
       ],
     );
     if (selected != null) {

@@ -57,9 +57,11 @@ class HomePlantOverview extends StatelessWidget {
                   onTap: onMetricTap,
                 ),
               ),
+              // 下面两张和上面两张同宽同高，左右也贴同一条边：空气温度曾经
+              // left: 2、相对湿度 top: 154，四张卡片看着就是歪的。
               Positioned(
                 top: 145,
-                left: 2,
+                left: 0,
                 width: metricWidth,
                 height: 54,
                 child: _HomeMetricCard(
@@ -68,7 +70,7 @@ class HomePlantOverview extends StatelessWidget {
                 ),
               ),
               Positioned(
-                top: 154,
+                top: 145,
                 right: 0,
                 width: metricWidth,
                 height: 54,
