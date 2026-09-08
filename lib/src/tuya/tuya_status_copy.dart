@@ -2,13 +2,17 @@ import 'tuya_models.dart';
 
 /// 一条状态功能点的取值在界面上怎么写：状态页顶部的短标签，加它下面那段说明。
 class DeviceStatusCopy {
-  const DeviceStatusCopy(this.label, this.description);
+  const DeviceStatusCopy(this.label, this.description, this.advice);
 
   /// 状态页顶部、首页状态卡片上的那几个字。
   final String label;
 
   /// 短标签下面那段说明。
   final String description;
+
+  /// 状态详情页下方那张「养护建议」卡片的正文。2026-09-08 起由产品统一给稿，
+  /// 直接写在这张表里，不再从接口取。
+  final String advice;
 }
 
 /// DP 107 / 108 / 113 / 115 四条状态功能点的文案，以及设备没上报时的兜底判据。
@@ -31,14 +35,17 @@ abstract final class TuyaStatusCopy {
     WaterNeedsStatus.shortage: DeviceStatusCopy(
       '口渴了',
       '水仓快见底了，根系快吸不到水了，该加水啦。',
+      '当前水分偏低，建议及时补充水分，避免因缺水导致叶片萎蔫及生长受阻。',
     ),
     WaterNeedsStatus.drinking: DeviceStatusCopy(
       '喝水中',
       '植物正在从水仓中吸取水分，请保持当前状态。',
+      '当前水分适宜，建议保持现有浇水频率，避免盆土长期过湿，确保植物根系健康。',
     ),
     WaterNeedsStatus.watery: DeviceStatusCopy(
       '喝撑了',
       '水仓里水太多，根系透不过气，先别加水了，通通风吧。',
+      '当前水分偏多，建议暂停浇水并加强通风，避免盆土积水引发根系缺氧腐烂。',
     ),
   };
 
@@ -47,14 +54,17 @@ abstract final class TuyaStatusCopy {
     LightingCondition.shortage: DeviceStatusCopy(
       '晒不够',
       '光线有点弱，光合作用使不上劲，搬到亮堂点的地方吧。',
+      '当前光照偏弱，建议移至光线更充足的位置，避免因光照不足导致植株徒长。',
     ),
     LightingCondition.good: DeviceStatusCopy(
       '正合适',
       '光线刚刚好，光合作用很顺畅，继续保持。',
+      '当前光照适宜，建议保持现有摆放位置，确保光合作用与呼吸代谢平衡。',
     ),
     LightingCondition.veryGood: DeviceStatusCopy(
       '晒太阳中',
       '阳光充足，光合作用正旺盛，继续保持。',
+      '当前光照充足，建议留意强光时段，避免叶片受到强光灼伤。',
     ),
   };
 
@@ -63,14 +73,17 @@ abstract final class TuyaStatusCopy {
     ComfortLevel.low: DeviceStatusCopy(
       '有点冷',
       '温度偏低了，植物不太爱长，给它暖暖身子吧。',
+      '当前温度偏低，建议采取保温措施，避免因低温导致植株生长停滞或冷害。',
     ),
     ComfortLevel.suitable: DeviceStatusCopy(
       '正舒适',
       '温度刚刚好，植物正舒服地长着呢，继续保持。',
+      '当前温度适宜，建议保持现有环境，确保植株生理代谢正常运转。',
     ),
     ComfortLevel.high: DeviceStatusCopy(
       '有点热',
       '温度偏高了，叶子容易蔫，挪到阴凉点的地方吧。',
+      '当前温度偏高，建议移至阴凉通风处，避免因高温导致叶片灼伤及水分失衡。',
     ),
   };
 
@@ -79,14 +92,17 @@ abstract final class TuyaStatusCopy {
     ComfortLevel.low: DeviceStatusCopy(
       '太干了',
       '空气干巴巴的，叶子容易失去水分，喷点水雾吧。',
+      '当前空气偏干，建议增加喷雾增湿，避免因湿度不足导致叶片干尖或失水。',
     ),
     ComfortLevel.suitable: DeviceStatusCopy(
       '正舒服',
       '湿度刚刚好，叶子呼吸很顺畅，继续保持。',
+      '当前湿度适宜，建议保持现有环境，确保叶片蒸腾与根系吸水维持平衡。',
     ),
     ComfortLevel.high: DeviceStatusCopy(
       '太潮了',
       '空气湿乎乎的，容易滋生细菌，多通通风吧。',
+      '当前空气偏湿，建议加强环境通风，避免因湿度过高诱发病菌滋生。',
     ),
   };
 
@@ -96,15 +112,18 @@ abstract final class TuyaStatusCopy {
       'Thirsty',
       'The tank is nearly empty and the roots can barely drink. Time to add '
           'water.',
+      'Water is running low. Top the tank up soon so the leaves do not wilt and growth is not held back.',
     ),
     WaterNeedsStatus.drinking: DeviceStatusCopy(
       'Drinking',
       'The plant is taking water from the tank. Keep things as they are.',
+      'Water is right where it should be. Keep the current watering rhythm and avoid letting the soil stay soaked.',
     ),
     WaterNeedsStatus.watery: DeviceStatusCopy(
       'Too full',
       'There is too much water for the roots to breathe. Hold off on '
           'refilling and let it air out.',
+      'There is too much water. Pause watering and improve airflow so the roots do not suffocate and rot.',
     ),
   };
 
@@ -113,15 +132,18 @@ abstract final class TuyaStatusCopy {
       'Needs light',
       'The light is a little weak for photosynthesis. Move it somewhere '
           'brighter.',
+      'Light is on the low side. Move the planter somewhere brighter so the plant does not stretch out looking for it.',
     ),
     LightingCondition.good: DeviceStatusCopy(
       'Just right',
       'The light is just right and photosynthesis is running smoothly. Keep '
           'it that way.',
+      'Light is right where it should be. Keep the planter where it is so photosynthesis and respiration stay balanced.',
     ),
     LightingCondition.veryGood: DeviceStatusCopy(
       'Sunbathing',
       'Plenty of sun and photosynthesis is in full swing. Keep it that way.',
+      'Light is plentiful. Keep an eye on the harshest hours so the leaves do not scorch.',
     ),
   };
 
@@ -129,15 +151,18 @@ abstract final class TuyaStatusCopy {
     ComfortLevel.low: DeviceStatusCopy(
       'A bit cold',
       'It is colder than the plant likes to grow in. Warm it up a little.',
+      'It is colder than the plant likes. Add some warmth so growth does not stall or the plant take cold damage.',
     ),
     ComfortLevel.suitable: DeviceStatusCopy(
       'Comfortable',
       'The temperature is just right and the plant is growing happily. Keep '
           'it that way.',
+      'The temperature is right where it should be. Keep the current spot so the plant keeps growing steadily.',
     ),
     ComfortLevel.high: DeviceStatusCopy(
       'A bit hot',
       'It is hotter than the leaves like. Move it somewhere cooler.',
+      'It is hotter than the plant likes. Move it somewhere cool and airy so the leaves do not scorch or dry out.',
     ),
   };
 
@@ -146,15 +171,18 @@ abstract final class TuyaStatusCopy {
       'Too dry',
       'The air is dry and the leaves lose water easily. Give them a light '
           'mist.',
+      'The air is dry. Mist around the plant so the leaf tips do not brown and dry out.',
     ),
     ComfortLevel.suitable: DeviceStatusCopy(
       'Comfortable',
       'The humidity is just right and the leaves breathe easily. Keep it '
           'that way.',
+      'Humidity is right where it should be. Keep the current spot so transpiration and root uptake stay balanced.',
     ),
     ComfortLevel.high: DeviceStatusCopy(
       'Too damp',
       'The air is muggy and bacteria thrive in it. Let it air out more.',
+      'The air is muggy. Improve ventilation so high humidity does not invite disease.',
     ),
   };
 

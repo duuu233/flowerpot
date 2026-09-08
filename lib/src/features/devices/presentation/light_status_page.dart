@@ -45,7 +45,10 @@ class _LightStatusPageState extends State<LightStatusPage> {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final summaryModel = LightStatusPageModel.fromDevice(device);
+    final summaryModel = LightStatusPageModel.fromDevice(
+      device,
+      language: FlowerpotScope.of(context).languageCode,
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '光照状态', leading: AppBackButton()),
       background: AppPageBackground.standard,

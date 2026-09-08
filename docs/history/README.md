@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-09/2026-09-08-settings-profile-and-update-batch.md`](2026-09/2026-09-08-settings-profile-and-update-batch.md)：设置/我的/关于十项——分享隐藏、帮助中心搬到设备设置、OTA 进度弹层、App 强制/提示升级链路、昵称与头像修复、列表行高下划线、养护建议改本地中英文案。
+
 - [`2026-09/2026-09-08-i18n-scaffold-and-device-settings-batch.md`](2026-09/2026-09-08-i18n-scaffold-and-device-settings-batch.md)：落地可扩展的多语言框架（简中 + 英文），并完成首页顶栏设备名、自动检测植物独立页、其他设置清理、纪念日校验与样式、休眠模式（DP 151/152）七项。
 
 - [`2026-09/2026-09-08-home-care-advice-carousel.md`](2026-09/2026-09-08-home-care-advice-carousel.md)：首页「今日养护」改为轮播四条状态（107/108/113/115）的养护建议，5 秒一条，并给这批状态文案补中英双语表。

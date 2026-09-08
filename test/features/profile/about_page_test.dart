@@ -17,7 +17,8 @@ void main() {
     expect(find.text('V1.0.0'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);
     expect(find.text('已是最新版本'), findsOneWidget);
-    expect(find.text('版本说明'), findsOneWidget);
+    // 版本说明已下线：升级说明改由「检查更新」的弹窗展示。
+    expect(find.text('版本说明'), findsNothing);
     expect(find.byKey(const Key('about-logo')), findsOneWidget);
     expect(find.byKey(const Key('about-version-card')), findsOneWidget);
     expect(findAssetImage(AppAssets.aboutCurrentVersionIcon), findsOneWidget);
@@ -28,32 +29,30 @@ void main() {
     await _pumpAboutPage(tester, const Size(375, 812));
 
     await tester.tap(find.byKey(const Key('about-check-update')));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    expect(find.text('已是最新版本'), findsNWidgets(2));
+    // 没有状态层时这一页只显示自带的「已是最新版本」，点检查更新不弹升级窗。
+    expect(find.text('已是最新版本'), findsOneWidget);
+    expect(find.byKey(const Key('app-update-dialog')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('release notes open in the shared bottom sheet', (tester) async {
+  testWidgets('版本说明整行已下线', (tester) async {
     await _pumpAboutPage(tester, const Size(375, 812));
 
-    await tester.tap(find.byKey(const Key('about-release-notes')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const Key('about-release-notes-sheet')), findsOneWidget);
-    expect(find.text('• 新增智能花盆设备连接与管理能力'), findsOneWidget);
-    expect(find.text('知道了'), findsOneWidget);
+    expect(find.byKey(const Key('about-release-notes')), findsNothing);
+    expect(find.text('版本说明'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('about page remains usable at 320x568', (tester) async {
     await _pumpAboutPage(tester, const Size(320, 568));
 
-    final releaseNotes = find.byKey(const Key('about-release-notes'));
-    await tester.ensureVisible(releaseNotes);
+    final checkUpdate = find.byKey(const Key('about-check-update'));
+    await tester.ensureVisible(checkUpdate);
     await tester.pump();
 
-    expect(releaseNotes, findsOneWidget);
+    expect(checkUpdate, findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

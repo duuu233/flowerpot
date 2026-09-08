@@ -58,7 +58,9 @@ class DeviceToggleSettingsCard extends StatelessWidget {
                           style: AppTypography.sectionTitle.copyWith(
                             color: AppColors.textPrimary,
                             fontSize: 15,
-                            fontWeight: FontWeight.w500,
+                            // 标题不再加粗（LED 设置提的，震动/触觉/自动检测植物
+                            // 共用这张卡，一起跟着改）。
+                            fontWeight: FontWeight.w400,
                           ),
                         ),
                         const SizedBox(height: 4),

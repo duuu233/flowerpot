@@ -57,7 +57,10 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final summaryModel = WaterStatusPageModel.fromDevice(device);
+    final summaryModel = WaterStatusPageModel.fromDevice(
+      device,
+      language: FlowerpotScope.of(context).languageCode,
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '需水状态', leading: AppBackButton()),
       background: AppPageBackground.standard,

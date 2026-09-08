@@ -41,24 +41,25 @@ class WaterStatusPageModel {
     required this.advice,
   });
 
-  factory WaterStatusPageModel.fromDevice(SmartPlanterDevice device) {
+  /// [language] 决定文案取中文还是英文表，见 [TuyaStatusCopy]。
+  factory WaterStatusPageModel.fromDevice(
+    SmartPlanterDevice device, {
+    String language = 'zh',
+  }) {
     final waterLevel = device.sensors.waterLevel;
     // `water_needs_status` (DP 107)，设备没上报时按水仓水位兜底。页面顶部的状态
     // 文字和说明都来自 TuyaStatusCopy，首页那张卡片读的是同一张表。
     final needs =
         device.status.waterNeeds ?? TuyaStatusCopy.waterNeedsFor(waterLevel);
-    final copy = TuyaStatusCopy.waterNeeds[needs]!;
+    final copy = TuyaStatusCopy.waterNeedsCopy(needs, language: language);
     return WaterStatusPageModel(
       deviceId: device.id,
       status: copy.label,
       description: copy.description,
       waterLevel: waterLevel,
       soilMoisture: device.sensors.soilMoisture,
-      advice: switch (needs) {
-        WaterNeedsStatus.shortage => '请向水仓缓慢补水，并留意土壤湿度变化，避免一次加入过多水分。',
-        WaterNeedsStatus.drinking => '当前湿度适宜，建议保持现有浇水频率，避免盆土长期过湿，确保植物根系健康。',
-        WaterNeedsStatus.watery => '请暂停补水并保持通风，等水位回落后再恢复原来的浇水频率。',
-      },
+      // 养护建议由产品统一给稿，和状态文字同一张表，见 TuyaStatusCopy。
+      advice: copy.advice,
     );
   }
 

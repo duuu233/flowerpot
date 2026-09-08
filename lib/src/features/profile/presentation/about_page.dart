@@ -6,6 +6,7 @@ import '../../../design_system/design_system.dart';
 import '../models/about_page_model.dart';
 import 'widgets/about_brand_lockup.dart';
 import 'widgets/about_version_card.dart';
+import 'widgets/app_update_dialog.dart';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key, this.pageModel});
@@ -71,12 +72,7 @@ class _AboutPageState extends State<AboutPage> {
               const SizedBox(height: 32),
               AboutVersionCard(
                 model: model,
-                onCheckUpdate: () => showAppMessage(
-                  context,
-                  model.updateStatus,
-                  tone: AppMessageTone.info,
-                ),
-                onReleaseNotes: () => _showReleaseNotes(context, model),
+                onCheckUpdate: () => _checkUpdate(context),
               ),
             ],
           ),
@@ -85,34 +81,21 @@ class _AboutPageState extends State<AboutPage> {
     );
   }
 
-  Future<void> _showReleaseNotes(BuildContext context, AboutPageModel model) {
-    return showAppBottomSheet<void>(
+  /// 点「检查更新」：当场再问一次后端，有新版本就弹升级弹窗（强制升级的那条
+  /// 由 `AppShell` 在 App 打开时就弹过了，这里保持同一套判定）。
+  Future<void> _checkUpdate(BuildContext context) async {
+    final state = FlowerpotScope.maybeOf(context);
+    if (state == null) return;
+    final latest = await state.checkAppVersion(_baseModel.version);
+    if (!context.mounted) return;
+    if (latest == null || !latest.hasUpdate) {
+      showAppMessage(context, '已是最新版本');
+      return;
+    }
+    await showAppUpdateDialog(
       context,
-      title: '版本说明',
-      builder: (sheetContext) => Column(
-        key: const Key('about-release-notes-sheet'),
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Text(
-            model.displayVersion,
-            style: AppTypography.sectionTitle.copyWith(
-              color: AppColors.brandDark,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          for (final note in model.releaseNotes)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: Text('• $note', style: AppTypography.body),
-            ),
-          const SizedBox(height: AppSpacing.lg),
-          FilledButton(
-            onPressed: () => Navigator.pop(sheetContext),
-            child: const Text('知道了'),
-          ),
-        ],
-      ),
+      version: latest,
+      force: latest.forceUpdate,
     );
   }
 }

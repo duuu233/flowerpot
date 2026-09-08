@@ -42,7 +42,10 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final summaryModel = TemperatureStatusPageModel.fromDevice(device);
+    final summaryModel = TemperatureStatusPageModel.fromDevice(
+      device,
+      language: FlowerpotScope.of(context).languageCode,
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '空气温度', leading: AppBackButton()),
       background: AppPageBackground.standard,

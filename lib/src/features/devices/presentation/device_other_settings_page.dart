@@ -5,6 +5,7 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../../tuya/tuya_repository.dart' show TuyaException;
+import 'widgets/ota_progress_dialog.dart';
 import 'widgets/water_level_calibration_dialog.dart';
 
 class DeviceOtherSettingsPage extends StatefulWidget {
@@ -192,11 +193,13 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       setState(() => _updatingFirmware = true);
       final result = await state.upgradeFirmware(widget.deviceId, version);
       if (!mounted) return;
-      showAppMessage(
-        context,
-        result.message,
-        tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-      );
+      if (!result.success) {
+        showAppMessage(context, result.message, tone: AppMessageTone.error);
+        return;
+      }
+      // 升级只是「发起」了，进度和成败随后从事件通道回来：盖一个进度弹层，
+      // 用户点完更新能看见百分比在动，而不是对着一行小字干等。
+      await showOtaProgressDialog(context, deviceId: widget.deviceId);
     } on TuyaException catch (error) {
       // SDK 的原始码对用户没有意义，但 message 是能照着做的那句；直接把
       // `Instance of 'TuyaException'` 丢到界面上是之前的行为。

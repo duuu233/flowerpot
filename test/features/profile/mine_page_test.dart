@@ -19,7 +19,10 @@ void main() {
     expect(find.text('江江江'), findsOneWidget);
     expect(find.text('个人信息'), findsOneWidget);
     expect(find.text('账号与安全'), findsOneWidget);
-    expect(find.text('123456789@QQ.COM'), findsOneWidget);
+    // 意见反馈的邮箱来自后台基础信息配置，这里由 fixture 给。
+    expect(find.text('service@example.test'), findsOneWidget);
+    // 帮助中心已搬到设备设置页。
+    expect(find.text('帮助中心'), findsNothing);
     expect(find.text('关于YSplanter'), findsOneWidget);
 
     await tester.tap(find.text('个人信息'));
@@ -51,11 +54,11 @@ Future<void> _pumpMineWidgets(
     menuItems: <MineMenuItem>[
       MineMenuItem(kind: MineMenuKind.personalInfo, label: '个人信息'),
       MineMenuItem(kind: MineMenuKind.accountSecurity, label: '账号与安全'),
-      MineMenuItem(kind: MineMenuKind.helpCenter, label: '帮助中心'),
+      MineMenuItem(kind: MineMenuKind.deviceSettings, label: '设备设置'),
       MineMenuItem(
         kind: MineMenuKind.feedback,
         label: '意见反馈',
-        trailingValue: '123456789@QQ.COM',
+        trailingValue: 'service@example.test',
       ),
       MineMenuItem(kind: MineMenuKind.privacyPolicy, label: '隐私政策'),
       MineMenuItem(kind: MineMenuKind.userAgreement, label: '用户协议'),

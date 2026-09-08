@@ -7,13 +7,11 @@ class AboutVersionCard extends StatelessWidget {
   const AboutVersionCard({
     required this.model,
     required this.onCheckUpdate,
-    required this.onReleaseNotes,
     super.key,
   });
 
   final AboutPageModel model;
   final VoidCallback? onCheckUpdate;
-  final VoidCallback? onReleaseNotes;
 
   @override
   Widget build(BuildContext context) {
@@ -36,12 +34,6 @@ class AboutVersionCard extends StatelessWidget {
           label: '检查更新',
           value: model.updateStatus,
           onTap: onCheckUpdate,
-        ),
-        _AboutVersionTile(
-          tileKey: const Key('about-release-notes'),
-          assetPath: AppAssets.aboutReleaseNotesIcon,
-          label: '版本说明',
-          onTap: onReleaseNotes,
         ),
       ],
     );

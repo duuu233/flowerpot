@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../core/config/debug_tools_config.dart';
@@ -8,7 +11,7 @@ import '../models/mine_page_model.dart';
 import 'widgets/mine_menu_list.dart';
 import 'widgets/mine_profile_header.dart';
 
-class MinePage extends StatelessWidget {
+class MinePage extends StatefulWidget {
   const MinePage({super.key, this.pageModel, this.showBackButton = true});
 
   final MinePageModel? pageModel;
@@ -18,15 +21,41 @@ class MinePage extends StatelessWidget {
   final bool showBackButton;
 
   @override
+  State<MinePage> createState() => _MinePageState();
+}
+
+class _MinePageState extends State<MinePage> {
+  @override
+  void initState() {
+    super.initState();
+    // 昵称/头像以后端的 getUserInfo 为准：登录只拿到映射凭据，昵称字段可能还是
+    // 空的，所以这一页进来就静默刷一次。以前只有「个人信息」页刷，于是首页显示
+    // 「用户」、进个人信息再退回来才对——看着像 bug，其实是从没读过。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final state = FlowerpotScope.of(context);
+      state.refreshUserInfo();
+      // 意见反馈那一行的邮箱来自后台「基础信息配置」。
+      state.loadBasicData();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
-    final model = pageModel ?? MinePageModel.fromUser(state.user);
+    final model =
+        widget.pageModel ??
+        MinePageModel.fromUser(
+          state.user,
+          feedbackEmail: state.basicData.contact,
+          hasAppUpdate: state.hasAppUpdate,
+        );
 
     return AppPageScaffold(
       appBar: AppPageHeader(
         title: '我的',
-        leading: showBackButton ? const AppBackButton() : null,
-        automaticallyImplyLeading: showBackButton,
+        leading: widget.showBackButton ? const AppBackButton() : null,
+        automaticallyImplyLeading: widget.showBackButton,
         // A live session skips the login page on start-up, so the SDK console
         // needs a way back in that does not require logging out.
         actions: DebugToolsConfig.enabled
@@ -94,7 +123,6 @@ class MinePage extends StatelessWidget {
       MineMenuKind.accountSecurity => AppRoutes.settings,
       // 已在上面单独处理：它要带设备 id 才能跳。
       MineMenuKind.deviceSettings => null,
-      MineMenuKind.helpCenter => AppRoutes.help,
       MineMenuKind.privacyPolicy => AppRoutes.privacy,
       MineMenuKind.userAgreement => AppRoutes.agreement,
       MineMenuKind.about => AppRoutes.about,
@@ -107,11 +135,11 @@ class MinePage extends StatelessWidget {
     final email = model.menuItems
         .firstWhere((item) => item.kind == MineMenuKind.feedback)
         .trailingValue;
-    showAppMessage(
-      context,
-      '请发送反馈至 ${email ?? '客服邮箱'}',
-      tone: AppMessageTone.info,
-    );
+    if (email == null || email.isEmpty) {
+      showAppMessage(context, '后台还没有配置平台邮箱', tone: AppMessageTone.info);
+      return;
+    }
+    unawaited(_copyEmail(context, email));
   }
 
   /// 设备设置的另一个入口。
@@ -130,5 +158,12 @@ class MinePage extends StatelessWidget {
       AppRoutes.deviceSettings,
       arguments: device.id,
     );
+  }
+
+  /// 复制平台邮箱：这一行没有可跳的页面，用户要的就是把地址拿走。
+  Future<void> _copyEmail(BuildContext context, String email) async {
+    await Clipboard.setData(ClipboardData(text: email));
+    if (!context.mounted) return;
+    showAppMessage(context, '邮箱已复制：$email');
   }
 }

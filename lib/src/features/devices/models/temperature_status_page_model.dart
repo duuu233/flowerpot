@@ -18,7 +18,11 @@ class TemperatureStatusPageModel {
     this.settings = const DeviceControlSettings(),
   });
 
-  factory TemperatureStatusPageModel.fromDevice(SmartPlanterDevice device) {
+  /// [language] 决定文案取中文还是英文表，见 [TuyaStatusCopy]。
+  factory TemperatureStatusPageModel.fromDevice(
+    SmartPlanterDevice device, {
+    String language = 'zh',
+  }) {
     final settings = device.settings;
     final temperature = device.sensors.airTemperature;
     // `air_temperature_status` (DP 113) when the device has reported it,
@@ -31,16 +35,14 @@ class TemperatureStatusPageModel {
           low: settings.temperatureFromCelsius(_comfortableLow),
           high: settings.temperatureFromCelsius(_comfortableHigh),
         );
-    final copy = TuyaStatusCopy.airTemperature[level]!;
+    final copy = TuyaStatusCopy.airTemperatureCopy(level, language: language);
     return TemperatureStatusPageModel(
       deviceId: device.id,
       status: copy.label,
       description: copy.description,
       temperature: temperature,
-      advice:
-          '适宜温度范围为'
-          '${settings.formatCelsiusRange(_comfortableLow, _comfortableHigh)}。'
-          '\n温度过高或过低都会影响植物健康生长哦。',
+      // 养护建议由产品统一给稿，和状态文字同一张表，见 TuyaStatusCopy。
+      advice: copy.advice,
       settings: settings,
     );
   }

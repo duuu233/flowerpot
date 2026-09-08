@@ -898,7 +898,7 @@ class FlowerpotState extends ChangeNotifier {
           true,
           withType
               ? '已选择${plant.name}并同步到设备'
-              : '已选择${plant.name}并同步到设备；该植物未配置分类，未下发 161',
+              : '已选择${plant.name}并同步到设备；该植物在后台没有配置分类（categoryType），未下发 161',
         );
       });
 
@@ -1639,6 +1639,12 @@ class FlowerpotState extends ChangeNotifier {
   /// 后端给出的最新版本，null = 还没查过或后端没开。
   BackendAppVersion? _appVersion;
   BackendAppVersion? get appVersion => _appVersion;
+
+  /// 后端说有新版本：「我的 → 关于YSplanter」那一行点红点用它。
+  bool get hasAppUpdate => _appVersion?.hasUpdate ?? false;
+
+  /// 有新版本且是强制升级（`compulsory == 1`）：App 一打开就要弹不可取消的弹窗。
+  bool get mustUpdateApp => hasAppUpdate && (_appVersion?.forceUpdate ?? false);
 
   /// 查一次 App 版本更新状态。[currentVersion] 传本机版本号，例如 `1.0.0`。
   Future<BackendAppVersion?> checkAppVersion(String currentVersion) async {

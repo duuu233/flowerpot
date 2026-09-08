@@ -60,7 +60,8 @@ class _LedSettingsPageState extends State<LedSettingsPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               DeviceToggleSettingsCard(
-                symbol: DeviceSettingSymbol.brightness,
+                // 原来和「显示」共用 brightness_symbol，两页并排是同一张图。
+                symbol: DeviceSettingSymbol.led,
                 title: '启用LED',
                 status: model.status,
                 description: model.description,

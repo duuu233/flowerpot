@@ -627,24 +627,39 @@ class HttpAppBackendRepository implements AppBackendRepository {
     if (latest.isEmpty) return null;
     final flag =
         row['isUpdate'] ?? row['hasUpdate'] ?? row['needUpdate'] ?? row['isNew'];
+    // 2026-09-08 按 swagger 的 `AppVersionConApiOutput` 对齐字段：
+    // `appVersionNo` / `isUpdate`(1=是) / `compulsory`(1=强制 2=强提示 3=弱提示
+    // 4=不提示) / `downloadPath` / `upgradeTips`。旧的 isForce、downloadUrl、
+    // updateContent 都是字段名未定时的猜测，留作兜底。
+    final compulsory = _nullableInteger(
+      row['compulsory'] ?? row['upgradeType'],
+    );
     return BackendAppVersion(
       versionNo: latest,
       // 后端没给判定标记时按版本号比对兜底，而不是默认「有更新」——那会让
       // 关于页天天弹红点。
       hasUpdate: flag == null ? latest != appVersionNo.trim() : _boolean(flag),
-      forceUpdate: _boolean(
-        row['isForce'] ?? row['forceUpdate'] ?? row['isCoerce'],
-      ),
+      forceUpdate: compulsory == null
+          ? _boolean(row['isForce'] ?? row['forceUpdate'] ?? row['isCoerce'])
+          : compulsory == 1,
       downloadUrl: _text(
         row,
-        'downloadUrl',
-        fallback: _text(row, 'downUrl', fallback: _text(row, 'url')),
+        'downloadPath',
+        fallback: _text(
+          row,
+          'downloadUrl',
+          fallback: _text(row, 'downUrl', fallback: _text(row, 'url')),
+        ),
       ),
       releaseNotes: _lines(
         _text(
           row,
-          'updateContent',
-          fallback: _text(row, 'content', fallback: _text(row, 'remark')),
+          'upgradeTips',
+          fallback: _text(
+            row,
+            'updateContent',
+            fallback: _text(row, 'content', fallback: _text(row, 'remark')),
+          ),
         ),
       ),
     );

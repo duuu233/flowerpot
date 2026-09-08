@@ -10,6 +10,12 @@ import 'plant_picker_page.dart';
 import 'widgets/device_settings_function_list.dart';
 import 'widgets/device_settings_summary_card.dart';
 
+/// 分享设备入口的开关。
+///
+/// 产品要求先隐藏、后期再做，所以留着 [_DeviceSettingsPageState._share] 和这里的
+/// 按钮，把开关翻成 true 就恢复，不用重新写一遍分享链路。
+const bool _shareEntryEnabled = false;
+
 class DeviceSettingsPage extends StatefulWidget {
   const DeviceSettingsPage({required this.deviceId, super.key});
 
@@ -51,15 +57,17 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
       appBar: AppPageHeader(
         title: '设置',
         leading: const AppBackButton(),
-        actions: <Widget>[
-          AppIconButton(
-            icon: Icons.ios_share_outlined,
-            tooltip: '分享设备',
-            color: AppColors.textSecondary,
-            size: 44,
-            onPressed: () => _share(context, device.id),
-          ),
-        ],
+        actions: _shareEntryEnabled
+            ? <Widget>[
+                AppIconButton(
+                  icon: Icons.ios_share_outlined,
+                  tooltip: '分享设备',
+                  color: AppColors.textSecondary,
+                  size: 44,
+                  onPressed: () => _share(context, device.id),
+                ),
+              ]
+            : null,
       ),
       background: AppPageBackground.standard,
       body: CustomScrollView(
@@ -118,6 +126,7 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
       DeviceSettingsMenuKind.vibration => AppRoutes.vibrationSettings,
       DeviceSettingsMenuKind.behavior => AppRoutes.behaviorSettings,
       DeviceSettingsMenuKind.memorial => AppRoutes.memorial,
+      DeviceSettingsMenuKind.helpCenter => AppRoutes.help,
       DeviceSettingsMenuKind.other => AppRoutes.deviceOtherSettings,
       DeviceSettingsMenuKind.plantDetection => AppRoutes.plantDetectionSettings,
     };

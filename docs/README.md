@@ -62,4 +62,4 @@ codegraph sync .
 
 记录路径为 `history/YYYY-MM/YYYY-MM-DD-topic.md`。一次集中修改对应一份记录，不维护无限增长的单文件日志。不得记录 Token、涂鸦密钥、安全组件、签名资料、Wi-Fi 密码、个人数据或完整本地配置。
 
-最近记录：[`history/2026-09/2026-09-08-i18n-scaffold-and-device-settings-batch.md`](history/2026-09/2026-09-08-i18n-scaffold-and-device-settings-batch.md)。
+最近记录：[`history/2026-09/2026-09-08-settings-profile-and-update-batch.md`](history/2026-09/2026-09-08-settings-profile-and-update-batch.md)。

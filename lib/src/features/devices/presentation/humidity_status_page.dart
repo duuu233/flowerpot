@@ -42,7 +42,10 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final summaryModel = HumidityStatusPageModel.fromDevice(device);
+    final summaryModel = HumidityStatusPageModel.fromDevice(
+      device,
+      language: FlowerpotScope.of(context).languageCode,
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '相对湿度', leading: AppBackButton()),
       background: AppPageBackground.standard,

@@ -10,23 +10,23 @@ class HumidityStatusPageModel {
     required this.advice,
   });
 
-  factory HumidityStatusPageModel.fromDevice(SmartPlanterDevice device) {
+  /// [language] 决定文案取中文还是英文表，见 [TuyaStatusCopy]。
+  factory HumidityStatusPageModel.fromDevice(
+    SmartPlanterDevice device, {
+    String language = 'zh',
+  }) {
     final humidity = device.sensors.relativeHumidity;
     // `air_humidity_status` (DP 115)，设备没上报时按相对湿度兜底。
     final level =
         device.status.humidity ?? TuyaStatusCopy.humidityFor(humidity);
-    final copy = TuyaStatusCopy.airHumidity[level]!;
+    final copy = TuyaStatusCopy.airHumidityCopy(level, language: language);
     return HumidityStatusPageModel(
       deviceId: device.id,
       status: copy.label,
       description: copy.description,
       humidity: humidity,
-      // 原来这句无论干湿都写「当前湿度适宜」，和上面的状态文字直接打架。
-      advice: switch (level) {
-        ComfortLevel.low => '空气偏干，可在花盆附近放一杯水或开加湿器，缓解叶片失水。',
-        ComfortLevel.suitable => '当前湿度适宜，继续保持现有养护环境，有助于植物健康生长。',
-        ComfortLevel.high => '空气偏潮，请加强通风，避免叶面长时间凝结水膜诱发病害。',
-      },
+      // 养护建议由产品统一给稿，和状态文字同一张表，见 TuyaStatusCopy。
+      advice: copy.advice,
     );
   }
 

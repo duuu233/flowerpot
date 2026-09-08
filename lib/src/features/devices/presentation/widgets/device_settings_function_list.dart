@@ -32,15 +32,18 @@ class DeviceSettingsFunctionList extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.xs),
+        // 行高抬到 58 并补下划线，与「账号与安全」那张卡（忘记密码所在的列表）
+        // 一致；分隔线左右缩进对齐这里的 20px 内容边距。
         AppSettingsList(
-          showDividers: false,
           borderRadius: AppRadius.large,
+          dividerIndent: 20,
+          dividerEndIndent: 20,
           children: <Widget>[
             for (final item in items)
               AppSettingsTile(
                 title: item.label,
                 value: item.value,
-                minTileHeight: 46,
+                minTileHeight: 58,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                 leading: _LeadingIcon(kind: item.kind, label: item.label),
                 titleStyle: AppTypography.sectionTitle.copyWith(fontSize: 15),
@@ -117,6 +120,7 @@ class _LeadingIcon extends StatelessWidget {
     DeviceSettingsMenuKind.vibration => AppAssets.settingsVibrationIcon,
     DeviceSettingsMenuKind.behavior => AppAssets.settingsBehaviorIcon,
     DeviceSettingsMenuKind.other => AppAssets.settingsOtherIcon,
+    DeviceSettingsMenuKind.helpCenter => AppAssets.profileMenuHelpIcon,
     DeviceSettingsMenuKind.led ||
     DeviceSettingsMenuKind.memorial ||
     DeviceSettingsMenuKind.plantDetection => null,

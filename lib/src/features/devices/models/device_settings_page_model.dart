@@ -10,6 +10,7 @@ enum DeviceSettingsMenuKind {
   vibration,
   behavior,
   memorial,
+  helpCenter,
   other,
 }
 
@@ -96,6 +97,11 @@ class DeviceSettingsPageModel {
         const DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.memorial,
           label: '纪念日',
+        ),
+        // 帮助中心 2026-09-08 从「我的」搬到这里：内容全是设备相关的用法问题。
+        const DeviceSettingsMenuItem(
+          kind: DeviceSettingsMenuKind.helpCenter,
+          label: '帮助中心',
         ),
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.other,
