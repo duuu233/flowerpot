@@ -41,7 +41,9 @@ abstract final class TuyaConfig {
     'air_temperature_status': 113, // enum cold/suitable/heat
     'air_humidity': 114, // value 0-1000, 倍数 1 -> tenths of a percent
     'air_humidity_status': 115, // enum dry/suitable/damp
-    'plant_variety': 116, // string, report + write (`tuYaRemark`)
+    // 2026-09-09 起是植物 id：-1 = 盆里没有植物，0..N = 具体植物，数值等于管理
+    // 后台植物管理里的「涂鸦标识 ID」（0 是通用植物）。上报 + 下发。
+    'plant_variety': 116,
     // Control.
     'disp_brightness_switch': 117, // bool
     'voice_interaction_switch': 118, // bool
@@ -96,7 +98,10 @@ abstract final class TuyaConfig {
 
     // Added by the 09-07 export.
     'plant_type': 161, // enum 1/2/3, rw: 后台植物分类，随 116 一起下发
-    'plant_confirm': 162, // value, rw: 0 正常 / 1 异常 / 2 确认 / 3 忽略
+    // 2026-09-09 起两态、且只由设备上报：0 = 不弹窗，1 = 弹「发现新植物」引导窗。
+    // App 不再写这条——下发 116 之后固件自己改回 0 并立即上报；116 为 -1 或用户
+    // 关掉自动检测时固件同样报 0。
+    'plant_confirm': 162,
 
     // TODO(固件/平台): 自动检测植物的开关。产品要求设备设置页有这个纯开关，但
     // 09-07 的导出里还没有这条功能点，163 与标识符都是本地占位。平台补完导出后

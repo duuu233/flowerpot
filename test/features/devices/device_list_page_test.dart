@@ -3,7 +3,6 @@ import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_list_page.dart';
-import 'package:flowerpot/src/features/devices/presentation/plant_picker_page.dart';
 import 'package:flowerpot/src/features/home/models/home_dashboard_model.dart';
 import 'package:flowerpot/src/features/home/presentation/home_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
@@ -68,25 +67,24 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a device without a plant goes straight to the plant picker', (
-    tester,
-  ) async {
-    Object? pickerArguments;
+  testWidgets('没有植物的花盆也直接进详情页，不再先拦去选植物', (tester) async {
+    // 植物的有无由设备上报的 116（-1 / 0..N）决定，详情页自己会画「未检测到
+    // 植物」，也会在设备要求时弹引导窗；列表页不再替设备做这个判断。
+    Object? deviceArguments;
     final state = await _pumpDeviceList(
       tester,
       const Size(375, 812),
       withRoutes: true,
-      onPlantPickerArguments: (value) => pickerArguments = value,
+      onDeviceArguments: (value) => deviceArguments = value,
     );
 
     await tester.tap(find.byKey(const Key('device-list-item-device-02')));
     await tester.pumpAndSettle();
 
-    expect(find.text('plant-picker-target'), findsOneWidget);
+    expect(find.text('device-home-target'), findsOneWidget);
+    expect(find.text('plant-picker-target'), findsNothing);
     expect(state.selectedDevice?.id, 'device-02');
-    final arguments = pickerArguments! as PlantPickerArguments;
-    expect(arguments.deviceId, 'device-02');
-    expect(arguments.mode, PlantPickerMode.add);
+    expect((deviceArguments! as HomeDeviceArguments).deviceId, 'device-02');
     expect(tester.takeException(), isNull);
   });
 

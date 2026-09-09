@@ -43,6 +43,7 @@ class HomeDashboardModel {
     required this.actions,
     required this.helpTopics,
     this.plantImageUrl,
+    this.plantMissing = false,
     this.emptyTitle = '还未添加植物',
     this.emptyMessage = '为设备添加植物后，即可生成专属养护建议与\n环境数据分析。',
     this.addPlantLabel = '添加植物',
@@ -92,6 +93,8 @@ class HomeDashboardModel {
       companionDays: device?.companionDays ?? 0,
       battery: device?.battery ?? 0,
       plantImageUrl: device?.plant.imageUrl,
+      plantMissing:
+          device != null && PlantVariety.isMissing(device.plantVariety),
       metrics: <HomeMetricData>[
         HomeMetricData(
           kind: HomeMetricKind.water,
@@ -187,6 +190,12 @@ class HomeDashboardModel {
   /// 设备当前绑定的那株植物在后台配置的图片（`getProductPlantList` 的 `plantImg`）。
   /// 为空时首页回落到本地静态图，不自己拼路径。
   final String? plantImageUrl;
+
+  /// 设备明确报了「盆里没有植物」（DP 116 == -1）。
+  ///
+  /// 此时首页画不带植物的设备图，「今日养护」整行换成提示，植物选择也不让点——
+  /// 盆里没东西时选了也会被设备的下一次上报覆盖。
+  final bool plantMissing;
   final String emptyTitle;
   final String emptyMessage;
   final String addPlantLabel;

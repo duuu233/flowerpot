@@ -8,7 +8,6 @@ import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../home/models/home_dashboard_model.dart';
 import '../../home/presentation/home_page.dart';
-import 'plant_picker_page.dart';
 
 class DeviceListPage extends StatelessWidget {
   const DeviceListPage({super.key, this.devices, this.onOpenProfile});
@@ -18,13 +17,14 @@ class DeviceListPage extends StatelessWidget {
   /// Lets the shell switch to the profile tab instead of stacking a route.
   final VoidCallback? onOpenProfile;
 
-  /// 打开设备页，两道门禁按顺序走。
+  /// 打开设备页。
   ///
-  /// 离线的花盆不放行：详情页整屏都是 DP 上报值，设备不在线时显示的是上一次快照，
-  /// 而设置、校准、动画这些操作也会被设备直接拒掉。
+  /// 只剩离线这一道门禁：详情页整屏都是 DP 上报值，设备不在线时显示的是上一次
+  /// 快照，而设置、校准、动画这些操作也会被设备直接拒掉。
   ///
-  /// 放行之后，DP 116 `plant_variety` 为空的花盆直接进添加植物流程，不再先停在
-  /// 「未添加植物」空状态页；植物选完由 [PlantPickerPage] 接着推详情页。
+  /// 2026-09-09 起**不再按 DP 116 判断有没有植物**：植物的有无由设备上报的
+  /// -1 / 0..N 决定，详情页自己会画「未检测到植物」的样子，也会在设备要求时弹
+  /// 「发现新植物」引导窗，不需要在列表页先把用户拦去选植物。
   void _openDevice(
     BuildContext context,
     FlowerpotState state,
@@ -35,17 +35,6 @@ class DeviceListPage extends StatelessWidget {
       return;
     }
     state.selectDevice(device.id);
-    if (!state.hasPlant(device.id)) {
-      Navigator.pushNamed(
-        context,
-        AppRoutes.plantPicker,
-        arguments: PlantPickerArguments(
-          deviceId: device.id,
-          mode: PlantPickerMode.add,
-        ),
-      );
-      return;
-    }
     Navigator.pushNamed(
       context,
       AppRoutes.deviceHome,

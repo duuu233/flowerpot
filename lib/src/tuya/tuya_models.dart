@@ -30,41 +30,57 @@ enum LightingCondition { shortage, good, veryGood }
 /// `air_humidity_status` (dry/suitable/damp), which differ only in wording.
 enum ComfortLevel { low, suitable, high }
 
-/// `plant_confirm` (162)：设备与 App 之间关于「盆里到底是哪种植物」的握手。
+/// DP 162 `plant_confirm`：设备告诉 App 要不要弹引导窗。
 ///
-/// 这条在 09-07 的导出里是数值，不是开关：设备发现盆里的植物和下发的 116 不是
-/// 同一种时先只报 [mismatch]，**不上报新的植物标识**，等 App 把用户的处置写回来
-/// 才继续——[confirmed] 让设备改用盆里那株并重新上报 116，[ignored] 让设备保持
-/// 旧的 116 再回报一次。
+/// 2026-09-09 起改成两态，且**只上报、App 不下发**：设备识别到新植物时报 1，
+/// App 下发植物 DPID 之后固件自己改回 0 并立即上报；植物 DPID 为 -1（没插植物）
+/// 或用户关掉自动检测时，固件同样报 0。
 enum PlantConfirmState {
-  /// 0 正常：设备判定一致。
-  normal(0),
+  /// 0：不弹窗。
+  hidden(0),
 
-  /// 1 异常：设备判定不一致，等 App 处置。
-  mismatch(1),
-
-  /// 2 确认：以花盆里的植物为准。
-  confirmed(2),
-
-  /// 3 忽略：保留 App 现在的植物。
-  ignored(3);
+  /// 1：弹引导窗，让用户确认盆里这一株。
+  prompt(1);
 
   const PlantConfirmState(this.dpValue);
 
-  /// 上报和下发用的数值。
+  /// 上报用的数值。
   final int dpValue;
 
-  /// 设备没上报过这条时按 [normal] 处理：「没报异常」不等于「异常」，默认成
-  /// [mismatch] 会让 09-07 之前固件的设备每次进详情页都被问一次。
+  /// 只有明确的 1 才弹窗：没上报过、报了别的值都按不弹处理，免得老固件的设备
+  /// 每次进详情页都被问一次。
   static PlantConfirmState fromDp(Object? raw) {
     final value = raw is num ? raw.toInt() : int.tryParse('${raw ?? ''}');
-    return switch (value) {
-      1 => mismatch,
-      2 => confirmed,
-      3 => ignored,
-      _ => normal,
-    };
+    return value == 1 ? prompt : hidden;
   }
+}
+
+/// DP 116 `plant_variety` 的取值。
+///
+/// 2026-09-09 起是数字：**-1 表示盆里没有植物**，0..N 是具体植物，数值等于管理
+/// 后台植物管理里的「涂鸦标识 ID」（0 是通用植物）。老固件报的是字符串标识符，
+/// 解析不出数字时返回 null，调用方退回按字符串匹配。
+abstract final class PlantVariety {
+  /// 没有植物的约定值。
+  static const int none = -1;
+
+  static int? parse(Object? raw) {
+    if (raw is num) return raw.toInt();
+    final text = raw?.toString().trim() ?? '';
+    if (text.isEmpty) return null;
+    return int.tryParse(text);
+  }
+
+  /// 盆里确实有一株植物：解析得出数字且不是 -1。字符串标识符（老固件）也算有。
+  static bool hasPlant(Object? raw) {
+    final text = raw?.toString().trim() ?? '';
+    if (text.isEmpty) return false;
+    final value = parse(raw);
+    return value == null || value >= 0;
+  }
+
+  /// 设备明确报了「没有植物」。
+  static bool isMissing(Object? raw) => parse(raw) == none;
 }
 
 class DeviceStatusReport {
@@ -403,8 +419,8 @@ class DeviceControlSettings {
   /// `Chinese`/`English`. Factory reset returns the device to Chinese.
   final String deviceLanguage;
 
-  /// `plant_detect_switch`：自动检测植物的总开关，关掉之后设备不再比对盆里的
-  /// 植物，也就不会再报 `plant_confirm` 异常。
+  /// `plant_detect_switch`：自动检测植物的总开关。关掉之后设备不再比对盆里的
+  /// 植物，`plant_confirm`(162) 固定报 0，App 也就不会再弹引导窗。
   ///
   /// 未上报时按开启处理：这是设备的默认行为，按关闭画会让开关和实际状态相反。
   final bool plantDetection;
@@ -521,7 +537,7 @@ class SmartPlanterDevice {
     required this.macAddress,
     this.hardwareVersion = '--',
     this.plantVariety = '',
-    this.plantConfirm = PlantConfirmState.normal,
+    this.plantConfirm = PlantConfirmState.hidden,
     this.deviceStatus = '',
     this.reportedDays,
     this.status = const DeviceStatusReport(),
@@ -550,10 +566,13 @@ class SmartPlanterDevice {
 
   /// `plant_variety`: the backend `tuYaRemark` identifier. DP 116 is both
   /// writable and reportable, so a device report can become the active [plant].
+  ///
+  /// 2026-09-09 起是植物 id：`-1` 表示盆里没有植物，`0..N` 是后台植物管理里的
+  /// 「涂鸦标识 ID」。老固件报的字符串标识符仍能匹配（见 `FlowerpotState._plantKey`）。
   final String plantVariety;
 
-  /// `plant_confirm` (162)：设备对「盆里的植物和 [plantVariety] 是不是同一种」
-  /// 的判定，以及 App 写回去的处置。取值见 [PlantConfirmState]。
+  /// `plant_confirm` (162)：设备要不要 App 弹「发现新植物」引导窗，只上报、
+  /// App 不下发。取值见 [PlantConfirmState]。
   final PlantConfirmState plantConfirm;
 
   /// `device_status`, an opaque product-defined string.

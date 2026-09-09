@@ -207,14 +207,46 @@ class FlowerpotState extends ChangeNotifier {
   /// 空的，然后被详情页入口直接送去添加植物。
   bool hasPlant(String? deviceId) {
     if (deviceId == null) return false;
+    final device = deviceById(deviceId);
+    // DP 116 报 -1 就是明确「盆里没有植物」，比缓存权威：拔掉植物之后
+    // `_plantedDevices` 里还留着上一株，不先判这条会一直显示有植物。
+    if (device != null && PlantVariety.isMissing(device.plantVariety)) {
+      return false;
+    }
     if (_plantedDevices.contains(deviceId)) return true;
-    return deviceById(deviceId)?.plantVariety.trim().isNotEmpty ?? false;
+    return PlantVariety.hasPlant(device?.plantVariety);
   }
 
-  /// DP 162 `plant_confirm`：设备对盆里植物的判定，取值见 [PlantConfirmState]。
+  /// DP 162 `plant_confirm`：设备要不要 App 弹引导窗，取值见 [PlantConfirmState]。
   PlantConfirmState plantConfirmState(String? deviceId) {
-    if (deviceId == null) return PlantConfirmState.normal;
-    return deviceById(deviceId)?.plantConfirm ?? PlantConfirmState.normal;
+    if (deviceId == null) return PlantConfirmState.hidden;
+    return deviceById(deviceId)?.plantConfirm ?? PlantConfirmState.hidden;
+  }
+
+  /// 设备正在等 App 弹「发现新植物」引导窗（DP 162 == 1）。
+  bool plantGuidePending(String? deviceId) =>
+      plantConfirmState(deviceId) == PlantConfirmState.prompt;
+
+  /// 设备当前上报的那一株在目录里的名字，解析不出来时返回 null。
+  ///
+  /// 引导窗的「已检测到 xxx 植物」用它；名字来自 APP 后端的植物目录，DP 116 只
+  /// 给 id。
+  String? reportedPlantName(String? deviceId) {
+    if (deviceId == null) return null;
+    final identifier = deviceById(deviceId)?.plantVariety.trim() ?? '';
+    if (identifier.isEmpty || PlantVariety.isMissing(identifier)) return null;
+    return _plantForIdentifier(identifier)?.name;
+  }
+
+  /// 设备明确报了「盆里没有植物」（DP 116 == -1）。
+  ///
+  /// 与 [hasPlant] 不是简单取反：老固件报字符串标识符时两者都按「有植物」算，
+  /// 只有真的收到 -1 才是没有。
+  bool plantMissing(String? deviceId) {
+    if (deviceId == null) return false;
+    final device = deviceById(deviceId);
+    if (device == null) return false;
+    return PlantVariety.isMissing(device.plantVariety);
   }
 
   /// 自动检测植物开关（`plant_detect_switch`）。关掉之后设备不再比对盆里的植物，
@@ -863,7 +895,7 @@ class FlowerpotState extends ChangeNotifier {
         if (identifier.isEmpty) {
           throw const ApiException(
             'PLANT_IDENTIFIER_MISSING',
-            '该植物尚未配置涂鸦标识符（tuYaRemark），请先在后台植物管理中补充',
+            '该植物尚未配置涂鸦标识 ID，请先在后台植物管理中补充（与固件植物 ID 一致）',
           );
         }
         final withType = await _publishPlantSelection(
@@ -880,32 +912,29 @@ class FlowerpotState extends ChangeNotifier {
         );
       });
 
-  /// 把「植物确认」的处置写回 DP 162。
+  /// 引导窗里的「确认」：把设备当前上报的植物 DPID 原样回写。
   ///
-  /// [PlantConfirmState.confirmed] 让设备改用盆里那一株并重新上报 116；
-  /// [PlantConfirmState.ignored] 让设备保持旧的 116 再回报一次。两条路径 App 都
-  /// **不在这里改植物**——等设备把 116 报回来由 [_applyDeviceUpdate] 更新，显示
-  /// 的才是设备真正在用的那一株。
-  ///
-  /// 写失败就保持异常状态，下次进详情页再问一次，不在本地假装处置过。
-  Future<ActionResult> answerPlantConfirm(
-    String id,
-    PlantConfirmState answer,
-  ) => _guard(() async {
-    assert(
-      answer == PlantConfirmState.confirmed ||
-          answer == PlantConfirmState.ignored,
-      'App 只会下发确认(2)和忽略(3)，正常(0)和异常(1)由设备上报',
-    );
-    final dpId = TuyaConfig.dp['plant_confirm'];
-    if (dpId == null) {
-      throw const TuyaException('unsupported_dp', '当前产品未提供植物确认功能点');
+  /// 固件收到 116 之后会把 162 改成 0 并立即上报，弹窗就不会再来；App 这里不猜
+  /// 植物，写回去的就是设备刚报上来的那个 id。能在目录里解析出这一株时顺带下发
+  /// 分类（161），和主动选植物保持一致。
+  Future<ActionResult> confirmDetectedPlant(String id) => _guard(() async {
+    final device = deviceById(id);
+    final reported = device?.plantVariety.trim() ?? '';
+    if (reported.isEmpty || PlantVariety.isMissing(reported)) {
+      throw const TuyaException('plant_missing', '设备当前没有上报植物，无法确认');
     }
-    await _repository.publishDps(id, <int, Object>{dpId: answer.dpValue});
-    _replaceDevice(id, (device) => device.copyWith(plantConfirm: answer));
+    final plant = _plantForIdentifier(reported);
+    final withType = await _publishPlantSelection(
+      id,
+      reported,
+      plant?.plantType,
+    );
+    if (plant != null) _setPlantSelection(id, plant);
     return ActionResult(
       true,
-      answer == PlantConfirmState.confirmed ? '已确认，正在同步花盆植物' : '已忽略本次检测',
+      withType || plant == null
+          ? '已确认当前植物'
+          : '已确认当前植物；该植物在后台没有配置分类（categoryType），未下发 161',
     );
   });
 
@@ -917,8 +946,9 @@ class FlowerpotState extends ChangeNotifier {
   /// 业务数据来自设备上报，与这次请求无关。
   Future<void> ensurePlantProfile(String deviceId) async {
     final identifier = deviceById(deviceId)?.plantVariety.trim() ?? '';
-    if (identifier.isEmpty) return;
-    final normalized = identifier.toLowerCase();
+    // -1 是「盆里没有植物」，不是一个查不到的标识符，不用去后端找。
+    if (identifier.isEmpty || PlantVariety.isMissing(identifier)) return;
+    final normalized = _plantKey(identifier);
     // 拉过一次目录仍然对不上的标识符不再反复拉：设备每次上报都会走到这里。
     if (_unresolvedPlantIdentifiers.contains(normalized)) return;
     final cached = _knownPlantsByIdentifier.containsKey(normalized);
@@ -1803,6 +1833,16 @@ class FlowerpotState extends ChangeNotifier {
     // is what introduces it.
     if (index < 0) return;
     _settingsOverrides[device.id] = device.settings;
+    // 116 报 -1 = 植物被拔走了。`SmartPlanterDevice.plant` 是非空字段（详情页
+    // 各处都直接读它），所以这里不动那个对象，只把本地的「这台设备有植物」缓存
+    // 清掉——界面一律以 `plantMissing()` / `hasPlant()` 判断，读的是 116 本身。
+    if (PlantVariety.isMissing(device.plantVariety)) {
+      _plantOverrides.remove(device.id);
+      _plantedDevices.remove(device.id);
+      _devices[index] = device;
+      notifyListeners();
+      return;
+    }
     final reportedPlant = _plantForIdentifier(device.plantVariety);
     if (reportedPlant != null) {
       _plantOverrides[device.id] = reportedPlant;
@@ -1812,9 +1852,10 @@ class FlowerpotState extends ChangeNotifier {
       plant: reportedPlant ?? _plantOverrides[device.id],
     );
     notifyListeners();
-    // 设备换到了一株 App 目录里还没有的植物——「植物确认」下发 2 之后设备重新上报
-    // 116 就是这条路径。补拉一次目录再解析，成功了由 ensurePlantProfile 自己刷新
-    // 界面。必须放在上面这次替换之后：它读的是设备当前的 116。
+    // 设备换到了一株 App 目录里还没有的植物——用户在引导窗里点「确认」、或者换了
+    // NFC 芯片之后设备重新上报 116 就是这条路径。补拉一次目录再解析，成功了由
+    // ensurePlantProfile 自己刷新界面。必须放在上面这次替换之后：它读的是设备
+    // 当前的 116。
     if (reportedPlant == null && device.plantVariety.trim().isNotEmpty) {
       unawaited(ensurePlantProfile(device.id));
     }
@@ -2228,13 +2269,26 @@ class FlowerpotState extends ChangeNotifier {
 
   void _rememberPlants(Iterable<PlantProfile> plants) {
     for (final plant in plants) {
-      final identifier = plant.tuyaIdentifier.trim().toLowerCase();
+      final identifier = _plantKey(plant.tuyaIdentifier);
       if (identifier.isNotEmpty) _knownPlantsByIdentifier[identifier] = plant;
     }
   }
 
+  /// 植物标识的归一化键。
+  ///
+  /// 新契约里 DP 116 与后台「涂鸦标识 ID」都是数字，但两边到手时的形态不一定
+  /// 一样（设备可能报 `0`、`"0"` 甚至 `0.0`，后台字段是字符串）。能解析成整数就
+  /// 一律按整数比，解析不出来才退回小写字符串——老固件报的 `tuYaRemark` 标识符
+  /// 走的就是后面这条。
+  static String _plantKey(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) return '';
+    final id = PlantVariety.parse(normalized);
+    return id == null ? normalized : '$id';
+  }
+
   PlantProfile? _plantForIdentifier(String identifier) {
-    final normalized = identifier.trim().toLowerCase();
+    final normalized = _plantKey(identifier);
     if (normalized.isEmpty) return null;
     return _knownPlantsByIdentifier[normalized];
   }

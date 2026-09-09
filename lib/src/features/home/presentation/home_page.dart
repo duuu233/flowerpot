@@ -7,7 +7,6 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/user_avatar.dart';
 import '../../../state.dart';
-import '../../../tuya/tuya_models.dart';
 import '../../devices/models/water_status_page_model.dart';
 import '../../devices/presentation/plant_picker_page.dart';
 import '../models/home_dashboard_model.dart';
@@ -72,66 +71,70 @@ class _HomePageState extends State<HomePage> {
 
   /// 进入设备详情页的检查。
   ///
-  /// DP 162 报 1（异常）说明设备判定盆里的植物和 App 添加的不是同一种，此时设备
-  /// **还没有**上报新的植物标识，先问用户怎么处置；正常、已处置，或者用户已经在
-  /// 设置里关掉自动检测植物时直接跳过。
+  /// DP 162 报 1 就弹「发现新植物」引导窗——弹不弹完全由设备说了算：App 下发植物
+  /// DPID 之后固件会把 162 改回 0 并立即上报；盆里没植物（116 = -1）或用户关掉
+  /// 自动检测时固件同样报 0，所以 App 这边不再自己叠加判断条件。
   ///
-  /// 处置完再按 DP 116 的值去后端补齐植物的图片与引导文案。光照、需水那些业务
-  /// 数据一直跟着设备上报走，不受这一步影响。
+  /// 之后按 DP 116 的 id 去后端补齐植物的图片与引导文案。光照、需水那些业务数据
+  /// 一直跟着设备上报走，不受这一步影响。
   Future<void> _runEntryChecks() async {
     if (!mounted) return;
     final state = FlowerpotScope.of(context);
     final deviceId = widget.deviceId ?? state.selectedDevice?.id;
-    if (deviceId == null || !state.hasPlant(deviceId)) return;
-    if (state.plantConfirmState(deviceId) == PlantConfirmState.mismatch &&
-        state.plantDetectionEnabled(deviceId)) {
-      await _resolvePlantMismatch(state, deviceId);
-      if (!mounted) return;
-    }
+    if (deviceId == null) return;
+    // 先补一次植物资料：引导窗要显示「已检测到 xxx 植物」，名字来自后端目录。
     await state.ensurePlantProfile(deviceId);
+    if (!mounted) return;
+    if (state.plantGuidePending(deviceId)) {
+      await _showPlantGuide(state, deviceId);
+    }
   }
 
-  /// 植物不一致的两级弹窗。
+  /// 「发现新植物」引导窗。
   ///
-  /// 第一级给「确认」和「忽略」，两条都要再过一次二次确认才真正下发：162 一写
-  /// 下去，设备就会照着换植物或者压掉这次检测，不该由一次误触决定。二次确认里
-  /// 取消就什么都不发，下次进详情页再问一次。
-  ///
-  /// 第一级的返回值只有「确认」是 true，忽略和系统返回键都是 null，两者都走忽略
-  /// 分支——真正的闸门是第二级，返回键最多让用户多看一个可取消的确认框。
-  Future<void> _resolvePlantMismatch(
-    FlowerpotState state,
-    String deviceId,
-  ) async {
+  /// 两个按钮都会让固件把 162 改回 0：「确认」直接把设备当前上报的植物 DPID 原样
+  /// 回写，「选择植物」跳到选择流程、选完由那条流程下发。用返回键关掉则什么都不
+  /// 发，下次进详情页设备还会要求弹。
+  Future<void> _showPlantGuide(FlowerpotState state, String deviceId) async {
+    final name = state.reportedPlantName(deviceId);
     final picked = await showAppDialog(
       context,
-      title: '植物确认',
-      message: '检测到花盆植物与app添加植物不一致，是否以花盆里的植物为准？',
+      title: '发现新植物',
+      message: '已检测到${name ?? '新'}植物，请确认植物。',
       confirmLabel: '确认',
-      cancelLabel: '忽略',
+      cancelLabel: '选择植物',
       barrierDismissible: false,
+      content: const Padding(
+        padding: EdgeInsets.only(top: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              '1、选择植物请确保与花盆植物一致',
+              style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+            ),
+            SizedBox(height: 4),
+            Text(
+              '2、忽略检测结果，可前往设置关闭植物自动检测',
+              style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
     );
-    if (!mounted) return;
-    final answer = picked == true
-        ? PlantConfirmState.confirmed
-        : PlantConfirmState.ignored;
-    final settled = await showAppDialog(
-      context,
-      title: answer == PlantConfirmState.confirmed ? '确认同步花盆植物' : '确认忽略本次检测',
-      message: answer == PlantConfirmState.confirmed
-          ? '确认后将以花盆里检测到的植物为准，重新读取植物信息。'
-          : '确认忽略此次检测，如有需要可以前往设置关闭植物自动检测',
-      confirmLabel: '确认',
-      barrierDismissible: false,
-    );
-    if (!mounted || settled != true) return;
-    final result = await state.answerPlantConfirm(deviceId, answer);
-    if (!mounted) return;
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
+    if (!mounted || picked == null) return;
+    if (picked) {
+      final result = await state.confirmDetectedPlant(deviceId);
+      if (!mounted) return;
+      showAppMessage(
+        context,
+        result.message,
+        tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+      );
+      return;
+    }
+    _openAddPlant(context, deviceId);
   }
 
   @override
@@ -230,6 +233,11 @@ class _HomePageState extends State<HomePage> {
                               HomeCareBanner(
                                 title: model.careTitle,
                                 messages: model.careMessages,
+                                // 盆里没植物时整行换成提示：养护建议是按植物给
+                                // 的，没有植物就没有可给的建议。
+                                notice: model.plantMissing
+                                    ? HomeCareBanner.plantMissingNotice
+                                    : null,
                               ),
                               const SizedBox(height: 12),
                               HomeQuickActions(

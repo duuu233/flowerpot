@@ -5,6 +5,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import '../../home/presentation/widgets/home_care_banner.dart';
 import '../models/device_settings_page_model.dart';
 import 'plant_picker_page.dart';
 import 'widgets/device_settings_function_list.dart';
@@ -107,6 +108,16 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
     DeviceSettingsMenuKind kind,
   ) {
     if (kind == DeviceSettingsMenuKind.plant) {
+      // 盆里没有植物（DP 116 == -1）时不让选：选了也会被设备下一次上报覆盖，
+      // 用户该做的是先把植物种进去。
+      if (FlowerpotScope.of(context).plantMissing(device.id)) {
+        showAppMessage(
+          context,
+          HomeCareBanner.plantMissingNotice,
+          tone: AppMessageTone.info,
+        );
+        return;
+      }
       Navigator.pushNamed(
         context,
         AppRoutes.plantPicker,

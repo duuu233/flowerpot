@@ -3,6 +3,7 @@ import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/home/presentation/home_page.dart';
+import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flutter/material.dart';
@@ -12,115 +13,85 @@ const _confirmKey = Key('app-dialog-confirm');
 const _cancelKey = Key('app-dialog-cancel');
 
 void main() {
-  testWidgets('确认要过两道弹窗，第二道点确认才下发 162=2', (tester) async {
+  testWidgets('162 报 1 就弹「发现新植物」引导窗', (tester) async {
     final repository = _HomeRepository(<SmartPlanterDevice>[
-      _device(plantConfirm: PlantConfirmState.mismatch),
+      _device(plantConfirm: PlantConfirmState.prompt),
     ]);
     await _pumpDeviceHome(tester, repository);
 
-    expect(find.text('植物确认'), findsOneWidget);
-    expect(
-      find.text('检测到花盆植物与app添加植物不一致，是否以花盆里的植物为准？'),
-      findsOneWidget,
-    );
-    expect(find.text('忽略'), findsOneWidget);
-
-    await tester.tap(find.byKey(_confirmKey));
-    await tester.pumpAndSettle();
-
-    // 二次确认之前一条指令都不能发出去。
-    expect(find.text('确认同步花盆植物'), findsOneWidget);
+    expect(find.text('发现新植物'), findsOneWidget);
+    // 植物名按 DP 116 的 id 从目录里读，读不到才写「新植物」。
+    expect(find.text('已检测到绿萝植物，请确认植物。'), findsOneWidget);
+    expect(find.text('确认'), findsOneWidget);
+    expect(find.text('选择植物'), findsOneWidget);
+    expect(find.text('1、选择植物请确保与花盆植物一致'), findsOneWidget);
+    expect(find.text('2、忽略检测结果，可前往设置关闭植物自动检测'), findsOneWidget);
+    // 弹窗只是提示，还没有下发任何指令。
     expect(repository.published, isEmpty);
-
-    await tester.tap(find.byKey(_confirmKey));
-    await tester.pumpAndSettle();
-
-    expect(repository.published, <Map<int, Object>>[
-      <int, Object>{162: 2},
-    ]);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('忽略同样要过两道弹窗，第二道点确认才下发 162=3', (tester) async {
+  testWidgets('点「确认」把设备当前上报的植物 id 原样回写', (tester) async {
     final repository = _HomeRepository(<SmartPlanterDevice>[
-      _device(plantConfirm: PlantConfirmState.mismatch),
+      _device(plantConfirm: PlantConfirmState.prompt),
     ]);
     await _pumpDeviceHome(tester, repository);
+
+    await tester.tap(find.byKey(_confirmKey));
+    await tester.pumpAndSettle();
+
+    // 116 写回设备刚报上来的那一株；不再写 162——固件收到 116 自己改回 0。
+    expect(repository.published.single[116], 'pothos');
+    expect(repository.published.single.containsKey(162), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('点「选择植物」跳到植物选择流程，不直接下发', (tester) async {
+    final repository = _HomeRepository(<SmartPlanterDevice>[
+      _device(plantConfirm: PlantConfirmState.prompt),
+    ]);
+    await _pumpDeviceHome(tester, repository, withRoutes: true);
 
     await tester.tap(find.byKey(_cancelKey));
     await tester.pumpAndSettle();
 
-    expect(find.text('确认忽略本次检测'), findsOneWidget);
-    expect(
-      find.text('确认忽略此次检测，如有需要可以前往设置关闭植物自动检测'),
-      findsOneWidget,
-    );
-
-    await tester.tap(find.byKey(_confirmKey));
-    await tester.pumpAndSettle();
-
-    expect(repository.published, <Map<int, Object>>[
-      <int, Object>{162: 3},
-    ]);
+    expect(find.text('plant-picker-target'), findsOneWidget);
+    expect(repository.published, isEmpty);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('二次确认里取消就什么都不发', (tester) async {
+  testWidgets('162 报 0 不弹窗', (tester) async {
     final repository = _HomeRepository(<SmartPlanterDevice>[
-      _device(plantConfirm: PlantConfirmState.mismatch),
+      _device(plantConfirm: PlantConfirmState.hidden),
     ]);
     await _pumpDeviceHome(tester, repository);
 
-    await tester.tap(find.byKey(_confirmKey));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(_cancelKey));
-    await tester.pumpAndSettle();
-
-    expect(find.text('植物确认'), findsNothing);
+    expect(find.text('发现新植物'), findsNothing);
     expect(repository.published, isEmpty);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('关掉自动检测植物之后不再弹确认', (tester) async {
+  testWidgets('116 报 -1：画未种植物的花盆，今日养护换成提示，也不弹窗', (tester) async {
     final repository = _HomeRepository(<SmartPlanterDevice>[
-      _device(
-        plantConfirm: PlantConfirmState.mismatch,
-        plantDetection: false,
-      ),
+      _device(plantVariety: '-1'),
     ]);
     await _pumpDeviceHome(tester, repository);
 
-    expect(find.text('植物确认'), findsNothing);
-    expect(repository.published, isEmpty);
+    expect(find.text('发现新植物'), findsNothing);
+    expect(find.byKey(const Key('home-care-notice')), findsOneWidget);
+    expect(find.text('未检测到植物，请将植物种入花盆。'), findsOneWidget);
+    // 养护建议整行被替换掉，标题也不再显示。
+    expect(find.text('今日养护'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('162 正常时直接进详情页', (tester) async {
-    final repository = _HomeRepository(<SmartPlanterDevice>[_device()]);
-    await _pumpDeviceHome(tester, repository);
-
-    expect(find.text('植物确认'), findsNothing);
-    expect(repository.published, isEmpty);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('DP 116 为空的花盆不会被问植物确认', (tester) async {
-    // 这种设备走的是「直接进添加植物」那条路，不该在这里弹确认框。
-    final repository = _HomeRepository(<SmartPlanterDevice>[
-      _device(plantVariety: '', plantConfirm: PlantConfirmState.mismatch),
-    ]);
-    await _pumpDeviceHome(tester, repository);
-
-    expect(find.text('植物确认'), findsNothing);
-    expect(repository.published, isEmpty);
-    expect(tester.takeException(), isNull);
-  });
 }
 
 Future<FlowerpotState> _pumpDeviceHome(
   WidgetTester tester,
-  _HomeRepository repository,
-) async {
+  _HomeRepository repository, {
+  bool withRoutes = false,
+}) async {
   await tester.binding.setSurfaceSize(const Size(375, 812));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final state = FlowerpotState(repository: repository);
@@ -132,6 +103,18 @@ Future<FlowerpotState> _pumpDeviceHome(
       child: MaterialApp(
         theme: buildAppTheme(),
         home: const HomePage(deviceId: 'device-01', showBackButton: true),
+        onGenerateRoute: withRoutes
+            ? (settings) {
+                if (settings.name == AppRoutes.plantPicker) {
+                  return MaterialPageRoute<void>(
+                    builder: (_) => const Scaffold(
+                      body: Center(child: Text('plant-picker-target')),
+                    ),
+                  );
+                }
+                return null;
+              }
+            : null,
       ),
     ),
   );
@@ -141,7 +124,7 @@ Future<FlowerpotState> _pumpDeviceHome(
 
 SmartPlanterDevice _device({
   String plantVariety = 'pothos',
-  PlantConfirmState plantConfirm = PlantConfirmState.normal,
+  PlantConfirmState plantConfirm = PlantConfirmState.hidden,
   bool plantDetection = true,
 }) {
   return SmartPlanterDevice(

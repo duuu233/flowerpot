@@ -14,8 +14,12 @@ class HomeCareBanner extends StatefulWidget {
     required this.messages,
     this.title = '今日养护',
     this.interval = const Duration(seconds: 5),
+    this.notice,
     super.key,
   });
+
+  /// 盆里没有植物时整行换成的提示（惊叹号 + 一句话），此时不显示标题、也不轮播。
+  static const String plantMissingNotice = '未检测到植物，请将植物种入花盆。';
 
   /// 轮播内容，顺序由 `HomeDashboardModel.careMessages` 决定。
   final List<String> messages;
@@ -25,6 +29,9 @@ class HomeCareBanner extends StatefulWidget {
 
   /// 切换间隔。
   final Duration interval;
+
+  /// 有值时整行只画这一句（前面是惊叹号图标），养护建议和标题都不显示。
+  final String? notice;
 
   @override
   State<HomeCareBanner> createState() => _HomeCareBannerState();
@@ -74,6 +81,37 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
 
   @override
   Widget build(BuildContext context) {
+    final notice = widget.notice;
+    if (notice != null) {
+      return ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
+        child: AppSurfaceCard(
+          key: const Key('home-care-notice'),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          color: AppColors.surfaceTranslucent,
+          borderRadius: AppRadius.large,
+          side: const BorderSide(color: AppColors.surface),
+          child: Row(
+            children: <Widget>[
+              const Icon(
+                Icons.error_outline_rounded,
+                size: 18,
+                color: AppColors.warning,
+              ),
+              const SizedBox(width: AppSpacing.lg),
+              Expanded(
+                child: Text(
+                  notice,
+                  style: AppTypography.compactBody.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final messages = widget.messages;
     final message = messages.isEmpty ? '' : messages[_index % messages.length];
     return ConstrainedBox(

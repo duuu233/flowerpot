@@ -101,6 +101,39 @@ void main() {
     expect(events, isNot(contains('tuya:140=step4')));
   });
 
+  test('116 报 -1 就是没有植物，缓存里的那一株也要清掉', () async {
+    final tuya = MockTuyaRepository(latency: Duration.zero);
+    final state = FlowerpotState(
+      repository: tuya,
+      backendRepository: FixtureBackend(),
+    );
+    addTearDown(state.dispose);
+    await state.initialize();
+    await state.login(
+      account: 'demo@example.test',
+      credential: 'demo',
+      region: LoginRegion.overseas,
+      verificationCode: false,
+    );
+    final device = state.devices.single;
+
+    tuya.pushDeviceUpdate(
+      DeviceUpdate.changed(device.copyWith(plantVariety: 'pothos')),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(state.hasPlant(device.id), isTrue);
+    expect(state.plantMissing(device.id), isFalse);
+
+    // 用户把植物拔了：设备报 -1。
+    tuya.pushDeviceUpdate(
+      DeviceUpdate.changed(device.copyWith(plantVariety: '-1')),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(state.plantMissing(device.id), isTrue);
+    expect(state.hasPlant(device.id), isFalse, reason: '本地缓存不能再说有植物');
+  });
+
   test('后端会话失效只清后端，不动涂鸦会话和设备列表', () async {
     // 设备清单、DP、配网全部走涂鸦，跟 APP 后端的 token 无关。以前后端回一次 406
     // 就 `_clearLocalSession()`，用户被整个踢回登录页——表现就是「用一个小时（后端

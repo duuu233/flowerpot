@@ -28,7 +28,10 @@ class HomePlantOverview extends StatelessWidget {
               Positioned(
                 top: 34,
                 left: (width - 132) / 2,
-                child: _PlantHeroImage(imageUrl: model.plantImageUrl),
+                child: _PlantHeroImage(
+                  imageUrl: model.plantMissing ? null : model.plantImageUrl,
+                  plantMissing: model.plantMissing,
+                ),
               ),
               Positioned(
                 top: 42,
@@ -97,12 +100,15 @@ class HomePlantOverview extends StatelessWidget {
 /// 没有配、或者取不回来时才回落到本地静态图。植物详情页 `_PlantDetailArtwork`
 /// 是同一套口径。
 class _PlantHeroImage extends StatelessWidget {
-  const _PlantHeroImage({required this.imageUrl});
+  const _PlantHeroImage({required this.imageUrl, this.plantMissing = false});
 
   static const double _width = 132;
   static const double _height = 170;
 
   final String? imageUrl;
+
+  /// 设备报了 116 = -1：画不带植物的花盆，别让上一株的照片留在页面上。
+  final bool plantMissing;
 
   @override
   Widget build(BuildContext context) {
@@ -120,12 +126,14 @@ class _PlantHeroImage extends StatelessWidget {
   }
 
   Widget _fallback() => Image.asset(
-    AppAssets.smartPlanterWithPlant,
+    plantMissing
+        ? AppAssets.smartPlanterDevice
+        : AppAssets.smartPlanterWithPlant,
     width: _width,
     height: _height,
     fit: BoxFit.contain,
     filterQuality: FilterQuality.high,
-    semanticLabel: '带植物的 YSplanter',
+    semanticLabel: plantMissing ? '未种植物的 YSplanter' : '带植物的 YSplanter',
   );
 }
 
