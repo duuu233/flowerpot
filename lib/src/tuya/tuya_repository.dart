@@ -113,7 +113,7 @@ abstract class TuyaRepository {
     ReportRange range,
   );
   Future<String> createShareLink(String deviceId);
-  Future<String?> checkFirmware(String deviceId);
+  Future<FirmwareUpdate?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
   Future<void> uploadAnimation(String deviceId, AnimationAsset asset);
 
@@ -466,8 +466,34 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       '';
 
   @override
-  Future<String?> checkFirmware(String deviceId) =>
-      _invoke<String>('checkFirmware', <String, Object?>{'deviceId': deviceId});
+  Future<FirmwareUpdate?> checkFirmware(String deviceId) async =>
+      _firmwareUpdate(
+        await _invoke<Object>('checkFirmware', <String, Object?>{
+          'deviceId': deviceId,
+        }),
+      );
+
+  /// 桥接回的是 `{version, currentVersion}`；装着旧原生包的机器只回一个版本号
+  /// 字符串，那种情况按「只知道新版本」处理，不至于整块功能失效。
+  static FirmwareUpdate? _firmwareUpdate(Object? raw) {
+    String clean(Object? value) {
+      final text = value?.toString().trim() ?? '';
+      return text == 'null' ? '' : text;
+    }
+
+    if (raw is String) {
+      final version = clean(raw);
+      return version.isEmpty ? null : FirmwareUpdate(version: version);
+    }
+    if (raw is! Map) return null;
+    final version = clean(raw['version']);
+    if (version.isEmpty) return null;
+    final current = clean(raw['currentVersion']);
+    return FirmwareUpdate(
+      version: version,
+      currentVersion: current.isEmpty ? null : current,
+    );
+  }
 
   @override
   Future<void> startFirmwareUpgrade(String deviceId) => _invoke<void>(
@@ -1051,9 +1077,9 @@ class MockTuyaRepository implements TuyaRepository {
   }
 
   @override
-  Future<String?> checkFirmware(String deviceId) async {
+  Future<FirmwareUpdate?> checkFirmware(String deviceId) async {
     await _wait();
-    return '1.1.0';
+    return const FirmwareUpdate(version: '1.1.0', currentVersion: '1.0.8');
   }
 
   @override

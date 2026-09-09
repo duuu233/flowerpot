@@ -177,21 +177,28 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       final known = useKnownVersion
           ? state.availableFirmwareFor(widget.deviceId)
           : null;
-      final version = known ?? await state.checkFirmware(widget.deviceId);
+      final update = known ?? await state.checkFirmware(widget.deviceId);
       if (!mounted) return;
-      if (version == null || version == device.firmwareVersion) {
+      // 「当前版本」优先用同一条 OTA 记录里的那个：设备可能有 MCU、Wi-Fi 模块
+      // 几个可升级组件，拿设备列表里的固件版本和另一个组件的新版本并排显示，
+      // 两行就对不上。SDK 没给才退回设备列表里的版本。
+      final currentVersion = update?.currentVersion ?? device.firmwareVersion;
+      if (update == null || update.version == currentVersion) {
         showAppMessage(context, '当前已是最新固件版本');
         return;
       }
       setState(() => _updatingFirmware = false);
       final confirmed = await showFirmwareUpdateDialog(
         context,
-        currentVersion: device.firmwareVersion,
-        availableVersion: version,
+        currentVersion: currentVersion,
+        availableVersion: update.version,
       );
       if (!confirmed || !mounted) return;
       setState(() => _updatingFirmware = true);
-      final result = await state.upgradeFirmware(widget.deviceId, version);
+      final result = await state.upgradeFirmware(
+        widget.deviceId,
+        update.version,
+      );
       if (!mounted) return;
       if (!result.success) {
         showAppMessage(context, result.message, tone: AppMessageTone.error);

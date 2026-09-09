@@ -1311,7 +1311,19 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     // An SDK drop without the field would otherwise never
                     // offer an upgrade at all; fall back to the old behaviour.
                     ?: list.firstOrNull().takeIf { statuses.all { status -> status == null } }
-                success(result, pending?.let { optionalGetter(it, "getVersion")?.toString() })
+                // 两个版本号都从同一条记录取：`getVersion` 是待装的新版本，
+                // `getCurrentVersion` 是该组件当前跑的版本。分开取会把两个
+                // 不同组件的版本号并排显示。
+                success(
+                    result,
+                    pending?.let {
+                        mapOf(
+                            "version" to optionalGetter(it, "getVersion")?.toString(),
+                            "currentVersion" to
+                                optionalGetter(it, "getCurrentVersion")?.toString(),
+                        )
+                    },
+                )
             },
             onError = { code, message -> error(result, code, message) },
         )
@@ -1581,7 +1593,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         "signal" to (optionalGetter(device, "getSignal") ?: 0),
         "activeTime" to (optionalGetter(device, "getActiveTime") ?: 0),
         "mac" to (optionalGetter(device, "getMac") ?: optionalGetter(device, "getUuid")),
-        "firmwareVersion" to (optionalGetter(device, "getPv") ?: optionalGetter(device, "getVersion")),
+        // getPv 是通信协议版本（"2.2" 这种），不是固件版本——之前取它，
+        // 「当前版本」显示的一直是协议号。固件版本在 DeviceBean.verSw 上。
+        "firmwareVersion" to (
+            optionalGetter(device, "getVerSw")
+                ?: optionalGetter(device, "getVersion")
+            ),
         "dps" to (optionalGetter(device, "getDps") ?: emptyMap<String, Any>()),
     )
 

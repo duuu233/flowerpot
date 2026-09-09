@@ -198,6 +198,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('弹窗的两个版本来自同一条 OTA 记录', (tester) async {
+    // 设备列表里的固件版本是 1.0.0，而这次待升级的组件当前跑的是 2.0.0。两行
+    // 版本号必须成对来自 OTA 记录，否则「当前版本」和「新版本」不是同一个东西。
+    await _pumpOtherSettings(
+      tester,
+      const Size(375, 812),
+      repository: _OtherSettingsRepository(
+        firmware: '2.1.0',
+        currentFirmware: '2.0.0',
+      ),
+    );
+
+    await tester.tap(find.text('固件版本更新'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('firmware-update-dialog')), findsOneWidget);
+    expect(find.text('V2.0.0'), findsOneWidget);
+    expect(find.text('V2.1.0'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('installing firmware waits for the device to report success', (
     tester,
   ) async {
@@ -357,11 +378,14 @@ SmartPlanterDevice get _device => SmartPlanterDevice(
 );
 
 class _OtherSettingsRepository extends MockTuyaRepository {
-  _OtherSettingsRepository({this.firmware = '1.1.2'})
+  _OtherSettingsRepository({this.firmware = '1.1.2', this.currentFirmware})
     : super(latency: Duration.zero);
 
   /// 云端待装的版本；给的和设备当前版本一样就表示「已是最新」。
   final String? firmware;
+
+  /// 涂鸦在同一条 OTA 记录里报的当前版本，null 表示 SDK 没给。
+  final String? currentFirmware;
 
   @override
   Future<List<SmartPlanterDevice>> getDevices() async => <SmartPlanterDevice>[
@@ -369,7 +393,12 @@ class _OtherSettingsRepository extends MockTuyaRepository {
   ];
 
   @override
-  Future<String?> checkFirmware(String deviceId) async => firmware;
+  Future<FirmwareUpdate?> checkFirmware(String deviceId) async {
+    final version = firmware;
+    return version == null
+        ? null
+        : FirmwareUpdate(version: version, currentVersion: currentFirmware);
+  }
 
   /// 真实桥接只把升级发起出去就返回，进度和成败走事件通道。
   @override

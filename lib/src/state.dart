@@ -43,11 +43,13 @@ class FlowerpotState extends ChangeNotifier {
   /// 已发起升级但尚未收到 success 的目标版本号，收到后才写回设备。
   final Map<String, String> _pendingOtaVersion = <String, String>{};
 
-  /// 云端说这台设备可以装、但还没装上的固件版本号。
+  /// 云端说这台设备可以装、但还没装上的固件。
   ///
-  /// 值由涂鸦 SDK 给出（App 不和设备直接说话），已经和设备当前版本比过，所以
-  /// 「有值」就等于「有新版本」——小红点看的就是这个。
-  final Map<String, String> _availableFirmware = <String, String>{};
+  /// 值由涂鸦 SDK 给出（App 不和设备直接说话），已经和当前版本比过，所以
+  /// 「有值」就等于「有新版本」——小红点看的就是这个。里面同时带着 SDK 报的
+  /// 「该组件当前版本」，弹窗上两行版本号因此来自同一条 OTA 记录。
+  final Map<String, FirmwareUpdate> _availableFirmware =
+      <String, FirmwareUpdate>{};
 
   /// [probeWifi] 自己的重入保护，见那里的说明。
   bool _wifiScanning = false;
@@ -1380,10 +1382,10 @@ class FlowerpotState extends ChangeNotifier {
   /// （Android `newOTAInstance`/`getOtaInfo`/`startOta`，iOS
   /// `getFirmwareUpgradeInfo`/`upgradeFirmware`），由原生桥接封装。App 自始至
   /// 终不和设备直接说话：问版本、发起升级、收进度，三步都是对着 SDK。
-  Future<String?> checkFirmware(String id) async {
-    final version = await _repository.checkFirmware(id);
-    _rememberFirmwareUpdate(id, version);
-    return version;
+  Future<FirmwareUpdate?> checkFirmware(String id) async {
+    final update = await _repository.checkFirmware(id);
+    _rememberFirmwareUpdate(id, update);
+    return update;
   }
 
   /// 静默查一次新版本，只为了让小红点亮起来。
@@ -1404,22 +1406,24 @@ class FlowerpotState extends ChangeNotifier {
   bool hasFirmwareUpdate(String deviceId) =>
       _availableFirmware.containsKey(deviceId);
 
-  /// 待装的新版本号，没有新版本时为 null。
-  String? availableFirmwareFor(String deviceId) => _availableFirmware[deviceId];
+  /// 待装的新固件，没有新版本时为 null。
+  FirmwareUpdate? availableFirmwareFor(String deviceId) =>
+      _availableFirmware[deviceId];
 
-  /// 记下（或抹掉）一台设备的待升级版本。
+  /// 记下（或抹掉）一台设备的待升级固件。
   ///
   /// 涂鸦在设备已是最新时可能回 null、空串，也可能把当前版本原样回来，三种都
-  /// 是「没有新版本」；只有确实不同的版本号才点亮小红点。
-  void _rememberFirmwareUpdate(String id, String? version) {
-    final current = deviceById(id)?.firmwareVersion;
-    final next = version == null || version.isEmpty || version == current
-        ? null
-        : version;
+  /// 是「没有新版本」；只有确实不同的版本号才点亮小红点。比较的基准优先用同一
+  /// 条 OTA 记录里的当前版本，取不到才退回设备列表里的固件版本。
+  void _rememberFirmwareUpdate(String id, FirmwareUpdate? update) {
+    final current =
+        update?.currentVersion ?? deviceById(id)?.firmwareVersion;
+    final version = update?.version ?? '';
+    final next = version.isEmpty || version == current ? null : update;
     if (next == null) {
       if (_availableFirmware.remove(id) == null) return;
     } else {
-      if (_availableFirmware[id] == next) return;
+      if (_availableFirmware[id]?.version == next.version) return;
       _availableFirmware[id] = next;
     }
     notifyListeners();

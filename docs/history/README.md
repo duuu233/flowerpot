@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-09/2026-09-09-ota-version-pair.md`](2026-09/2026-09-09-ota-version-pair.md)：OTA 弹窗两个版本号都不对——不是进度弹层改坏的，Android 的 `firmwareVersion` 一直取的是协议版本 `pv`，且两行版本号来源不同；改取 `verSw` 并让 `checkFirmware` 成对返回同一条 OTA 记录的当前/新版本。
+
 - [`2026-09/2026-09-09-relogin-device-list-empty.md`](2026-09/2026-09-09-relogin-device-list-empty.md)：重新登录读不到已绑定设备——设备列表拉取失败不再被吞成「暂无设备」（新增 `deviceLoadError` 与错误态重试），两端桥接的家庭选择从「取第一个」改成稳定规则。
 
 - [`2026-09/2026-09-09-home-plant-image-from-backend.md`](2026-09/2026-09-09-home-plant-image-from-backend.md)：已绑定设备首页正中的图改取后台给该植物配的 `plantImg`，为空或加载失败才回落本地静态图；植物详情页本来就是这个口径。

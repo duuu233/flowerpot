@@ -101,11 +101,11 @@ void main() {
     // 没查过就没有结论，界面上不点红点。
     expect(state.hasFirmwareUpdate('device-01'), isFalse);
 
-    final version = await state.checkFirmware('device-01');
+    final update = await state.checkFirmware('device-01');
 
-    expect(version, '1.1.0');
+    expect(update?.version, '1.1.0');
     expect(state.hasFirmwareUpdate('device-01'), isTrue);
-    expect(state.availableFirmwareFor('device-01'), '1.1.0');
+    expect(state.availableFirmwareFor('device-01')?.version, '1.1.0');
     state.dispose();
   });
 
@@ -117,6 +117,33 @@ void main() {
 
     expect(state.hasFirmwareUpdate('device-01'), isFalse);
     expect(state.availableFirmwareFor('device-01'), isNull);
+    state.dispose();
+  });
+
+  test('SDK 报的当前版本压过设备列表里的固件版本', () async {
+    // 设备列表里是 1.0.0（Wi-Fi 模块），这次待升级的组件当前跑的是 2.0.0——
+    // 两个版本号必须成对来自同一条 OTA 记录，否则弹窗上「当前版本」和「新版本」
+    // 根本不是同一个东西。
+    final state = await _state(
+      _OtaRepository(firmware: '2.1.0', currentFirmware: '2.0.0'),
+    );
+
+    final update = await state.checkFirmware('device-01');
+
+    expect(update?.version, '2.1.0');
+    expect(update?.currentVersion, '2.0.0');
+    expect(state.hasFirmwareUpdate('device-01'), isTrue);
+    state.dispose();
+  });
+
+  test('SDK 把当前版本原样回来时不算新版本', () async {
+    final state = await _state(
+      _OtaRepository(firmware: '2.0.0', currentFirmware: '2.0.0'),
+    );
+
+    await state.checkFirmware('device-01');
+
+    expect(state.hasFirmwareUpdate('device-01'), isFalse);
     state.dispose();
   });
 
@@ -196,8 +223,11 @@ SmartPlanterDevice get _device => SmartPlanterDevice(
 );
 
 class _OtaRepository extends MockTuyaRepository {
-  _OtaRepository({this.firmware = '1.1.0', this.failsCheck = false})
-    : super(latency: Duration.zero);
+  _OtaRepository({
+    this.firmware = '1.1.0',
+    this.failsCheck = false,
+    this.currentFirmware,
+  }) : super(latency: Duration.zero);
 
   /// 云端说可以装的版本，null 表示「没有新版本」。
   final String? firmware;
@@ -205,15 +235,21 @@ class _OtaRepository extends MockTuyaRepository {
   /// 查询本身失败：设备离线，或者涂鸦后台没开通 OTA 能力。
   final bool failsCheck;
 
+  /// 涂鸦在同一条 OTA 记录里报的当前版本；null 表示 SDK 没给，届时以设备列表
+  /// 里的固件版本为准。
+  final String? currentFirmware;
+
   @override
   Future<List<SmartPlanterDevice>> getDevices() async => <SmartPlanterDevice>[
     _device,
   ];
 
   @override
-  Future<String?> checkFirmware(String deviceId) async {
+  Future<FirmwareUpdate?> checkFirmware(String deviceId) async {
     if (failsCheck) throw const TuyaException('sdk_error', '设备离线');
-    return firmware;
+    final version = firmware;
+    if (version == null) return null;
+    return FirmwareUpdate(version: version, currentVersion: currentFirmware);
   }
 
   /// 真实桥接的 `startFirmwareUpgrade` 只是把升级发起出去就返回；Mock 的默认

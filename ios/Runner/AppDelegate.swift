@@ -548,8 +548,15 @@ final class FlowerpotTuyaBridge: NSObject {
     device.getFirmwareUpgradeInfo({ [device] models in
       // One model per upgradable component; upgradeStatus 1 is "an update is
       // waiting". Anything else means there is nothing to offer.
-      let pending = models?.first { $0.upgradeStatus == 1 }
-      result(pending?.version)
+      // 新版本和当前版本都从同一条记录取，避免把两个组件的版本号并排显示。
+      if let pending = models?.first(where: { $0.upgradeStatus == 1 }) {
+        result([
+          "version": pending.version,
+          "currentVersion": pending.currentVersion,
+        ])
+      } else {
+        result(nil)
+      }
     }, failure: { [weak self, device] error in self?.fail(result, error) })
   }
 
@@ -669,6 +676,8 @@ final class FlowerpotTuyaBridge: NSObject {
       "online": device.isOnline,
       "activeTime": device.activeTime,
       "mac": device.uuid,
+      // 固件版本用 verSw；Android 侧曾经错取协议版本 pv，两端现在都用同一个字段。
+      "firmwareVersion": device.verSw,
       "dps": device.dps,
     ]
   }

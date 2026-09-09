@@ -871,6 +871,21 @@ enum PairingStage {
 /// [networks] is empty on platforms that cannot enumerate access points — iOS
 /// only reports the network the phone is on — so screens have to treat "no
 /// networks" as "unknown", never as "no device nearby".
+/// 一次固件检查的结果。
+///
+/// 两个版本号必须来自同一条 OTA 记录：设备可能有 MCU、Wi-Fi 模块等几个可升级
+/// 组件，各自版本号不同。以前「当前版本」取的是设备列表里的字段、「新版本」取
+/// 的是 OTA 记录，两者根本不是同一个东西，弹窗上两行对不上。
+class FirmwareUpdate {
+  const FirmwareUpdate({required this.version, this.currentVersion});
+
+  /// 待安装的新版本号。
+  final String version;
+
+  /// 涂鸦在同一条 OTA 记录里报的「该组件当前版本」，SDK 没给时为 null。
+  final String? currentVersion;
+}
+
 class WifiScan {
   const WifiScan({required this.networks, this.current, this.currentFrequency});
 
