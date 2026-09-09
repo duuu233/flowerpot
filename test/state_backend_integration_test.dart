@@ -85,6 +85,35 @@ void main() {
     expect(events, isNot(contains('tuya:140=step4')));
   });
 
+  test('后端会话失效只清后端，不动涂鸦会话和设备列表', () async {
+    // 设备清单、DP、配网全部走涂鸦，跟 APP 后端的 token 无关。以前后端回一次 406
+    // 就 `_clearLocalSession()`，用户被整个踢回登录页——表现就是「用一个小时（后端
+    // token 的有效期）就掉登录」，而后端查自己的表说 token 还在。
+    final tuya = _AuthRecordingTuya();
+    final state = FlowerpotState(
+      repository: tuya,
+      backendRepository: _ExpiringBackend(),
+    );
+    addTearDown(state.dispose);
+    await state.login(
+      account: '13800138000',
+      credential: '246810',
+      region: LoginRegion.domestic,
+      verificationCode: true,
+    );
+    expect(state.authenticated, isTrue);
+
+    final result = await state.updateProfile(nickname: '新昵称');
+
+    expect(result.success, isFalse);
+    expect(result.code, '406');
+    // 关键：涂鸦会话还在，用户不该被踢回登录页。
+    expect(state.authenticated, isTrue);
+    expect(state.user, isNotNull);
+    // 失效原因留在现场信息里，排查时看得到是哪一层断的。
+    expect(state.sessionDiagnostics, contains('后端会话'));
+  });
+
   test('domestic login uses backend Tuya credentials and profile', () async {
     final tuya = _AuthRecordingTuya();
     final backend = _AuthBackend();
@@ -288,6 +317,14 @@ class _AuthRecordingTuya extends MockTuyaRepository {
       region: region,
       verificationCode: verificationCode,
     );
+  }
+}
+
+/// 登录正常，之后每次业务调用都以 406「请重新登录」失败：后端 token 过期的现场。
+class _ExpiringBackend extends _AuthBackend {
+  @override
+  Future<void> changeNickname(String nickname) async {
+    throw const ApiException(406, '请重新登录！');
   }
 }
 

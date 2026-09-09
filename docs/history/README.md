@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-09/2026-09-09-backend-session-expiry.md`](2026-09/2026-09-09-backend-session-expiry.md)：「用一个小时就掉登录」——后端 401/406 以前会 `_clearLocalSession()` 把涂鸦会话一起清掉，改为只清后端会话并留下失效原因与接口日志。
+
 - [`2026-09/2026-09-09-verification-code-phone-format.md`](2026-09/2026-09-09-verification-code-phone-format.md)：发验证码前校验手机号格式——输入框只收 11 位数字，号码不合法时「获取验证码」禁用，三页都补了发送前的兜底校验。
 
 - [`2026-09/2026-09-09-home-pinned-and-pairing-preflight.md`](2026-09/2026-09-09-home-pinned-and-pairing-preflight.md)：家庭 id 按涂鸦 uid 记在本地、每次会话开始钉给原生；配网前先确认家庭再取令牌并加遮罩 loading；空家庭列表在热点上不建家、正常网络下先重查一次。

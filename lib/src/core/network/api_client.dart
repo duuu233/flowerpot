@@ -250,6 +250,13 @@ class ApiClient {
     final retMessage = body['retMsg']?.toString();
     final rawBody = _debugBody(response);
     if (response.statusCode == 401 || retCode == 401 || retCode == 406) {
+      // 哪个接口把会话判死的，必须留痕：401/406 会把用户弹回登录页，而后端往往
+      // 只看得到「token 还在表里」。只记路径不记 query，token 不进日志。
+      debugPrint(
+        '[session] 后端会话失效：${response.request?.method ?? 'REQ'} '
+        '${response.request?.url.path ?? '-'} '
+        '→ HTTP ${response.statusCode} / retCode $retCode',
+      );
       session.clear();
       onSessionExpired?.call();
       throw ApiException(

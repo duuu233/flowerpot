@@ -68,6 +68,9 @@ class FlowerpotState extends ChangeNotifier {
   /// 「暂无设备」，用户重新登录后设备读不出来，看起来就像设备全没了。
   String? _deviceLoadError;
 
+  /// 最近一次 APP 后端会话失效的原因，重新登录成功后清空。
+  String? _backendSessionError;
+
   /// 本次会话开始时从本地缓存钉给原生的家庭；没有钉过就是 null。
   ///
   /// 用它区分「这次用的是缓存的家庭」还是「原生按涂鸦列表现挑的」——前者读出
@@ -199,6 +202,7 @@ class FlowerpotState extends ChangeNotifier {
     '家庭 ${_lastHomeId ?? '-'}',
     '设备 ${_devices.length} 台',
     if (_deviceLoadError != null) _deviceLoadError!,
+    if (_backendSessionError != null) '后端会话：$_backendSessionError',
   ].join(' · ');
   List<AnimationAsset> get animations => animationsFor(_selectedDeviceId);
 
@@ -334,6 +338,7 @@ class FlowerpotState extends ChangeNotifier {
             );
       created = backendAccount.registered;
       _user = await _loginTuyaAccount(backendAccount);
+      _backendSessionError = null;
       await _rememberBackendUserId(backendAccount.userId);
       await _applyBackendHome(backendAccount.tuyaHomeId);
     } else {
@@ -364,6 +369,7 @@ class FlowerpotState extends ChangeNotifier {
         password: normalizedPassword,
       );
       _user = await _loginTuyaAccount(backendAccount);
+      _backendSessionError = null;
       await _rememberBackendUserId(backendAccount.userId);
       await _applyBackendHome(backendAccount.tuyaHomeId);
     } else {
@@ -1981,7 +1987,7 @@ class FlowerpotState extends ChangeNotifier {
         code: error.code,
       );
     } on ApiException catch (error) {
-      if (error.isAuthError) _clearLocalSession();
+      if (error.isAuthError) _handleBackendSessionExpired(error);
       return ActionResult(
         false,
         _tagged(_apiSource(error.code), error.code, error.message),
@@ -1994,6 +2000,24 @@ class FlowerpotState extends ChangeNotifier {
         code: 'unexpected_error',
       );
     }
+  }
+
+  /// APP 后端会话失效（401 / 406）时的处置。
+  ///
+  /// **只清后端会话，不动涂鸦会话和设备列表。** 设备清单、DP 上报、配网、固件
+  /// 全部走涂鸦，和 APP 后端的 token 没有任何关系；以前这里直接 `_clearLocalSession()`，
+  /// 一次 406 就把用户整个踢回登录页——表现就是「用一会儿（后端 token 的有效期）
+  /// 就掉登录」，而后端查自己的表又说 token 还在。真正需要后端的功能（图库、
+  /// 植物目录、意见反馈）会各自报「APP 后端登录状态已失效，请重新登录」。
+  void _handleBackendSessionExpired(ApiException error) {
+    _backend.clearSession();
+    _backendSessionError = _tagged(
+      _apiSource(error.code),
+      error.code,
+      error.message,
+    );
+    debugPrint('[session] $_backendSessionError');
+    notifyListeners();
   }
 
   /// 一次会话开始：换代、把上次记下的家庭钉给原生，再拉设备列表。
@@ -2339,6 +2363,7 @@ class FlowerpotState extends ChangeNotifier {
     _devices = <SmartPlanterDevice>[];
     _deviceLoadError = null;
     _pinnedHome = null;
+    _backendSessionError = null;
     _plantedDevices.clear();
     _plantOverrides.clear();
     _settingsOverrides.clear();
