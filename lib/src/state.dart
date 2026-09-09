@@ -269,8 +269,7 @@ class FlowerpotState extends ChangeNotifier {
     try {
       _user = await _repository.restoreSession();
       if (_user != null) {
-        _sessionEpoch++;
-        await _refreshDevicesForSession(ignoreErrors: true);
+        await _startSession();
       }
     } catch (_) {
       _user = null;
@@ -337,8 +336,7 @@ class FlowerpotState extends ChangeNotifier {
         verificationCode: verificationCode,
       );
     }
-    _sessionEpoch++;
-    await _refreshDevicesForSession(ignoreErrors: true);
+    await _startSession();
     return ActionResult(true, created ? '已为你创建账号并登录' : '登录成功');
   });
 
@@ -366,8 +364,7 @@ class FlowerpotState extends ChangeNotifier {
         region: region,
       );
     }
-    _sessionEpoch++;
-    await _refreshDevicesForSession(ignoreErrors: true);
+    await _startSession();
     return const ActionResult(true, '账号创建成功');
   });
 
@@ -458,8 +455,7 @@ class FlowerpotState extends ChangeNotifier {
       );
     }
     _user = user;
-    _sessionEpoch++;
-    await _refreshDevicesForSession(ignoreErrors: true);
+    await _startSession();
     return ActionResult(true, '会话有效，设备 ${_devices.length} 台');
   });
 
@@ -596,6 +592,42 @@ class FlowerpotState extends ChangeNotifier {
   /// 任何一步失败都会释放热点连接与进程网络绑定：那是原生层的状态，不释放的话
   /// 进程会一直绑在一个没有互联网的网络上，之后的回查设备、重试取令牌全部失败，
   /// 看起来就像「设备被占住了」。
+  /// 配网前的准备：先把家庭确认下来、再取令牌，这两步都要走云端，必须在手机
+  /// 还连着路由器时完成。
+  ///
+  /// 连上设备热点之后手机就没有外网，那时再查家庭轻则失败、重则拿到一份空列表
+  /// 被当成「这个账号还没有家庭」而新建一个——账号里从此多一个空家庭，下次登录
+  /// 就可能读到它、一台设备都没有。所以配网页先跑这一步、转个圈，成了才去连热点。
+  Future<ActionResult> prepareForPairing() => _guard(() async {
+    var home = '';
+    try {
+      home = await _repository.currentHomeId();
+    } on TuyaException catch (error) {
+      // 装着旧原生包的机器上没有这个方法，不拦路：取令牌本身也会解析家庭。
+      // 其它错误都是真的没查到，照常抛出去。
+      if (error.code != 'sdk_unavailable') rethrow;
+    }
+    if (home == '0') {
+      throw const TuyaException(
+        'home_unresolved',
+        '没能确认账号下的家庭，请确认手机已连上可上网的 Wi-Fi 后重试',
+      );
+    }
+    if (home.isNotEmpty) {
+      _lastHomeId = home;
+      await _rememberHome(home);
+    }
+    if (!activatorTokenReady) {
+      await _repository.prepareActivatorToken();
+      _activatorTokenAt = DateTime.now();
+    }
+    notifyListeners();
+    return ActionResult(
+      true,
+      home.isEmpty ? '准备就绪' : '准备就绪（家庭 $home）',
+    );
+  });
+
   Future<ActionResult> pairViaHotspot({
     required String ssid,
     required String password,
@@ -1954,6 +1986,50 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
+  /// 一次会话开始：换代、把上次记下的家庭钉给原生，再拉设备列表。
+  ///
+  /// 顺序不能反——家庭没钉住就拉列表，等于又让原生自己从家庭列表里挑一次。
+  Future<void> _startSession() async {
+    _sessionEpoch++;
+    await _pinKnownHome();
+    await _refreshDevicesForSession(ignoreErrors: true);
+  }
+
+  static String _homeKey(String uid) => 'tuyaHome:$uid';
+
+  /// 把上次记下的家庭固定给原生。
+  ///
+  /// 家庭是涂鸦账号下的东西，既不依赖设备也不依赖 APP 后端：账号没变就该一直用
+  /// 同一个家庭。每次登录都重新从 `queryHomeList` 里挑，是「重新登录后读不到已
+  /// 绑定设备」的根源之一（列表顺序不保证一致，账号里又可能有第二个空家庭），
+  /// 所以第一次解析到之后就按账号记在本地，之后每次会话开始先钉回去。
+  Future<void> _pinKnownHome() async {
+    final uid = _user?.id ?? '';
+    if (uid.isEmpty) return;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final stored = preferences.getString(_homeKey(uid)) ?? '';
+      if (stored.isEmpty) return;
+      await _repository.useHome(stored);
+      _lastHomeId = stored;
+    } catch (_) {
+      // 本地存储或桥接不支持时按「没有固定家庭」处理，退回原生自己解析。
+    }
+  }
+
+  /// 记下这次真正用上的家庭，供下次会话固定使用。
+  Future<void> _rememberHome(String homeId) async {
+    final uid = _user?.id ?? '';
+    if (uid.isEmpty || homeId.isEmpty || homeId == '?' || homeId == '0') return;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (preferences.getString(_homeKey(uid)) == homeId) return;
+      await preferences.setString(_homeKey(uid), homeId);
+    } catch (_) {
+      // 记不住只是下次要重新解析，不影响这次。
+    }
+  }
+
   Future<void> _refreshDevicesForSession({required bool ignoreErrors}) async {
     final epoch = _sessionEpoch;
     try {
@@ -1962,7 +2038,9 @@ class FlowerpotState extends ChangeNotifier {
       _deviceLoadError = null;
       // 设备清单是按家庭查的，把这次用的家庭一起记下来：上面那次 getDevices 已经
       // 把家庭解析并缓存在原生侧，这里只是把它读回来，不会再触发一次云端查询。
-      _lastHomeId = await _repository.currentHomeId().catchError((_) => '?');
+      final home = await _repository.currentHomeId().catchError((_) => '?');
+      _lastHomeId = home;
+      await _rememberHome(home);
       // 设备清单以涂鸦为准。登录后不再顺带拉 getUserInfo / getUserProductList /
       // getUserProductPlantList——主流程只允许 getProductPlantList 一个后端调用。
       _devices = devices.map(_withLocalOverrides).toList();

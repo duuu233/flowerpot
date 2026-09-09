@@ -344,6 +344,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "currentHomeId" -> withHome(result) { id ->
                     success(result, id.toString())
                 }
+                // Dart 侧按账号记住上次用过的家庭，会话一开始就钉回来：家庭属于
+                // 涂鸦账号，不该每次登录重新从列表里挑。
+                "setHomeId" -> {
+                    homeId = call.argument<String>("homeId")?.toLongOrNull()
+                    Log.i(TUYA_LOG_TAG, "home pinned to $homeId")
+                    success(result, null)
+                }
                 "joinDeviceHotspot" -> joinDeviceHotspot(call, result)
                 "publishDps" -> deviceAction(call, result, "publishDps")
                 "renameDevice" -> deviceAction(call, result, "renameDevice")
@@ -699,6 +706,23 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             ready(it)
             return
         }
+        queryHome(result, retry = true, ready = ready)
+    }
+
+    /**
+     * 查家庭并挑一个。空列表有三种处置，按危险程度排：
+     *
+     * 1. 进程正绑在设备热点上（AP 配网中）——这条链路根本没有外网，此时的空列表
+     *    说明不了「账号下没有家庭」，据此建家会给账号留下一个永久的空家庭，下次
+     *    登录挑到它就是「设备全没了」。直接报错，让上层先连回路由器。
+     * 2. 还有重试机会——再查一次，挡掉一次瞬时的空返回。
+     * 3. 两次都空，且手机在正常网络上——才认为这个账号确实还没有家庭，建一个。
+     */
+    private fun queryHome(
+        result: MethodChannel.Result,
+        retry: Boolean,
+        ready: (Long) -> Unit,
+    ) {
         val manager = invokeStatic(sdkClass(), "getHomeManagerInstance")
             ?: throw IllegalStateException("无法获取家庭管理实例")
         invokeWithCallback(
@@ -708,11 +732,24 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 onMain(result) {
                     val homes = (value as? List<*>).orEmpty().filterNotNull()
                     val picked = pickHome(homes)
-                    if (picked != null) {
-                        homeId = picked
-                        ready(picked)
-                    } else {
-                        createHome(manager, result, ready)
+                    when {
+                        picked != null -> {
+                            homeId = picked
+                            ready(picked)
+                        }
+                        boundNetwork != null -> {
+                            Log.i(TUYA_LOG_TAG, "home list empty while bound to device hotspot")
+                            error(
+                                result,
+                                "home_offline",
+                                "手机正连着设备热点，暂时读不到家庭列表，请先连回可上网的 Wi-Fi 再试",
+                            )
+                        }
+                        retry -> {
+                            Log.i(TUYA_LOG_TAG, "home list came back empty, retrying once")
+                            queryHome(result, retry = false, ready = ready)
+                        }
+                        else -> createHome(manager, result, ready)
                     }
                 }
             },

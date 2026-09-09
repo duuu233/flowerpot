@@ -101,6 +101,13 @@ abstract class TuyaRepository {
   /// 当前使用的涂鸦家庭 id。设备列表按家庭查，家庭对不上就会是空的。
   Future<String> currentHomeId();
 
+  /// 固定这次会话使用的家庭 id。
+  ///
+  /// 家庭是涂鸦账号下的东西，和设备、和 APP 后端都没有关系：只要账号没变，就该
+  /// 一直用同一个家庭，而不是每次登录重新从家庭列表里挑。App 把第一次解析到的
+  /// 家庭按账号记在本地，之后每次会话开始就用这个方法钉给原生。
+  Future<void> useHome(String homeId);
+
   /// Nearby access points, used before provisioning to check that the phone is
   /// on 2.4 GHz and — in AP mode — that the device hotspot is up.
   Future<WifiScan> scanWifi();
@@ -401,6 +408,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<String> currentHomeId() async =>
       await _invoke<String>('currentHomeId') ?? '';
+
+  @override
+  Future<void> useHome(String homeId) =>
+      _invoke<void>('setHomeId', <String, Object?>{'homeId': homeId});
 
   @override
   Future<WifiScan> scanWifi() async {
@@ -923,6 +934,9 @@ class MockTuyaRepository implements TuyaRepository {
   /// Mock 的配网是一段固定延时，没有可以中止的东西。
   @override
   Future<void> cancelPairing() => _wait();
+
+  @override
+  Future<void> useHome(String homeId) async {}
 
   @override
   Future<String> currentHomeId() async {

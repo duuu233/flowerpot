@@ -5,6 +5,7 @@ import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// `pairViaHotspot` 的资源收尾与回落路径。
 ///
@@ -228,6 +229,72 @@ void main() {
 }
 
 /// 建一个状态对象并挂一棵空树，让 `tester.pump(duration)` 有帧可推、假时钟能走。
+  testWidgets('会话一开始就把上次记下的家庭钉给涂鸦', (tester) async {
+    // 家庭属于涂鸦账号，既不依赖设备也不依赖后端：记住一次之后每次会话都用同一个，
+    // 不再让原生从家庭列表里重挑——那正是「重新登录后读不到已绑定设备」的来源。
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'tuyaHome:mock-user': '999',
+    });
+    final repository = _PairingRepository();
+    final state = await _stateFor(tester, repository);
+
+    await state.login(
+      account: 'demo@flowerpot.local',
+      credential: 'demo',
+      region: LoginRegion.overseas,
+      verificationCode: false,
+    );
+
+    expect(repository.pinnedHome, '999');
+    expect(state.lastHomeId, isNotNull);
+  });
+
+  testWidgets('准备阶段查不到家庭就不去碰设备热点', (tester) async {
+    // 手机已经挂在设备热点上时家庭查询会失败。此时绝不能继续：连上热点后更查不
+    // 到，空列表还会被当成「账号没有家庭」而新建一个。
+    final repository = _PairingRepository()
+      ..homeError = const TuyaException(
+        'home_offline',
+        '手机正连着设备热点，暂时读不到家庭列表',
+      );
+    final state = await _stateFor(tester, repository);
+
+    final result = await state.prepareForPairing();
+
+    expect(result.success, isFalse);
+    expect(result.code, 'home_offline');
+    expect(repository.tokenCalls, 0);
+    expect(repository.joinCalls, 0);
+    expect(state.busy, isFalse);
+  });
+
+  testWidgets('准备阶段确认家庭后才取令牌', (tester) async {
+    final repository = _PairingRepository();
+    final state = await _stateFor(tester, repository);
+
+    final result = await state.prepareForPairing();
+
+    expect(result.success, isTrue);
+    expect(result.message, contains('123456'));
+    expect(repository.homeCalls, 1);
+    expect(repository.tokenCalls, 1);
+    expect(state.activatorTokenReady, isTrue);
+    // 令牌还在有效期内就不再取第二遍。
+    await state.prepareForPairing();
+    expect(repository.tokenCalls, 1);
+  });
+
+  testWidgets('旧原生包没有 currentHomeId 时不拦路', (tester) async {
+    final repository = _PairingRepository()
+      ..homeError = const TuyaException('sdk_unavailable', '原生涂鸦 SDK 尚未接入');
+    final state = await _stateFor(tester, repository);
+
+    final result = await state.prepareForPairing();
+
+    expect(result.success, isTrue);
+    expect(repository.tokenCalls, 1);
+  });
+
 Future<FlowerpotState> _stateFor(
   WidgetTester tester,
   TuyaRepository repository,
@@ -250,6 +317,12 @@ class _PairingRepository extends MockTuyaRepository {
   int deviceListCalls = 0;
 
   TuyaException? joinError;
+
+  /// 配网准备阶段查到的家庭；抛错表示这时查不到（例如手机已经在设备热点上）。
+  String homeId = '123456';
+  TuyaException? homeError;
+  String? pinnedHome;
+  int homeCalls = 0;
   TuyaException? pairError;
   bool pairHangs = false;
   WifiScan scan = const WifiScan(networks: <WifiNetwork>[]);
@@ -258,6 +331,17 @@ class _PairingRepository extends MockTuyaRepository {
 
   @override
   Future<void> prepareActivatorToken() async => tokenCalls++;
+
+  @override
+  Future<String> currentHomeId() async {
+    homeCalls++;
+    final error = homeError;
+    if (error != null) throw error;
+    return homeId;
+  }
+
+  @override
+  Future<void> useHome(String homeId) async => pinnedHome = homeId;
 
   @override
   Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {

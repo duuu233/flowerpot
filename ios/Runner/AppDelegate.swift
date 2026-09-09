@@ -92,6 +92,10 @@ final class FlowerpotTuyaBridge: NSObject {
     case "cancelAccount": cancelAccount(result)
     case "getDevices": withHome(result) { [weak self] home in self?.loadDevices(home, result) }
     case "scanWifi": scanWifi(result)
+    case "currentHomeId": withHome(result) { home in result(String(home.homeModel.homeId)) }
+    // Dart 侧按账号记住上次用过的家庭，会话一开始钉回来：家庭属于涂鸦账号，不该
+    // 每次登录重新从列表里挑。
+    case "setHomeId": setHome(args, result)
     case "prepareActivatorToken": prepareActivatorToken(result)
     // ThingActivatorMode 是 ObjC 的 NS_ENUM，运行时拿不到常量名，没法像 Android
     // 那样让 SDK 自己报一遍。要确认 iOS 支不支持双模只能查平台文档。
@@ -279,13 +283,38 @@ final class FlowerpotTuyaBridge: NSObject {
     activatorTokenAt = nil
   }
 
+  private func setHome(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    guard let text = args["homeId"] as? String, let id = Int64(text),
+          let home = ThingSmartHome(homeId: id) else {
+      // 记下来的值不可用就当没记过，退回正常解析。
+      result(nil)
+      return
+    }
+    currentHome = home
+    result(nil)
+  }
+
   private func withHome(_ result: @escaping FlutterResult, ready: @escaping (ThingSmartHome) -> Void) {
     if let currentHome {
       ready(currentHome)
       return
     }
+    queryHome(result, retry: true, ready: ready)
+  }
+
+  /// 空列表先重查一次再建家：一次瞬时的空返回会给账号留下一个永久的空家庭，
+  /// 下次登录挑到它就是「设备全没了」。
+  private func queryHome(
+    _ result: @escaping FlutterResult,
+    retry: Bool,
+    ready: @escaping (ThingSmartHome) -> Void
+  ) {
     homeManager.getHomeList(success: { [weak self] homes in
       guard let self else { return }
+      if (homes ?? []).isEmpty, retry {
+        self.queryHome(result, retry: false, ready: ready)
+        return
+      }
       // 家庭列表的顺序在两次登录之间并不保证一致，取 `first` 会让同一个账号这次
       // 读到 A 家的设备、下次读到 B 家（B 家往往是缓存为空时自动建出来的空家），
       // 表现就是「重新登录后设备全没了」。按 homeId 从小到大取，最早建的那个通常

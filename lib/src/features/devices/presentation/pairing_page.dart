@@ -71,6 +71,10 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// 全局操作锁，别处的写操作也会把它拉起来。
   bool _pairing = false;
 
+  /// 配网前的准备（确认家庭 + 取令牌）正在跑。这两步都要走云端，必须在还连着
+  /// 路由器时完成，所以先转个圈等它结束，成了才去碰设备热点。
+  bool _preparing = false;
+
   /// 上一次由扫描自动填进输入框的名称。用户自己打字或从「切换」里选过之后，
   /// 输入框的内容就和它对不上了，此后的刷新不再覆盖用户的选择。
   String? _autoFilledSsid;
@@ -176,6 +180,17 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     }
 
     final state = FlowerpotScope.of(context);
+    // 先把家庭确认下来、把令牌取到，全程手机还在路由器上。连上设备热点之后这
+    // 两步都做不了：查家庭可能拿到空列表被当成「账号还没有家庭」而新建一个，
+    // 之后登录就可能读到那个空家庭、一台设备都没有。
+    setState(() => _preparing = true);
+    final ready = await state.prepareForPairing();
+    if (!mounted) return;
+    setState(() => _preparing = false);
+    if (!ready.success) {
+      showAppMessage(context, ready.message, tone: AppMessageTone.error);
+      return;
+    }
     final request = PairingRequest(
       ssid: ssidController.text.trim(),
       password: passwordController.text,
@@ -376,6 +391,18 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                   : Text(_manualHotspot ? '已连接热点，开始配网' : '开始配网'),
             ),
           ),
+          // 准备阶段（确认家庭 + 取令牌）盖一层遮罩：这两步要走云端，用户此时
+          // 不能去切网络，也不该以为页面卡住了。成功之后才会去连设备热点。
+          if (_preparing)
+            const Positioned.fill(
+              key: Key('pairing-preparing'),
+              child: AbsorbPointer(
+                child: ColoredBox(
+                  color: Color(0x66000000),
+                  child: AppLoading(label: '正在确认账号与家庭，请保持当前 Wi-Fi…'),
+                ),
+              ),
+            ),
         ],
       ),
     );
