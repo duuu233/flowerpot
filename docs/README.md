@@ -26,6 +26,7 @@
 | [`RELEASE_READINESS_REVIEW.md`](RELEASE_READINESS_REVIEW.md) | Tracking | 安全、健壮性、性能与 Android/iOS 发布评审；含源码依据、整改顺序和验证边界。 |
 | `DP_GAP_REPORT.html`（本地生成） | Tracking | 功能点实现对照及缺口清单；由 [`../tool/build_dp_gap_report.py`](../tool/build_dp_gap_report.py) 生成。当前工作树没有此 HTML，使用前生成并核对脚本中的表是否跟随最新 DP 导出；改状态请改脚本后重跑。 |
 | [`TUYA_SDK_SETUP.md`](TUYA_SDK_SETUP.md) | Active Runbook | 涂鸦平台、Android/iOS SDK 和秘密管理要求。 |
+| [`BACKEND_TUYA_HOME_ID.md`](BACKEND_TUYA_HOME_ID.md) | Active | 涂鸦家庭 id 的来源与归属，登录响应 `tuYaHomeId` 字段与回写接口的后端需求，以及 App 侧当前的优先级与自愈行为。 |
 | [`FLUTTER_PROJECT_ARCHITECTURE.md`](FLUTTER_PROJECT_ARCHITECTURE.md) | Design Reference | 目标架构；与当前源码冲突时不作为实现事实。 |
 | [`UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`](UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md) | Active | 本项目 UI 页面和组件实施规范。 |
 | [`UI/UI_ASSET_INTEGRATION_PROGRESS.md`](UI/UI_ASSET_INTEGRATION_PROGRESS.md) | Tracking | 图片和图标接入进度。 |
