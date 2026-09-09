@@ -36,7 +36,7 @@ flutter run
 flutter run --dart-define=TUYA_ENABLED=true
 ```
 
-`TUYA_ENABLED=true` 会选择真实 Repository；`StaticPreviewConfig.enabled` 只控制 Mock 后端是否预置演示设备，不需要为真实模式修改。真实设备流程仍必须准备好平台密钥、安全组件和签名。通过 `--dart-define=API_BASE_URL=https://...` 注入 REST 地址；当前未配置时仍回落临时 HTTP，只有显式 `API_BASE_URL=none` 才禁用后端，这是发布前待修复项。各环境应使用 PATH 中的 Flutter/Dart；README 中的绝对路径只可视为单机示例。
+`TUYA_ENABLED=true` 会选择真实 Repository。真实设备流程仍必须准备好平台密钥、安全组件和签名。REST 源站由 `--dart-define=API_BASE_URL=https://...` 注入，**默认值就是正式源站 `https://api.yikaltd.com`**；`ApiConfig.validateBaseUrl` 只接受 HTTPS 源站（带路径、查询、用户信息或非 https 一律构建期抛错），2026-09-09 起不再有明文回落。**体验模式与涂鸦 SDK 联调台已整体移除**（`lib/src/core/config/`、`lib/src/features/preview/`、`devtools/` 与 `AppRoutes.tuyaDebug` 一并删除），Mock 仓库搬到 `test/support/mock_tuya_repository.dart`，产品包里只有真实数据通路。各环境应使用 PATH 中的 Flutter/Dart；README 中的绝对路径只可视为单机示例。
 
 ## 3. 架构与数据流
 
@@ -76,7 +76,7 @@ Android IDevListener / iOS ThingSmartDeviceDelegate
   → FlowerpotState → notifyListeners()
 ```
 
-`ActionResult` 同时带回 `message` 与 `code`：产品页面只展示 `message`，SDK 联调页用 `code` 区分平台配置错误（`sdk_unavailable`、`credentials_missing`、`security_component_mismatch`）与账号错误。
+`ActionResult` 同时带回 `message` 与 `code`：页面展示 `message`，`code` 用来区分平台配置错误（`sdk_unavailable`、`credentials_missing`、`security_component_mismatch`）与账号错误，也是日志和排查时的抓手。
 
 REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/core/backend/`：`ApiClient` 从 `API_BASE_URL` 读取服务地址，`ApiSession` 用 `SharedPreferences` 持久化 `userToken` 并统一处理鉴权失效，`HttpAppBackendRepository` 封装账号、用户设备、植物与图片接口。业务页面不直接发 HTTP 请求，由 `FlowerpotState` 编排 APP 后端与涂鸦设备会话。
 
@@ -88,7 +88,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 | `lib/src/app/` | 根应用、主题和 `FlowerpotScope`。 |
 | `lib/src/state.dart` | 当前集中式应用状态与业务编排。 |
 | `lib/src/routes/` | 命名路由、鉴权分流和页面参数。 |
-| `lib/src/features/` | auth、home、devices、profile、preview 等业务页面，以及 devtools 下不属于产品动线的 SDK 联调页。 |
+| `lib/src/features/` | auth、home、devices、profile 等业务页面；调试台与体验模式目录已删除。 |
 | `lib/src/design_system/` | Design Token、资源索引和公共视觉组件。 |
 | `lib/src/shared/` | 跨 Feature 复用组件。 |
 | `lib/src/core/network/` | REST 请求、会话、异常和重试。 |
@@ -104,7 +104,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 - 设备实时性：DP 上报、上下线和解绑由原生监听推给 Dart，页面自动刷新；温标（146）与时间格式（147）下发后 App 自身展示跟随。
 - 状态文案：需水（107）、光照（108）、空气温度（113）、空气湿度（115）四条枚举的文案集中在 `lib/src/tuya/tuya_status_copy.dart`，状态页顶部与首页状态卡片同源，设备没上报时按同一套阈值兜底（113 的兜底舒适区间 18–28℃ 也放在这里，温度状态页与首页共用）。2026-09-08 起每条状态都备了中英两份，取用走 `waterNeedsCopy` 这类按 `FlowerpotState.languageCode` 查表的方法，非英文一律回落简体中文；首页「今日养护」卡片改为轮播这四条状态的建议（5 秒一条，`HomeCareBanner`），文案与卡片、状态页同源。**注意：App 至今没有引入 `flutter_localizations`/arb，其余界面文案仍是硬编码中文**，这张表只覆盖这批状态文案。
 - 多语言：`lib/src/shared/l10n/` 是界面文案框架——`AppLanguage` 枚举（现有 zh / en，加语种就加枚举值，缺译文按 `fallbacks` 回落到简中）、`AppLocalizationsScope`（挂在 `MaterialApp.builder`，切语言整树重译）、`AppL10n` 文案目录（`t({语言: 文案})`）。设置页的语言列表由枚举生成。**只有 2026-09-08 改动涉及的页面接入了目录，其余页面仍是硬编码中文**；`flutter_localizations` 尚未引入，Material 内建文案恒为英文。做法对齐相册 APP，区别是文案用 Map 而不是位置参数。
-- 首页与设备：无底部菜单，设备列表即首页、左上角头像进入「我的」（顶栏正中显示当前设备名称，未绑定设备时是品牌标识）、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。设备详情页入口有三道门禁：离线的花盆拦在列表页并提示「请打开设备并保持在线」；DP 116 为空直接进添加植物流程；进页后 DP 162 报 1（异常）弹「植物确认」，确认/忽略各自再过一次二次确认才下发 2/3，之后按设备重新上报的 116 刷新植物内容。设备设置页有「自动检测植物」纯开关（DP 163，平台尚未导出），关掉后不再弹确认。设备清单只来自涂鸦：`getDevices` 先查家庭再取家庭详情，**家庭选择两端都已改为稳定规则**（Android 先挑带设备的家庭、再按 `homeId` 最小；iOS 按 `homeId` 升序取第一个），不再取列表返回的第一个——账号下有多个家庭时那会让同一账号不同登录看到不同设备；拉取失败不再被吞成空列表，`FlowerpotState.deviceLoadError` 会带上来源与错误码，设备列表页在「列表为空且有错误」时画错误态与「重试」，下拉刷新和联调页共用 `reloadDevices()`；错误态与「暂无设备」空态底部都画一行 `sessionDiagnostics`（`uid · 家庭 · 设备 N 台 · 失败原因`，可长按复制），每次读列表还会打一行 `[devices] …` 日志，定位「读不到设备」不必再进联调页。家庭属于涂鸦账号、由云端按 uid 返回，手机连哪个 Wi-Fi 不影响选哪个家庭；**2026-09-09 起家庭固定下来，优先级 后端 > 本地缓存 > 涂鸦列表现挑**：登录 / 注册响应里的 `tuYaHomeId`（后端待补该字段）一拿到就钉给涂鸦并写进本地；本地缓存记在 `SharedPreferences`（`tuyaHome:<uid>`），之后每次会话开始由 `_startSession` 先 `useHome`（桥接 `setHomeId`）钉给原生再拉设备列表，不再每次登录重挑。配网页点「开始配网」先跑 `prepareForPairing()`（确认家庭 + 取令牌，期间盖 `AppLoading` 遮罩），失败就不碰热点；空家庭列表在绑着设备热点时直接报 `home_offline` 不建家，正常网络下也先重查一次再建。钉住的家庭若读出 0 台设备，立刻作废缓存（`useHome('')`）并重读一次——缓存只是缓存，以涂鸦返回的为准。但 AP 配网期间手机在设备热点上没有外网，此时查家庭可能失败或拿到空列表进而自动建家，这是账号多出一个空家庭的主要来路。后端设备行按涂鸦 `deviceId` 关联；植物目录、详情、绑定/删除与设备图片使用 APP 后端。**分工要点**：涂鸦只回答「这盆里是哪一株」——设备通过 DP 116 `plant_variety` 上报后台配好的标识符（`tuYaRemark` 字符串，不是数字 ID），App 选植物时也是把标识符写回 116（分类另写 161）；植物的内容本身全部来自 APP 后端 `Client/Product/getProductPlantList` 的目录行——`plantImg`（列表与详情的图片）、别名、简介、最适温湿度、光照 / 浇水 / 温湿度建议、养护难度、`categoryType`，由 `_plantForIdentifier` / `ensurePlantProfile` 按 116 的标识符匹配，匹配不上就补拉一次目录再解析，仍失败则回落本地目录且不打断详情页；详情页上的实时数值（光照 107、需水 108、温度 113、湿度 115 等）来自设备 DP 上报，与这条后端链路无关。 2026-09-09 起**已绑定设备首页正中那张图也走这条链路**：`HomeDashboardModel.plantImageUrl` 取 `device.plant.imageUrl`，`HomePlantOverview` 优先画后台配的图，字段为空或图片加载失败才回落本地 `AppAssets.smartPlanterWithPlant`；植物详情页 `_PlantDetailArtwork` 早就是同一口径，回落的是 `AppAssets.plantImage(plant.id)`（未知 id 再退到通用图标）。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网三页全部走真实桥接调用——搜索与选择页用 `scanWifi` 找设备在 AP 模式下拉起的热点，Wi-Fi 页带入真实 2.4G 网络列表，「开始配网」一次点击由 `FlowerpotState.pairViaHotspot` 串完取令牌 → App 连设备热点 → 配网；平台不能由 App 连热点（iOS、Android 9 及以下）时回落到手动引导；任何一步失败、用户退出页面或等待超时都会释放热点连接与进程网络绑定（`leaveDeviceHotspot` / `cancelPairing`），详见 `docs/TUYA_SDK_SETUP.md` 5.3 与 6.3。
+- 首页与设备：无底部菜单，设备列表即首页、左上角头像进入「我的」（顶栏正中显示当前设备名称，未绑定设备时是品牌标识）、配网（搜索 → 选择 → Wi-Fi → 成功）、选择植物、状态详情、报表和设备信息。设备详情页入口有三道门禁：离线的花盆拦在列表页并提示「请打开设备并保持在线」；DP 116 为空直接进添加植物流程；进页后 DP 162 报 1（异常）弹「植物确认」，确认/忽略各自再过一次二次确认才下发 2/3，之后按设备重新上报的 116 刷新植物内容。设备设置页有「自动检测植物」纯开关（DP 163，平台尚未导出），关掉后不再弹确认。设备清单只来自涂鸦：`getDevices` 先查家庭再取家庭详情，**家庭选择两端都已改为稳定规则**（Android 先挑带设备的家庭、再按 `homeId` 最小；iOS 按 `homeId` 升序取第一个），不再取列表返回的第一个——账号下有多个家庭时那会让同一账号不同登录看到不同设备；拉取失败不再被吞成空列表，`FlowerpotState.deviceLoadError` 会带上来源与错误码，设备列表页在「列表为空且有错误」时画错误态与「重试」，下拉刷新与错误态「重试」共用 `reloadDevices()`（该方法原名 `probeDevices`，调试台删除后只服务产品页面）；错误态与「暂无设备」空态底部都画一行 `sessionDiagnostics`（`uid · 家庭 · 设备 N 台 · 失败原因`，可长按复制），每次读列表还会打一行 `[devices] …` 日志，定位「读不到设备」看这一行即可。家庭属于涂鸦账号、由云端按 uid 返回，手机连哪个 Wi-Fi 不影响选哪个家庭；**2026-09-09 起家庭固定下来，优先级 后端 > 本地缓存 > 涂鸦列表现挑**：登录 / 注册响应里的 `tuYaHomeId`（后端待补该字段）一拿到就钉给涂鸦并写进本地；本地缓存记在 `SharedPreferences`（`tuyaHome:<uid>`），之后每次会话开始由 `_startSession` 先 `useHome`（桥接 `setHomeId`）钉给原生再拉设备列表，不再每次登录重挑。配网页点「开始配网」先跑 `prepareForPairing()`（确认家庭 + 取令牌，期间盖 `AppLoading` 遮罩），失败就不碰热点；空家庭列表在绑着设备热点时直接报 `home_offline` 不建家，正常网络下也先重查一次再建。钉住的家庭若读出 0 台设备，立刻作废缓存（`useHome('')`）并重读一次——缓存只是缓存，以涂鸦返回的为准。但 AP 配网期间手机在设备热点上没有外网，此时查家庭可能失败或拿到空列表进而自动建家，这是账号多出一个空家庭的主要来路。后端设备行按涂鸦 `deviceId` 关联；植物目录、详情、绑定/删除与设备图片使用 APP 后端。**分工要点**：涂鸦只回答「这盆里是哪一株」——设备通过 DP 116 `plant_variety` 上报后台配好的标识符（`tuYaRemark` 字符串，不是数字 ID），App 选植物时也是把标识符写回 116（分类另写 161）；植物的内容本身全部来自 APP 后端 `Client/Product/getProductPlantList` 的目录行——`plantImg`（列表与详情的图片）、别名、简介、最适温湿度、光照 / 浇水 / 温湿度建议、养护难度、`categoryType`，由 `_plantForIdentifier` / `ensurePlantProfile` 按 116 的标识符匹配，匹配不上就补拉一次目录再解析，仍失败则回落本地目录且不打断详情页；详情页上的实时数值（光照 107、需水 108、温度 113、湿度 115 等）来自设备 DP 上报，与这条后端链路无关。 2026-09-09 起**已绑定设备首页正中那张图也走这条链路**：`HomeDashboardModel.plantImageUrl` 取 `device.plant.imageUrl`，`HomePlantOverview` 优先画后台配的图，字段为空或图片加载失败才回落本地 `AppAssets.smartPlanterWithPlant`；植物详情页 `_PlantDetailArtwork` 早就是同一口径，回落的是 `AppAssets.plantImage(plant.id)`（未知 id 再退到通用图标）。设备只支持 2.4GHz Wi-Fi 配网、没有蓝牙配网；配网三页全部走真实桥接调用——搜索与选择页用 `scanWifi` 找设备在 AP 模式下拉起的热点，Wi-Fi 页带入真实 2.4G 网络列表，「开始配网」一次点击由 `FlowerpotState.pairViaHotspot` 串完取令牌 → App 连设备热点 → 配网；平台不能由 App 连热点（iOS、Android 9 及以下）时回落到手动引导；任何一步失败、用户退出页面或等待超时都会释放热点连接与进程网络绑定（`leaveDeviceHotspot` / `cancelPairing`），详见 `docs/TUYA_SDK_SETUP.md` 5.3 与 6.3。
 - 设备控制：显示、LED、听觉、触觉、振动、行为时段、温标、时钟、校准与系统修复。LED 设置页是单开关，与显示页共用 `disp_brightness_switch`（117）——2026-09-03 的功能点表没有独立的 LED 开关。
 - 我的与关于：「我的」进页即 `refreshUserInfo()` + `loadBasicData()`（昵称此前只有个人信息页会刷、意见反馈邮箱此前写死）；意见反馈读后台平台邮箱并复制到剪贴板；关于页去掉「版本说明」，「检查更新」与 App 启动检测共用一套升级弹窗——`compulsory==1` 强制升级不可取消，其余有新版本时在「关于YSplanter」点红点。`getLastVersion` 按 swagger 的 `AppVersionConApiOutput` 解析（`isUpdate`/`compulsory`/`downloadPath`/`upgradeTips`）。**版本号仍是 `AboutPageModel.current()` 里写死的 1.0.0，没有 package_info；「立即更新」只复制下载链接，没有 url_launcher。**
 - 状态详情的养护建议 2026-09-08 起写在 `TuyaStatusCopy` 的第三段 `advice` 里（中英各 12 条），四个状态页按界面语言取，不再各写一段。
@@ -114,7 +114,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 - 设计系统：统一色彩、间距、资源、页面骨架和公共 Widget。所有提示/确认弹窗走 `AppDialog`（`design_system/widgets/dialogs/app_dialog.dart`），版式取自兄弟项目 `flutter` 的同名组件、配色换成 YSplanter 的品牌青；页面里不再出现 Material `AlertDialog`。
 - OTA：设备固件版本取涂鸦 `DeviceBean.verSw` / `ThingSmartDeviceModel.verSw`（Android 曾误取协议版本 `pv`，2026-09-09 修正）；`checkFirmware` 两端都返回 `{version, currentVersion}`，成对来自同一条 OTA 记录（`upgradeStatus == 1` 那条），Dart 侧是 `FirmwareUpdate`，弹窗「当前版本」优先用 `currentVersion`、取不到才退回设备字段——设备可能有 MCU / Wi-Fi 模块多个可升级组件，混着取会让两行版本号对不上。
 - 会话：APP 后端 token 无客户端 TTL（`ApiSession` 持久化、不过期）。后端回 401/406 时**只清后端会话**（`_handleBackendSessionExpired`），涂鸦会话与设备列表保留——设备、DP、配网、固件全走涂鸦，与后端 token 无关；失效原因进 `sessionDiagnostics` 的「后端会话：…」，`ApiClient` 另打一行 `[session] 后端会话失效：<METHOD> <path> → HTTP/retCode`（只记路径，不记 token）。2026-09-09 之前这里是 `_clearLocalSession()`，一次 406 就把用户整个踢回登录页。
-- 联调工具：登录页「涂鸦 SDK 联调」与「我的」页标题栏图标都指向 `/devtools/tuya`，直接调用注册、登录、会话与设备列表并显示原始失败码，配网联调前先在该页确认平台配置；debug/profile 常开，release 需 `--dart-define=TUYA_DEBUG_TOOLS=true`。
+- 联调工具：**已删除**。2026-09-09 的代码审核把涂鸦 SDK 联调台（`/devtools/tuya`）、体验模式与静态预览开关整体移出产品包，登录页和「我的」页的入口一并去掉。现在排查靠三样：设备列表页底部的 `sessionDiagnostics` 一行、`[devices]` / `[session]` / `[pair]` 日志、以及 `ActionResult.code`。
 
 功能完成度以 [`docs/PRD_IMPLEMENTATION.md`](docs/PRD_IMPLEMENTATION.md) 为跟踪入口，UI 实施要求以 [`docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`](docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md) 为准。
 
@@ -122,9 +122,9 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 
 1. 页面通过 `FlowerpotState` 和 Repository 使用业务能力，不直接依赖 MethodChannel 或散落 HTTP 调用。
 2. `TuyaConfig.dp` 是 UI 读写与产品 PID 功能点之间的契约；变更必须与固件、涂鸦平台和测试一起核对。当前表来自 `assets/智能花盆test(yciq4kssu1fv8umn)_09_03.xlsx`，PID `yciq4kssu1fv8umn`，覆盖 101–160。
-3. `TUYA_ENABLED` 只是选择真实 Repository 的编译期开关；平台安全组件、AppKey/AppSecret、包名和签名仍必须匹配，且运行环境必须真正按 `arm64-v8a` 或 `armeabi-v7a` 启动应用（涂鸦原生库不提供 x86/x86_64）。部分 x86_64 模拟器即使 ABI 列表包含 ARM，通用 APK 仍会优先以 x86_64 运行；显式 arm64 构建与安装方法见 `docs/TUYA_SDK_SETUP.md`。Mock 业务模式不依赖涂鸦调用；本机已有安全 AAR 时 Application 仍会尽力初始化 SDK，但失败不阻止 Mock UI。
-4. 当前 `StaticPreviewConfig.enabled` 为 `true`，只表示 Mock 后端不预置演示设备；启动入口、鉴权分流和页面导航与正式流程一致（登录页 → `AppShell`）。真机链路仍需单独验证会话恢复和真实设备流程。
-5. 新 UI 优先复用 `design_system` 和 `shared` 组件，遵循项目自己的 YSplanter 视觉规范，不复制参考项目的产品 UI。界面不标注占位数据，真假以源码和 SDK 联调页的调用日志为准。
+3. `TUYA_ENABLED` 只是选择真实 Repository 的编译期开关；平台安全组件、AppKey/AppSecret、包名和签名仍必须匹配，且运行环境必须真正按 `arm64-v8a` 或 `armeabi-v7a` 启动应用（涂鸦原生库不提供 x86/x86_64）。部分 x86_64 模拟器即使 ABI 列表包含 ARM，通用 APK 仍会优先以 x86_64 运行；显式 arm64 构建与安装方法见 `docs/TUYA_SDK_SETUP.md`。本机已有安全 AAR 时 Application 仍会尽力初始化 SDK，失败不阻止 App 启动，但产品页面此时读不到任何设备（Mock 仓库已移出产品包）。
+4. 产品包内没有体验模式与静态预览开关（2026-09-09 删除），启动入口、鉴权分流和页面导航只有正式流程一条（登录页 → `AppShell`）。Mock 仓库只存在于 `test/support/`，真机链路仍需单独验证会话恢复和真实设备流程。
+5. 新 UI 优先复用 `design_system` 和 `shared` 组件，遵循项目自己的 YSplanter 视觉规范，不复制参考项目的产品 UI。界面不标注占位数据，真假以源码和运行日志为准。
 6. 命名路由与参数类型集中在 `AppRoutes`；修改路由前用 CodeGraph 检查页面和测试调用方。
 7. CodeGraph 描述当前源码结构；Markdown 负责产品契约、平台配置、操作方法、设计决策和历史。
 
@@ -165,14 +165,14 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 - DP 116 `plant_variety` 已按可上报可下发处理：后端植物 `tuYaRemark` 是下发值，绑定成功后才下发，设备上报的已知标识符会反向更新当前植物；116 为空即「这台花盆还没有植物」。绑定时 116 与 161 `plant_type`（后台植物分类，enum 1/2/3）打包成同一条指令下发，后台没配分类时只发 116 并在结果里说明。162 `plant_confirm` 是数值：0 正常 / 1 异常 / 2 确认 / 3 忽略，0 和 1 由设备上报、2 和 3 由 App 下发，设备没上报过时按 0 处理；设备报 1 时不上报新植物标识，等 App 下发 2（改用盆里那株并重新上报 116）或 3（保持旧的 116）。163 `plant_detect_switch` 是自动检测植物开关，**平台尚未导出，DP 号是本地占位**。
 - DP 140 校准固定依次发送 `step0`、`step1`、`step2`、`step3`，取消或在最终完成卡片尚未确认 `step3` 时关闭都发送 `step5`；`step4` 保留且不调用。
 - 温度、湿度、电量、PPFD、DLI 没有历史功能点，真机上这几条曲线是空态而不是曲线；设备图片已可在 APP 后端上传/列出/删除——2026-09-08 起列表 `getUserProductImgList` 与上传 `setUserProductUpload` 都按涂鸦 `deviceId` 传参，不再先用 `getUserProductList` 换后端 `userProductId`（设备档案由涂鸦提供）——但 142/143/144 从云端 URL 下发到硬件的协议仍待确认。
-- 2026-09-03 核验：`https://api.yikaltd.com` 已恢复，`/v2/api-docs` 与写死的临时地址 `http://120.25.227.36:8601` 返回同一份契约（123 条路径），`ApiConfig._temporaryBaseUrl` 及配套的 Android network-security-config、iOS ATS 例外可以按其 TODO 回滚。仍未使用真实账号执行写接口，真机端到端联调未完成。
+- 2026-09-09 已回滚明文回落：`ApiConfig` 默认就是 `https://api.yikaltd.com` 且只接受 HTTPS 源站，Android 的 `network_security_config.xml` 与 Manifest 引用、iOS 的 ATS 例外一并删除。**仍未使用真实账号执行写接口，真机端到端联调未完成**，release 包的 Manifest / Info.plist 与抓包结果也还没核对过。
 - 验证码登录的自动注册复用的是同一条验证码：登录接口先判验证码（未注册手机号配错误验证码回的是「验证码错误」，说明验证码在账号查找之前判），失败后再调注册接口。若后端在验证码判过之后即作废，补注册会以「验证码错误」失败——这条只在 mock 上验证过，真机需要用真实短信确认。
 - 配网三页已改为真实 `scanWifi` / `pairViaHotspot`（取令牌 → 连热点 → `pairWifiDevice`）链路。热点识别前缀已放宽到忽略分隔符的 `smartlif`（含量产件上见到的 `SmartLift-…`）、`tuya`、`ysplanter` 与 `ty_`/`ty-`，并且不再是门禁；2026-09-08 起搜索页在 45 秒窗口内反复扫描（间隔 2 秒），扫到设备热点就直接进选择页，窗口走完才给「未发现配网中的设备」，且不再显示扫描台数、手机当前连接和「从附近网络中手动选择设备」，选择页也去掉了「显示附近全部网络」和「设备已在配网状态，继续」；Android 桥接的 `scanWifi` 现在等一轮 `SCAN_RESULTS_AVAILABLE` 广播（最多 5 秒）再回，避免返回设备进入配网状态之前的缓存。iOS 不返回附近网络列表，搜索与选择页在 iOS 上只能走「手动继续」。 2026-09-09 起「连接Wi-Fi」页的 Wi-Fi 名称不再吃 `FlowerpotState.wifiScan` 的旧快照：进页面强制重扫，回到前台（`resumed`）再刷新一次，只在输入框为空或内容仍是上次自动填入值时才覆盖，用户自己输入 / 从「切换」选过的名称与重试带入的值都保持不动；配网进行中不刷新。
 - 154/155/157/158/159 都是 raw 功能点，当前代码上报按 base64 解、下发按十六进制串写（`TuyaMemorialCodec.encodeRaw`），真机未验证。设备不回报整份自定义纪念日列表；当前已接后端纪念日接口，后端会话可用时分配 id、保存并刷新列表，本地 `deviceMemorials` 是缓存，后端不可用时保留本地路径。退出登录暂不清此缓存，账号隔离及迟到响应仍需加固。
 - 2026-09-03 的两轮配网改动都只做了静态复核，`flutter test` 与真机均未跑（本机没有 Flutter 工具链）：热点识别放宽、选择页原始扫描结果回退、Android `scanWifi` 等待新一轮扫描结果，以及同日更早补的失败释放（`PairingResult` 包装、`cancelPairing`、Dart 侧 `leaveDeviceHotspot`）与手动回落路径。
 - iOS 桥接已补齐配网前置、`joinDeviceHotspot`（`NEHotspotConfigurationManager`，需要 Hotspot Configuration entitlement，未配置时回 `hotspot_join_unsupported` 走手动路径）、`cancelPairing`、DP 上报与 OTA，但 iOS 侧全部改动尚未经过 Xcode 编译或真机验证；`createShareLink` 在 iOS 上仍是明确错误码（Home SDK 只有按账号分享）。
 - 不要根据旧历史文档恢复已删除的平台文件；每次任务以实时 Git 状态确认工作区所有权，不将某次“有未提交改动”的状态视为跨环境事实。
-- 2026-09-05 源码评审发现明文回落、URL 携带令牌、安全组件副本仍被 Git 跟踪、资料刷新会话竞态、写请求网络异常重试、体验模式退出未恢复真实仓库及配网销毁通知异常。静态分析有 2 warning / 1 info，全量测试有失败且运行未正常结束；本轮未修代码、未构建发布包。依据和整改优先级见 `docs/RELEASE_READINESS_REVIEW.md`，实际验证见对应历史记录。
+- 2026-09-05 源码评审列出的问题，2026-09-09 那轮已处理其中五项：明文回落（S1）、资料刷新会话竞态（`ApiSession.revision` + `ApiClient._ensureSession`）、写请求网络异常重试（`postJson` 默认 `retryTransportErrors: false`）、体验模式退出未恢复真实仓库（体验模式整体删除）、配网销毁通知异常（搜索页改用 `Timer` 截止 + `mounted` 保护）。**仍未关闭**：S2 安全组件副本仍被 Git 跟踪（`git ls-files` 可见 `assets/Android_SDK1/security-algorithm/*.aar`）、S3 `/Client/` 请求仍把 `userToken` 放进 URL 查询且令牌仍存 `SharedPreferences`。依据和整改优先级见 `docs/RELEASE_READINESS_REVIEW.md`，实际验证见对应历史记录。
 
 ## 10. 文档地图
 

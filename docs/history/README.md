@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-09/2026-09-09-code-review-cleanup.md`](2026-09/2026-09-09-code-review-cleanup.md)：代码审核轮次——移除调试台与体验模式、关闭 S1 明文回落、写请求不再重试、会话 revision 防迟到、搜索页销毁保护；ssh 端补静态自检与 Active 文档口径修复，S2/S3 仍未关闭。
+
 - [`2026-09/2026-09-09-backend-session-expiry.md`](2026-09/2026-09-09-backend-session-expiry.md)：「用一个小时就掉登录」——后端 401/406 以前会 `_clearLocalSession()` 把涂鸦会话一起清掉，改为只清后端会话并留下失效原因与接口日志。
 
 - [`2026-09/2026-09-09-verification-code-phone-format.md`](2026-09/2026-09-09-verification-code-phone-format.md)：发验证码前校验手机号格式——输入框只收 11 位数字，号码不合法时「获取验证码」禁用，三页都补了发送前的兜底校验。
