@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../core/config/debug_tools_config.dart';
@@ -6,6 +7,7 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../preview/preview_config.dart';
+import '../domain/auth_validator.dart';
 import '../login_entry_config.dart';
 import 'password_page.dart';
 import 'verification_code_countdown.dart';
@@ -33,6 +35,8 @@ class _AuthPageState extends State<AuthPage> {
     super.initState();
     codeLogin = LoginEntryConfig.passwordLogin ? widget.initialCodeLogin : true;
     codeCountdown.addListener(_refreshCountdown);
+    // 手机号变化要重画：「发送验证码」按钮只在号码格式正确时才可点。
+    accountController.addListener(_refreshCountdown);
   }
 
   @override
@@ -92,6 +96,15 @@ class _AuthPageState extends State<AuthPage> {
 
   Future<void> _sendCode() async {
     if (codeCountdown.active) return;
+    // 按钮本身已经按格式禁用了，这里是兜底：粘贴、输入法直接提交等路径也可能
+    // 带进一个不合法的号码，而验证码短信是要花钱的，不该发出去再靠后端拦。
+    if (!AuthValidator.isValidAccount(
+      accountController.text,
+      LoginRegion.domestic,
+    )) {
+      showAppMessage(context, '请输入正确的 11 位手机号', tone: AppMessageTone.error);
+      return;
+    }
     final result = await FlowerpotScope.of(context).sendCode(
       account: accountController.text,
       region: LoginRegion.domestic,
@@ -286,6 +299,12 @@ class _LoginPanel extends StatelessWidget {
                   hintText: '请输入手机号',
                   iconAsset: AppAssets.phoneIcon,
                   keyboardType: TextInputType.phone,
+                  // 手机号只可能是 11 位数字。`TextInputType.phone` 的键盘上还有
+                  // `+ - ( ) *`，不挡住的话用户能输进去一个必然被拒的号码。
+                  inputFormatters: <TextInputFormatter>[
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(11),
+                  ],
                 ),
                 const SizedBox(height: 22),
                 _LoginField(
@@ -301,7 +320,13 @@ class _LoginPanel extends StatelessWidget {
                   obscureText: !codeLogin && !passwordVisible,
                   suffix: codeLogin
                       ? _SendCodeButton(
-                          busy: busy || codeCountdown.active,
+                          busy:
+                              busy ||
+                              codeCountdown.active ||
+                              !AuthValidator.isValidAccount(
+                                accountController.text,
+                                LoginRegion.domestic,
+                              ),
                           label: codeCountdown.label,
                           onPressed: onSendCode,
                         )
@@ -621,6 +646,7 @@ class _LoginField extends StatelessWidget {
     this.iconSize = 24,
     this.obscureText = false,
     this.suffix,
+    this.inputFormatters,
   });
 
   final TextEditingController controller;
@@ -630,6 +656,7 @@ class _LoginField extends StatelessWidget {
   final TextInputType keyboardType;
   final bool obscureText;
   final Widget? suffix;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -638,6 +665,7 @@ class _LoginField extends StatelessWidget {
       child: TextField(
         controller: controller,
         keyboardType: keyboardType,
+        inputFormatters: inputFormatters,
         obscureText: obscureText,
         style: AppTypography.body,
         decoration: InputDecoration(

@@ -7,6 +7,13 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+TextButton _sendCodeButton(WidgetTester tester) => tester.widget<TextButton>(
+  find.ancestor(
+    of: find.text('获取验证码'),
+    matching: find.byType(TextButton),
+  ),
+);
+
 void main() {
   testWidgets('verification login exposes the Figma content', (tester) async {
     await _pumpAuthPage(tester, const Size(375, 812));
@@ -133,6 +140,33 @@ void main() {
 
     expect(find.text('请输入手机号和验证码'), findsOneWidget);
     expect(state.authenticated, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('手机号没填对时发不了验证码', (tester) async {
+    await _pumpAuthPage(tester, const Size(375, 812));
+
+    // 位数不够：按钮直接是禁用的，点不出一条短信。
+    await tester.enterText(find.byType(TextField).first, '1380013');
+    await tester.pump();
+    expect(_sendCodeButton(tester).onPressed, isNull);
+
+    // 补齐 11 位之后才可点。
+    await tester.enterText(find.byType(TextField).first, '13800138000');
+    await tester.pump();
+    expect(_sendCodeButton(tester).onPressed, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('手机号输入框只收 11 位数字', (tester) async {
+    await _pumpAuthPage(tester, const Size(375, 812));
+
+    // `TextInputType.phone` 的键盘上还有 + - ( )，粘贴也可能带进字母和空格。
+    await tester.enterText(find.byType(TextField).first, '138-0013 8000abc9');
+    await tester.pump();
+
+    final field = tester.widget<TextField>(find.byType(TextField).first);
+    expect(field.controller?.text, '13800138000');
     expect(tester.takeException(), isNull);
   });
 

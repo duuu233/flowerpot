@@ -26,6 +26,17 @@ abstract final class AuthValidator {
     return normalized;
   }
 
+  /// 只判断格式、不抛异常：界面用它决定「发送验证码」按钮能不能点。
+  ///
+  /// 与 [account] 用的是同一组正则，避免界面放行、提交却被拦这种自相矛盾。
+  static bool isValidAccount(String value, LoginRegion region) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) return false;
+    return region == LoginRegion.domestic
+        ? _mobilePattern.hasMatch(normalized)
+        : _emailPattern.hasMatch(normalized);
+  }
+
   static String credential(String value, {required bool verificationCode}) {
     final normalized = value.trim();
     if (normalized.isEmpty) {

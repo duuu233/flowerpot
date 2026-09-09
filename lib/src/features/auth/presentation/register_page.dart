@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import '../domain/auth_validator.dart';
 import 'verification_code_countdown.dart';
 import 'widgets/auth_asset_icon.dart';
 
@@ -28,6 +30,8 @@ class _RegisterPageState extends State<RegisterPage> {
   void initState() {
     super.initState();
     codeCountdown.addListener(_refreshCountdown);
+    // 手机号变化要重画：「发送验证码」按钮只在号码格式正确时才可点。
+    accountController.addListener(_refreshCountdown);
   }
 
   void _refreshCountdown() {
@@ -46,6 +50,13 @@ class _RegisterPageState extends State<RegisterPage> {
 
   Future<void> _sendCode() async {
     if (codeCountdown.active) return;
+    if (!AuthValidator.isValidAccount(
+      accountController.text,
+      LoginRegion.domestic,
+    )) {
+      showAppMessage(context, '请输入正确的 11 位手机号', tone: AppMessageTone.error);
+      return;
+    }
     final result = await FlowerpotScope.of(context).sendCode(
       account: accountController.text,
       region: LoginRegion.domestic,
@@ -117,6 +128,12 @@ class _RegisterPageState extends State<RegisterPage> {
                     hintText: '请输入手机号',
                     iconAsset: AppAssets.phoneIcon,
                     keyboardType: TextInputType.phone,
+                    // 只收 11 位数字：`TextInputType.phone` 的键盘上还有 + - ( )，
+                    // 不挡住就能输进一个必然被拒的号码。
+                    inputFormatters: <TextInputFormatter>[
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(11),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   _RegisterField(
@@ -125,7 +142,13 @@ class _RegisterPageState extends State<RegisterPage> {
                     iconAsset: AppAssets.verificationCodeIcon,
                     keyboardType: TextInputType.number,
                     suffix: _RegisterCodeButton(
-                      busy: state.busy || codeCountdown.active,
+                      busy:
+                          state.busy ||
+                          codeCountdown.active ||
+                          !AuthValidator.isValidAccount(
+                            accountController.text,
+                            LoginRegion.domestic,
+                          ),
                       label: codeCountdown.label,
                       onPressed: _sendCode,
                     ),
@@ -257,6 +280,7 @@ class _RegisterField extends StatelessWidget {
     this.iconSize = 24,
     this.obscureText = false,
     this.suffix,
+    this.inputFormatters,
   });
 
   final TextEditingController controller;
@@ -266,6 +290,7 @@ class _RegisterField extends StatelessWidget {
   final TextInputType keyboardType;
   final bool obscureText;
   final Widget? suffix;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -274,6 +299,7 @@ class _RegisterField extends StatelessWidget {
       child: TextField(
         controller: controller,
         keyboardType: keyboardType,
+        inputFormatters: inputFormatters,
         obscureText: obscureText,
         style: AppTypography.body,
         decoration: InputDecoration(

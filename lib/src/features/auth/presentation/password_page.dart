@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import '../domain/auth_validator.dart';
 import 'verification_code_countdown.dart';
 import 'widgets/auth_asset_icon.dart';
 
@@ -46,6 +47,8 @@ class _PasswordPageState extends State<PasswordPage> {
     super.initState();
     accountController = TextEditingController(text: widget.arguments.account);
     codeCountdown.addListener(_refreshCountdown);
+    // 账号变化要重画：「发送验证码」按钮按格式决定能不能点。
+    accountController.addListener(_refreshCountdown);
   }
 
   @override
@@ -63,6 +66,14 @@ class _PasswordPageState extends State<PasswordPage> {
   }
 
   Future<void> _sendCode() async {
+    if (!AuthValidator.isValidAccount(accountController.text, region)) {
+      showAppMessage(
+        context,
+        region == LoginRegion.domestic ? '请输入正确的 11 位手机号' : '请输入正确的邮箱',
+        tone: AppMessageTone.error,
+      );
+      return;
+    }
     if (codeCountdown.active) return;
     final result = await FlowerpotScope.of(
       context,
@@ -151,7 +162,14 @@ class _PasswordPageState extends State<PasswordPage> {
                 ),
                 keyboardType: TextInputType.number,
                 suffix: _CodeButton(
-                  busy: state.busy || codeCountdown.active,
+                  // 手机号 / 邮箱格式不对就不让点：验证码是要发出去的东西。
+                  busy:
+                      state.busy ||
+                      codeCountdown.active ||
+                      !AuthValidator.isValidAccount(
+                        accountController.text,
+                        region,
+                      ),
                   label: codeCountdown.label,
                   onPressed: _sendCode,
                 ),

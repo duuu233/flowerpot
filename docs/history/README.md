@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-09/2026-09-09-verification-code-phone-format.md`](2026-09/2026-09-09-verification-code-phone-format.md)：发验证码前校验手机号格式——输入框只收 11 位数字，号码不合法时「获取验证码」禁用，三页都补了发送前的兜底校验。
+
 - [`2026-09/2026-09-09-home-pinned-and-pairing-preflight.md`](2026-09/2026-09-09-home-pinned-and-pairing-preflight.md)：家庭 id 按涂鸦 uid 记在本地、每次会话开始钉给原生；配网前先确认家庭再取令牌并加遮罩 loading；空家庭列表在热点上不建家、正常网络下先重查一次。
 
 - [`2026-09/2026-09-09-ota-version-pair.md`](2026-09/2026-09-09-ota-version-pair.md)：OTA 弹窗两个版本号都不对——不是进度弹层改坏的，Android 的 `firmwareVersion` 一直取的是协议版本 `pv`，且两行版本号来源不同；改取 `verSw` 并让 `checkFirmware` 成对返回同一条 OTA 记录的当前/新版本。
