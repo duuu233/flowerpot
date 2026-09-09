@@ -60,6 +60,30 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('植物 id 报 0（通用植物）时只给「选择植物」一个按钮', (tester) async {
+    // 固件只认出「有植物」但认不出品种，后台也不再为 0 建植物数据，所以没有可
+    // 确认的对象：文案换成「请选择并确认植物」，确认按钮不出现。
+    final repository = _HomeRepository(<SmartPlanterDevice>[
+      _device(plantVariety: '0', plantConfirm: PlantConfirmState.prompt),
+    ]);
+    await _pumpDeviceHome(tester, repository, withRoutes: true);
+
+    expect(find.text('发现新植物'), findsOneWidget);
+    expect(find.text('已检测到通用植物，请选择并确认植物。'), findsOneWidget);
+    expect(find.text('选择植物'), findsOneWidget);
+    expect(find.text('确认'), findsNothing);
+    // 两条提示文案照旧。
+    expect(find.text('1、选择植物请确保与花盆植物一致'), findsOneWidget);
+
+    await tester.tap(find.byKey(_confirmKey));
+    await tester.pumpAndSettle();
+
+    // 唯一那个按钮走的是「去选植物」，不能把 0 当成确认下发。
+    expect(find.text('plant-picker-target'), findsOneWidget);
+    expect(repository.published, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('162 报 0 不弹窗', (tester) async {
     final repository = _HomeRepository(<SmartPlanterDevice>[
       _device(plantConfirm: PlantConfirmState.hidden),

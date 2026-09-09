@@ -7,6 +7,7 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/user_avatar.dart';
 import '../../../state.dart';
+import '../../../tuya/tuya_models.dart';
 import '../../devices/models/water_status_page_model.dart';
 import '../../devices/presentation/plant_picker_page.dart';
 import '../models/home_dashboard_model.dart';
@@ -95,14 +96,22 @@ class _HomePageState extends State<HomePage> {
   /// 两个按钮都会让固件把 162 改回 0：「确认」直接把设备当前上报的植物 DPID 原样
   /// 回写，「选择植物」跳到选择流程、选完由那条流程下发。用返回键关掉则什么都不
   /// 发，下次进详情页设备还会要求弹。
+  ///
+  /// **植物 id 为 0（通用植物）是单独一支**：固件只识别出「有植物」但认不出品种，
+  /// 后台也不再为 0 建植物数据，所以没有可确认的对象——文案改成「请选择并确认
+  /// 植物」，按钮只留「选择植物」。
   Future<void> _showPlantGuide(FlowerpotState state, String deviceId) async {
+    final generic = state.reportedPlantId(deviceId) == PlantVariety.generic;
     final name = state.reportedPlantName(deviceId);
     final picked = await showAppDialog(
       context,
       title: '发现新植物',
-      message: '已检测到${name ?? '新'}植物，请确认植物。',
-      confirmLabel: '确认',
+      message: generic
+          ? '已检测到通用植物，请选择并确认植物。'
+          : '已检测到${name ?? '新'}植物，请确认植物。',
+      confirmLabel: generic ? '选择植物' : '确认',
       cancelLabel: '选择植物',
+      showCancel: !generic,
       barrierDismissible: false,
       content: const Padding(
         padding: EdgeInsets.only(top: 12),
@@ -124,7 +133,8 @@ class _HomePageState extends State<HomePage> {
       ),
     );
     if (!mounted || picked == null) return;
-    if (picked) {
+    // 通用植物那一支只有一个按钮，点它就是去选植物。
+    if (picked && !generic) {
       final result = await state.confirmDetectedPlant(deviceId);
       if (!mounted) return;
       showAppMessage(

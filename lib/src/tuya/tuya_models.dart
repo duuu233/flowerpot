@@ -64,6 +64,10 @@ abstract final class PlantVariety {
   /// 没有植物的约定值。
   static const int none = -1;
 
+  /// 通用植物：固件识别不出具体品种时报这个。后台不再为它建植物数据，所以 App
+  /// 拿它匹配不到目录项，引导窗要走「请选择并确认植物」那一支。
+  static const int generic = 0;
+
   static int? parse(Object? raw) {
     if (raw is num) return raw.toInt();
     final text = raw?.toString().trim() ?? '';

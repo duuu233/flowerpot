@@ -227,6 +227,12 @@ class FlowerpotState extends ChangeNotifier {
   bool plantGuidePending(String? deviceId) =>
       plantConfirmState(deviceId) == PlantConfirmState.prompt;
 
+  /// 设备当前上报的植物 id（DP 116）。老固件报字符串标识符时返回 null。
+  int? reportedPlantId(String? deviceId) {
+    if (deviceId == null) return null;
+    return PlantVariety.parse(deviceById(deviceId)?.plantVariety);
+  }
+
   /// 设备当前上报的那一株在目录里的名字，解析不出来时返回 null。
   ///
   /// 引导窗的「已检测到 xxx 植物」用它；名字来自 APP 后端的植物目录，DP 116 只
