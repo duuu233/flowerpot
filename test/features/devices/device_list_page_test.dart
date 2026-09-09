@@ -134,6 +134,46 @@ void main() {
   });
 }
 
+  testWidgets('设备列表读不出来时给错误和重试，而不是「暂无设备」', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = _FlakyDeviceListRepository(_devices);
+    final state = FlowerpotState(repository: repository);
+    addTearDown(state.dispose);
+
+    // 第一次读取失败：登录路径吞掉异常，列表就是空的——「重新登录后设备全没了」
+    // 的现场就是这样。
+    await expectLater(state.refreshDevices(), throwsA(isA<TuyaException>()));
+    expect(state.deviceLoadError, contains('home_query_failed'));
+
+    await tester.pumpWidget(
+      FlowerpotScope(
+        state: state,
+        child: MaterialApp(theme: buildAppTheme(), home: const DeviceListPage()),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('device-list-error')), findsOneWidget);
+    expect(find.text('设备列表没读出来'), findsOneWidget);
+    // 不能再画成「暂无设备」。
+    expect(find.text('暂无设备'), findsNothing);
+    expect(
+      find.byKey(const Key('empty-device-list-illustration')),
+      findsNothing,
+    );
+
+    // 重试成功后恢复成正常列表。
+    repository.failing = false;
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('device-list-error')), findsNothing);
+    expect(find.text('YSplanter-01'), findsOneWidget);
+    expect(state.deviceLoadError, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
 Future<FlowerpotState> _pumpDeviceList(
   WidgetTester tester,
   Size size, {
@@ -227,6 +267,22 @@ SmartPlanterDevice _device({
     firmwareVersion: '1.0.8',
     macAddress: 'A4:C1:38:7B:2D:10',
   );
+}
+
+/// 先失败后成功：第一次 `getDevices` 抛错，`failing` 置回 false 后恢复正常。
+class _FlakyDeviceListRepository extends MockTuyaRepository {
+  _FlakyDeviceListRepository(this.items) : super(latency: Duration.zero);
+
+  final List<SmartPlanterDevice> items;
+  bool failing = true;
+
+  @override
+  Future<List<SmartPlanterDevice>> getDevices() async {
+    if (failing) {
+      throw const TuyaException('home_query_failed', '家庭列表查询失败');
+    }
+    return items;
+  }
 }
 
 class _DeviceListRepository extends MockTuyaRepository {

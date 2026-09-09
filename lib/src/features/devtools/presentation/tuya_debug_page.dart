@@ -417,7 +417,7 @@ class _TuyaDebugPageState extends State<TuyaDebugPage> {
                             busy: false,
                             onPressed: () => _run(
                               '拉取设备列表',
-                              () => state.probeDevices(),
+                              () => state.reloadDevices(),
                               usesAccount: false,
                             ),
                           ),

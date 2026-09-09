@@ -706,12 +706,11 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             "queryHomeList",
             onSuccess = { value ->
                 onMain(result) {
-                    val homes = value as? List<*> ?: emptyList<Any>()
-                    val first = homes.filterNotNull().firstOrNull()
-                    if (first != null) {
-                        val id = number(getter(first, "getHomeId"))
-                        homeId = id
-                        ready(id)
+                    val homes = (value as? List<*>).orEmpty().filterNotNull()
+                    val picked = pickHome(homes)
+                    if (picked != null) {
+                        homeId = picked
+                        ready(picked)
                     } else {
                         createHome(manager, result, ready)
                     }
@@ -719,6 +718,35 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             },
             onError = { code, message -> error(result, code, message) },
         )
+    }
+
+    /**
+     * 账号名下有多个家庭时选哪一个。
+     *
+     * `queryHomeList` 的返回顺序在两次登录之间并不保证一致，原来直接取第一个：
+     * 同一个账号这次登录读到 A 家的设备，下次登录可能读到 B 家（B 家往往是本
+     * 地缓存为空时自动建出来的空家），用户看到的就是「重新登录后设备全没了」。
+     *
+     * 改成稳定规则：先挑带设备的家庭，同样带设备时取 homeId 最小的那个（最早
+     * 建的通常就是设备所在的家庭）。这样每次登录选到的都是同一个家庭。
+     */
+    private fun pickHome(homes: List<*>): Long? {
+        val ranked = homes.mapNotNull { bean ->
+            if (bean == null) return@mapNotNull null
+            val id = runCatching { number(getter(bean, "getHomeId")) }.getOrNull()
+                ?: return@mapNotNull null
+            val devices = (optionalGetter(bean, "getDeviceList") as? List<*>)?.size ?: 0
+            id to devices
+        }
+        if (ranked.isEmpty()) return null
+        val picked = ranked.sortedWith(
+            compareByDescending<Pair<Long, Int>> { it.second }.thenBy { it.first },
+        ).first()
+        Log.i(
+            TUYA_LOG_TAG,
+            "home picked ${picked.first} with ${picked.second} devices of ${ranked.size} homes",
+        )
+        return picked.first
     }
 
     private fun createHome(manager: Any, result: MethodChannel.Result, ready: (Long) -> Unit) {

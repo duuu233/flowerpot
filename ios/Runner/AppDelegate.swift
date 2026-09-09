@@ -286,7 +286,12 @@ final class FlowerpotTuyaBridge: NSObject {
     }
     homeManager.getHomeList(success: { [weak self] homes in
       guard let self else { return }
-      if let model = homes?.first, let home = ThingSmartHome(homeId: model.homeId) {
+      // 家庭列表的顺序在两次登录之间并不保证一致，取 `first` 会让同一个账号这次
+      // 读到 A 家的设备、下次读到 B 家（B 家往往是缓存为空时自动建出来的空家），
+      // 表现就是「重新登录后设备全没了」。按 homeId 从小到大取，最早建的那个通常
+      // 就是设备所在的家庭，而且每次登录选到的都一样。
+      let ordered = (homes ?? []).sorted { $0.homeId < $1.homeId }
+      if let model = ordered.first, let home = ThingSmartHome(homeId: model.homeId) {
         self.currentHome = home
         ready(home)
       } else {

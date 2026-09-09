@@ -59,6 +59,13 @@ class FlowerpotState extends ChangeNotifier {
   String? _selectedDeviceId;
   List<SmartPlanterDevice> _devices = <SmartPlanterDevice>[];
 
+  /// 最近一次读取设备列表失败的原因，成功一次就清空。
+  ///
+  /// 登录、恢复会话这些路径读不到列表时不打断流程（`ignoreErrors: true`），但
+  /// 「账号下没有设备」和「设备列表没读出来」在界面上必须分得开：两者以前都画成
+  /// 「暂无设备」，用户重新登录后设备读不出来，看起来就像设备全没了。
+  String? _deviceLoadError;
+
   /// Server-side device rows keyed by the Tuya device id. Plant and image APIs
   /// require `userProductId`, so this mapping is resolved once and reused.
   final Map<String, BackendUserProduct> _backendDevices =
@@ -164,6 +171,8 @@ class FlowerpotState extends ChangeNotifier {
   }
 
   List<SmartPlanterDevice> get devices => List.unmodifiable(_devices);
+
+  String? get deviceLoadError => _deviceLoadError;
   List<AnimationAsset> get animations => animationsFor(_selectedDeviceId);
 
   List<AnimationAsset> animationsFor(String? deviceId) {
@@ -396,6 +405,7 @@ class FlowerpotState extends ChangeNotifier {
     await _refreshDevicesForSession(ignoreErrors: false);
   }
 
+
   /// Re-runs SDK initialization so the reason behind [sdkReady] becomes
   /// visible. Startup swallows this failure to keep the app usable.
   Future<ActionResult> probeSdk() => _run(() async {
@@ -479,9 +489,10 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
-  /// Device refresh that reports home query, auto-create and device list
-  /// failures instead of hiding them like the silent session refresh.
-  Future<ActionResult> probeDevices() => _run(() async {
+  /// 会把失败说出来的设备列表刷新：设备列表页的下拉刷新 / 重试和联调页共用这一个
+  /// 入口。和会话恢复那条静默路径（`ignoreErrors: true`）相反，家庭查询、自动建家
+  /// 和设备列表的失败都作为 [ActionResult] 返回，不会被吞掉。
+  Future<ActionResult> reloadDevices() => _run(() async {
     await _refreshDevicesForSession(ignoreErrors: false);
     // 带上家庭 id：0 台设备最常见的原因不是没配上，而是查的家庭和配网时用的
     // 不是同一个，而那在 Dart 侧原本完全看不出来。
@@ -1925,6 +1936,7 @@ class FlowerpotState extends ChangeNotifier {
     try {
       final devices = await _repository.getDevices();
       if (epoch != _sessionEpoch) return;
+      _deviceLoadError = null;
       // 设备清单以涂鸦为准。登录后不再顺带拉 getUserInfo / getUserProductList /
       // getUserProductPlantList——主流程只允许 getProductPlantList 一个后端调用。
       _devices = devices.map(_withLocalOverrides).toList();
@@ -1934,10 +1946,20 @@ class FlowerpotState extends ChangeNotifier {
         _selectedDeviceId = _devices.first.id;
       }
       notifyListeners();
-    } catch (_) {
+    } catch (error) {
+      if (epoch != _sessionEpoch) return;
+      // 失败不清空已有列表：断网重进时保留上一次拿到的设备，比直接白屏好。
+      _deviceLoadError = _deviceLoadMessage(error);
+      notifyListeners();
       if (!ignoreErrors) rethrow;
     }
   }
+
+  static String _deviceLoadMessage(Object error) => switch (error) {
+    TuyaException tuya => _tagged('涂鸦', tuya.code, tuya.message),
+    ApiException api => _tagged(_apiSource(api.code), api.code, api.message),
+    _ => _tagged('APP', 'device_list_failed', '设备列表读取失败：$error'),
+  };
 
   SmartPlanterDevice _withLocalOverrides(SmartPlanterDevice device) {
     final plant =
@@ -2082,6 +2104,7 @@ class FlowerpotState extends ChangeNotifier {
     _sessionEpoch++;
     _user = null;
     _devices = <SmartPlanterDevice>[];
+    _deviceLoadError = null;
     _plantedDevices.clear();
     _plantOverrides.clear();
     _settingsOverrides.clear();

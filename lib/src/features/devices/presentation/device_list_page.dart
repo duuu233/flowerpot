@@ -56,6 +56,14 @@ class DeviceListPage extends StatelessWidget {
     );
   }
 
+  /// 重新拉设备列表。失败原因用统一的提示条说出来——以前 `onRefresh` 直接把
+  /// 异常抛回 `RefreshIndicator`，只进日志，用户下拉半天看不到任何反馈。
+  Future<void> _reload(BuildContext context, FlowerpotState state) async {
+    final result = await state.reloadDevices();
+    if (!context.mounted || result.success) return;
+    showAppMessage(context, result.message, tone: AppMessageTone.error);
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
@@ -83,10 +91,17 @@ class DeviceListPage extends StatelessWidget {
       background: AppPageBackground.standard,
       body: RefreshIndicator(
         color: AppColors.brandPrimary,
-        onRefresh: state.refreshDevices,
+        onRefresh: () => _reload(context, state),
         child: ResponsiveContent(
           padding: EdgeInsets.zero,
-          child: items.isEmpty
+          // 读取失败和「账号下真的没有设备」要分开：都画成「暂无设备」的话，
+          // 重新登录后列表拉不出来，用户看到的就是设备全部消失。
+          child: items.isEmpty && state.deviceLoadError != null
+              ? _DeviceListError(
+                  message: state.deviceLoadError!,
+                  onRetry: () => _reload(context, state),
+                )
+              : items.isEmpty
               ? const _EmptyDeviceList()
               : ListView.separated(
                   key: const Key('device-list-view'),
@@ -277,6 +292,36 @@ class _OnlinePill extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 列表拉取失败时的占位：保持可下拉（`RefreshIndicator` 需要一个可滚动的孩子），
+/// 并给一个显式的「重试」。
+class _DeviceListError extends StatelessWidget {
+  const _DeviceListError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      key: const Key('device-list-error'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.pageMargin,
+        120,
+        AppSpacing.pageMargin,
+        24,
+      ),
+      children: <Widget>[
+        AppErrorView(
+          title: '设备列表没读出来',
+          message: message,
+          onRetry: onRetry,
+        ),
+      ],
     );
   }
 }
