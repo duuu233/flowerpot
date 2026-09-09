@@ -334,6 +334,7 @@ class FlowerpotState extends ChangeNotifier {
             );
       created = backendAccount.registered;
       _user = await _loginTuyaAccount(backendAccount);
+      await _rememberBackendUserId(backendAccount.userId);
       await _applyBackendHome(backendAccount.tuyaHomeId);
     } else {
       _user = await _repository.login(
@@ -363,6 +364,7 @@ class FlowerpotState extends ChangeNotifier {
         password: normalizedPassword,
       );
       _user = await _loginTuyaAccount(backendAccount);
+      await _rememberBackendUserId(backendAccount.userId);
       await _applyBackendHome(backendAccount.tuyaHomeId);
     } else {
       _user = await _repository.register(
@@ -1999,25 +2001,70 @@ class FlowerpotState extends ChangeNotifier {
   /// 顺序不能反——家庭没钉住就拉列表，等于又让原生自己从家庭列表里挑一次。
   Future<void> _startSession() async {
     _sessionEpoch++;
+    await _restoreBackendUserId();
     await _applyHomeTag();
     await _pinKnownHome();
     await _refreshDevicesForSession(ignoreErrors: true);
   }
 
-  static String _homeKey(String uid) => 'tuyaHome:$uid';
+  static String _homeKey(String key) => 'tuyaHome:$key';
 
-  /// 家庭名标记：`YS-<涂鸦 uid>`，uid 就是 APP 后端下发的 `userNo`。
+  static String _accountKeyStore(String uid) => 'backendUserId:$uid';
+
+  /// 本次会话已知的后端 `userId`，登录时拿到，会话恢复时从本地读回。
+  String? _backendUserId;
+
+  /// 家庭归属用的账号键：优先后端 `userId`，取不到退回涂鸦 uid（即 `userNo`）。
   ///
-  /// 家庭 id 只能由涂鸦分配，`userNo` 当不了 id（涂鸦查不到这个家庭，还可能撞上
-  /// 别人的）；但家庭**名字**是我们能定的，所以用它承载「这个家庭属于哪个账号」
-  /// 这件事：建家时用这个名字，认领时优先认名字。
-  static String homeTagFor(String uid) => 'YS-$uid';
+  /// 家庭 id 只能由涂鸦分配，这个键不是 id，而是"哪个家庭属于哪个账号"的依据：
+  /// 家庭名标记和本地缓存都按它来。两者都跟账号走、不跟手机走，所以换手机登录
+  /// 同一个账号，认到的仍是同一个家庭。
+  String get _accountKey {
+    final backendId = _backendUserId?.trim() ?? '';
+    if (backendId.isNotEmpty) return backendId;
+    return _user?.id ?? '';
+  }
 
-  Future<void> _applyHomeTag() async {
+  /// 登录时拿到后端 `userId` 就记下来（按涂鸦 uid 存），下次会话恢复时接得上。
+  Future<void> _rememberBackendUserId(String? userId) async {
+    final id = userId?.trim() ?? '';
+    final uid = _user?.id ?? '';
+    if (id.isEmpty) return;
+    _backendUserId = id;
+    if (uid.isEmpty) return;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString(_accountKeyStore(uid), id);
+    } catch (_) {
+      // 记不住只是下次退回用涂鸦 uid 当键，家庭仍然稳定，只是键换了一次。
+    }
+  }
+
+  Future<void> _restoreBackendUserId() async {
+    if (_backendUserId != null) return;
     final uid = _user?.id ?? '';
     if (uid.isEmpty) return;
     try {
-      await _repository.useHomeTag(homeTagFor(uid));
+      final preferences = await SharedPreferences.getInstance();
+      _backendUserId = preferences.getString(_accountKeyStore(uid));
+    } catch (_) {
+      // 读不到就用涂鸦 uid。
+    }
+  }
+
+  /// 家庭名标记：`YS-<账号键>`，账号键优先用后端 `userId`，没有则用涂鸦 uid
+  /// （即后端下发的 `userNo`）。
+  ///
+  /// 家庭 id 只能由涂鸦分配，这两个值都当不了 id（涂鸦查不到这个家庭，还可能撞上
+  /// 别人的）；但家庭**名字**是我们能定的，所以用它承载「这个家庭属于哪个账号」
+  /// 这件事：建家时用这个名字，认领时优先认名字。
+  static String homeTagFor(String accountKey) => 'YS-$accountKey';
+
+  Future<void> _applyHomeTag() async {
+    final key = _accountKey;
+    if (key.isEmpty) return;
+    try {
+      await _repository.useHomeTag(homeTagFor(key));
     } catch (_) {
       // 桥接不支持就退回原来的挑选规则。
     }
@@ -2032,11 +2079,11 @@ class FlowerpotState extends ChangeNotifier {
   Future<void> _pinKnownHome() async {
     // 后端刚在登录响应里给过家庭，那份优先，不要被本地缓存覆盖。
     if (_pinnedHome != null) return;
-    final uid = _user?.id ?? '';
-    if (uid.isEmpty) return;
+    final key = _accountKey;
+    if (key.isEmpty) return;
     try {
       final preferences = await SharedPreferences.getInstance();
-      final stored = preferences.getString(_homeKey(uid)) ?? '';
+      final stored = preferences.getString(_homeKey(key)) ?? '';
       if (stored.isEmpty) return;
       await _repository.useHome(stored);
       _pinnedHome = stored;
@@ -2071,13 +2118,13 @@ class FlowerpotState extends ChangeNotifier {
   /// 下来的缓存。缓存一旦指向一个读不出设备的家庭（用户在涂鸦 App 里删了它、
   /// 换了账号、或者当初就记错了），必须立刻作废，不能让它把人锁死在 0 台上。
   Future<void> _dropPinnedHome() async {
-    final uid = _user?.id ?? '';
+    final key = _accountKey;
     _pinnedHome = null;
     try {
       await _repository.useHome('');
-      if (uid.isNotEmpty) {
+      if (key.isNotEmpty) {
         final preferences = await SharedPreferences.getInstance();
-        await preferences.remove(_homeKey(uid));
+        await preferences.remove(_homeKey(key));
       }
     } catch (_) {
       // 清不掉也不要紧：下一次成功读到设备时会用新的家庭覆盖掉。
@@ -2086,12 +2133,12 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 记下这次真正用上的家庭，供下次会话固定使用。
   Future<void> _rememberHome(String homeId) async {
-    final uid = _user?.id ?? '';
-    if (uid.isEmpty || homeId.isEmpty || homeId == '?' || homeId == '0') return;
+    final key = _accountKey;
+    if (key.isEmpty || homeId.isEmpty || homeId == '?' || homeId == '0') return;
     try {
       final preferences = await SharedPreferences.getInstance();
-      if (preferences.getString(_homeKey(uid)) == homeId) return;
-      await preferences.setString(_homeKey(uid), homeId);
+      if (preferences.getString(_homeKey(key)) == homeId) return;
+      await preferences.setString(_homeKey(key), homeId);
     } catch (_) {
       // 记不住只是下次要重新解析，不影响这次。
     }
@@ -2306,6 +2353,7 @@ class FlowerpotState extends ChangeNotifier {
     // can name or delete. It is keyed by device id, which belongs to the
     // planter rather than to the account.
     _selectedDeviceId = null;
+    _backendUserId = null;
     _demoMode = false;
     // The native token belongs to the account that fetched it.
     _activatorTokenAt = null;

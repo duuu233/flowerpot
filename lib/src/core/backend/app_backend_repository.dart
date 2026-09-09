@@ -422,6 +422,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
           _nullableText(data['tuYaHomeId']) ??
           _nullableText(data['tuyaHomeId']) ??
           _nullableText(data['homeId']),
+      userId: _nullableText(data['userId']) ?? _nullableText(data['id']),
       registered: registered,
     );
     if (result.userToken.isEmpty ||

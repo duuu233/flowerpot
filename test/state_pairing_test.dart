@@ -250,6 +250,7 @@ void main() {
     expect(repository.pinnedHomes.first, '999');
     // 家庭名标记跟着账号走：换手机、清数据之后 userNo 不变，标记也不变，涂鸦那边
     // 就还能按名字认回同一个家庭。
+    // 后端没下发 userId 时退回涂鸦 uid（= userNo）。
     expect(repository.homeTag, 'YS-mock-user');
     expect(state.lastHomeId, isNotNull);
   });

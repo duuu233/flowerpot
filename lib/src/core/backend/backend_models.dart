@@ -8,6 +8,7 @@ class BackendAuthAccount {
     required this.account,
     this.avatarUrl,
     this.tuyaHomeId,
+    this.userId,
     this.registered = false,
   });
 
@@ -25,6 +26,12 @@ class BackendAuthAccount {
   /// 清数据之后仍然用同一个家庭」——本地缓存做不到这一点。后端还没下发这个字段
   /// 时为 null，此时退回本地缓存 + 涂鸦家庭列表解析。
   final String? tuyaHomeId;
+
+  /// 后端用户主键（登录响应里的 `userId`）。
+  ///
+  /// 家庭 id 仍然只能由涂鸦分配，这个值不是 id 本身，而是「这个家庭属于哪个账号」
+  /// 的依据：家庭名标记和本地缓存的键都用它。后端没下发时退回涂鸦 uid（`userNo`）。
+  final String? userId;
 
   /// 这次会话是注册接口建立的，而不是登录接口。登录注册一体的验证码登录里，
   /// 未注册手机号会被补注册，页面据此把提示从「登录成功」换成建号文案。
