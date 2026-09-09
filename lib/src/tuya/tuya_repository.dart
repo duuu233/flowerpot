@@ -108,6 +108,13 @@ abstract class TuyaRepository {
   /// 家庭按账号记在本地，之后每次会话开始就用这个方法钉给原生。
   Future<void> useHome(String homeId);
 
+  /// 本账号的家庭名标记（`YS-<userNo>`）。
+  ///
+  /// 家庭 id 由涂鸦分配、App 造不出来，但**家庭名**是我们说了算的：建家时用这个
+  /// 名字，之后从家庭列表里认领时优先认名字对上的那个。这样"哪个家庭属于这个
+  /// 账号"不再依赖列表顺序，也不需要后端加字段。
+  Future<void> useHomeTag(String tag);
+
   /// Nearby access points, used before provisioning to check that the phone is
   /// on 2.4 GHz and — in AP mode — that the device hotspot is up.
   Future<WifiScan> scanWifi();
@@ -412,6 +419,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<void> useHome(String homeId) =>
       _invoke<void>('setHomeId', <String, Object?>{'homeId': homeId});
+
+  @override
+  Future<void> useHomeTag(String tag) =>
+      _invoke<void>('setHomeTag', <String, Object?>{'tag': tag});
 
   @override
   Future<WifiScan> scanWifi() async {
@@ -937,6 +948,9 @@ class MockTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> useHome(String homeId) async {}
+
+  @override
+  Future<void> useHomeTag(String tag) async {}
 
   @override
   Future<String> currentHomeId() async {

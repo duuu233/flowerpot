@@ -96,6 +96,9 @@ final class FlowerpotTuyaBridge: NSObject {
     // Dart 侧按账号记住上次用过的家庭，会话一开始钉回来：家庭属于涂鸦账号，不该
     // 每次登录重新从列表里挑。
     case "setHomeId": setHome(args, result)
+    case "setHomeTag":
+      homeTag = (args["tag"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+      result(nil)
     case "prepareActivatorToken": prepareActivatorToken(result)
     // ThingActivatorMode 是 ObjC 的 NS_ENUM，运行时拿不到常量名，没法像 Android
     // 那样让 SDK 自己报一遍。要确认 iOS 支不支持双模只能查平台文档。
@@ -283,6 +286,11 @@ final class FlowerpotTuyaBridge: NSObject {
     activatorTokenAt = nil
   }
 
+  /// 本账号的家庭名标记（`YS-<userNo>`）。家庭 id 只能由涂鸦分配，但名字是我们
+  /// 能定的：建家时用它，认领时优先认它，这样同一个账号在任何手机上都落到同一个
+  /// 家庭。
+  private var homeTag: String?
+
   private func setHome(_ args: [String: Any], _ result: @escaping FlutterResult) {
     guard let text = args["homeId"] as? String, let id = Int64(text),
           let home = ThingSmartHome(homeId: id) else {
@@ -320,14 +328,23 @@ final class FlowerpotTuyaBridge: NSObject {
       // 读到 A 家的设备、下次读到 B 家（B 家往往是缓存为空时自动建出来的空家），
       // 表现就是「重新登录后设备全没了」。按 homeId 从小到大取，最早建的那个通常
       // 就是设备所在的家庭，而且每次登录选到的都一样。
-      let ordered = (homes ?? []).sorted { $0.homeId < $1.homeId }
+      // 名字对上本账号标记的排最前，其余按 homeId 从小到大——前者平手时也要有个
+      // 稳定顺序，否则又回到「每次登录挑到不同家庭」。
+      let tag = self.homeTag
+      let ordered = (homes ?? []).sorted { left, right in
+        let leftTagged = tag != nil && left.name == tag
+        let rightTagged = tag != nil && right.name == tag
+        if leftTagged != rightTagged { return leftTagged }
+        return left.homeId < right.homeId
+      }
       if let model = ordered.first, let home = ThingSmartHome(homeId: model.homeId) {
-        print("[flowerpot] home picked \(model.homeId) of \(ordered.count) homes")
+        print("[flowerpot] home picked \(model.homeId) (\(model.name ?? "")) of \(ordered.count) homes, tag=\(tag ?? "-")")
         self.currentHome = home
         ready(home)
       } else {
         self.homeManager.addHome(
-          withName: "我的花园",
+          // 用本账号的标记当家庭名，下次登录就能按名字认回来。
+          withName: tag ?? "我的花园",
           geoName: "",
           rooms: [],
           latitude: 0,

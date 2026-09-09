@@ -248,6 +248,9 @@ void main() {
     // 会话一开始钉的就是记下来的那个；本轮 Mock 名下没有设备，随后会走作废重来
     // 那条路，所以这里看的是第一次调用。
     expect(repository.pinnedHomes.first, '999');
+    // 家庭名标记跟着账号走：换手机、清数据之后 userNo 不变，标记也不变，涂鸦那边
+    // 就还能按名字认回同一个家庭。
+    expect(repository.homeTag, 'YS-mock-user');
     expect(state.lastHomeId, isNotNull);
   });
 
@@ -347,6 +350,9 @@ class _PairingRepository extends MockTuyaRepository {
   TuyaException? homeError;
   /// 每次 `useHome` 的入参，按顺序记下来：空串表示作废当前固定的家庭。
   final List<String> pinnedHomes = <String>[];
+
+  /// 会话开始下发的家庭名标记。
+  String? homeTag;
   int homeCalls = 0;
   TuyaException? pairError;
   bool pairHangs = false;
@@ -367,6 +373,9 @@ class _PairingRepository extends MockTuyaRepository {
 
   @override
   Future<void> useHome(String homeId) async => pinnedHomes.add(homeId);
+
+  @override
+  Future<void> useHomeTag(String tag) async => homeTag = tag;
 
   @override
   Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {

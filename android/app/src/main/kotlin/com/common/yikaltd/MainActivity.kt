@@ -238,6 +238,14 @@ private class SingleResult(private val delegate: MethodChannel.Result) :
  */
 private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private var homeId: Long? = null
+
+    /**
+     * 本账号的家庭名标记（`YS-<userNo>`），由 Dart 在会话开始时下发。
+     *
+     * 家庭 id 只能由涂鸦分配，App 造不出来；但家庭**名字**是我们能定的，所以用它
+     * 承载「这个家庭属于哪个账号」：建家时用这个名字，从家庭列表认领时优先认它。
+     */
+    private var homeTag: String? = null
     private var activator: Any? = null
 
     /**
@@ -346,6 +354,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 }
                 // Dart 侧按账号记住上次用过的家庭，会话一开始就钉回来：家庭属于
                 // 涂鸦账号，不该每次登录重新从列表里挑。
+                "setHomeTag" -> {
+                    homeTag = call.argument<String>("tag")?.takeIf { it.isNotBlank() }
+                    success(result, null)
+                }
                 "setHomeId" -> {
                     homeId = call.argument<String>("homeId")?.toLongOrNull()
                     Log.i(TUYA_LOG_TAG, "home pinned to $homeId")
@@ -768,29 +780,39 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * 建的通常就是设备所在的家庭）。这样每次登录选到的都是同一个家庭。
      */
     private fun pickHome(homes: List<*>): Long? {
+        val tag = homeTag
         val ranked = homes.mapNotNull { bean ->
             if (bean == null) return@mapNotNull null
             val id = runCatching { number(getter(bean, "getHomeId")) }.getOrNull()
                 ?: return@mapNotNull null
+            val name = optionalGetter(bean, "getName")?.toString().orEmpty()
             val devices = (optionalGetter(bean, "getDeviceList") as? List<*>)?.size ?: 0
-            id to devices
+            HomeChoice(id, name, devices)
         }
         if (ranked.isEmpty()) return null
+        // 名字对上本账号标记的排最前，其次带设备的，最后按 homeId 从小到大——
+        // 前两项都平手时也要有个稳定顺序，否则又回到「每次登录挑到不同家庭」。
         val picked = ranked.sortedWith(
-            compareByDescending<Pair<Long, Int>> { it.second }.thenBy { it.first },
+            compareByDescending<HomeChoice> { tag != null && it.name == tag }
+                .thenByDescending { it.devices }
+                .thenBy { it.id },
         ).first()
         Log.i(
             TUYA_LOG_TAG,
-            "home picked ${picked.first} with ${picked.second} devices of ${ranked.size} homes",
+            "home picked ${picked.id} (name=${picked.name}, ${picked.devices} devices) " +
+                "of ${ranked.size} homes, tag=$tag",
         )
-        return picked.first
+        return picked.id
     }
+
+    private data class HomeChoice(val id: Long, val name: String, val devices: Int)
 
     private fun createHome(manager: Any, result: MethodChannel.Result, ready: (Long) -> Unit) {
         invokeWithCallback(
             manager,
             "createHome",
-            "我的花园",
+            // 用本账号的标记当家庭名，下次登录就能按名字把它认回来。
+            homeTag ?: "我的花园",
             0.0,
             0.0,
             "",

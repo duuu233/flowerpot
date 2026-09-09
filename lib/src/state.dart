@@ -1999,11 +1999,29 @@ class FlowerpotState extends ChangeNotifier {
   /// 顺序不能反——家庭没钉住就拉列表，等于又让原生自己从家庭列表里挑一次。
   Future<void> _startSession() async {
     _sessionEpoch++;
+    await _applyHomeTag();
     await _pinKnownHome();
     await _refreshDevicesForSession(ignoreErrors: true);
   }
 
   static String _homeKey(String uid) => 'tuyaHome:$uid';
+
+  /// 家庭名标记：`YS-<涂鸦 uid>`，uid 就是 APP 后端下发的 `userNo`。
+  ///
+  /// 家庭 id 只能由涂鸦分配，`userNo` 当不了 id（涂鸦查不到这个家庭，还可能撞上
+  /// 别人的）；但家庭**名字**是我们能定的，所以用它承载「这个家庭属于哪个账号」
+  /// 这件事：建家时用这个名字，认领时优先认名字。
+  static String homeTagFor(String uid) => 'YS-$uid';
+
+  Future<void> _applyHomeTag() async {
+    final uid = _user?.id ?? '';
+    if (uid.isEmpty) return;
+    try {
+      await _repository.useHomeTag(homeTagFor(uid));
+    } catch (_) {
+      // 桥接不支持就退回原来的挑选规则。
+    }
+  }
 
   /// 把上次记下的家庭固定给原生。
   ///
