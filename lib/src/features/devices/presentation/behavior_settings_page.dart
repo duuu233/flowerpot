@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
-import '../../../routes/app_routes.dart';
-import '../../../shared/l10n/app_l10n.dart';
 import '../models/behavior_settings_page_model.dart';
 import 'widgets/behavior_schedule_card.dart';
 import 'widgets/schedule_slot_dialog.dart';
+import 'widgets/standby_settings_card.dart';
 
 /// 打开时段编辑弹窗。测试注入自己的实现来跳过真正的弹窗。
 typedef BehaviorSlotEditor =
@@ -34,6 +33,9 @@ class BehaviorSettingsPage extends StatefulWidget {
 
 class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
   final Set<BehaviorScheduleKind> updating = <BehaviorScheduleKind>{};
+
+  /// 休眠那张卡自己的在途标记：它和午休 / 夜间不是同一个 DP，互相不该锁住。
+  bool _standbyUpdating = false;
 
   Future<void> _setEnabled(BehaviorScheduleKind kind, bool value) async {
     final key = switch (kind) {
@@ -76,6 +78,35 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
   ) {
     // 花盆的两个时段都删不掉，也没有第二个时段，所以删除按钮和冲突提示都不传。
     return showScheduleSlotDialog(context, title: title, initial: initial);
+  }
+
+  /// 开关即时下发（和午休 / 夜间的开关一致，拨完就该看到结果）。
+  Future<void> _setStandbyEnabled(bool value) async =>
+      _updateStandby('standby', value);
+
+  /// 延迟时间点开弹窗改，滚动过程中不发 DP——每一格发一条只会把指令堆在链路上，
+  /// 按弹窗里的「保存」才写一次。
+  Future<void> _editStandbyDelay(int current) async {
+    if (_standbyUpdating) return;
+    final minutes = await showStandbyDelayDialog(
+      context,
+      initialMinutes: current,
+    );
+    if (!mounted || minutes == null || minutes == current) return;
+    await _updateStandby('standbyDelay', minutes);
+  }
+
+  Future<void> _updateStandby(String key, Object value) async {
+    if (_standbyUpdating) return;
+    setState(() => _standbyUpdating = true);
+    final result = await FlowerpotScope.of(
+      context,
+    ).updateSetting(widget.deviceId, key, value);
+    if (!mounted) return;
+    setState(() => _standbyUpdating = false);
+    if (!result.success) {
+      showAppMessage(context, result.message, tone: AppMessageTone.error);
+    }
   }
 
   Future<void> _update(
@@ -143,27 +174,15 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
                 onEndTimeTap: () => _editSlot(model.night, start: false),
               ),
               const SizedBox(height: 12),
-              // 休眠是「多久没人理就睡」，和午休/夜间这两个时段同属行为，所以入口
-              // 放在这一页；开关和延迟时间在自己的页面里改（DP 151 / 152）。
-              AppSettingsList(
-                showDividers: false,
-                borderRadius: AppRadius.large,
-                children: <Widget>[
-                  AppSettingsTile(
-                    key: const Key('standby-settings-entry'),
-                    title: AppL10n.of(context).standby,
-                    value: device.settings.standbyEnabled
-                        ? AppL10n.of(context).on
-                        : AppL10n.of(context).off,
-                    minTileHeight: 46,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-                    onTap: () => Navigator.pushNamed(
-                      context,
-                      AppRoutes.standbySettings,
-                      arguments: widget.deviceId,
-                    ),
-                  ),
-                ],
+              // 休眠是「多久没人理就睡」，和午休 / 夜间这两个时段同属行为，所以
+              // 直接摊在这一页上，版式和交互跟着上面两张卡走（DP 151 / 152）。
+              StandbySettingsCard(
+                enabled: device.settings.standbyEnabled,
+                delayMinutes: device.settings.standbyDelayMinutes,
+                updating: _standbyUpdating,
+                onEnabledChanged: _setStandbyEnabled,
+                onDelayTap: () =>
+                    _editStandbyDelay(device.settings.standbyDelayMinutes),
               ),
             ],
           ),

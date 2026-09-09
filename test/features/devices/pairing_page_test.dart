@@ -148,6 +148,72 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the page re-reads the current network instead of the cache', (
+    tester,
+  ) async {
+    // 用户在搜索页扫描之后换了手机连接的 Wi-Fi：缓存里是旧网络，进页面必须
+    // 重扫，显示的名称才和手机实际连的一致。
+    await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: _SwitchingScanRepository(),
+      primeScan: true,
+    );
+
+    final ssid = tester.widget<TextField>(
+      find.byKey(const Key('pairing-ssid-field')),
+    );
+    expect(ssid.controller?.text, 'New_2.4G');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('returning from the system settings refreshes the network', (
+    tester,
+  ) async {
+    final repository = _SwitchingScanRepository();
+    await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+
+    final before = tester.widget<TextField>(
+      find.byKey(const Key('pairing-ssid-field')),
+    );
+    expect(before.controller?.text, 'Old_2.4G');
+
+    // 去系统设置换网络再回来。
+    await _resume(tester);
+
+    final after = tester.widget<TextField>(
+      find.byKey(const Key('pairing-ssid-field')),
+    );
+    expect(after.controller?.text, 'New_2.4G');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a network the user picked survives the refresh', (tester) async {
+    await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: _SwitchingScanRepository(),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('pairing-ssid-field')),
+      'Guest_2.4G',
+    );
+    await tester.pump();
+
+    await _resume(tester);
+
+    final ssid = tester.widget<TextField>(
+      find.byKey(const Key('pairing-ssid-field')),
+    );
+    expect(ssid.controller?.text, 'Guest_2.4G');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('pairing content remains usable at 320x568', (tester) async {
     await _pumpPairingPage(tester, const Size(320, 568));
 
@@ -369,6 +435,7 @@ Future<FlowerpotState> _pumpPairingPage(
   TuyaRepository? repository,
   ValueChanged<Object?>? onSuccessArguments,
   ValueChanged<Object?>? onFailureArguments,
+  bool primeScan = false,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -376,6 +443,8 @@ Future<FlowerpotState> _pumpPairingPage(
     repository: repository ?? MockTuyaRepository(latency: Duration.zero),
   );
   addTearDown(state.dispose);
+  // 搜索页/选择页会在进本页之前扫一次，缓存里留下的是那一刻的网络。
+  if (primeScan) await state.probeWifi();
   await tester.pumpWidget(
     FlowerpotScope(
       state: state,
@@ -407,6 +476,41 @@ Future<FlowerpotState> _pumpPairingPage(
   // The page reads the nearby networks after its first frame.
   await tester.pumpAndSettle();
   return state;
+}
+
+/// 走一遍完整的前后台切换顺序，回到 resumed。
+Future<void> _resume(WidgetTester tester) async {
+  for (final state in const <AppLifecycleState>[
+    AppLifecycleState.inactive,
+    AppLifecycleState.hidden,
+    AppLifecycleState.paused,
+    AppLifecycleState.hidden,
+    AppLifecycleState.inactive,
+    AppLifecycleState.resumed,
+  ]) {
+    tester.binding.handleAppLifecycleStateChanged(state);
+  }
+  await tester.pumpAndSettle();
+}
+
+/// 第一次扫描给旧网络，之后都给新网络：模拟用户中途换了手机连的 Wi-Fi。
+class _SwitchingScanRepository extends MockTuyaRepository {
+  _SwitchingScanRepository() : super(latency: Duration.zero);
+
+  int scans = 0;
+
+  @override
+  Future<WifiScan> scanWifi() async {
+    scans++;
+    final ssid = scans <= 1 ? 'Old_2.4G' : 'New_2.4G';
+    return WifiScan(
+      current: ssid,
+      currentFrequency: 2437,
+      networks: <WifiNetwork>[
+        WifiNetwork(ssid: ssid, level: -46, frequency: 2437),
+      ],
+    );
+  }
 }
 
 class _ScanRepository extends MockTuyaRepository {

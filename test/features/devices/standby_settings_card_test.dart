@@ -1,8 +1,6 @@
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/behavior_settings_page.dart';
-import 'package:flowerpot/src/features/devices/presentation/standby_settings_page.dart';
-import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
@@ -10,23 +8,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('休眠模式页照雨淋设置的版式：开关 + 延迟时间滚轮 + 保存', (tester) async {
-    await _pumpStandby(tester, const Size(375, 812));
+  testWidgets('休眠模式直接展开在「行为」页上，不再是一个入口', (tester) async {
+    await _pumpBehavior(tester, const Size(375, 812));
 
     expect(find.text('休眠模式'), findsOneWidget);
-    expect(find.text('开启'), findsOneWidget);
     expect(find.text('无操作达到延迟时间后进入休眠'), findsOneWidget);
     expect(find.text('延迟时间'), findsOneWidget);
-    expect(find.byKey(const Key('standby-hour-wheel')), findsOneWidget);
-    expect(find.byKey(const Key('standby-minute-wheel')), findsOneWidget);
-    expect(find.byKey(const Key('standby-save-button')), findsOneWidget);
+    // DeviceControlSettings 的默认延迟是 30 分钟。
+    expect(find.text('30分'), findsOneWidget);
+    expect(find.byKey(const Key('standby-switch')), findsOneWidget);
+    expect(find.byKey(const Key('standby-delay-row')), findsOneWidget);
+    // 二级页面和它的入口都没有了。
+    expect(find.byKey(const Key('standby-settings-entry')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('开关即时下发 DP 151', (tester) async {
-    final result = await _pumpStandby(tester, const Size(375, 812));
+    final result = await _pumpBehavior(tester, const Size(375, 812));
 
-    await tester.tap(find.byKey(const Key('standby-switch')));
+    final switchFinder = find.byKey(const Key('standby-switch'));
+    await tester.ensureVisible(switchFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(switchFinder);
     await tester.pumpAndSettle();
 
     expect(result.repository.lastDps, <int, Object>{151: true});
@@ -37,19 +40,53 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('保存把滚轮上的延迟时间写进 DP 152', (tester) async {
-    // 设备当前是 30 分钟（DeviceControlSettings 的默认值），页面打开即照它摆好
-    // 滚轮，直接保存应当原样写回，而不是写成 0 或者越界值。
-    final result = await _pumpStandby(tester, const Size(375, 812));
+  testWidgets('延迟时间点开弹窗改，保存写 DP 152', (tester) async {
+    final result = await _pumpBehavior(tester, const Size(375, 812));
 
-    await tester.tap(find.byKey(const Key('standby-save-button')));
+    await _openDelayDialog(tester);
+    expect(find.byKey(const Key('standby-hour-wheel')), findsOneWidget);
+    expect(find.byKey(const Key('standby-minute-wheel')), findsOneWidget);
+
+    // 拨动分钟滚轮再保存：具体停在哪一格由滚轮自己收敛，这里只要求它确实变过、
+    // 并且按保存后写的是 DP 152。
+    await tester.drag(
+      find.byKey(const Key('standby-minute-wheel')),
+      const Offset(0, -132),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('standby-delay-save')));
     await tester.pumpAndSettle();
 
-    expect(result.repository.lastDps, <int, Object>{152: 30});
+    final written = result.repository.lastDps;
+    expect(written?.keys, <int>[152]);
+    expect(written?[152], isNot(30));
     expect(
       result.state.deviceById('device-01')?.settings.standbyDelayMinutes,
-      30,
+      written?[152],
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('弹窗取消不写 DP，原值不动', (tester) async {
+    final result = await _pumpBehavior(tester, const Size(375, 812));
+
+    await _openDelayDialog(tester);
+    await tester.tap(find.byKey(const Key('standby-delay-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(result.repository.lastDps, isNull);
+    expect(find.text('30分'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('保存原样的延迟时间不发多余的 DP', (tester) async {
+    final result = await _pumpBehavior(tester, const Size(375, 812));
+
+    await _openDelayDialog(tester);
+    await tester.tap(find.byKey(const Key('standby-delay-save')));
+    await tester.pumpAndSettle();
+
+    expect(result.repository.lastDps, isNull);
     expect(tester.takeException(), isNull);
   });
 
@@ -62,7 +99,7 @@ void main() {
         state: state,
         child: MaterialApp(
           theme: buildAppTheme(),
-          home: const StandbySettingsPage(deviceId: 'missing'),
+          home: const BehaviorSettingsPage(deviceId: 'missing'),
         ),
       ),
     );
@@ -70,50 +107,18 @@ void main() {
     expect(find.text('未找到设备'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
-
-  testWidgets('入口在「行为」页，点进去带上 deviceId', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(375, 812));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final repository = _StandbyRepository();
-    final state = FlowerpotState(repository: repository);
-    addTearDown(state.dispose);
-    await state.refreshDevices();
-    Object? routeArguments;
-
-    await tester.pumpWidget(
-      FlowerpotScope(
-        state: state,
-        child: MaterialApp(
-          theme: buildAppTheme(),
-          home: const BehaviorSettingsPage(deviceId: 'device-01'),
-          onGenerateRoute: (settings) {
-            if (settings.name == AppRoutes.standbySettings) {
-              routeArguments = settings.arguments;
-              return MaterialPageRoute<void>(
-                builder: (_) =>
-                    const Scaffold(body: Center(child: Text('standby-target'))),
-              );
-            }
-            return null;
-          },
-        ),
-      ),
-    );
-    await tester.pump();
-
-    final entry = find.byKey(const Key('standby-settings-entry'));
-    await tester.ensureVisible(entry);
-    await tester.pumpAndSettle();
-    await tester.tap(entry);
-    await tester.pumpAndSettle();
-
-    expect(find.text('standby-target'), findsOneWidget);
-    expect(routeArguments, 'device-01');
-    expect(tester.takeException(), isNull);
-  });
 }
 
-Future<({FlowerpotState state, _StandbyRepository repository})> _pumpStandby(
+Future<void> _openDelayDialog(WidgetTester tester) async {
+  final row = find.byKey(const Key('standby-delay-row'));
+  await tester.ensureVisible(row);
+  await tester.pumpAndSettle();
+  await tester.tap(row);
+  await tester.pumpAndSettle();
+  expect(find.byKey(const Key('standby-delay-dialog')), findsOneWidget);
+}
+
+Future<({FlowerpotState state, _StandbyRepository repository})> _pumpBehavior(
   WidgetTester tester,
   Size size,
 ) async {
@@ -128,7 +133,7 @@ Future<({FlowerpotState state, _StandbyRepository repository})> _pumpStandby(
       state: state,
       child: MaterialApp(
         theme: buildAppTheme(),
-        home: const StandbySettingsPage(deviceId: 'device-01'),
+        home: const BehaviorSettingsPage(deviceId: 'device-01'),
       ),
     ),
   );

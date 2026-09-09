@@ -45,7 +45,7 @@ class PairingPage extends StatefulWidget {
   State<PairingPage> createState() => _PairingPageState();
 }
 
-class _PairingPageState extends State<PairingPage> {
+class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   // Only a retry pre-fills these. A placeholder SSID/password would be handed
   // to the SDK verbatim on the first real pairing attempt, so a fresh start
   // asks for the network the phone is actually on — filled in from the scan,
@@ -71,14 +71,24 @@ class _PairingPageState extends State<PairingPage> {
   /// 全局操作锁，别处的写操作也会把它拉起来。
   bool _pairing = false;
 
+  /// 上一次由扫描自动填进输入框的名称。用户自己打字或从「切换」里选过之后，
+  /// 输入框的内容就和它对不上了，此后的刷新不再覆盖用户的选择。
+  String? _autoFilledSsid;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadNetworks());
+    WidgetsBinding.instance.addObserver(this);
+    // 强制重扫，不吃 state 里的缓存：那份快照可能是搜索页几分钟前留下的，
+    // 用户之后很可能已经把手机切到了别的网络。
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _loadNetworks(force: true),
+    );
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     final state = _pairingState;
     if (state != null) {
       _pairingState = null;
@@ -87,6 +97,17 @@ class _PairingPageState extends State<PairingPage> {
     ssidController.dispose();
     passwordController.dispose();
     super.dispose();
+  }
+
+  /// 回到前台就重新读一次当前网络。用户在这一页最常见的动作就是切到系统设置
+  /// 换 Wi-Fi 再回来（手动连热点的路径更是必须这么做），不重读的话页面上留着
+  /// 的还是进页面那一刻的名字，和手机实际连的网络对不上。
+  ///
+  /// 配网过程中不刷新：那时手机是故意挂在设备热点上的。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
+    if (lifecycleState != AppLifecycleState.resumed || _pairing) return;
+    unawaited(_loadNetworks(force: true));
   }
 
   /// Fills the SSID with the network the phone is on, which is the one the
@@ -102,13 +123,18 @@ class _PairingPageState extends State<PairingPage> {
     if (!mounted) return;
     final scan = state.wifiScan;
     final current = scan?.current;
+    // 空的、或者还是上次自动填进去的那个名字，都算「用户没动过」，可以更正为
+    // 手机当前真正连着的网络；用户自己输入或选过的名字一律不动。
+    final untouched =
+        ssidController.text.isEmpty || ssidController.text == _autoFilledSsid;
     if (scan != null &&
         current != null &&
         current.isNotEmpty &&
-        ssidController.text.isEmpty &&
+        untouched &&
         scan.currentIs24g != false &&
         !scan.currentIsDeviceHotspot) {
       ssidController.text = current;
+      _autoFilledSsid = current;
     }
     setState(() {});
   }

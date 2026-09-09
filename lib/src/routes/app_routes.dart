@@ -27,7 +27,6 @@ import '../features/devices/presentation/pairing_success_page.dart';
 import '../features/devices/presentation/plant_detail_page.dart';
 import '../features/devices/presentation/plant_detection_settings_page.dart';
 import '../features/devices/presentation/plant_picker_page.dart';
-import '../features/devices/presentation/standby_settings_page.dart';
 import '../features/devices/presentation/reports_page.dart';
 import '../features/devices/presentation/temperature_status_page.dart';
 import '../features/devices/presentation/touch_settings_page.dart';
@@ -78,7 +77,6 @@ abstract final class AppRoutes {
   static const vibrationSettings = '/devices/vibration';
   static const ledSettings = '/devices/led';
   static const plantDetectionSettings = '/devices/plant-detection';
-  static const standbySettings = '/devices/standby';
   static const memorial = '/devices/memorial';
   static const memorialEdit = '/devices/memorial-edit';
   static const behaviorSettings = '/devices/behavior';
@@ -184,9 +182,6 @@ abstract final class AppRoutes {
       ),
       ledSettings => LedSettingsPage(deviceId: settings.arguments! as String),
       plantDetectionSettings => PlantDetectionSettingsPage(
-        deviceId: settings.arguments! as String,
-      ),
-      standbySettings => StandbySettingsPage(
         deviceId: settings.arguments! as String,
       ),
       memorial => MemorialPage(deviceId: settings.arguments! as String),
