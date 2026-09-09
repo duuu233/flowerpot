@@ -5,7 +5,6 @@ import 'dart:io' show FileSystemException, IOException;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
-import '../config/debug_tools_config.dart';
 import 'api_config.dart';
 import 'api_exception.dart';
 import 'api_session.dart';
@@ -67,6 +66,8 @@ class ApiClient {
     Map<String, Object?>? query,
     bool auth = true,
   }) {
+    final revision = session.revision;
+    final headers = _headers(auth: auth);
     final uri = _uri(path, <String, Object?>{
       ..._clientQuery(path, auth: auth),
       ...?query,
@@ -75,7 +76,8 @@ class ApiClient {
     return _sendWithRetry(
       'GET',
       uri,
-      () => _http.get(uri, headers: _headers(auth: auth)).timeout(timeout),
+      () => _http.get(uri, headers: headers).timeout(timeout),
+      revision: revision,
     );
   }
 
@@ -83,8 +85,13 @@ class ApiClient {
     String path, {
     Map<String, Object?>? body,
     bool auth = true,
-    bool retryOnTimeout = true,
+    bool retryTransportErrors = false,
   }) {
+    final revision = session.revision;
+    final headers = _headers(
+      auth: auth,
+      extra: const <String, String>{'content-type': 'application/json'},
+    );
     final uri = _uri(path, _clientQuery(path, auth: auth));
     final payload = body ?? const <String, Object?>{};
     _logRequest('POST', uri, payload);
@@ -94,14 +101,12 @@ class ApiClient {
       () => _http
           .post(
             uri,
-            headers: _headers(
-              auth: auth,
-              extra: const <String, String>{'content-type': 'application/json'},
-            ),
+            headers: headers,
             body: jsonEncode(payload),
           )
           .timeout(timeout),
-      retryOnTimeout: retryOnTimeout,
+      revision: revision,
+      retryTransportErrors: retryTransportErrors,
     );
   }
 
@@ -116,6 +121,8 @@ class ApiClient {
     if (filePaths.isEmpty) {
       throw const ApiException('UPLOAD_FILE_REQUIRED', '请选择需要上传的文件');
     }
+    final revision = session.revision;
+    final headers = _headers(auth: auth);
     final results = <Object?>[];
     for (final filePath in filePaths) {
       final uri = _uri(path, <String, Object?>{
@@ -128,15 +135,17 @@ class ApiClient {
       });
       try {
         final request = http.MultipartRequest('POST', uri)
-          ..headers.addAll(_headers(auth: auth));
+          ..headers.addAll(headers);
         formData?.forEach((key, value) {
           if (value != null) request.fields[key] = value.toString();
         });
         request.files.add(await http.MultipartFile.fromPath(field, filePath));
+        _ensureSession(revision);
         final streamed = await _http.send(request).timeout(uploadTimeout);
         final response = await http.Response.fromStream(
           streamed,
         ).timeout(uploadTimeout);
+        _ensureSession(revision);
         _logResponse('POST multipart', uri, response);
         results.add(_parse(response));
       } on ApiException {
@@ -196,32 +205,35 @@ class ApiClient {
     String method,
     Uri uri,
     Future<http.Response> Function() send, {
-    bool retryOnTimeout = true,
+    required int revision,
+    bool retryTransportErrors = true,
   }) async {
     var attempt = 0;
     while (true) {
       try {
+        _ensureSession(revision);
         final response = await send();
+        _ensureSession(revision);
         _logResponse(method, uri, response);
         return _parse(response);
       } on ApiException {
         rethrow;
       } on TimeoutException {
-        if (retryOnTimeout && attempt < networkRetryMax) {
+        if (retryTransportErrors && attempt < networkRetryMax) {
           attempt++;
           await Future<void>.delayed(networkRetryDelay);
           continue;
         }
         throw const ApiException('NETWORK_TIMEOUT', '网络请求超时，请稍后重试');
       } on http.ClientException {
-        if (attempt < networkRetryMax) {
+        if (retryTransportErrors && attempt < networkRetryMax) {
           attempt++;
           await Future<void>.delayed(networkRetryDelay);
           continue;
         }
         throw const ApiException('NETWORK_UNREACHABLE', '网络连接失败，请稍后重试');
       } on IOException {
-        if (attempt < networkRetryMax) {
+        if (retryTransportErrors && attempt < networkRetryMax) {
           attempt++;
           await Future<void>.delayed(networkRetryDelay);
           continue;
@@ -230,6 +242,14 @@ class ApiClient {
       } on Exception {
         throw const ApiException('CLIENT_ERROR', '请求处理失败，请稍后重试');
       }
+    }
+  }
+
+  void _ensureSession(int revision) {
+    if (session.revision != revision) {
+      throw const ApiException(
+        'SESSION_CHANGED', '账号会话已切换，请重新操作', authError: false,
+      );
     }
   }
 
@@ -322,7 +342,7 @@ class ApiClient {
   /// 正式包返回 null；凭证字段沿用日志那套打码规则；超过 [_debugBodyLimit]
   /// 截断，避免把整页 HTML 错误页塞进异常。
   String? _debugBody(http.Response response) {
-    if (!DebugToolsConfig.enabled) return null;
+    if (!kDebugMode) return null;
     final text = utf8.decode(response.bodyBytes, allowMalformed: true).trim();
     if (text.isEmpty) return null;
     final redacted = _redactJson(text);
@@ -335,7 +355,7 @@ class ApiClient {
     try {
       return _redact(jsonDecode(text));
     } catch (_) {
-      return text;
+      return '[非 JSON 响应，已省略]';
     }
   }
 

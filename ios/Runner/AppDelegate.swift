@@ -102,7 +102,6 @@ final class FlowerpotTuyaBridge: NSObject {
     case "prepareActivatorToken": prepareActivatorToken(result)
     // ThingActivatorMode 是 ObjC 的 NS_ENUM，运行时拿不到常量名，没法像 Android
     // 那样让 SDK 自己报一遍。要确认 iOS 支不支持双模只能查平台文档。
-    case "listActivatorModes": sdkError(result, code: "unsupported_on_ios", message: "iOS 端无法枚举配网模式常量，请查涂鸦 iOS 文档")
     case "joinDeviceHotspot": joinDeviceHotspot(args, result)
     case "leaveDeviceHotspot": leaveDeviceHotspot(result)
     case "cancelPairing": cancelPairing(result)

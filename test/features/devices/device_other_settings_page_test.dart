@@ -1,3 +1,5 @@
+import '../../support/plant_catalog.dart';
+import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_other_settings_page.dart';
@@ -5,7 +7,6 @@ import 'package:flowerpot/src/features/devices/presentation/device_settings_page
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
-import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -232,7 +233,8 @@ void main() {
     await tester.tap(find.text('固件版本更新'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('install-firmware-update')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     // 点「立即更新」只是通知涂鸦给设备下发升级：设备还在下载烧录，版本号不能
     // 提前改，行上显示的是进度。
@@ -258,7 +260,7 @@ void main() {
     final state = await _pumpOtherSettings(tester, const Size(375, 812));
     await tester.pump();
 
-    expect(state.availableFirmwareFor('device-01'), '1.1.2');
+    expect(state.availableFirmwareFor('device-01')?.version, '1.1.2');
     expect(find.byType(AppNoticeDot), findsOneWidget);
     // 红点不代替版本号：行上仍然显示设备当前跑的那个。
     expect(find.text('V1.0.0'), findsOneWidget);
@@ -350,6 +352,7 @@ Future<FlowerpotState> _stateWithDevice([
   final state = FlowerpotState(
     repository: repository ?? _OtherSettingsRepository(),
   );
+  await state.initialize();
   await state.refreshDevices();
   return state;
 }

@@ -1,3 +1,4 @@
+import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/auth/presentation/auth_page.dart';
@@ -84,7 +85,7 @@ void main() {
   testWidgets('login content remains scrollable at 320x568', (tester) async {
     await _pumpAuthPage(tester, const Size(320, 568));
 
-    final demo = find.text('体验模式');
+    final demo = find.text('《隐私政策》');
     await tester.ensureVisible(demo);
     await tester.pump();
 
@@ -105,18 +106,18 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('any non-empty phone and code sign in', (tester) async {
+  testWidgets('valid phone and code use the injected repository', (tester) async {
     final state = await _pumpAuthPage(tester, const Size(375, 812));
 
-    await tester.enterText(find.byType(TextField).first, '1');
-    await tester.enterText(find.byType(TextField).at(1), '1');
+    await tester.enterText(find.byType(TextField).first, '13800138000');
+    await tester.enterText(find.byType(TextField).at(1), '123456');
     await _acceptAndSubmit(tester);
 
     expect(state.authenticated, isTrue);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a rejected code still reaches the demo session', (tester) async {
+  testWidgets('a rejected code stays signed out without a demo fallback', (tester) async {
     final state = await _pumpAuthPage(
       tester,
       const Size(375, 812),
@@ -127,9 +128,8 @@ void main() {
     await tester.enterText(find.byType(TextField).at(1), '000000');
     await _acceptAndSubmit(tester);
 
-    expect(find.text('未通过涂鸦验证，已进入演示会话'), findsOneWidget);
-    expect(state.authenticated, isTrue);
-    expect(state.demoMode, isTrue);
+    expect(find.textContaining('验证码错误'), findsOneWidget);
+    expect(state.authenticated, isFalse);
     expect(tester.takeException(), isNull);
   });
 
@@ -176,6 +176,7 @@ void main() {
     await _pumpAuthPage(tester, const Size(375, 812));
 
     await tester.enterText(find.byType(TextField).first, '13800138000');
+    await tester.pump();
     await tester.tap(find.text('获取验证码'));
     await tester.pumpAndSettle();
 
@@ -183,18 +184,15 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the SDK console entry sits next to the demo shortcut', (
+  testWidgets('login has no SDK console entry', (
     tester,
   ) async {
     await _pumpAuthPage(tester, const Size(375, 812));
 
     final entry = find.byKey(const Key('tuya-debug-entry'));
-    await tester.ensureVisible(entry);
-    await tester.pump();
-
-    expect(entry, findsOneWidget);
-    expect(find.text('涂鸦 SDK 联调'), findsOneWidget);
-    expect(find.text('体验模式'), findsOneWidget);
+    expect(entry, findsNothing);
+    expect(find.text('涂鸦 SDK 联调'), findsNothing);
+    expect(find.text('体验模式'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -241,6 +239,7 @@ Future<FlowerpotState> _pumpAuthPage(
       state: state,
       child: MaterialApp(
         theme: buildAppTheme(),
+        routes: {'/shell': (_) => const Scaffold(body: Text('signed-in'))},
         home: AuthPage(initialCodeLogin: initialCodeLogin),
       ),
     ),

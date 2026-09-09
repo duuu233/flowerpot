@@ -319,10 +319,9 @@ class _FieldLabel extends StatelessWidget {
 const BorderRadius _fieldRadius = BorderRadius.all(Radius.circular(12));
 
 class _FilledField extends StatelessWidget {
-  const _FilledField({required this.child, this.height = 56});
+  const _FilledField({required this.child});
 
   final Widget child;
-  final double height;
 
   @override
   Widget build(BuildContext context) {
@@ -332,7 +331,7 @@ class _FilledField extends StatelessWidget {
         borderRadius: _fieldRadius,
       ),
       child: SizedBox(
-        height: height,
+        height: 56,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Align(alignment: Alignment.centerLeft, child: child),

@@ -1,8 +1,4 @@
 abstract final class TuyaConfig {
-  /// Native SDK calls are opt-in so the project remains runnable before the
-  /// platform-specific security components and credentials are supplied.
-  static const enabled = bool.fromEnvironment('TUYA_ENABLED');
-
   static const channelName = 'com.common.yikaltd/tuya';
 
   /// One-way channel the native side pushes device reports on: DP updates,

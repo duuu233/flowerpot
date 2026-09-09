@@ -54,7 +54,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   ActionResult? _result;
 
   /// 本轮搜索窗口的截止时间，到点之前扫不到就一直重扫。
-  DateTime? _searchEndsAt;
+  Timer? _deadlineTimer;
+  bool _windowExpired = false;
   Timer? _retryTimer;
 
   @override
@@ -70,6 +71,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   @override
   void dispose() {
     _retryTimer?.cancel();
+    _deadlineTimer?.cancel();
     _radarController.dispose();
     super.dispose();
   }
@@ -77,7 +79,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 开始一轮搜索：重置 [DeviceSearchPage.searchWindow] 窗口，立刻扫一次。
   void _scan() {
     _retryTimer?.cancel();
-    _searchEndsAt = DateTime.now().add(DeviceSearchPage.searchWindow);
+    if (!mounted) return;
+    _deadlineTimer?.cancel();
+    _windowExpired = false;
+    _radarController.repeat();
+    _deadlineTimer = Timer(DeviceSearchPage.searchWindow, () {
+      _windowExpired = true;
+      _retryTimer?.cancel();
+      if (!mounted) return;
+      _radarController.stop();
+      setState(() => _scanning = false);
+    });
     unawaited(_runScan());
   }
 
@@ -110,11 +122,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 扫描本身成功、只是这一轮没看见设备热点时，窗口没走完就再扫一次，页面保持
     // 「搜索中」。Wi-Fi 没开、没权限这类失败重扫多少次都是同一个结果，直接报出来。
     final retryable = result.success || result.code == 'wifi_scanning';
-    final endsAt = _searchEndsAt;
-    if (retryable && endsAt != null && DateTime.now().isBefore(endsAt)) {
+    _result = result;
+    if (retryable && !_windowExpired) {
       _retryTimer = Timer(_rescanGap, _runScan);
       return;
     }
+    _deadlineTimer?.cancel();
+    _radarController.stop();
     setState(() {
       _scanning = false;
       _result = result;

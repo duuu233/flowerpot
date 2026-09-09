@@ -404,7 +404,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
       await _client.postJson(
         path,
         auth: false,
-        retryOnTimeout: false,
+        retryTransportErrors: false,
         body: body,
       ),
     );
@@ -469,7 +469,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
     _map(
       await _client.postJson(
         '/Client/UserProduct/addUserProduct',
-        retryOnTimeout: false,
+        retryTransportErrors: false,
         body: <String, Object?>{
           'deviceId': deviceId,
           'productId': product.productId,
@@ -483,7 +483,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
   Future<void> deleteUserProduct(int userProductId) async {
     await _client.postJson(
       '/Client/UserProduct/delUserProduct',
-      retryOnTimeout: false,
+      retryTransportErrors: false,
       body: <String, Object?>{'id': userProductId},
     );
   }
@@ -531,7 +531,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
     if (imageIds.isEmpty) return;
     await _client.postJson(
       '/Client/UserProduct/delUserProductImg',
-      retryOnTimeout: false,
+      retryTransportErrors: false,
       body: <String, Object?>{'idList': imageIds},
     );
   }
@@ -545,7 +545,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
   Future<void> changeNickname(String nickname) async {
     await _client.postJson(
       '/Client/User/changeNickName',
-      retryOnTimeout: false,
+      retryTransportErrors: false,
       body: <String, Object?>{'nickName': nickname},
     );
   }
@@ -554,14 +554,14 @@ class HttpAppBackendRepository implements AppBackendRepository {
   Future<void> changeAvatar(String avatarUrl) async {
     await _client.postJson(
       '/Client/User/changeAvatar',
-      retryOnTimeout: false,
+      retryTransportErrors: false,
       body: <String, Object?>{'avatar': avatarUrl},
     );
   }
 
   @override
   Future<void> sendSmsToCurrentUser() async {
-    await _client.postJson('/Client/Basic/smsUser', retryOnTimeout: false);
+    await _client.postJson('/Client/Basic/smsUser', retryTransportErrors: false);
   }
 
   @override
@@ -572,7 +572,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
     final digest = _md5(password);
     await _client.postJson(
       '/Client/User/changePassword',
-      retryOnTimeout: false,
+      retryTransportErrors: false,
       body: <String, Object?>{
         'verifyCode': verifyCode,
         'password': digest,
@@ -591,7 +591,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
     await _client.postJson(
       '/Client/User/resetPassword',
       auth: false,
-      retryOnTimeout: false,
+      retryTransportErrors: false,
       body: <String, Object?>{
         'userMobile': mobile,
         'verifyCode': verifyCode,
@@ -604,7 +604,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
   @override
   Future<void> logout() async {
     try {
-      await _client.postJson('/Client/User/loginOut', retryOnTimeout: false);
+      await _client.postJson('/Client/User/loginOut', retryTransportErrors: false);
     } finally {
       // 服务端退不掉也要把本地令牌丢掉，否则下一次启动会拿着一条已经没用的
       // 令牌去恢复会话。
@@ -614,7 +614,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
 
   @override
   Future<void> deactivateAccount() async {
-    await _client.postJson('/Client/User/userOff', retryOnTimeout: false);
+    await _client.postJson('/Client/User/userOff', retryTransportErrors: false);
     _session.clear();
   }
 
@@ -770,11 +770,11 @@ class HttpAppBackendRepository implements AppBackendRepository {
   }) async {
     await _client.postJson(
       '/Client/UserProduct/editUserProduct',
-      retryOnTimeout: false,
+      retryTransportErrors: false,
       body: <String, Object?>{
         'userProductId': userProductId,
         'productName': productName,
-        if (productId != null) 'productId': productId,
+        'productId': ?productId,
         'isClearImg': clearImages ? 1 : 0,
       },
     );
@@ -827,7 +827,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
     final id = _newAnniversaryId(
       await _client.postJson(
         '/Client/UserProduct/addUserProductAnniversary',
-        retryOnTimeout: false,
+        retryTransportErrors: false,
         body: _anniversaryBody(
           userProductId: userProductId,
           title: title,
@@ -863,7 +863,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
   }) async {
     await _client.postJson(
       '/Client/UserProduct/editUserProductAnniversary',
-      retryOnTimeout: false,
+      retryTransportErrors: false,
       body: <String, Object?>{
         'anniversaryId': anniversaryId,
         ..._anniversaryBody(
@@ -885,7 +885,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
     if (anniversaryIds.isEmpty) return;
     await _client.postJson(
       '/Client/UserProduct/setUserProductAnniversaryVerify',
-      retryOnTimeout: false,
+      retryTransportErrors: false,
       body: <String, Object?>{
         'commonIds': anniversaryIds.join(','),
         'verify': enabled ? 1 : 0,
@@ -897,7 +897,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
   Future<void> deleteAnniversary(int anniversaryId) async {
     await _client.postJson(
       '/Client/UserProduct/deleteUserProductAnniversary',
-      retryOnTimeout: false,
+      retryTransportErrors: false,
       body: <String, Object?>{'id': anniversaryId},
     );
   }
@@ -1071,13 +1071,6 @@ class HttpAppBackendRepository implements AppBackendRepository {
         deleted: _boolean(row['isDel']),
       );
 
-  /// TODO(联调): 后台「植物管理」还没填 `tuYaRemark`，而 DP 116 只认 `"0"`~`"19"`
-  /// 这套 ID（见 `assets/智能花盆test(yciq4kssu1fv8umn)_09_03.xlsx` 第 116 行）。
-  /// 联调期先把下发给设备的标识统一写死成「冷水花」的 `17`，让「选植物 → 写
-  /// DP 116」这条链路能跑通。后台补完这个字段后，把这里改回 `null` 即可恢复成
-  /// 用后端返回值，其余代码不用动。
-  static const String? _debugPlantIdentifier = '17';
-
   static PlantProfile _plant(Map<String, dynamic> row) {
     final productPlantId = _integer(row['productPlantId']);
     final reported = _text(
@@ -1085,17 +1078,12 @@ class HttpAppBackendRepository implements AppBackendRepository {
       'tuYaRemark',
       fallback: _text(row, 'tuyaRemark'),
     );
-    // 写死只作用在「下发给设备的标识」上。列表行的 id 仍按后端返回值区分，否则
-    // 选植物页每张卡片的 id 都一样，点哪张都会落到同一条。
-    final identifier = _debugPlantIdentifier ?? reported;
+    final identifier = reported;
     final name = _text(row, 'plantName', fallback: '未命名植物');
-    final fallback =
-        PlantCatalog.findByTuyaIdentifier(reported) ??
-        PlantCatalog.items.where((item) => item.name == name).firstOrNull;
     final scientificName = _text(
       row,
       'scientificName',
-      fallback: fallback?.latinName ?? '',
+      fallback: '',
     );
     final care = _text(row, 'careInstructions');
     final introduction = _text(row, 'introduction');
@@ -1107,14 +1095,14 @@ class HttpAppBackendRepository implements AppBackendRepository {
           : name,
       name: name,
       latinName: scientificName,
-      color: fallback?.color ?? const Color(0xFF4D8B55),
-      moistureTarget: fallback?.moistureTarget ?? 60,
-      lightTarget: fallback?.lightTarget ?? 150,
+      color: const Color(0xFF4D8B55),
+      moistureTarget: 0,
+      lightTarget: 0,
       tip: introduction.isNotEmpty
           ? introduction
           : care.isNotEmpty
           ? care
-          : fallback?.tip ?? '请根据植物详情进行日常养护。',
+          : '',
       productPlantId: productPlantId > 0 ? productPlantId : null,
       userProductPlantId: _nullableInteger(row['userProductPlantId']),
       tuyaIdentifier: identifier,

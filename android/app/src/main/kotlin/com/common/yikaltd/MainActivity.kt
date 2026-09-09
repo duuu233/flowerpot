@@ -346,7 +346,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "getDevices" -> withHome(result) { home -> loadHomeDevices(home, result) }
                 "prepareActivatorToken" -> prepareActivatorToken(result)
                 "pairWifiDevice" -> pairWifi(call, result)
-                "listActivatorModes" -> listActivatorModes(result)
                 // 设备列表是按家庭查的，家庭对不上就是 0 台，而这在 Dart 侧完全
                 // 看不出来——联调页原来显示的「默认家庭」只是个本地常量。
                 "currentHomeId" -> withHome(result) { id ->
@@ -1075,37 +1074,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             "SDK 未提供配网模式 ${modeNames.joinToString("/")}，可用：" +
                 constants.joinToString { it.name }.ifEmpty { "无" },
         )
-    }
-
-    /**
-     * 列出 SDK 实际提供的配网模式常量名。
-     *
-     * 双模在不同 SDK 版本里叫什么没有公开保证，与其在代码里猜，不如让 SDK 自己
-     * 报一遍——联调页调用后写进日志，据此确定 [DUAL_MODE_NAMES] 该填什么。
-     */
-    private fun listActivatorModes(result: MethodChannel.Result) {
-        val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
-            ?: throw IllegalStateException("无法获取配网实例")
-        val factory = activatorFactory(activatorApi, "ap")
-        val builderClass = factory.parameterTypes.single()
-        val builder = builderClass.getDeclaredConstructor()
-            .apply { isAccessible = true }
-            .newInstance()
-        val setter = candidates(builder.javaClass).firstOrNull { method ->
-            method.name == "setActivatorModel" &&
-                method.parameterTypes.size == 1 &&
-                method.parameterTypes.single().isEnum
-        } ?: throw NoSuchMethodException("setActivatorModel(枚举) 不存在")
-        val names = (setter.parameterTypes.single().enumConstants ?: emptyArray())
-            .filterIsInstance<Enum<*>>()
-            .map { it.name }
-        val factories = describeFactories(activatorApi.javaClass)
-        Log.i(TUYA_LOG_TAG, "Activator modes: ${names.joinToString()}")
-        Log.i(TUYA_LOG_TAG, "Activator factories: $factories")
-        // 工厂列表一起报出来：智能生活能「搜索到设备」，说明这套 SDK 多半提供了
-        // 搜索用的工厂（newSearchActivator 之类）。项目文档当初判断「SDK 没有设备
-        // 发现接口」，这一行就是用来推翻或证实它的。
-        success(result, names + listOf("工厂方法：$factories"))
     }
 
     /**

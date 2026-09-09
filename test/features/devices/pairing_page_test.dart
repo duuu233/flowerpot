@@ -1,3 +1,4 @@
+import '../../support/mock_tuya_repository.dart';
 import 'dart:async';
 
 import 'package:flowerpot/src/app/flowerpot_app.dart';

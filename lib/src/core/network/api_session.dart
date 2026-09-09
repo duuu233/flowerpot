@@ -8,6 +8,8 @@ class ApiSession {
 
   final String storageKey;
   String _userToken = '';
+  int _revision = 0;
+  int get revision => _revision;
   int _languageCode = 2;
   Future<void> _persistQueue = Future<void>.value();
 
@@ -16,21 +18,28 @@ class ApiSession {
   bool get isLoggedIn => _userToken.isNotEmpty;
 
   void setToken(String token) {
+    _revision++;
     _userToken = token.trim();
     _enqueuePersist(_userToken);
   }
 
   void clear() {
+    _revision++;
     _userToken = '';
     _enqueuePersist('');
   }
 
   Future<bool> restore() async {
+    final revision = _revision;
     await _persistQueue;
     try {
       final preferences = await SharedPreferences.getInstance();
+      if (revision != _revision) return isLoggedIn;
+      _revision++;
       _userToken = preferences.getString(storageKey)?.trim() ?? '';
     } catch (_) {
+      if (revision != _revision) return isLoggedIn;
+      _revision++;
       _userToken = '';
     }
     return isLoggedIn;

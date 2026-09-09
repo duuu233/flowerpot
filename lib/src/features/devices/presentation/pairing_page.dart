@@ -414,13 +414,11 @@ class _PairingHintCard extends StatelessWidget {
   const _PairingHintCard({
     required this.tone,
     required this.text,
-    this.action,
     super.key,
   });
 
   final Color tone;
   final String text;
-  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -430,7 +428,7 @@ class _PairingHintCard extends StatelessWidget {
         borderRadius: AppRadius.card,
       ),
       child: Padding(
-        padding: EdgeInsets.fromLTRB(16, 12, 16, action == null ? 12 : 4),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -438,8 +436,6 @@ class _PairingHintCard extends StatelessWidget {
               text,
               style: TextStyle(color: tone, fontSize: 13, height: 1.55),
             ),
-            if (action != null)
-              Align(alignment: Alignment.centerRight, child: action!),
           ],
         ),
       ),

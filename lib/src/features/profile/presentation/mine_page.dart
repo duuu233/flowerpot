@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
-import '../../../core/config/debug_tools_config.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../models/mine_page_model.dart';
@@ -56,19 +55,6 @@ class _MinePageState extends State<MinePage> {
         title: '我的',
         leading: widget.showBackButton ? const AppBackButton() : null,
         automaticallyImplyLeading: widget.showBackButton,
-        // A live session skips the login page on start-up, so the SDK console
-        // needs a way back in that does not require logging out.
-        actions: DebugToolsConfig.enabled
-            ? <Widget>[
-                IconButton(
-                  key: const Key('mine-tuya-debug-entry'),
-                  tooltip: '涂鸦 SDK 联调',
-                  onPressed: () =>
-                      Navigator.pushNamed(context, AppRoutes.tuyaDebug),
-                  icon: const Icon(Icons.bug_report_outlined),
-                ),
-              ]
-            : null,
       ),
       background: AppPageBackground.standard,
       body: LayoutBuilder(

@@ -1,6 +1,7 @@
+import 'support/fixture_backend.dart';
+import 'support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
-import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -98,7 +99,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the device list opens the unplanted page, then details', (
+  testWidgets('the device list opens plant selection, then real details', (
     tester,
   ) async {
     await _pumpApp(tester, const Size(375, 812), seedDevice: true);
@@ -111,11 +112,6 @@ void main() {
       find.byKey(const Key('device-list-item-vdevo17235508413621')),
     );
     await tester.pumpAndSettle();
-    expect(find.text('还未添加植物'), findsOneWidget);
-    expect(find.byKey(const Key('home-back-button')), findsOneWidget);
-
-    await tester.tap(find.text('添加植物'));
-    await tester.pumpAndSettle();
     expect(find.text('确认添加'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('confirm-plant-selection')));
@@ -127,35 +123,15 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the login page opens the Tuya SDK console', (tester) async {
+  testWidgets('login and profile have no debug or experience entries', (tester) async {
     await _pumpApp(tester, const Size(375, 812));
-
-    final entry = find.byKey(const Key('tuya-debug-entry'));
-    await tester.ensureVisible(entry);
-    await tester.pumpAndSettle();
-    await tester.tap(entry);
-    await tester.pumpAndSettle();
-
-    expect(find.text('运行环境'), findsOneWidget);
-    expect(find.text('账号参数'), findsOneWidget);
-    expect(find.byKey(const Key('tuya-debug-enter-app')), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('the profile page reopens the SDK console after signing in', (
-    tester,
-  ) async {
-    await _pumpApp(tester, const Size(375, 812), seedDevice: true);
+    expect(find.byKey(const Key('tuya-debug-entry')), findsNothing);
+    expect(find.text('体验模式'), findsNothing);
     await _signIn(tester);
-
     await tester.tap(find.byKey(const Key('device-list-profile-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('mine-tuya-debug-entry')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('运行环境'), findsOneWidget);
-    expect(find.text('账号参数'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('mine-tuya-debug-entry')), findsNothing);
+    expect(find.text('体验模式'), findsNothing);
   });
 
   testWidgets('home remains usable on a compact 320x568 viewport', (
@@ -179,6 +155,7 @@ Future<void> _pumpApp(
   SharedPreferences.setMockInitialValues(<String, Object>{});
   await tester.pumpWidget(
     FlowerpotApp(
+      backendRepository: FixtureBackend(),
       // Skip the cold-start screen; it is covered by its own test.
       splashDuration: Duration.zero,
       repository: MockTuyaRepository(

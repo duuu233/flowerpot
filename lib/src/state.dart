@@ -21,12 +21,11 @@ class FlowerpotState extends ChangeNotifier {
   }) : _repository = repository,
        _backend = backendRepository ?? const DisabledAppBackendRepository();
 
-  TuyaRepository _repository;
+  final TuyaRepository _repository;
   final AppBackendRepository _backend;
   bool _initialized = false;
   bool _busy = false;
   bool _sdkReady = false;
-  bool _demoMode = false;
   bool _notificationsEnabled = true;
   int _sessionEpoch = 0;
   String _languageCode = 'zh';
@@ -54,7 +53,7 @@ class FlowerpotState extends ChangeNotifier {
   /// [probeWifi] 自己的重入保护，见那里的说明。
   bool _wifiScanning = false;
 
-  /// When [prepareActivatorToken] last succeeded. The token itself never
+  /// When [TuyaRepository.prepareActivatorToken] last succeeded. The token itself never
   /// leaves the native layer; this only tells the Wi-Fi page whether the AP
   /// step is still covered.
   DateTime? _activatorTokenAt;
@@ -121,36 +120,14 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, List<MemorialEntry>> _memorials =
       <String, List<MemorialEntry>>{};
 
-  /// Built-in device animations are not user-uploaded files, so the page
-  /// filters their `builtin://` paths and only counts backend/local uploads.
-  final List<AnimationAsset> _animations = <AnimationAsset>[
-    AnimationAsset(
-      id: 'welcome',
-      name: '清晨问候.gif',
-      path: 'builtin://welcome',
-      createdAt: DateTime(2026, 8, 12, 9, 20),
-      synced: true,
-    ),
-    AnimationAsset(
-      id: 'rain',
-      name: '下雨啦.gif',
-      path: 'builtin://rain',
-      createdAt: DateTime(2026, 8, 14, 18, 5),
-      synced: true,
-    ),
-  ];
+  final List<AnimationAsset> _animations = <AnimationAsset>[];
 
   bool get initialized => _initialized;
   bool get busy => _busy;
   bool get sdkReady => _sdkReady;
-  bool get demoMode => _demoMode;
   bool get authenticated => _user != null;
   bool get notificationsEnabled => _notificationsEnabled;
 
-  /// Whether business calls are answered by the in-app mock backend instead of
-  /// the native bridge. True without `TUYA_ENABLED`, and also after the demo
-  /// shortcut replaced the repository at runtime.
-  bool get usingMockBackend => _repository is MockTuyaRepository;
   bool get usingAppBackend => _backend.enabled;
   String get languageCode => _languageCode;
 
@@ -179,7 +156,7 @@ class FlowerpotState extends ChangeNotifier {
   /// not eat the whole margin.
   static const Duration activatorTokenLifetime = Duration(minutes: 7);
 
-  /// Whether a provisioning token fetched by [prepareActivatorToken] should
+  /// Whether a provisioning token fetched by [TuyaRepository.prepareActivatorToken] should
   /// still be valid. AP pairing needs one before the phone leaves the router.
   bool get activatorTokenReady {
     final fetchedAt = _activatorTokenAt;
@@ -201,7 +178,7 @@ class FlowerpotState extends ChangeNotifier {
     'uid ${_user?.id ?? '-'}',
     '家庭 ${_lastHomeId ?? '-'}',
     '设备 ${_devices.length} 台',
-    if (_deviceLoadError != null) _deviceLoadError!,
+    ?_deviceLoadError,
     if (_backendSessionError != null) '后端会话：$_backendSessionError',
   ].join(' · ');
   List<AnimationAsset> get animations => animationsFor(_selectedDeviceId);
@@ -415,70 +392,15 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '密码已更新，请使用新密码登录');
   });
 
-  /// [seedDevice] matches the startup seeding so the demo shortcut and a
-  /// normal login land on the same screen.
-  Future<ActionResult> enterDemo({bool seedDevice = true}) async {
-    _demoMode = true;
-    _backend.clearSession();
-    _repository = MockTuyaRepository(
-      latency: const Duration(milliseconds: 80),
-      seedDevice: seedDevice,
-    );
-    await _repository.initialize();
-    // The old subscription belongs to the repository being replaced.
-    _listenForDeviceUpdates();
-    return login(
-      account: 'demo@flowerpot.local',
-      credential: 'demo',
-      region: LoginRegion.overseas,
-      verificationCode: false,
-    );
-  }
-
   Future<void> refreshDevices() async {
     await _refreshDevicesForSession(ignoreErrors: false);
   }
 
 
-  /// Re-runs SDK initialization so the reason behind [sdkReady] becomes
-  /// visible. Startup swallows this failure to keep the app usable.
-  Future<ActionResult> probeSdk() => _run(() async {
-    final ready = await _repository.initialize();
-    _sdkReady = ready;
-    return ready
-        ? const ActionResult(true, 'SDK 初始化通过')
-        : const ActionResult(
-            false,
-            'APP-sdk_unavailable SDK 初始化返回不可用',
-            code: 'sdk_unavailable',
-          );
-  });
-
-  /// Asks the SDK whether it still holds a login session and aligns the local
-  /// session with that answer.
-  Future<ActionResult> probeSession() => _run(() async {
-    final user = await _repository.restoreSession();
-    if (user == null) {
-      // Probing a session is not leaving the demo: the repository swapped in by
-      // [enterDemo] stays in place, so the flag has to survive the reset.
-      final demo = _demoMode;
-      _clearLocalSession();
-      _demoMode = demo;
-      return const ActionResult(
-        false,
-        'APP-no_session SDK 未持有登录会话',
-        code: 'no_session',
-      );
-    }
-    _user = user;
-    await _startSession();
-    return ActionResult(true, '会话有效，设备 ${_devices.length} 台');
-  });
-
   /// Nearby access points: AP 配网要能看见设备热点，而设备本身只连 2.4 GHz。
   ///
   /// Used by the pairing flow — the search step looks for planter hotspots and
-  /// the Wi-Fi step lists real 2.4 GHz routers — and by the SDK console. Does
+  /// the Wi-Fi step lists real 2.4 GHz routers. Does
   /// not touch the Tuya SDK, so it answers even before initialization.
   ///
   /// 不参与 [_guard] 的全局单操作锁：这是个只读调用，和别的操作没有真实冲突，
@@ -522,7 +444,7 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
-  /// 会把失败说出来的设备列表刷新：设备列表页的下拉刷新 / 重试和联调页共用这一个
+  /// 会把失败说出来的设备列表刷新：设备列表页的下拉刷新 / 重试共用这一个
   /// 入口。和会话恢复那条静默路径（`ignoreErrors: true`）相反，家庭查询、自动建家
   /// 和设备列表的失败都作为 [ActionResult] 返回，不会被吞掉。
   Future<ActionResult> reloadDevices() => _run(() async {
@@ -537,6 +459,9 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   Future<ActionResult> logout() => _guard(() async {
+    // Invalidate pending profile/device reads before waiting for network logout.
+    _clearLocalSession();
+    notifyListeners();
     if (_backend.enabled && _backend.hasSession) {
       try {
         await _backend.logout();
@@ -564,24 +489,6 @@ class FlowerpotState extends ChangeNotifier {
     _backend.clearSession();
     _clearLocalSession();
     return const ActionResult(true, '账号已注销');
-  });
-
-  /// Pre-fetches the provisioning token, which AP mode has to do before the
-  /// phone leaves the router for the device hotspot. See
-  /// [TuyaRepository.prepareActivatorToken].
-  Future<ActionResult> prepareActivatorToken() => _guard(() async {
-    await _repository.prepareActivatorToken();
-    _activatorTokenAt = DateTime.now();
-    return const ActionResult(true, '已获取配网令牌，8 分钟内有效，现在可以切到设备热点');
-  });
-
-  /// 问 SDK 要它实际提供的配网模式，用来确认双模是否可用。
-  Future<ActionResult> probeActivatorModes() => _run(() async {
-    final modes = await _repository.listActivatorModes();
-    return ActionResult(
-      true,
-      modes.isEmpty ? '该 SDK 未报告任何配网模式' : '可用配网模式：${modes.join(', ')}',
-    );
   });
 
   Future<ActionResult> pairDevice(PairingRequest request) =>
@@ -816,8 +723,10 @@ class FlowerpotState extends ChangeNotifier {
   /// 返回，[pairViaHotspot] 照常收尾。用户中途退出配网页时由页面调用；没有配网
   /// 在跑时调用也安全。
   Future<ActionResult> cancelPairing() => _run(() async {
-    _setPairingStage(PairingStage.idle);
+    // Release native resources immediately; notify only after the async boundary.
+    _activatorTokenAt = null;
     await _repository.cancelPairing();
+    _setPairingStage(PairingStage.idle);
     // 令牌没被消耗，但配网是否已经送到设备上说不清，保守起见重取。
     _activatorTokenAt = null;
     return const ActionResult(true, '已中止配网，设备热点连接已释放');
@@ -931,19 +840,8 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   /// 拉后台配置的植物列表（`Client/Product/getProductPlantList`）。这是「登录 →
-  /// 配网 → 给设备加植物」这条主流程上唯一的后端调用；本地目录只当离线/演示回落。
+  /// 配网 → 给设备加植物」这条主流程上唯一的后端调用；缺失或失败不回落到演示目录。
   Future<List<PlantProfile>> loadPlantCatalog({String keyword = ''}) async {
-    if (!_backend.enabled) {
-      final normalized = keyword.trim().toLowerCase();
-      if (normalized.isEmpty) return PlantCatalog.items;
-      return PlantCatalog.items
-          .where(
-            (plant) =>
-                plant.name.contains(normalized) ||
-                plant.latinName.toLowerCase().contains(normalized),
-          )
-          .toList(growable: false);
-    }
     if (!_backend.hasSession) {
       throw const ApiException(
         'BACKEND_SESSION_REQUIRED',
@@ -1015,7 +913,7 @@ class FlowerpotState extends ChangeNotifier {
   /// 需求），详情页进来时调用。
   ///
   /// 走的仍然是主流程唯一那个后端调用 `getProductPlantList`；标识符已经在目录缓存
-  /// 里时不再打接口。拉不到就保留本地目录兜底，不打断详情页——光照、需水那些 DP
+  /// 里时不再打接口。拉不到就保留已获取的真实资料或空态，不打断详情页——光照、需水那些 DP
   /// 业务数据来自设备上报，与这次请求无关。
   Future<void> ensurePlantProfile(String deviceId) async {
     final identifier = deviceById(deviceId)?.plantVariety.trim() ?? '';
@@ -1220,7 +1118,7 @@ class FlowerpotState extends ChangeNotifier {
         return const ActionResult(true, '纪念日已删除');
       });
 
-  /// APP 后端此刻是否可用。没配后端（纯涂鸦链路、体验模式）或会话已经失效
+  /// APP 后端此刻是否可用。没配后端（纯涂鸦链路）或会话已经失效
   /// 时，纪念日、设备改名这些会退回接后端之前的行为，而不是直接报错。
   bool get _backendReady => _backend.enabled && _backend.hasSession;
 
@@ -1666,10 +1564,12 @@ class FlowerpotState extends ChangeNotifier {
   /// 登录接口只回了建号时那份，用户在别的端改过之后这边不会自己更新，所以每次
   /// 会话刷新和进个人信息页都重新拉一次。
   Future<void> refreshUserInfo({bool notify = true}) async {
+    final epoch = _sessionEpoch;
     final current = _user;
     if (!_backend.enabled || !_backend.hasSession || current == null) return;
     try {
       final info = await _backend.getUserInfo();
+      if (epoch != _sessionEpoch || !identical(_user, current)) return;
       _user = AppUser(
         id: current.id,
         nickname: info.nickname.isEmpty ? current.nickname : info.nickname,
@@ -1922,6 +1822,7 @@ class FlowerpotState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _sessionEpoch++;
     _deviceUpdates?.cancel();
     _otaUpdates?.cancel();
     _backend.close();
@@ -1968,10 +1869,8 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 异常收口，不占用 [_busy]。
   ///
-  /// 给两类调用用：和其它操作没有真实冲突、又可能跑很久的只读调用（Wi-Fi 扫描），
-  /// 以及联调页那几个诊断入口——AP 配网最长要跑两分半，那段时间恰恰最需要能查
-  /// 会话和设备列表，被全局锁挡住的话调试台等于废了。[_guard] 自己也走这里。
   Future<ActionResult> _run(Future<ActionResult> Function() action) async {
+    final epoch = _sessionEpoch;
     try {
       return await action();
     } on AuthValidationException catch (error) {
@@ -1987,7 +1886,9 @@ class FlowerpotState extends ChangeNotifier {
         code: error.code,
       );
     } on ApiException catch (error) {
-      if (error.isAuthError) _handleBackendSessionExpired(error);
+      if (error.isAuthError && epoch == _sessionEpoch) {
+        _handleBackendSessionExpired(error);
+      }
       return ActionResult(
         false,
         _tagged(_apiSource(error.code), error.code, error.message),
@@ -2335,8 +2236,7 @@ class FlowerpotState extends ChangeNotifier {
   PlantProfile? _plantForIdentifier(String identifier) {
     final normalized = identifier.trim().toLowerCase();
     if (normalized.isEmpty) return null;
-    return _knownPlantsByIdentifier[normalized] ??
-        PlantCatalog.findByTuyaIdentifier(normalized);
+    return _knownPlantsByIdentifier[normalized];
   }
 
   void _setPlantSelection(
@@ -2371,7 +2271,7 @@ class FlowerpotState extends ChangeNotifier {
     _backendAnimations.clear();
     _knownPlantsByIdentifier.clear();
     _unresolvedPlantIdentifiers.clear();
-    _animations.removeWhere((item) => !item.path.startsWith('builtin://'));
+    _animations.clear();
     // `_memorials` deliberately survives a logout. It is the only record of
     // which DP 154 ids exist on a device — the device never reports the set
     // back — so dropping it would leave entries on the hardware that nothing
@@ -2379,7 +2279,6 @@ class FlowerpotState extends ChangeNotifier {
     // planter rather than to the account.
     _selectedDeviceId = null;
     _backendUserId = null;
-    _demoMode = false;
     // The native token belongs to the account that fetched it.
     _activatorTokenAt = null;
     ImageCacheCleanup.clearAll();
@@ -2387,9 +2286,6 @@ class FlowerpotState extends ChangeNotifier {
 
   String _normalizeAccount(String account, LoginRegion region) {
     final normalized = account.trim();
-    if (_repository is MockTuyaRepository && normalized.isNotEmpty) {
-      return normalized;
-    }
     return AuthValidator.account(normalized, region);
   }
 }

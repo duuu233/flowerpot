@@ -1,9 +1,10 @@
+import '../../support/fixture_backend.dart';
+import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/animations_page.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
-import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -22,7 +23,7 @@ void main() {
     expect(find.text('Files  0/10'), findsOneWidget);
     expect(find.byKey(AnimationsPage.uploadZoneKey), findsOneWidget);
     expect(find.text('清晨问候'), findsNothing);
-    expect(state.animations, hasLength(2));
+    expect(state.animations, isEmpty);
     expect(tester.takeException(), isNull);
   });
 
@@ -101,14 +102,15 @@ Future<FlowerpotState> _pumpAnimationsPage(
 
 Future<FlowerpotState> _createState(WidgetTester tester) async {
   final state = FlowerpotState(
+    backendRepository: FixtureBackend(),
     repository: MockTuyaRepository(latency: Duration.zero),
   );
   addTearDown(state.dispose);
   await tester.runAsync(
     () => state.login(
-      account: 'demo@flowerpot.local',
+      account: 'demo@example.test',
       credential: 'demo',
-      region: LoginRegion.domestic,
+      region: LoginRegion.overseas,
       verificationCode: false,
     ),
   );

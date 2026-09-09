@@ -1,3 +1,4 @@
+import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/models/light_status_page_model.dart';
@@ -6,7 +7,6 @@ import 'package:flowerpot/src/features/devices/presentation/widgets/light_dli_ba
 import 'package:flowerpot/src/features/devices/presentation/widgets/light_status_summary_card.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
-import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -45,7 +45,7 @@ void main() {
     addTearDown(state.dispose);
     await tester.runAsync(
       () => state.login(
-        account: 'demo@flowerpot.local',
+        account: '13800138000',
         credential: 'demo',
         region: LoginRegion.domestic,
         verificationCode: false,

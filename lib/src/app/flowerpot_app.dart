@@ -3,10 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/backend/backend.dart';
-import '../core/network/api_config.dart';
 import '../design_system/design_system.dart';
 import '../features/auth/presentation/auth_page.dart';
-import '../features/preview/preview_config.dart';
 import '../features/shell/presentation/shell_page.dart';
 import '../features/splash/presentation/splash_page.dart';
 import '../routes/app_routes.dart';
@@ -111,12 +109,10 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
   late final FlowerpotState state = FlowerpotState(
     repository:
         widget.repository ??
-        TuyaRepository.create(seedMockDevice: !StaticPreviewConfig.enabled),
+        TuyaRepository.create(),
     backendRepository:
         widget.backendRepository ??
-        (ApiConfig.baseUrl.trim().isEmpty
-            ? const DisabledAppBackendRepository()
-            : HttpAppBackendRepository.fromEnvironment()),
+        HttpAppBackendRepository.fromEnvironment(),
   );
 
   /// Cold-start screen, dismissed once the minimum time has passed *and* the
@@ -127,8 +123,7 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
   @override
   void initState() {
     super.initState();
-    // The demo build starts signed out on the login page like the real app;
-    // it only differs in that the mock backend owns no planter yet.
+    // Start with the real SDK session; no demo session is created.
     unawaited(_dismissSplashWhenReady());
   }
 

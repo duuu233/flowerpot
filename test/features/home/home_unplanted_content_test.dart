@@ -1,10 +1,10 @@
+import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/features/home/models/home_dashboard_model.dart';
 import 'package:flowerpot/src/features/home/presentation/home_page.dart';
 import 'package:flowerpot/src/features/home/presentation/widgets/home_unplanted_content.dart';
 import 'package:flowerpot/src/state.dart';
-import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -17,7 +17,7 @@ void main() {
     await _pumpScene(tester, const Size(375, 812));
 
     expect(find.bySemanticsLabel('YSplanter'), findsOneWidget);
-    expect(find.text('已陪伴1天'), findsOneWidget);
+    expect(find.text('已陪伴127天'), findsOneWidget);
     expect(find.text('80%'), findsOneWidget);
     expect(find.text('还未添加植物'), findsOneWidget);
     final title = tester.widget<Text>(find.text('还未添加植物'));

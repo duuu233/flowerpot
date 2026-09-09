@@ -117,7 +117,7 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
       );
       return;
     }
-    final String? route = switch (kind) {
+    final String route = switch (kind) {
       DeviceSettingsMenuKind.plant => AppRoutes.plantPicker,
       DeviceSettingsMenuKind.display => AppRoutes.displaySettings,
       DeviceSettingsMenuKind.led => AppRoutes.ledSettings,
@@ -130,7 +130,6 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
       DeviceSettingsMenuKind.other => AppRoutes.deviceOtherSettings,
       DeviceSettingsMenuKind.plantDetection => AppRoutes.plantDetectionSettings,
     };
-    if (route == null) return;
     Navigator.pushNamed(context, route, arguments: device.id);
   }
 

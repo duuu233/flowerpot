@@ -1,3 +1,4 @@
+import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/home/models/home_dashboard_model.dart';
 import 'package:flowerpot/src/features/home/presentation/widgets/home_care_banner.dart';
@@ -15,14 +16,14 @@ void main() {
   testWidgets('companion summary scene shows days and battery', (tester) async {
     await _pumpOverview(tester, HomeDashboardScene.withCompanionSummary);
 
-    expect(find.text('已陪伴52天'), findsOneWidget);
+    expect(find.text('已陪伴127天'), findsOneWidget);
     expect(find.text('80%'), findsOneWidget);
   });
 
   testWidgets('alternate scene hides the companion summary', (tester) async {
     await _pumpOverview(tester, HomeDashboardScene.withoutCompanionSummary);
 
-    expect(find.text('已陪伴52天'), findsNothing);
+    expect(find.text('已陪伴127天'), findsNothing);
     expect(find.text('80%'), findsNothing);
     expect(find.text('需水状态'), findsOneWidget);
     expect(find.text('相对湿度'), findsOneWidget);
@@ -31,7 +32,7 @@ void main() {
   testWidgets('home chrome uses the supplied care icon and compact chevrons', (
     tester,
   ) async {
-    final model = HomeDashboardModel.fromDevice(device: null, userLabel: '用户');
+    final model = HomeDashboardModel.fromDevice(device: _fixture, userLabel: '用户');
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(),
@@ -61,7 +62,7 @@ void main() {
   });
 
   testWidgets('养护建议轮播四条状态建议，5 秒换一条', (tester) async {
-    final model = HomeDashboardModel.fromDevice(device: null, userLabel: '用户');
+    final model = HomeDashboardModel.fromDevice(device: _fixture, userLabel: '用户');
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(),
@@ -122,7 +123,7 @@ void main() {
   });
 
   test('养护建议与状态卡片同源，并跟随界面语言', () {
-    final zh = HomeDashboardModel.fromDevice(device: null, userLabel: '用户');
+    final zh = HomeDashboardModel.fromDevice(device: _fixture, userLabel: '用户');
     expect(zh.careTitle, '今日养护');
     expect(zh.careMessages, <String>[
       TuyaStatusCopy.waterNeeds[WaterNeedsStatus.drinking]!.description,
@@ -132,7 +133,7 @@ void main() {
     ]);
 
     final en = HomeDashboardModel.fromDevice(
-      device: null,
+      device: _fixture,
       userLabel: 'User',
       language: 'en',
     );
@@ -156,7 +157,7 @@ Future<void> _pumpOverview(
   HomeDashboardScene scene,
 ) async {
   final model = HomeDashboardModel.fromDevice(
-    device: null,
+    device: _fixture,
     userLabel: '用户',
     scene: scene,
   );
@@ -175,3 +176,9 @@ Future<void> _pumpOverview(
     ),
   );
 }
+
+SmartPlanterDevice get _fixture => MockTuyaRepository.fixtureDevice.copyWith(
+  battery: 80,
+  sensors: const SensorSnapshot(waterLevel: 78, soilMoisture: 60,
+    illuminance: 800, ppfd: 6, airTemperature: 25.5, relativeHumidity: 60),
+);

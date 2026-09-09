@@ -1,3 +1,5 @@
+import 'support/plant_catalog.dart';
+import 'support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_config.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -195,6 +197,7 @@ void main() {
 
 Future<FlowerpotState> _state([_OtaRepository? repository]) async {
   final state = FlowerpotState(repository: repository ?? _OtaRepository());
+  await state.initialize();
   await state.refreshDevices();
   return state;
 }

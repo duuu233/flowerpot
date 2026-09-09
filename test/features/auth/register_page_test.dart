@@ -1,8 +1,8 @@
+import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/auth/presentation/register_page.dart';
 import 'package:flowerpot/src/state.dart';
-import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -84,6 +84,7 @@ void main() {
     await _pumpRegisterPage(tester, const Size(375, 812));
 
     await tester.enterText(find.byType(TextField).first, '13800138000');
+    await tester.pump();
     await tester.tap(find.text('获取验证码'));
     await tester.pumpAndSettle();
 

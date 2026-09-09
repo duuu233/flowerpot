@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
-import '../../../core/config/debug_tools_config.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
-import '../../preview/preview_config.dart';
 import '../domain/auth_validator.dart';
 import '../login_entry_config.dart';
 import 'password_page.dart';
@@ -66,27 +64,18 @@ class _AuthPageState extends State<AuthPage> {
       return;
     }
     final state = FlowerpotScope.of(context);
-    var result = await state.login(
+    final result = await state.login(
       account: accountController.text,
       credential: credentialController.text,
       region: LoginRegion.domestic,
       verificationCode: codeLogin,
     );
-    var fellBack = false;
-    if (!result.success &&
-        codeLogin &&
-        LoginEntryConfig.acceptAnyVerificationCode) {
-      // The demo flow must reach the app with any non-empty input. The real
-      // login above still runs first, so a real account keeps a real session.
-      result = await state.enterDemo(seedDevice: !StaticPreviewConfig.enabled);
-      fellBack = result.success;
-    }
     if (!mounted) return;
     showAppMessage(
       context,
-      fellBack ? '未通过涂鸦验证，已进入演示会话' : result.message,
+      result.message,
       tone: result.success
-          ? (fellBack ? AppMessageTone.info : AppMessageTone.success)
+          ? AppMessageTone.success
           : AppMessageTone.error,
     );
     if (result.success) {
@@ -117,18 +106,6 @@ class _AuthPageState extends State<AuthPage> {
       result.message,
       tone: result.success ? AppMessageTone.success : AppMessageTone.error,
     );
-  }
-
-  Future<void> _enterDemo() async {
-    final result = await FlowerpotScope.of(
-      context,
-    ).enterDemo(seedDevice: !StaticPreviewConfig.enabled);
-    if (!mounted) return;
-    if (result.success) {
-      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.shell, (_) => false);
-    } else {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
-    }
   }
 
   @override
@@ -208,13 +185,6 @@ class _AuthPageState extends State<AuthPage> {
                             '支付宝开放平台参数待配置',
                             tone: AppMessageTone.info,
                           ),
-                          onDemo: state.busy ? null : _enterDemo,
-                          onSdkDebug: DebugToolsConfig.enabled
-                              ? () => Navigator.pushNamed(
-                                  context,
-                                  AppRoutes.tuyaDebug,
-                                )
-                              : null,
                         ),
                       ),
                     ],
@@ -248,8 +218,6 @@ class _LoginPanel extends StatelessWidget {
     required this.onForgotPassword,
     required this.onWechat,
     required this.onAlipay,
-    required this.onDemo,
-    required this.onSdkDebug,
   });
 
   final TextEditingController accountController;
@@ -269,11 +237,6 @@ class _LoginPanel extends StatelessWidget {
   final VoidCallback onForgotPassword;
   final VoidCallback onWechat;
   final VoidCallback onAlipay;
-  final VoidCallback? onDemo;
-
-  /// Null in release builds that did not opt into the SDK console, which also
-  /// hides the entry.
-  final VoidCallback? onSdkDebug;
 
   @override
   Widget build(BuildContext context) {
@@ -428,26 +391,6 @@ class _LoginPanel extends StatelessWidget {
                   onChanged: onAcceptedChanged,
                   onAgreement: onAgreement,
                   onPrivacy: onPrivacy,
-                ),
-                const SizedBox(height: 24),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: AppSpacing.xs,
-                  children: <Widget>[
-                    TextButton.icon(
-                      onPressed: onDemo,
-                      icon: const Icon(Icons.eco_outlined, size: 18),
-                      label: const Text('体验模式'),
-                    ),
-                    if (onSdkDebug != null)
-                      TextButton.icon(
-                        key: const Key('tuya-debug-entry'),
-                        onPressed: onSdkDebug,
-                        icon: const Icon(Icons.bug_report_outlined, size: 18),
-                        label: const Text('涂鸦 SDK 联调'),
-                      ),
-                  ],
                 ),
                 const SizedBox(height: 18),
               ],

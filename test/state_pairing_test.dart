@@ -1,3 +1,4 @@
+import 'support/mock_tuya_repository.dart';
 import 'dart:async';
 
 import 'package:flowerpot/src/state.dart';
@@ -226,9 +227,7 @@ void main() {
     expect(result.code, 'pair_cancelled');
     expect(state.busy, isFalse);
   });
-}
 
-/// 建一个状态对象并挂一棵空树，让 `tester.pump(duration)` 有帧可推、假时钟能走。
   testWidgets('会话一开始就把上次记下的家庭钉给涂鸦', (tester) async {
     // 家庭属于涂鸦账号，既不依赖设备也不依赖后端：记住一次之后每次会话都用同一个，
     // 不再让原生从家庭列表里重挑——那正是「重新登录后读不到已绑定设备」的来源。
@@ -323,6 +322,9 @@ void main() {
     expect(repository.tokenCalls, 1);
   });
 
+}
+
+/// 建一个状态对象并挂一棵空树，让测试假时钟推进。
 Future<FlowerpotState> _stateFor(
   WidgetTester tester,
   TuyaRepository repository,

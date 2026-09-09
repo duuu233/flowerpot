@@ -1,7 +1,8 @@
+import 'package:flowerpot/src/core/backend/backend.dart';
+import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/splash/presentation/splash_page.dart';
-import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -46,6 +47,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await tester.pumpWidget(
       FlowerpotApp(
+      backendRepository: const DisabledAppBackendRepository(),
         splashDuration: const Duration(milliseconds: 600),
         repository: MockTuyaRepository(latency: Duration.zero),
       ),
@@ -69,6 +71,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await tester.pumpWidget(
       FlowerpotApp(
+      backendRepository: const DisabledAppBackendRepository(),
         splashDuration: const Duration(milliseconds: 600),
         repository: MockTuyaRepository(latency: Duration.zero),
       ),

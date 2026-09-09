@@ -58,9 +58,9 @@ class HomeDashboardModel {
     final english = language.trim().toLowerCase().startsWith('en');
     final settings = device?.settings ?? const DeviceControlSettings();
     final sensors = device?.sensors;
-    final waterLevel = sensors?.waterLevel ?? 78;
-    final illuminance = sensors?.illuminance ?? 800;
-    final humidity = sensors?.relativeHumidity ?? 60;
+    final waterLevel = sensors?.waterLevel ?? 0;
+    final illuminance = sensors?.illuminance ?? 0;
+    final humidity = sensors?.relativeHumidity ?? 0;
     // 三张状态卡片的取值和状态页顶部是同一个来源：设备上报的 107/108/115，没上报
     // 时用同一套阈值兜底。首页自己算一套的话，同一台设备会在首页写「偏湿」、在
     // 需水状态页写「喝水中」。
@@ -74,7 +74,7 @@ class HomeDashboardModel {
     final airTemperature =
         report.temperature ??
         TuyaStatusCopy.temperatureFor(
-          sensors?.airTemperature ?? 25.5,
+          sensors?.airTemperature ?? 0,
           low: settings.temperatureFromCelsius(
             TuyaStatusCopy.comfortableLowCelsius,
           ),
@@ -89,14 +89,14 @@ class HomeDashboardModel {
       deviceName: device?.name,
       // The same device must not read "已陪伴1天" here and "已陪伴127天" one
       // tap later, so both scenes use the bound date.
-      companionDays: device?.companionDays ?? 52,
-      battery: device?.battery ?? 80,
-      plantImageUrl: device?.plant?.imageUrl,
+      companionDays: device?.companionDays ?? 0,
+      battery: device?.battery ?? 0,
+      plantImageUrl: device?.plant.imageUrl,
       metrics: <HomeMetricData>[
         HomeMetricData(
           kind: HomeMetricKind.water,
           label: english ? 'Water' : '需水状态',
-          value: TuyaStatusCopy.waterNeedsCopy(
+          value: device == null ? '--' : TuyaStatusCopy.waterNeedsCopy(
             waterNeeds,
             language: language,
           ).label,
@@ -104,26 +104,26 @@ class HomeDashboardModel {
         HomeMetricData(
           kind: HomeMetricKind.light,
           label: english ? 'Light' : '光照状态',
-          value: TuyaStatusCopy.lightingCopy(lighting, language: language).label,
+          value: device == null ? '--' : TuyaStatusCopy.lightingCopy(lighting, language: language).label,
         ),
         HomeMetricData(
           kind: HomeMetricKind.temperature,
           label: english ? 'Temperature' : '空气温度',
           // The reading is already in the unit `temp_unit_convert` selects, so
           // only the label follows the device.
-          value: settings.formatTemperature(sensors?.airTemperature ?? 25.5),
+          value: device == null ? '--' : settings.formatTemperature(sensors?.airTemperature ?? 0),
         ),
         HomeMetricData(
           kind: HomeMetricKind.humidity,
           label: english ? 'Humidity' : '相对湿度',
-          value: TuyaStatusCopy.airHumidityCopy(
+          value: device == null ? '--' : TuyaStatusCopy.airHumidityCopy(
             airHumidity,
             language: language,
           ).label,
         ),
       ],
       careTitle: english ? "Today's care" : '今日养护',
-      careMessages: _careMessages(
+      careMessages: device == null ? const <String>[] : _careMessages(
         waterNeeds: waterNeeds,
         lighting: lighting,
         temperature: airTemperature,

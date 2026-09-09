@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
-import '../../../core/config/debug_tools_config.dart';
+import 'package:flutter/foundation.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
@@ -37,7 +37,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
   String? selectedId;
   bool initialized = false;
   bool addingPlant = true;
-  List<PlantProfile> plants = PlantCatalog.items;
+  List<PlantProfile> plants = const <PlantProfile>[];
 
   @override
   void didChangeDependencies() {
@@ -99,7 +99,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
   String _loadErrorText(ApiException error) {
     const base = '植物列表加载失败：';
     final body = error.body;
-    if (!DebugToolsConfig.enabled || body == null || body.isEmpty) {
+    if (!kDebugMode || body == null || body.isEmpty) {
       return '$base${error.message}';
     }
     return '$base${error.message}\n$body';

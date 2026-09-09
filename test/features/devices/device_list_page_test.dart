@@ -1,3 +1,5 @@
+import '../../support/plant_catalog.dart';
+import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_list_page.dart';
@@ -132,7 +134,6 @@ void main() {
     expect(arguments.scene, HomeDashboardScene.withCompanionSummary);
     expect(tester.takeException(), isNull);
   });
-}
 
   testWidgets('设备列表读不出来时给错误和重试，而不是「暂无设备」', (tester) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
@@ -179,6 +180,8 @@ void main() {
     expect(state.deviceLoadError, isNull);
     expect(tester.takeException(), isNull);
   });
+
+}
 
 Future<FlowerpotState> _pumpDeviceList(
   WidgetTester tester,

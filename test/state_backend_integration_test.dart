@@ -1,12 +1,28 @@
+import 'support/fixture_backend.dart';
+import 'dart:async';
+import 'support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/core/backend/backend.dart';
 import 'package:flowerpot/src/core/network/network.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
-import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('a profile response arriving after logout cannot restore the old user', () async {
+    final backend = _DelayedProfileBackend();
+    final state = FlowerpotState(repository: _AuthRecordingTuya(), backendRepository: backend);
+    addTearDown(state.dispose);
+    await state.login(account: '13800138000', credential: '123456',
+      region: LoginRegion.domestic, verificationCode: true);
+    final pending = state.refreshUserInfo();
+    await state.logout();
+    backend.profile.complete(const BackendUserInfo(nickname: 'old user', account: '13800138000'));
+    await pending;
+    expect(state.authenticated, isFalse);
+    expect(state.user, isNull);
+  });
+
   test('登录和选植物都不打多余的后端接口，只写 DP 116', () async {
     final events = <String>[];
     final tuya = _RecordingTuya(events);
@@ -54,7 +70,7 @@ void main() {
     );
 
     expect(result.success, isTrue);
-    expect(result.message, '已选择薄荷并同步到设备；该植物未配置分类，未下发 161');
+    expect(result.message, '已选择薄荷并同步到设备；该植物在后台没有配置分类（categoryType），未下发 161');
     // 分类猜不得：宁可少发一条，也不给设备一个错的养护策略。
     expect(events, <String>['tuya:116=mint_en']);
   });
@@ -194,7 +210,7 @@ void main() {
 
   test('a reported DP 116 identifier updates the active plant', () async {
     final tuya = MockTuyaRepository(latency: Duration.zero);
-    final state = FlowerpotState(repository: tuya);
+    final state = FlowerpotState(repository: tuya, backendRepository: FixtureBackend());
     addTearDown(state.dispose);
     await state.initialize();
     await state.login(
@@ -407,4 +423,10 @@ class _ImageBackend extends _RecordingBackend {
     events.add('backend:delete:${imageIds.join(',')}');
     images.removeWhere((image) => imageIds.contains(image.id));
   }
+}
+
+class _DelayedProfileBackend extends _AuthBackend {
+  final profile = Completer<BackendUserInfo>();
+  @override
+  Future<BackendUserInfo> getUserInfo() => profile.future;
 }
