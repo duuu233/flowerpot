@@ -162,6 +162,12 @@ void main() {
       find.byKey(const Key('empty-device-list-illustration')),
       findsNothing,
     );
+    // 现场信息直接画在页面上：查的是哪个家庭、读到几台，不用再进联调页。
+    final diagnostics = tester.widget<SelectableText>(
+      find.byKey(const Key('device-list-diagnostics')),
+    );
+    expect(diagnostics.data, contains('设备 0 台'));
+    expect(diagnostics.data, contains('家庭'));
 
     // 重试成功后恢复成正常列表。
     repository.failing = false;

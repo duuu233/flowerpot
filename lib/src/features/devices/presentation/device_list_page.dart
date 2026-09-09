@@ -99,10 +99,11 @@ class DeviceListPage extends StatelessWidget {
           child: items.isEmpty && state.deviceLoadError != null
               ? _DeviceListError(
                   message: state.deviceLoadError!,
+                  diagnostics: state.sessionDiagnostics,
                   onRetry: () => _reload(context, state),
                 )
               : items.isEmpty
-              ? const _EmptyDeviceList()
+              ? _EmptyDeviceList(diagnostics: state.sessionDiagnostics)
               : ListView.separated(
                   key: const Key('device-list-view'),
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -299,9 +300,14 @@ class _OnlinePill extends StatelessWidget {
 /// 列表拉取失败时的占位：保持可下拉（`RefreshIndicator` 需要一个可滚动的孩子），
 /// 并给一个显式的「重试」。
 class _DeviceListError extends StatelessWidget {
-  const _DeviceListError({required this.message, required this.onRetry});
+  const _DeviceListError({
+    required this.message,
+    required this.diagnostics,
+    required this.onRetry,
+  });
 
   final String message;
+  final String diagnostics;
   final VoidCallback onRetry;
 
   @override
@@ -321,13 +327,37 @@ class _DeviceListError extends StatelessWidget {
           message: message,
           onRetry: onRetry,
         ),
+        const SizedBox(height: 20),
+        _SessionDiagnosticsLine(text: diagnostics),
       ],
     );
   }
 }
 
+/// 现场信息：涂鸦账号、这次查的家庭、读到几台。
+///
+/// 设备清单是按家庭查的，「一台都没有」最常见的原因是查的家庭和配网时用的不是
+/// 同一个——这两项不摆在页面上就只能靠联调页翻。可长按复制，方便直接发出来。
+class _SessionDiagnosticsLine extends StatelessWidget {
+  const _SessionDiagnosticsLine({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return SelectableText(
+      text,
+      key: const Key('device-list-diagnostics'),
+      textAlign: TextAlign.center,
+      style: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+    );
+  }
+}
+
 class _EmptyDeviceList extends StatelessWidget {
-  const _EmptyDeviceList();
+  const _EmptyDeviceList({required this.diagnostics});
+
+  final String diagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -359,6 +389,8 @@ class _EmptyDeviceList extends StatelessWidget {
             fontWeight: FontWeight.w500,
           ),
         ),
+        const SizedBox(height: 20),
+        _SessionDiagnosticsLine(text: diagnostics),
       ],
     );
   }

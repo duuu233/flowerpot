@@ -292,6 +292,7 @@ final class FlowerpotTuyaBridge: NSObject {
       // 就是设备所在的家庭，而且每次登录选到的都一样。
       let ordered = (homes ?? []).sorted { $0.homeId < $1.homeId }
       if let model = ordered.first, let home = ThingSmartHome(homeId: model.homeId) {
+        print("[flowerpot] home picked \(model.homeId) of \(ordered.count) homes")
         self.currentHome = home
         ready(home)
       } else {

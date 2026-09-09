@@ -66,6 +66,12 @@ class FlowerpotState extends ChangeNotifier {
   /// 「暂无设备」，用户重新登录后设备读不出来，看起来就像设备全没了。
   String? _deviceLoadError;
 
+  /// 最近一次读取设备列表时所用的家庭 id（原生侧 `currentHomeId`）。
+  ///
+  /// 设备清单是按家庭查的，0 台设备最常见的原因不是没配上，而是这次查的家庭和
+  /// 配网时用的不是同一个；这个值在真实页面上要看得见，不能只躺在联调页里。
+  String? _lastHomeId;
+
   /// Server-side device rows keyed by the Tuya device id. Plant and image APIs
   /// require `userProductId`, so this mapping is resolved once and reused.
   final Map<String, BackendUserProduct> _backendDevices =
@@ -173,6 +179,19 @@ class FlowerpotState extends ChangeNotifier {
   List<SmartPlanterDevice> get devices => List.unmodifiable(_devices);
 
   String? get deviceLoadError => _deviceLoadError;
+
+  String? get lastHomeId => _lastHomeId;
+
+  /// 一行现场信息：涂鸦账号、这次查的家庭、读到几台、失败原因。
+  ///
+  /// 设备列表读不出来时直接画在页面上——比让用户去联调页翻要快，而且这几项正好
+  /// 是判断「家庭选错了」还是「登进了别的账号」所需要的全部输入。
+  String get sessionDiagnostics => <String>[
+    'uid ${_user?.id ?? '-'}',
+    '家庭 ${_lastHomeId ?? '-'}',
+    '设备 ${_devices.length} 台',
+    if (_deviceLoadError != null) _deviceLoadError!,
+  ].join(' · ');
   List<AnimationAsset> get animations => animationsFor(_selectedDeviceId);
 
   List<AnimationAsset> animationsFor(String? deviceId) {
@@ -1937,6 +1956,9 @@ class FlowerpotState extends ChangeNotifier {
       final devices = await _repository.getDevices();
       if (epoch != _sessionEpoch) return;
       _deviceLoadError = null;
+      // 设备清单是按家庭查的，把这次用的家庭一起记下来：上面那次 getDevices 已经
+      // 把家庭解析并缓存在原生侧，这里只是把它读回来，不会再触发一次云端查询。
+      _lastHomeId = await _repository.currentHomeId().catchError((_) => '?');
       // 设备清单以涂鸦为准。登录后不再顺带拉 getUserInfo / getUserProductList /
       // getUserProductPlantList——主流程只允许 getProductPlantList 一个后端调用。
       _devices = devices.map(_withLocalOverrides).toList();
@@ -1945,15 +1967,21 @@ class FlowerpotState extends ChangeNotifier {
       } else if (_devices.every((item) => item.id != _selectedDeviceId)) {
         _selectedDeviceId = _devices.first.id;
       }
+      _logDevices();
       notifyListeners();
     } catch (error) {
       if (epoch != _sessionEpoch) return;
       // 失败不清空已有列表：断网重进时保留上一次拿到的设备，比直接白屏好。
       _deviceLoadError = _deviceLoadMessage(error);
+      _logDevices();
       notifyListeners();
       if (!ignoreErrors) rethrow;
     }
   }
+
+  /// 每次读设备列表都留一行日志（`adb logcat -s flutter` / Xcode 控制台可见）。
+  /// 用户不再进联调页之后，这是现场唯一能翻到的记录，所以不按 debug 模式过滤。
+  void _logDevices() => debugPrint('[devices] $sessionDiagnostics');
 
   static String _deviceLoadMessage(Object error) => switch (error) {
     TuyaException tuya => _tagged('涂鸦', tuya.code, tuya.message),
