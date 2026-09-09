@@ -42,6 +42,7 @@ class HomeDashboardModel {
     required this.careMessages,
     required this.actions,
     required this.helpTopics,
+    this.plantImageUrl,
     this.emptyTitle = '还未添加植物',
     this.emptyMessage = '为设备添加植物后，即可生成专属养护建议与\n环境数据分析。',
     this.addPlantLabel = '添加植物',
@@ -90,6 +91,7 @@ class HomeDashboardModel {
       // tap later, so both scenes use the bound date.
       companionDays: device?.companionDays ?? 52,
       battery: device?.battery ?? 80,
+      plantImageUrl: device?.plant?.imageUrl,
       metrics: <HomeMetricData>[
         HomeMetricData(
           kind: HomeMetricKind.water,
@@ -181,6 +183,10 @@ class HomeDashboardModel {
   final List<String> careMessages;
   final List<HomeActionData> actions;
   final List<String> helpTopics;
+
+  /// 设备当前绑定的那株植物在后台配置的图片（`getProductPlantList` 的 `plantImg`）。
+  /// 为空时首页回落到本地静态图，不自己拼路径。
+  final String? plantImageUrl;
   final String emptyTitle;
   final String emptyMessage;
   final String addPlantLabel;

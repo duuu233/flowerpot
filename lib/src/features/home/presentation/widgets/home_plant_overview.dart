@@ -28,14 +28,7 @@ class HomePlantOverview extends StatelessWidget {
               Positioned(
                 top: 34,
                 left: (width - 132) / 2,
-                child: Image.asset(
-                  AppAssets.smartPlanterWithPlant,
-                  width: 132,
-                  height: 170,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
-                  semanticLabel: '带植物的 YSplanter',
-                ),
+                child: _PlantHeroImage(imageUrl: model.plantImageUrl),
               ),
               Positioned(
                 top: 42,
@@ -97,6 +90,43 @@ class HomePlantOverview extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 已绑定设备首页正中那张图：优先用后台给这株植物配的图片
+/// （`getProductPlantList` 的 `plantImg`，经 `PlantProfile.imageUrl` 带过来），
+/// 没有配、或者取不回来时才回落到本地静态图。植物详情页 `_PlantDetailArtwork`
+/// 是同一套口径。
+class _PlantHeroImage extends StatelessWidget {
+  const _PlantHeroImage({required this.imageUrl});
+
+  static const double _width = 132;
+  static const double _height = 170;
+
+  final String? imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = imageUrl?.trim();
+    if (url == null || url.isEmpty) return _fallback();
+    return Image.network(
+      url,
+      width: _width,
+      height: _height,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '设备当前的植物',
+      errorBuilder: (_, _, _) => _fallback(),
+    );
+  }
+
+  Widget _fallback() => Image.asset(
+    AppAssets.smartPlanterWithPlant,
+    width: _width,
+    height: _height,
+    fit: BoxFit.contain,
+    filterQuality: FilterQuality.high,
+    semanticLabel: '带植物的 YSplanter',
+  );
 }
 
 class _HomeMetricCard extends StatelessWidget {
