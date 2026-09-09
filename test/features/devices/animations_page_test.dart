@@ -26,6 +26,33 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('提示卡右下角的背景图整块落在卡片里', (tester) async {
+    await _pumpAnimationsPage(tester, const Size(375, 812));
+
+    final card = find.ancestor(
+      of: find.text('提示'),
+      matching: find.byType(AppSurfaceCard),
+    );
+    expect(card, findsOneWidget);
+    final cardRect = tester.getRect(card);
+    final illustration = tester.getRect(
+      find.byKey(const Key('animation-tips-illustration')),
+    );
+
+    // 118 的方图整块都在卡片范围内：右边贴着卡片边缘，底部留 14px。之前卡片留
+    // 内边距、图片用负偏移往外顶，Stack 默认的 hardEdge 裁剪把顶出去的下沿直接
+    // 切掉了，文件夹缺一块。
+    expect(illustration.size, const Size(118, 118));
+    expect(illustration.right, moreOrLessEquals(cardRect.right, epsilon: 0.5));
+    expect(
+      illustration.bottom,
+      moreOrLessEquals(cardRect.bottom - 14, epsilon: 0.5),
+    );
+    expect(illustration.top, greaterThanOrEqualTo(cardRect.top));
+    expect(illustration.left, greaterThanOrEqualTo(cardRect.left));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('animation page remains scrollable at 320x568', (tester) async {
     await _pumpAnimationsPage(tester, const Size(320, 568));
 

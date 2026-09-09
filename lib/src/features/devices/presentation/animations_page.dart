@@ -210,58 +210,74 @@ class _AnimationsPageState extends State<AnimationsPage> {
 class _AnimationTipsCard extends StatelessWidget {
   const _AnimationTipsCard();
 
+  /// 文案区的高度，不含卡片内边距。
+  static const double _contentHeight = 126;
+  static const EdgeInsets _contentPadding = EdgeInsets.fromLTRB(16, 14, 14, 14);
+
   @override
   Widget build(BuildContext context) {
+    // 右下角那张背景图要贴着卡片右边缘，所以内边距交给文案自己加、卡片本身不留
+    // padding。原来的写法反过来：卡片留 padding，图片靠负偏移往外顶，而 Stack 的
+    // `clipBehavior` 默认是 `Clip.hardEdge`——顶出去的 18px / 14px 根本不画。盒子
+    // 高度改短之后被切掉的正好是文件夹的下沿和右边的叶子，看着就是图缺了一块。
     return AppSurfaceCard(
-      padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+      padding: EdgeInsets.zero,
       child: SizedBox(
-        height: 126,
+        height: _contentHeight + _contentPadding.vertical,
         child: Stack(
           children: <Widget>[
+            // 右边贴着卡片边缘出血，底部留出和文案一样的 14px——设计稿里图就是这么
+            // 摆的，这样整张图既完整、也不会被卡片 16px 的圆角削掉叶子尖。
             const Positioned(
-              right: -14,
-              bottom: -18,
+              right: 0,
+              bottom: 14,
               child: Opacity(
                 opacity: .42,
-                child: _FilePreviewIllustration(size: 118),
+                child: _FilePreviewIllustration(
+                  key: Key('animation-tips-illustration'),
+                  size: 118,
+                ),
               ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    const AppIconBadge(
-                      assetPath: AppAssets.notificationIcon,
-                      semanticLabel: '提示',
-                      backgroundColor: Colors.transparent,
-                      size: 34,
-                      iconSize: 34,
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Text(
-                      '提示',
-                      style: AppTypography.pageTitle.copyWith(fontSize: 18),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '请上传符合要求的文件以确保动画可以正常播放。',
-                    maxLines: 1,
-                    style: AppTypography.body.copyWith(
-                      color: AppColors.textSecondary,
+            Padding(
+              padding: _contentPadding,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      const AppIconBadge(
+                        assetPath: AppAssets.notificationIcon,
+                        semanticLabel: '提示',
+                        backgroundColor: Colors.transparent,
+                        size: 34,
+                        iconSize: 34,
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Text(
+                        '提示',
+                        style: AppTypography.pageTitle.copyWith(fontSize: 18),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '请上传符合要求的文件以确保动画可以正常播放。',
+                      maxLines: 1,
+                      style: AppTypography.body.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                const _TipLine(text: '支持本地图片文件上传'),
-                const SizedBox(height: AppSpacing.xs),
-                const _TipLine(text: '长按文件可删除已选文件'),
-              ],
+                  const SizedBox(height: AppSpacing.md),
+                  const _TipLine(text: '支持本地图片文件上传'),
+                  const SizedBox(height: AppSpacing.xs),
+                  const _TipLine(text: '长按文件可删除已选文件'),
+                ],
+              ),
             ),
           ],
         ),
@@ -632,7 +648,7 @@ class _GalleryAction extends StatelessWidget {
 }
 
 class _FilePreviewIllustration extends StatelessWidget {
-  const _FilePreviewIllustration({required this.size});
+  const _FilePreviewIllustration({required this.size, super.key});
 
   final double size;
 

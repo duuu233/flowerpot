@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-09/2026-09-09-animation-tips-illustration-clip.md`](2026-09/2026-09-09-animation-tips-illustration-clip.md)：定制动画「提示」卡右下角背景图被 Stack 默认裁剪切掉下沿，改为卡片零内边距 + 文案自带 padding，图按设计稿右边出血、底部齐平。
+
 - [`2026-09/2026-09-09-pairing-ssid-and-standby-inline.md`](2026-09/2026-09-09-pairing-ssid-and-standby-inline.md)：配网页 Wi-Fi 名称改为进页面强制重扫 + 回到前台刷新（不覆盖用户输入），休眠模式由二级页面改为「行为」页内第三张卡。
 
 - [`2026-09/2026-09-08-settings-profile-and-update-batch.md`](2026-09/2026-09-08-settings-profile-and-update-batch.md)：设置/我的/关于十项——分享隐藏、帮助中心搬到设备设置、OTA 进度弹层、App 强制/提示升级链路、昵称与头像修复、列表行高下划线、养护建议改本地中英文案。
