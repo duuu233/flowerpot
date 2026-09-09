@@ -416,6 +416,12 @@ class HttpAppBackendRepository implements AppBackendRepository {
       nickname: _text(data, 'nickName', fallback: '植物守护者'),
       account: _text(data, 'userMobile'),
       avatarUrl: _nullableText(data['avatar']),
+      // 字段名以 `tuYaHomeId` 为准（与 `tuYaPwd`、`tuYaRemark` 同一套写法），
+      // 另外兼容两种常见拼法，免得为了大小写再发一版。
+      tuyaHomeId:
+          _nullableText(data['tuYaHomeId']) ??
+          _nullableText(data['tuyaHomeId']) ??
+          _nullableText(data['homeId']),
       registered: registered,
     );
     if (result.userToken.isEmpty ||

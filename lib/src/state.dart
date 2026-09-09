@@ -68,6 +68,12 @@ class FlowerpotState extends ChangeNotifier {
   /// 「暂无设备」，用户重新登录后设备读不出来，看起来就像设备全没了。
   String? _deviceLoadError;
 
+  /// 本次会话开始时从本地缓存钉给原生的家庭；没有钉过就是 null。
+  ///
+  /// 用它区分「这次用的是缓存的家庭」还是「原生按涂鸦列表现挑的」——前者读出
+  /// 0 台设备时要作废缓存重来一次，后者就是账号下真的没设备。
+  String? _pinnedHome;
+
   /// 最近一次读取设备列表时所用的家庭 id（原生侧 `currentHomeId`）。
   ///
   /// 设备清单是按家庭查的，0 台设备最常见的原因不是没配上，而是这次查的家庭和
@@ -328,6 +334,7 @@ class FlowerpotState extends ChangeNotifier {
             );
       created = backendAccount.registered;
       _user = await _loginTuyaAccount(backendAccount);
+      await _applyBackendHome(backendAccount.tuyaHomeId);
     } else {
       _user = await _repository.login(
         account: normalizedAccount,
@@ -356,6 +363,7 @@ class FlowerpotState extends ChangeNotifier {
         password: normalizedPassword,
       );
       _user = await _loginTuyaAccount(backendAccount);
+      await _applyBackendHome(backendAccount.tuyaHomeId);
     } else {
       _user = await _repository.register(
         account: normalizedAccount,
@@ -2004,6 +2012,8 @@ class FlowerpotState extends ChangeNotifier {
   /// 绑定设备」的根源之一（列表顺序不保证一致，账号里又可能有第二个空家庭），
   /// 所以第一次解析到之后就按账号记在本地，之后每次会话开始先钉回去。
   Future<void> _pinKnownHome() async {
+    // 后端刚在登录响应里给过家庭，那份优先，不要被本地缓存覆盖。
+    if (_pinnedHome != null) return;
     final uid = _user?.id ?? '';
     if (uid.isEmpty) return;
     try {
@@ -2011,9 +2021,48 @@ class FlowerpotState extends ChangeNotifier {
       final stored = preferences.getString(_homeKey(uid)) ?? '';
       if (stored.isEmpty) return;
       await _repository.useHome(stored);
+      _pinnedHome = stored;
       _lastHomeId = stored;
     } catch (_) {
       // 本地存储或桥接不支持时按「没有固定家庭」处理，退回原生自己解析。
+    }
+  }
+
+  /// 后端在登录响应里带回来的家庭 id（`tuYaHomeId`）。
+  ///
+  /// 这一份最权威：家庭 id 是涂鸦云端分配的，后端按账号存一份，换手机、重装、
+  /// 清数据之后仍然能用同一个家庭——本地缓存做不到。拿到就立刻钉给涂鸦，同时写
+  /// 进本地缓存，之后即使某次登录后端没带也接得上。后端还没下发时什么都不做，
+  /// 退回本地缓存 + 涂鸦家庭列表解析。
+  Future<void> _applyBackendHome(String? homeId) async {
+    final id = homeId?.trim() ?? '';
+    if (id.isEmpty || id == '0') return;
+    try {
+      await _repository.useHome(id);
+      _pinnedHome = id;
+      _lastHomeId = id;
+      await _rememberHome(id);
+    } catch (_) {
+      // 桥接不支持就退回本地缓存那条路。
+    }
+  }
+
+  /// 丢掉本地钉住的家庭，让原生按涂鸦返回的列表重新解析一次。
+  ///
+  /// **涂鸦给的永远是准的**，本地这份只是让「每次登录选到同一个家庭」这件事稳定
+  /// 下来的缓存。缓存一旦指向一个读不出设备的家庭（用户在涂鸦 App 里删了它、
+  /// 换了账号、或者当初就记错了），必须立刻作废，不能让它把人锁死在 0 台上。
+  Future<void> _dropPinnedHome() async {
+    final uid = _user?.id ?? '';
+    _pinnedHome = null;
+    try {
+      await _repository.useHome('');
+      if (uid.isNotEmpty) {
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.remove(_homeKey(uid));
+      }
+    } catch (_) {
+      // 清不掉也不要紧：下一次成功读到设备时会用新的家庭覆盖掉。
     }
   }
 
@@ -2033,8 +2082,17 @@ class FlowerpotState extends ChangeNotifier {
   Future<void> _refreshDevicesForSession({required bool ignoreErrors}) async {
     final epoch = _sessionEpoch;
     try {
-      final devices = await _repository.getDevices();
+      var devices = await _repository.getDevices();
       if (epoch != _sessionEpoch) return;
+      // 用缓存的家庭却一台设备都没读到：极可能这个家庭已经不是设备所在的那个
+      // （用户在涂鸦 App 里删过家庭、或者当初记错了）。作废缓存，让涂鸦的家庭
+      // 列表重新决定一次——以涂鸦返回的为准，本地那份只是缓存。
+      if (devices.isEmpty && _pinnedHome != null) {
+        await _dropPinnedHome();
+        if (epoch != _sessionEpoch) return;
+        devices = await _repository.getDevices();
+        if (epoch != _sessionEpoch) return;
+      }
       _deviceLoadError = null;
       // 设备清单是按家庭查的，把这次用的家庭一起记下来：上面那次 getDevices 已经
       // 把家庭解析并缓存在原生侧，这里只是把它读回来，不会再触发一次云端查询。
@@ -2215,6 +2273,7 @@ class FlowerpotState extends ChangeNotifier {
     _user = null;
     _devices = <SmartPlanterDevice>[];
     _deviceLoadError = null;
+    _pinnedHome = null;
     _plantedDevices.clear();
     _plantOverrides.clear();
     _settingsOverrides.clear();

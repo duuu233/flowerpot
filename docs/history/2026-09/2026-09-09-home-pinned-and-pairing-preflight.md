@@ -56,3 +56,20 @@
 - 真机未验证：需要走一次完整配网，确认准备阶段的遮罩出现且很快消失、日志里 `home pinned to …` 与 `home picked …` 对得上，配网完成后设备出现在同一个家庭。
 - 已经被写进第二个空家庭的老设备不会自动搬家：本轮只保证今后固定用同一个家庭。若用户账号里已有两个家庭且设备在"不是最小 homeId"的那个里，第一次解析仍可能挑错——挑错时页面底部的诊断行会显示家庭 id，可据此在涂鸦后台确认。
 - `setHomeId` 只在会话开始钉一次；用户在涂鸦 App 里删掉那个家庭的极端情况没有处理，此时设备列表会读到空，需要清掉本地记录（重新登录即可再解析一次）。
+
+---
+
+## 追加（同日）：家庭 id 改由后端在登录接口返回
+
+维护者确认「家庭 id 就用涂鸦给的，后端按账户存一份、在登录接口返回」。补充实现：
+
+- `BackendAuthAccount` 新增 `tuyaHomeId`，从登录 / 注册响应解析，字段名以 **`tuYaHomeId`** 为准（与既有的 `tuYaPwd`、`tuYaRemark` 同一套写法），另兼容 `tuyaHomeId`、`homeId` 两种拼法。
+- 登录、注册成功后立刻 `_applyBackendHome`：把后端给的家庭钉给涂鸦（`useHome`），并写进本地缓存；`_pinKnownHome` 遇到已经钉过就不再用本地那份覆盖。**优先级：后端 > 本地缓存 > 涂鸦家庭列表现挑。**
+- **自愈**：用钉住的家庭读设备却拿到 0 台时，作废这份缓存（`useHome('')` + 删本地记录）并立刻重读一次，让涂鸦返回的列表重新决定——缓存永远只是缓存，涂鸦给的才是准的。iOS 的 `setHomeId` 收到空值时改为清掉 `currentHome`，否则这条作废路径在 iOS 上无效。
+
+### 需要后端配合的两件事
+
+1. **登录 / 注册响应（`UserInfoDetailApiOut`）增加 `tuYaHomeId`**（String 或 Long 都可以，App 都按字符串处理；没有值时给 null 或不返回）。当前 Swagger 里这个模型只有 `userToken`、`userNo`、`tuYaPwd`、`countryCode`、`nickName`、`avatar`、`userMobile`、`userEmail`，还没有这个字段。
+2. **一个保存接口**，让 App 在第一次解析 / 创建出家庭之后把 id 回写给后端，例如 `POST /Client/User/setTuyaHomeId`，入参 `{userToken, tuYaHomeId}`。没有这一步的话，后端手里永远不会有值——家庭 id 只有 App 侧在调涂鸦时才拿得到。
+
+第 2 条的接口定下来之前，App 侧维持「本地缓存 + 自愈」，功能不受影响，只是换手机 / 重装后要重新解析一次。

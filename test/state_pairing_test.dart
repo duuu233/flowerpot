@@ -245,7 +245,31 @@ void main() {
       verificationCode: false,
     );
 
-    expect(repository.pinnedHome, '999');
+    // 会话一开始钉的就是记下来的那个；本轮 Mock 名下没有设备，随后会走作废重来
+    // 那条路，所以这里看的是第一次调用。
+    expect(repository.pinnedHomes.first, '999');
+    expect(state.lastHomeId, isNotNull);
+  });
+
+  testWidgets('钉住的家庭读不到设备就作废重来，以涂鸦返回的为准', (tester) async {
+    // 缓存里的家庭已经不是设备所在的那个（用户删过家庭、或当初记错了）。第一次
+    // 读到 0 台就必须丢掉缓存、让原生按涂鸦的列表重新解析，否则用户被永久锁在
+    // 「一台设备都没有」上。
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'tuyaHome:mock-user': '999',
+    });
+    final repository = _PairingRepository();
+    final state = await _stateFor(tester, repository);
+
+    await state.login(
+      account: 'demo@flowerpot.local',
+      credential: 'demo',
+      region: LoginRegion.overseas,
+      verificationCode: false,
+    );
+
+    expect(repository.pinnedHomes, <String>['999', ''], reason: '先钉住，再作废');
+    expect(repository.deviceListCalls, 2, reason: '作废之后按涂鸦的列表重读一次');
     expect(state.lastHomeId, isNotNull);
   });
 
@@ -321,7 +345,8 @@ class _PairingRepository extends MockTuyaRepository {
   /// 配网准备阶段查到的家庭；抛错表示这时查不到（例如手机已经在设备热点上）。
   String homeId = '123456';
   TuyaException? homeError;
-  String? pinnedHome;
+  /// 每次 `useHome` 的入参，按顺序记下来：空串表示作废当前固定的家庭。
+  final List<String> pinnedHomes = <String>[];
   int homeCalls = 0;
   TuyaException? pairError;
   bool pairHangs = false;
@@ -341,7 +366,7 @@ class _PairingRepository extends MockTuyaRepository {
   }
 
   @override
-  Future<void> useHome(String homeId) async => pinnedHome = homeId;
+  Future<void> useHome(String homeId) async => pinnedHomes.add(homeId);
 
   @override
   Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {

@@ -286,7 +286,8 @@ final class FlowerpotTuyaBridge: NSObject {
   private func setHome(_ args: [String: Any], _ result: @escaping FlutterResult) {
     guard let text = args["homeId"] as? String, let id = Int64(text),
           let home = ThingSmartHome(homeId: id) else {
-      // 记下来的值不可用就当没记过，退回正常解析。
+      // 传空或不可用的值 = 作废当前固定的家庭，下次调用重新按涂鸦的列表解析。
+      currentHome = nil
       result(nil)
       return
     }
