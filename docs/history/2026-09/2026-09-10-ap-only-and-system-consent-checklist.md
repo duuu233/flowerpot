@@ -152,6 +152,53 @@ adb shell dumpsys package com.tuya.smartlife | grep -i targetSdk
 ⚠️ 以上三条**都没有在真机验证过**，`targetSdk` 那条也还只是待验证的推断——但它是目前唯一能
 解释「同机同设备、官方 App 静默连上」的机制。
 
+## 三点七、结论落定：授权框去不掉；官方 AP 流程本来就是「用户自己去系统设置连」
+
+向涂鸦官方渠道求证过两轮，加上对官方文档与 Maven 仓库的实测，结论已经可以定下来。
+
+### 实测一：官方文档里没有那个「Kit」
+
+第一轮答复声称有个 `ThingSmartHotspotCredentialKit`，接入后即可静默连接。实测：
+
+- **Maven 仓库不存在**。探测 `maven-releases` 与 `maven-commercial-releases` 两个仓库
+  （即本项目 `android/build.gradle.kts` 配的那两个），4 个 groupId × 3 种命名 × 2 个仓库的
+  `maven-metadata.xml` **全部 404**；同法探测 `com.thingclips.smart:thingsmart` 与
+  `thingsmart-expansion-sdk` 均 200，证明探测方法有效。
+- **它给的两篇官方文档里也没有**。抓取
+  `developer.tuya.com/cn/docs/iot/ap-mode?id=K9obrofrfk4sk` 与
+  `.../device-sdk-android?id=Ka8qhzkgfr4uh`（均 200、正文完整，「热点配网」分别出现 21 / 2 次），
+  `HotspotCredential`、`CredentialKit`、`ThingApActivator`、`WifiNetworkSpecifier`
+  **四个关键词出现次数都是 0**。
+
+第二轮答复已自行改口：该组件「未公开发布、不向第三方开放」。
+
+### 实测二：官方 AP 流程原文
+
+`ap-mode` 文档原话：
+
+> 在 Wi-Fi 设置页面中找到以 SmartLife 开头的 Wi-Fi 热点，并单击进行连接。**连接成功后，再返回
+> App**，即可开始配网流程。……同时手机连接的 Wi-Fi 必须为 2.4GHz 频段。
+
+**涂鸦自己记载的 AP 流程就是「用户到系统设置里手动连热点，再回 App」**——App 不发起连接，
+所以没有授权框，代价是用户跑一趟系统设置。
+
+### 结论
+
+1. **Android 10+ 没有任何公开 API 能让普通第三方应用绕开入网授权**（第二轮答复也确认了这一点）。
+2. **我们现在的做法比官方文档记载的流程更省事**：由 App 发起连接，用户只需在系统框上点一下
+   「连接」，不必跑系统设置。这**一个框换掉了一整趟设置之旅**，不该为了消掉它退回手动引导。
+3. 「智能生活不弹框」最可能的解释是**手机里已经保存过那个热点**：`smartlife_xxx` 一旦连过一次
+   就会被系统记住，设备再开机时手机会**自动重连**，App 打开时早已在热点上，于是既不跳设置也
+   不弹框。**我们的实现在同样情形下同样不弹**——`_joinHotspotForPairing` 会先看当前 SSID，
+   已经连在目标热点上就跳过 `requestNetwork`（2026-09-10 补的）。
+   **验证：在测试机上看「设置 → WLAN → 已保存的网络」里有没有 `smartlife_xxx`。**
+4. 由此，授权框实际上主要出现在**第一次配某台设备**时；之后手机记住热点，多半不再出现。
+
+⚠️ 第 3 条仍是推断，需要按上面那句去测试机上核实。涂鸦第二轮给的「厂商预置白名单」说法
+无法验证、也与第 3 条不冲突，不影响端上结论。
+
+**因此本轮不改代码**：当前实现（App 发起连接 + 已连上则跳过）已经是可行方案里步骤最少的。
+
 ## 四、如果确认「必须让用户少一步」，可选的方向（都要产品决定，本轮未做）
 
 | 方向 | 效果 | 代价 |
