@@ -146,7 +146,12 @@ void main() {
     // The raw code stays visible for diagnosis, after the actionable line.
     expect(subtitle.data, contains('手机没有连上设备热点'));
     expect(subtitle.data, contains('（hotspot_join_cancelled）'));
-    expect(subtitle.data, isNot(contains('令牌 812ms')));
+    // 2026-09-10 起**各步耗时单独一行保留**（原来是断言它被藏掉）。失败码只说
+    // 「哪一类」，耗时才说「死在哪一步」——比如「连热点」那一段有耗时就说明热点
+    // 确实连上了、失败在之后，这是真机排查唯一能拿到的线索。
+    expect(subtitle.data, contains('令牌 812ms'));
+    // 但 `｜` 之前的那段原文仍然不重复显示：提示语已经把它说清楚了。
+    expect(subtitle.data, isNot(contains('未连上 SmartLife-A1B2')));
     expect(tester.takeException(), isNull);
   });
 

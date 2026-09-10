@@ -258,6 +258,15 @@ mThingActivator.stopActivator();
 | 207215 | 设备连云失败 |
 | 207216 | 设备激活接口失败 |
 | 207218 | 设备激云端接口请求失败 |
+| 207219 | 设备激活时连接云端 iot-dns 失败 |
+| 207220 | 配网任务整体超时 |
+| 207222 | 获取设备 Wi-Fi 列表失败 |
+
+> 补记（2026-09-10）：207219 / 207220 / 207222 三条是中文页当时漏掉的，从英文页
+> （`/en/docs/app-development/hotspot-mode?id=Kaixk6wxla1oy`）补齐，原文依次是
+> "Failed to connect to iot-dns in the cloud during device activation."、
+> "The pairing task timed out."、"Failed to get the Wi-Fi networks of the device."。
+> 实测拿到过 207220。
 | 207219 | 设备激活，和云端 iot-dns 连接失败 |
 | 207220 | 配网超时 |
 | 207222 | 获取设备 Wi-Fi 列表信息失败 |

@@ -27,13 +27,40 @@ class PairingFailurePage extends StatelessWidget {
     // 于是没法判断失败在哪一步。而认不得恰恰是最需要这个码的情形。
     final tag = code?.trim() ?? '';
     final suffix = tag.isEmpty ? '' : '（$tag）';
-    final hint = hintFor(code) ?? _hintForMessage(message);
-    if (hint != null) return '$generic\n$hint$suffix';
+    final hint = hintFor(code) ?? _hintForUnknownTuyaCode(tag) ?? _hintForMessage(message);
+    // 各步耗时（原流程会在消息里带 `｜令牌 812ms · 连热点(xxx) 1.2s · 配网 120s`）
+    // 单独留一行：它回答的是「失败在哪一步」，而那往往比失败码本身更能定位问题
+    // ——比如「连热点」那一段有耗时就说明热点确实连上了，失败在之后。
+    final steps = _stepsOf(message);
+    final tail = steps == null ? '' : '\n$steps';
+    if (hint != null) return '$generic\n$hint$suffix$tail';
     final detail = message?.trim() ?? '';
     if (detail.isEmpty) {
       return tag.isEmpty ? generic : '$generic\n失败码 $tag';
     }
     return '$generic\n$detail$suffix';
+  }
+
+  /// 消息里 `｜` 之后那段各步耗时。没有就返回 null。
+  static String? _stepsOf(String? message) {
+    final text = message ?? '';
+    final index = text.indexOf('｜');
+    if (index < 0 || index + 1 >= text.length) return null;
+    final steps = text.substring(index + 1).trim();
+    return steps.isEmpty ? null : steps;
+  }
+
+  /// 登记表里没有、但明显是涂鸦配网码的那些。
+  ///
+  /// 2026-09-10 测试碰到一个 `2070xx`（「设备连接超时」），而**官网公开文档里查不到
+  /// 这一族**：存档的新流程错误码表只有 207201–207218，错误码总表也没有 2070xx。
+  /// 既然查不到确切含义就不编，只按**族**给一句话：207 开头的都发生在「App 与设备
+  /// 建立通道 / 下发凭据」这一段，所以能照着做的事是固定的那几条。原始码照常带出来，
+  /// 拿去问涂鸦工单用。
+  static String? _hintForUnknownTuyaCode(String code) {
+    if (!code.startsWith('207') || code.length < 5) return null;
+    return '配网在「App 与设备通信」这一段失败：请给设备断电重启（重新上电后它会自动'
+        '重开热点），确认手机靠近设备、本次没有取消系统的入网授权框，然后重试';
   }
 
   /// 码认不出来时，退一步看涂鸦给的那句原文。
@@ -80,6 +107,13 @@ class PairingFailurePage extends StatelessWidget {
     '207213' => '路由器没给设备分配到 IP（DHCP 失败），请重启路由器后重试',
     '207214' || '207216' || '207218' => '设备激活失败，请稍后重试；持续失败请联系客服',
     '207215' => '设备连上了路由器但没能连上云端：确认这个网络可以正常上网',
+    '207219' => '设备连不上涂鸦云的域名解析服务：确认这个 Wi-Fi 能正常上网、没有被路由器做 DNS 拦截',
+    // 207220 是**整体超时**，不指向某一步。真正有用的信息在下面那行各步耗时里：
+    // 「连热点」有耗时说明热点连上了、失败在之后；只有「连热点」没有「查设备」
+    // 说明通道没建起来。
+    '207220' => '配网任务整体超时，设备全程没有报过进展：请给设备断电重启（重新上电后它会'
+        '自动重开热点），配网时不要取消系统弹出的入网授权框，并确认填的是 2.4GHz 网络',
+    '207222' => '读不到设备扫到的 Wi-Fi 列表（不影响配网，用手机当前连着的网络即可）',
     _ => null,
   };
 

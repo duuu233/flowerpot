@@ -217,13 +217,14 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       ssid: ssidController.text.trim(),
       password: passwordController.text,
     );
-    // 按设备方给的流程走：**手机连接设备热点 → 通过热点下发路由器 SSID/密码**。
-    // 这两步都在 `pairViaDeviceHotspot` 里，见它的文档注释。
+    // 全按涂鸦的**新流程**走（2026-09-10 产品决定：「都按新流程来」）。
     //
-    // ⚠️ 连热点这一步 2026-09-10 白天曾被整个去掉（赌 `startActivator` 自己会连），
-    // 结果配网以 `out of time` 失败且**没有任何 207xxx**——通道压根没建起来。现在
-    // 显式连回来，Android 10+ 上会弹一次系统入网授权框，但只在用户点了「开始配网」
-    // 之后出现，是流程里预期的一步。
+    // `pairViaDeviceHotspot` 里是官方新流程的完整序列，见它的文档注释：
+    // 手机连设备热点 → `queryDeviceConfigState` 建通道并查设备状态 →
+    // `startActivator` 下发路由器凭据。这也正好是设备方给的流程：
+    //
+    // > 未激活设备开机后自动开启 Wi-Fi 热点 → **手机连接该热点**
+    // > → App 通过热点下发目标路由器 SSID/密码 → 设备自动切换连网并连云激活
     //
     // 令牌与设备安全配置由搜索页在**还连着路由器**时预取（`prepareForPairing`）：
     // 一连上设备热点手机就没有外网，那两件事都要走云端。
