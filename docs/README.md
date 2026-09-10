@@ -30,6 +30,7 @@
 | [`FLUTTER_PROJECT_ARCHITECTURE.md`](FLUTTER_PROJECT_ARCHITECTURE.md) | Design Reference | 目标架构；与当前源码冲突时不作为实现事实。 |
 | [`UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`](UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md) | Active | 本项目 UI 页面和组件实施规范。 |
 | [`UI/UI_ASSET_INTEGRATION_PROGRESS.md`](UI/UI_ASSET_INTEGRATION_PROGRESS.md) | Tracking | 图片和图标接入进度。 |
+| [`PRODUCT_RULES.md`](PRODUCT_RULES.md) | Active | **产品口径与硬性要求**（必须怎样 / 绝对不要怎样）。动手前先读；与它冲突的改动先停下来问。技术事实在 `AI_CONTEXT.md`，试错过程在 `history/`。 |
 | [`TUYA_CAPABILITY_AUDIT.md`](TUYA_CAPABILITY_AUDIT.md) | Active | 项目功能点逐条对照涂鸦官方文档：哪些已用官方 API、哪些涂鸦不支持只能自研、哪些接错了 SDK。 |
 | [`reference/`](reference/) | Reference | 涂鸦官方文档的本地存档（AP 热点模式 Android / iOS、扩展 SDK），仅作依据引用，不是本项目口径。 |
 | [`history/README.md`](history/README.md) | Active | 本地操作更新记录规则、模板与索引。 |

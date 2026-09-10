@@ -1,5 +1,7 @@
 # AI 项目上下文
 
+> **产品口径与硬性要求看 [`docs/PRODUCT_RULES.md`](docs/PRODUCT_RULES.md)**（必须怎样 / 绝对不要怎样）。本文件只放**技术事实**，试错过程在 `docs/history/`。三者不重复。
+
 > 文档类型：当前项目上下文
 > 状态：Active
 > 最后核验：2026-09-10
