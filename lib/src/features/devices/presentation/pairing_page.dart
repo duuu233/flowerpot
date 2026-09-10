@@ -89,6 +89,9 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// 已经不能查 InheritedWidget，所以发起时就把引用留下。
   FlowerpotState? _pairingState;
 
+  /// 本页拿到过的状态对象，`dispose` 里用来还原网络（那时已不能查 InheritedWidget）。
+  FlowerpotState? _scopeState;
+
   /// 本页发起的配网正在跑。用它而不是 `state.busy` 来决定是否盖进度页：busy 是
   /// 全局操作锁，别处的写操作也会把它拉起来。
   bool _pairing = false;
@@ -118,7 +121,15 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     final state = _pairingState;
     if (state != null) {
       _pairingState = null;
+      // 配网还在跑：中止它（内部会一并解开网络绑定）。
       unawaited(state.cancelPairing());
+    } else {
+      // ⚠️ **没跑配网也要把手机的 Wi-Fi 还回去。** 进这一页时手机已经挂在设备热点上
+      // （搜索页连的），用户在这里直接返回、或者输到一半退出，不还原就等于把他的手机
+      // 撂在一个没网的热点上。改之前这里只在"配网真的跑起来过"时才处理，退回来那条
+      // 路径整个漏掉了。
+      final scope = _scopeState;
+      if (scope != null) unawaited(scope.releaseDeviceHotspot());
     }
     ssidController.dispose();
     passwordController.dispose();
@@ -132,6 +143,17 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// 配网过程中不刷新：那时手机是故意挂在设备热点上的。
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
+    // 切到后台：**把手机的 Wi-Fi 还回去**，别把用户撂在一个没网的设备热点上。
+    // 用户可能只是去别处看一眼 Wi-Fi 密码，也可能就此不回来了——后者若不还原，
+    // 手机会一直没网直到进程被杀。回到本页时 `resumed` 会重新读一次网络；真要配网时
+    // `pairViaDeviceHotspot` 的第①步会重新连热点（已连则跳过）。
+    //
+    // ⚠️ 配网跑起来之后不能放：那会把正在用的通道掐断。
+    if (lifecycleState == AppLifecycleState.paused) {
+      if (_pairing) return;
+      unawaited(_scopeState?.releaseDeviceHotspot());
+      return;
+    }
     if (lifecycleState != AppLifecycleState.resumed || _pairing) return;
     unawaited(_loadNetworks());
   }
@@ -150,6 +172,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   Future<void> _loadNetworks() async {
     if (!mounted) return;
     final state = FlowerpotScope.of(context);
+    _scopeState = state;
     await state.probeWifi(refresh: false);
     if (!mounted) return;
     _applyCurrentSsid(state);

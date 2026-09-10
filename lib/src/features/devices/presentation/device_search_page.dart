@@ -57,7 +57,7 @@ class DeviceSearchPage extends StatefulWidget {
 }
 
 class _DeviceSearchPageState extends State<DeviceSearchPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   /// 当前平台能不能列出附近的 Wi-Fi。
   ///
   /// **iOS 不能，而且没有替代方案**：系统没有任何公开 API 可以枚举附近热点
@@ -156,6 +156,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 连热点失败时的原因，画在页面上让用户能照着做。
   String? _hotspotError;
 
+  /// 连过热点的那个状态对象。
+  ///
+  /// [dispose] 里已经不能查 InheritedWidget，所以连上的那一刻就把引用留下——离开本页
+  /// 时要靠它把手机的 Wi-Fi 还回去。
+  FlowerpotState? _hotspotState;
+
   /// 「取令牌 + 确认家庭」这两步云端请求的预取。
   ///
   /// ⚠️ **必须在手机还连着路由器的时候跑完。** 涂鸦文档原文：「开始配网之前，
@@ -191,11 +197,42 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       vsync: this,
       duration: const Duration(seconds: 4),
     )..repeat();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scan());
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
+    // 切到后台就把手机的 Wi-Fi 还回去——热点已经连上时，用户手机是没有外网的。
+    //
+    // ⚠️ 正在连的那一刻不能放：系统的入网确认框会把本页 pause，这时放等于自己把刚
+    // 发出去的请求撤回。`_connecting` 正好覆盖那一段。
+    if (lifecycleState != AppLifecycleState.paused) return;
+    if (_connecting) return;
+    final state = _hotspotState;
+    if (state == null) return;
+    unawaited(state.releaseDeviceHotspot());
+    if (!mounted) return;
+    // 连接已经不在了，界面要如实反映：回到「点连接」之前的状态，让用户重来一次。
+    setState(() {
+      _hotspotReady = false;
+      _autoOpened = false;
+    });
+  }
+
+  @override
   void dispose() {
+    // ⚠️ **离开本页一定要把手机的 Wi-Fi 还回去。** 扫到设备就自动连了它的热点，那条
+    // 连接期间手机是真的离开了路由器、没有外网；用户如果在这里返回、或者一路配完网
+    // 退回来，不还原就等于把他的手机撂在一个没网的热点上。
+    //
+    // 无条件调、不判断"是不是已经交接给下一页"：这一步幂等，而漏放的代价（用户莫名
+    // 断网）远大于多调一次。本页在配网期间不会被 dispose——下一页是 push 上去的，
+    // 本页一直在栈里，只有整条动线退出时才轮到这里。
+    final state = _hotspotState;
+    _hotspotState = null;
+    if (state != null) unawaited(state.releaseDeviceHotspot());
+    WidgetsBinding.instance.removeObserver(this);
     _autoOpenTimer?.cancel();
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
@@ -382,6 +419,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     await _prepared;
     if (!mounted) return;
     final result = await state.connectDeviceHotspot(hotspotSsid: hotspot.ssid);
+    // 只要发起过连接就记下引用：即便结果是失败，也可能已经留下半条连接要放。
+    _hotspotState = state;
     if (!mounted) return;
     setState(() {
       _connecting = false;

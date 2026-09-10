@@ -631,6 +631,26 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   /// 新流程第二步：把路由器凭据下发给设备。
+  /// 放掉设备热点连接，把手机的 Wi-Fi **还原回原来那个网络**。
+  ///
+  /// 我们用 `WifiNetworkSpecifier` 连设备热点期间，手机是真的离开了路由器、**没有外网**。
+  /// 原生的 `leaveDeviceHotspot` 会取消那个网络请求并解开进程绑定，系统随即自动切回
+  /// 已保存的路由器——所以"还原"这件事只要**保证调到**就行。
+  ///
+  /// ⚠️ **每一条离开配网动线的路径都必须调它**，包括配网成功那条：成功之后设备会关掉
+  /// 自己的热点，进程若还绑在那个已经消失的网络上，紧接着读设备列表就会失败——看起来
+  /// 就是「配网成功但读不到设备」。
+  ///
+  /// 不走 [_guard]、不抛错、可以重复调：它的职责就是"无论如何把网络还回去"，
+  /// 任何一次调用失败都不该盖过调用方真正要报的东西。
+  Future<void> releaseDeviceHotspot() async {
+    try {
+      await _repository.leaveDeviceHotspot();
+    } catch (_) {
+      // 没有连接可放、平台没实现，都不影响。
+    }
+  }
+
   /// 单独把手机连到设备热点上，不配网。
   ///
   /// 2026-09-10 产品定的动线：**搜索页扫到设备就先把热点连上**，之后才让用户选路由器
@@ -793,6 +813,10 @@ class FlowerpotState extends ChangeNotifier {
         timeout: timeout,
       );
       mark('配网');
+      // ⚠️ 凭据已经交给设备，它随即关掉热点去连路由器。**这里必须马上把手机的 Wi-Fi
+      // 还回去**：下面要读设备列表、要连云端，而进程这时还绑在那个已经消失的网络上。
+      // 少了这一句，表现就是「配网成功但读不到设备信息」。
+      await releaseDeviceHotspot();
       _setPairingStage(PairingStage.connectingCloud);
       // 涂鸦真报了进度就不用再装：那 1–2 秒随机停留是因为第三步原来**没有任何真实
       // 信号**（见 [_cloudStageDelay]）。现在有 `onStep` 了，有就用真的。
