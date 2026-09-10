@@ -13,8 +13,8 @@ class PairingFailurePage extends StatelessWidget {
   /// 涂鸦返回的原始失败原因。
   ///
   /// 正式包也照常显示：那句产品文案分不出超时、密码错和设备已被绑定，只看它
-  /// 无法判断该改什么。[message] 已经由 `FlowerpotState` 打上来源标签（形如
-  /// `涂鸦-<code> 原文`），所以这里不再重复拼 [code]。
+  /// 无法判断该改什么。2026-09-10 起 [message] 是**不带来源前缀的原文**（产品要求
+  /// toast 直接给内容），所以认得的失败码由这一页自己补在括号里。
   final String? code;
   final String? message;
 

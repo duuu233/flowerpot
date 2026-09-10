@@ -114,7 +114,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 - 设计系统：统一色彩、间距、资源、页面骨架和公共 Widget。所有提示/确认弹窗走 `AppDialog`（`design_system/widgets/dialogs/app_dialog.dart`），版式取自兄弟项目 `flutter` 的同名组件、配色换成 YSplanter 的品牌青；页面里不再出现 Material `AlertDialog`。
 - OTA：设备固件版本取涂鸦 `DeviceBean.verSw` / `ThingSmartDeviceModel.verSw`（Android 曾误取协议版本 `pv`，2026-09-09 修正）；`checkFirmware` 两端都返回 `{version, currentVersion}`，成对来自同一条 OTA 记录（`upgradeStatus == 1` 那条），Dart 侧是 `FirmwareUpdate`，弹窗「当前版本」优先用 `currentVersion`、取不到才退回设备字段——设备可能有 MCU / Wi-Fi 模块多个可升级组件，混着取会让两行版本号对不上。
 - 会话：APP 后端 token 无客户端 TTL（`ApiSession` 持久化、不过期）。后端回 401/406 时**只清后端会话**（`_handleBackendSessionExpired`），涂鸦会话与设备列表保留——设备、DP、配网、固件全走涂鸦，与后端 token 无关；失效原因进 `sessionDiagnostics` 的「后端会话：…」，`ApiClient` 另打一行 `[session] 后端会话失效：<METHOD> <path> → HTTP/retCode`（只记路径，不记 token）。2026-09-09 之前这里是 `_clearLocalSession()`，一次 406 就把用户整个踢回登录页。
-- 联调工具：**已删除**。2026-09-09 的代码审核把涂鸦 SDK 联调台（`/devtools/tuya`）、体验模式与静态预览开关整体移出产品包，登录页和「我的」页的入口一并去掉。现在排查靠三样：设备列表页底部的 `sessionDiagnostics` 一行、`[devices]` / `[session]` / `[pair]` 日志、以及 `ActionResult.code`。
+- 联调工具：**已删除**。2026-09-09 的代码审核把涂鸦 SDK 联调台（`/devtools/tuya`）、体验模式与静态预览开关整体移出产品包，登录页和「我的」页的入口一并去掉。现在排查靠三样：设备列表页底部的 `sessionDiagnostics` 一行、`[devices]` / `[session]` / `[pair]` 日志、以及 `ActionResult.code`。**2026-09-10 起 toast 文案不带来源前缀**（`接口-` / `涂鸦-` / `APP-` 已从用户可见文案中去掉，产品要求直接给内容）——来源标签只保留在**诊断行**上（`FlowerpotState._diagnostic`，用于 `sessionDiagnostics` 与 `_backendSessionError`），排查时的来源信息仍可从 `ActionResult.code` 拿到。
 
 功能完成度以 [`docs/PRD_IMPLEMENTATION.md`](docs/PRD_IMPLEMENTATION.md) 为跟踪入口，UI 实施要求以 [`docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`](docs/UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md) 为准。
 

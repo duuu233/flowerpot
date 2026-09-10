@@ -455,7 +455,7 @@ class FlowerpotState extends ChangeNotifier {
     if (_wifiScanning) {
       return const ActionResult(
         false,
-        'APP-wifi_scanning 正在扫描附近网络，请稍候',
+        '正在扫描附近网络，请稍候',
         code: 'wifi_scanning',
       );
     }
@@ -1999,7 +1999,7 @@ class FlowerpotState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 给失败文案打上来源标签，toast 上一眼看出是谁拒绝了这次请求：
+  /// **给排查用的**来源标签，形如 `接口-406 ...` / `涂鸦-1006 ...` / `APP-busy ...`：
   ///
   /// - `接口-<code>`：APP 后端 REST 返回的失败（`retCode` 或 HTTP 状态码）；
   /// - `涂鸦-<code>`：涂鸦 SDK 原生层返回的失败，与 APP 后端无关；
@@ -2007,7 +2007,11 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// 涂鸦单列而不并进「接口」：两者是不同的服务，混成一类会把涂鸦拒绝的登录
   /// 指向 APP 后端，排查方向正好反了。
-  static String _tagged(String source, Object code, String message) =>
+  ///
+  /// ⚠️ **只用在诊断行上，不进 toast**（2026-09-10 产品要求：toast 直接给内容）。
+  /// 用户看到「接口-406」帮不上任何忙，而排查需要的来源信息仍然在
+  /// `ActionResult.code` 里，以及设备列表页底部那行 `sessionDiagnostics`。
+  static String _diagnostic(String source, Object code, String message) =>
       '$source-$code $message';
 
   /// 后端的 `retCode` 与 HTTP 状态码都是数字；APP 网络层自己抛的是
@@ -2016,7 +2020,7 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<ActionResult> _guard(Future<ActionResult> Function() action) async {
     if (_busy) {
-      return const ActionResult(false, 'APP-busy 请等待当前操作完成', code: 'busy');
+      return const ActionResult(false, '请等待当前操作完成', code: 'busy');
     }
     _busy = true;
     notifyListeners();
@@ -2037,13 +2041,13 @@ class FlowerpotState extends ChangeNotifier {
     } on AuthValidationException catch (error) {
       return ActionResult(
         false,
-        _tagged('APP', 'invalid_input', error.message),
+        error.message,
         code: 'invalid_input',
       );
     } on TuyaException catch (error) {
       return ActionResult(
         false,
-        _tagged('涂鸦', error.code, error.message),
+        error.message,
         code: error.code,
       );
     } on ApiException catch (error) {
@@ -2052,13 +2056,13 @@ class FlowerpotState extends ChangeNotifier {
       }
       return ActionResult(
         false,
-        _tagged(_apiSource(error.code), error.code, error.message),
+        error.message,
         code: error.code.toString(),
       );
     } catch (error) {
       return ActionResult(
         false,
-        _tagged('APP', 'unexpected_error', '操作失败：$error'),
+        '操作失败：$error',
         code: 'unexpected_error',
       );
     }
@@ -2073,7 +2077,7 @@ class FlowerpotState extends ChangeNotifier {
   /// 植物目录、意见反馈）会各自报「APP 后端登录状态已失效，请重新登录」。
   void _handleBackendSessionExpired(ApiException error) {
     _backend.clearSession();
-    _backendSessionError = _tagged(
+    _backendSessionError = _diagnostic(
       _apiSource(error.code),
       error.code,
       error.message,
@@ -2275,9 +2279,9 @@ class FlowerpotState extends ChangeNotifier {
   void _logDevices() => debugPrint('[devices] $sessionDiagnostics');
 
   static String _deviceLoadMessage(Object error) => switch (error) {
-    TuyaException tuya => _tagged('涂鸦', tuya.code, tuya.message),
-    ApiException api => _tagged(_apiSource(api.code), api.code, api.message),
-    _ => _tagged('APP', 'device_list_failed', '设备列表读取失败：$error'),
+    TuyaException tuya => _diagnostic('涂鸦', tuya.code, tuya.message),
+    ApiException api => _diagnostic(_apiSource(api.code), api.code, api.message),
+    _ => _diagnostic('APP', 'device_list_failed', '设备列表读取失败：$error'),
   };
 
   SmartPlanterDevice _withLocalOverrides(SmartPlanterDevice device) {

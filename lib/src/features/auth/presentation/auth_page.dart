@@ -81,7 +81,7 @@ class _AuthPageState extends State<AuthPage> {
       );
       return;
     }
-    // 号码格式不对就别去后端换那句带 `APP-invalid_input` 前缀的红字了，当场说清楚。
+    // 号码格式不对就别送到后端去换一句一样的红字了，当场说清楚。
     if (_rejectInvalidAccount()) return;
     final state = FlowerpotScope.of(context);
     final result = await state.login(

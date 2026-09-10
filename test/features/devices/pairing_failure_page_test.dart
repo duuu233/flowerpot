@@ -107,7 +107,7 @@ void main() {
         home: const PairingFailurePage(
           request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
           code: 'hotspot_join_cancelled',
-          message: '涂鸦-hotspot_join_cancelled 未连上 SmartLife-A1B2｜令牌 812ms',
+          message: '未连上 SmartLife-A1B2｜令牌 812ms',
         ),
       ),
     );
