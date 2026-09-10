@@ -619,14 +619,22 @@ class FlowerpotState extends ChangeNotifier {
   Future<ActionResult> connectDeviceForPairing({
     Duration timeout = const Duration(seconds: 60),
   }) => _guard(() async {
+    // 这一步覆盖进度页的前两步：先和设备建立通道（`connectingDevice`），通道通了设备
+    // 才能去扫 Wi-Fi。列表拿回来就意味着「设备找网络」也做完了，所以成功后把阶段推到
+    // `deviceScanning` 再收尾——这样进度页上那两行的状态是真的，不是排出来的。
     _setPairingStage(PairingStage.connectingDevice);
+    var scanned = false;
     try {
       final networks = await _repository.apQueryDeviceWifi(timeout: timeout);
       _deviceWifiNetworks = networks;
+      scanned = true;
+      _setPairingStage(PairingStage.deviceScanning);
       notifyListeners();
       return ActionResult(true, '已连接设备，读到 ${networks.length} 个可用网络');
     } finally {
-      _setPairingStage(PairingStage.idle);
+      // 成功时把阶段留在 `deviceScanning`：页面正要跳去选网络，这时归零会让进度页
+      // 闪一下回到「准备中」。失败才复位。
+      if (!scanned) _setPairingStage(PairingStage.idle);
     }
   });
 
@@ -788,14 +796,16 @@ class FlowerpotState extends ChangeNotifier {
       stepSub = _repository.pairingSteps.listen((step) {
         tuyaSteps.add(step);
         debugPrint('[pairing] step $step');
-        // 第一条 `onStep` 意味着与设备的通道已经建立；之后的都属于「设备在连路由器、
-        // 连云激活」那一段。步骤常量名文档没列，所以按**到达顺序**判断——顺序是 SDK
-        // 保证的，真机日志确认了名字之后可以改成按名字精确映射。
-        _setPairingStage(
-          tuyaSteps.length <= 1
-              ? PairingStage.sendingWifi
-              : PairingStage.connectingCloud,
-        );
+        // 按**到达顺序**推进后三步（连路由器 → 激活中 → 即将上线）。顺序由 SDK 保证；
+        // 步骤常量名官方文档没列，原生每收到一条都打 `pairing step: …`，真机日志确认
+        // 名字之后可以改成按名字精确映射。多出来的上报一律停在最后一步。
+        const tail = <PairingStage>[
+          PairingStage.connectingRouter,
+          PairingStage.activating,
+          PairingStage.goingOnline,
+        ];
+        final index = tuyaSteps.length - 1;
+        _setPairingStage(tail[index < tail.length ? index : tail.length - 1]);
       });
       // ⚠️ **这里不连热点，整条配网动线都不碰 `WifiNetworkSpecifier`。**
       //
@@ -821,9 +831,9 @@ class FlowerpotState extends ChangeNotifier {
         mark('$label 不支持列表');
       }
 
-      // ② 下发路由器凭据。
+      // ② 下发路由器凭据。凭据一发出去，设备就去连路由器了。
       pairingStarted = true;
-      _setPairingStage(PairingStage.sendingWifi);
+      _setPairingStage(PairingStage.connectingRouter);
       final device = await _repository.apStartPairing(
         ssid: ssid,
         password: password,
@@ -834,7 +844,7 @@ class FlowerpotState extends ChangeNotifier {
       // 还回去**：下面要读设备列表、要连云端，而进程这时还绑在那个已经消失的网络上。
       // 少了这一句，表现就是「配网成功但读不到设备信息」。
       await releaseDeviceHotspot();
-      _setPairingStage(PairingStage.connectingCloud);
+      _setPairingStage(PairingStage.activating);
       // 涂鸦真报了进度就不用再装：那 1–2 秒随机停留是因为第三步原来**没有任何真实
       // 信号**（见 [_cloudStageDelay]）。现在有 `onStep` 了，有就用真的。
       if (tuyaSteps.isEmpty) {
@@ -979,7 +989,7 @@ class FlowerpotState extends ChangeNotifier {
         mark('令牌');
       }
       pairingStarted = true;
-      _setPairingStage(PairingStage.sendingWifi);
+      _setPairingStage(PairingStage.connectingRouter);
       final result = await _pairInternal(
         PairingRequest(ssid: ssid, password: password, mode: 'ez'),
       );
@@ -1056,7 +1066,7 @@ class FlowerpotState extends ChangeNotifier {
       );
 
       pairingStarted = true;
-      _setPairingStage(PairingStage.sendingWifi);
+      _setPairingStage(PairingStage.connectingRouter);
       final result = await _pairInternal(
         PairingRequest(ssid: ssid, password: password, mode: 'ap'),
       );
@@ -1237,7 +1247,7 @@ class FlowerpotState extends ChangeNotifier {
   Future<ActionResult> _pairInternal(PairingRequest request) async {
     final device = await _pairOrRecover(request);
     // 凭据已经被设备收下，接下来是它自己连路由器、注册到云端。
-    _setPairingStage(PairingStage.connectingCloud);
+    _setPairingStage(PairingStage.activating);
     await Future<void>.delayed(_cloudStageDelay());
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.

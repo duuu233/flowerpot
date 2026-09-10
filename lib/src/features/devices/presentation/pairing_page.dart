@@ -184,6 +184,23 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     await state.probeWifi(refresh: false);
     if (!mounted) return;
     _applyCurrentSsid(state);
+    _maybeOpenPicker(state);
+  }
+
+  /// 进页面时若还没选网络，直接把「可用Wi-Fi」列表弹出来（照智能生活 `配网2.jpg`）。
+  ///
+  /// 走到这一页时手机已经挂在**设备热点**上，所以「带出当前 Wi-Fi 名」必然留空；既然一定
+  /// 要用户自己选，就别让他先盯着一个空输入框。只弹一次，用户关掉后不再骚扰。
+  bool _pickerOffered = false;
+
+  void _maybeOpenPicker(FlowerpotState state) {
+    if (_pickerOffered || !mounted) return;
+    if (ssidController.text.trim().isNotEmpty) return;
+    if (state.deviceWifiNetworks.isEmpty) return;
+    _pickerOffered = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_switchWifi());
+    });
   }
 
   /// 规则很简单（2026-09-10 产品口径）：
@@ -226,6 +243,26 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     await state.cancelPairing();
   }
 
+  /// 设备扫到的 Wi-Fi 列表，转成弹层用的模型；设备没给就退回手机扫到的。
+  ///
+  /// `rssi` 直接当信号强度用（弹层按它画格数），`sec != 0` 表示要密码。
+  List<WifiNetwork> _deviceNetworks(FlowerpotState state) {
+    final device = state.deviceWifiNetworks;
+    if (device.isEmpty) {
+      return state.wifiScan?.networks ?? const <WifiNetwork>[];
+    }
+    return device
+        .map(
+          (item) => WifiNetwork(
+            ssid: item.ssid,
+            level: item.rssi ?? -100,
+            // 设备扫到的都是它连得上的，一律按 2.4G 记——设备本来就只支持 2.4G。
+            frequency: 2412,
+          ),
+        )
+        .toList(growable: false);
+  }
+
   Future<void> _switchWifi() async {
     final state = FlowerpotScope.of(context);
     final value = await showModalBottomSheet<String>(
@@ -233,19 +270,22 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: .42),
-      // 列的是**手机扫到的**网络。
+      // 列的是**设备自己扫到的** Wi-Fi（`queryDeviceConfigState` 的返回）。
       //
-      // ⚠️ 2026-09-10 从「设备自己扫到的列表」改回来。那份列表要先调
-      // `connectDeviceForPairing()`（`queryDeviceConfigState`）连上设备热点才拿得到，
-      // 而那一步实测会卡死到超时；产品口径也已经定为**配网就用手机当前连着的那个
-      // 网络，不关心设备能看见哪些网络**。所以这个弹层只是「手机没连 Wi-Fi 时让用户
-      // 自己挑一个」的兜底，数据源回到 `probeWifi`。
+      // 2026-09-11 按智能生活的做法定下来（`docs/配网2.jpg`）：那一页标题「选择Wi-Fi」、
+      // 副标题「选择**设备工作**Wi-Fi并输入密码」、列表标题「可用Wi-Fi」，每行带锁图标和
+      // 信号格数——正是 `WifiInfoBean{ssid, rssi, sec}`。**设备能看见的才是它连得上的**，
+      // 比手机扫到的准；而且这时手机已经挂在设备热点上，手机自己也扫不出什么有用的。
+      //
+      // 设备列表为空时（老固件不支持 `207207`，或还没连上）退回手机扫到的网络。
       builder: (_) => _WifiSelectionSheet(
         current: ssidController.text,
-        networks: state.wifiScan?.networks ?? const <WifiNetwork>[],
+        networks: _deviceNetworks(state),
         onRefresh: () async {
-          await state.probeWifi();
-          return state.wifiScan?.networks ?? const <WifiNetwork>[];
+          // 「刷新」= 让设备重扫一遍（截图右上角那颗）。
+          await state.connectDeviceForPairing();
+          if (!context.mounted) return const <WifiNetwork>[];
+          return _deviceNetworks(state);
         },
       ),
     );
@@ -296,13 +336,17 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       _pairing = true;
       _needHotspotHint = null;
     });
-    // 固定走 AP 热点。**EZ 已于 2026-09-11 实测不支持，入口已屏蔽**
-    // （见 `docs/PRODUCT_RULES.md` 1.1）。
-    final result = await state.pairViaHotspot(
+    // 走涂鸦**新流程**（照智能生活的做法，见 `docs/配网1.jpg` / `配网2.jpg`）：
+    // 搜索页那一步已经由 `queryDeviceConfigState` 连上设备并拿到它扫到的 Wi-Fi 列表，
+    // 这里只剩 `startActivator` 下发凭据，后三步进度由 `onStep` 真实驱动。
+    //
+    // ⚠️ 要切回 AP 原流程（`223bdae^` 那版能配成的路径）：把这里换成
+    // `state.pairViaHotspot(ssid:, password:, hotspotSsid:)`，并把搜索页的
+    // `connectDeviceForPairing()` 换回 `connectDeviceHotspot(hotspotSsid:)`。
+    // 两条路径的代码都完整保留，互不干扰。
+    final result = await state.pairViaDeviceHotspot(
       ssid: request.ssid,
       password: request.password,
-      // 确切热点名：`_joinHotspotForPairing` 靠它判断"是不是已经连在目标热点上"，
-      // 判断成立就跳过 `requestNetwork`、不再弹框。
       hotspotSsid: widget.arguments?.hotspotSsid,
     );
     _pairingState = null;

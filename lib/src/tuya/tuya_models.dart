@@ -783,44 +783,75 @@ class WifiNetwork {
 ///
 /// 一次 AP 配网内部是「取令牌 → 连热点 → 下发凭据 → 等云端」，用户能理解的是
 /// 前端画的这三步，所以取令牌和连热点合成「连接设备」一步。
+/// 配网进度的五步，**按智能生活的配网页照搬**（2026-09-11 产品提供截图
+/// `docs/配网1.jpg`）。
+///
+/// 截图里那张卡片列的就是这五行，只有当前那一行带转圈、其余是待办：
+///
+/// ```
+/// 正在尝试建立连接…
+/// 设备寻找可用Wi-Fi
+/// 设备正在连接路由器…
+/// 设备激活中
+/// 设备即将上线
+/// ```
+///
+/// 前两步发生在 `queryDeviceConfigState`（SDK 连上设备、设备扫 Wi-Fi）；用户选完网络输完
+/// 密码之后，后三步由 `startActivator` 的 `onStep` 回调驱动——**不是猜的**，见
+/// `FlowerpotState.pairViaDeviceHotspot` 里对 `pairingSteps` 的订阅。
 enum PairingStage {
   /// 没有配网在跑。
   idle,
 
-  /// 取配网令牌、把手机连到设备热点上。
+  /// 正在和设备建立通道（`queryDeviceConfigState` 的前半段）。
   connectingDevice,
 
-  /// 已经连上热点，正在把 Wi-Fi 凭据下发给设备。
-  sendingWifi,
+  /// 通道已建立，设备正在扫描它能看到的 Wi-Fi。
+  deviceScanning,
 
-  /// 凭据已下发，设备正在连路由器并注册到云端。
-  connectingCloud;
+  /// 凭据已下发，设备正在连路由器。
+  connectingRouter,
+
+  /// 设备已连上路由器，正在云端激活。
+  activating,
+
+  /// 激活完成，设备即将上线。
+  goingOnline;
 
   /// 这一步在界面上的名字。
+  ///
+  /// **步骤内容按新流程改成五步，但用词沿用本项目原有的短标签风格**
+  /// （2026-09-11 产品：「UI 风格不用改，只是改步骤」）。智能生活那边的原文是
+  /// 「正在尝试建立连接… / 设备寻找可用Wi-Fi / 设备正在连接路由器… / 设备激活中 /
+  /// 设备即将上线」，一一对应，只是我们的行更短、细节放在 [hint] 里。
   String get label => switch (this) {
     PairingStage.idle => '准备中',
     PairingStage.connectingDevice => '连接设备',
-    PairingStage.sendingWifi => '发送Wi-Fi信息',
-    PairingStage.connectingCloud => '连接云端',
+    PairingStage.deviceScanning => '设备找网络',
+    PairingStage.connectingRouter => '设备连路由器',
+    PairingStage.activating => '云端激活',
+    PairingStage.goingOnline => '设备上线',
   };
 
-  /// 每一步在进度页上那句说明。
+  /// 每一步的补充说明；只在「进行中」那一步画出来。
   ///
-  /// 2026-09-10 起必要的话都写在这三行里，不再另外弹框：配网期间已经有一个系统
-  /// 的热点连接确认框（Android 10+ 的 `WifiNetworkSpecifier` 必弹，App 关不掉），
-  /// 再叠自己的 toast 和遮罩，用户根本分不清哪个是要他操作的。
+  /// 配网期间 App 自己不弹任何框，必要的话都写在这几行里。
   String get hint => switch (this) {
     PairingStage.idle => '',
-    PairingStage.connectingDevice => '系统若弹出连接热点的确认框，请点「连接」',
-    PairingStage.sendingWifi => '正在把 Wi-Fi 名称和密码发给设备，请勿离开本页',
-    PairingStage.connectingCloud => '设备正在连接路由器并注册到云端',
+    PairingStage.connectingDevice => '手机尽量靠近要添加的设备',
+    PairingStage.deviceScanning => '设备正在列出它能看到的 Wi-Fi，稍候就能选',
+    PairingStage.connectingRouter => '设备已经收到 Wi-Fi 信息，正在连接路由器',
+    PairingStage.activating => '设备正在云端激活，请勿离开本页',
+    PairingStage.goingOnline => '就快好了',
   };
 
-  /// 界面上按顺序画出来的三步。
+  /// 界面上按顺序画出来的五步。
   static const List<PairingStage> steps = <PairingStage>[
     PairingStage.connectingDevice,
-    PairingStage.sendingWifi,
-    PairingStage.connectingCloud,
+    PairingStage.deviceScanning,
+    PairingStage.connectingRouter,
+    PairingStage.activating,
+    PairingStage.goingOnline,
   ];
 }
 

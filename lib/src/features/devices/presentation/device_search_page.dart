@@ -12,6 +12,7 @@ import '../../../routes/app_routes.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import 'pairing_page.dart';
+import 'widgets/pairing_progress_view.dart';
 
 /// First provisioning step: check that a planter is actually waiting to be
 /// paired.
@@ -442,7 +443,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 预取失败不拦路：配网时还会自己再取一次令牌。
     await _prepared;
     if (!mounted) return;
-    final result = await state.connectDeviceHotspot(hotspotSsid: hotspot.ssid);
+    // **新流程**：由 SDK 连上设备并让设备扫 Wi-Fi（`queryDeviceConfigState`）。
+    // 回来的列表存在 `state.deviceWifiNetworks` 里，下一页给用户选——这正是智能生活
+    // 「选择Wi-Fi / 可用Wi-Fi」那一页的数据来源（`docs/配网2.jpg`）。
+    //
+    // ⚠️ 要切回 AP 原流程（`223bdae^` 那版能配成的路径）只需把这一行换成
+    // `state.connectDeviceHotspot(hotspotSsid: hotspot.ssid)`，并把「连接 Wi-Fi」页的
+    // `pairViaDeviceHotspot` 换回 `pairViaHotspot`。两条路径的代码都完整保留。
+    final result = await state.connectDeviceForPairing();
     // 只要发起过就留引用：即便失败也可能留下半条连接，离开本页时要放掉。
     _hotspotState = state;
     if (!mounted) return;
@@ -452,6 +460,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     });
     if (!result.success) return;
     _openPairing(hotspot, routerSsid: routerSsid);
+  }
+
+  /// 进度页上的「取消」：中止正在跑的连接，回到列表。
+  void _cancelConnect() {
+    final state = _hotspotState ?? FlowerpotScope.of(context);
+    unawaited(state.stopDevicePairing());
+    if (!mounted) return;
+    setState(() {
+      _connectingIndex = null;
+      _connectError = '已取消连接，可重新点「连接」。';
+    });
   }
 
   void _openPairing(WifiNetwork hotspot, {String routerSsid = ''}) {
@@ -481,9 +500,23 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   @override
   Widget build(BuildContext context) {
-    final scan = FlowerpotScope.of(context).wifiScan;
+    final state = FlowerpotScope.of(context);
+    final scan = state.wifiScan;
     final hotspots = scan?.deviceHotspots ?? const <WifiNetwork>[];
     final outcome = _outcome(scan, hotspots);
+    // 点了「连接」之后盖上进度页——**照智能生活的做法**（`docs/配网1.jpg`）：标题
+    // 「正在连接设备…」，下面把五步列出来，当前那一步转圈。前两步（建立连接、设备扫
+    // Wi-Fi）就发生在这段等待里，走完就跳去选网络。
+    if (_connectingIndex != null) {
+      return AppPageScaffold(
+        appBar: const AppPageHeader(title: '搜索设备', leading: AppBackButton()),
+        background: AppPageBackground.account,
+        body: PairingProgressView(
+          stage: state.pairingStage,
+          onCancel: _cancelConnect,
+        ),
+      );
+    }
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '搜索设备', leading: AppBackButton()),
       background: AppPageBackground.account,
