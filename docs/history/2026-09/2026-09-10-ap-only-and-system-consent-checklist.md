@@ -227,6 +227,48 @@ adb shell dumpsys package com.tuya.smartlife | grep -i targetSdk
 3. 若确认如此，产品上可选：接受"首次配网弹一次框"，或在首次引导用户到系统设置连一次
    （之后系统自动重连、永久免框）。**前者步骤更少，后者永久免框——这是个取舍，不是技术障碍。**
 
+## 三点九、直接拆 SDK 看了：7.5.1 里到底有什么
+
+不再依赖任何人的说法。从涂鸦官方 Maven（`maven-commercial-releases`）下载
+`com.thingclips.smart:thingsmart:7.5.1` 的 POM，取出依赖坐标，逐个下 AAR 解出 `classes.jar`
+列类名。已查模块：`thingsmart-sdk-api`、`thingsmart-device-api`、`thingsmart-homelib`、
+`thingsmart-homelib-api`、`thingsmart-base-api`、`thingsmart-device-core`。
+
+### 查到的（真实存在）
+
+`com.thingclips.smart.home.sdk.api.config.IApConnectListener`（在 `thingsmart-device-api` 里），
+回调如下（从 class 常量池读出）：
+
+```
+onDeviceConnect(String gwId)      onDeviceDisconnect()
+onConfigSuccess()                 onConfigError(int code)
+onActiveSuccess(DeviceBean)       onActiveError(String, String)
+onDeviceBindSuccess()             onGetDevicePskInfo(int, String)
+onReceiveConfigState(String)      onActiveCommandSuccess() / onActiveCommandError()
+```
+
+⚠️ **注意这些回调的语义**：`onDeviceConnect(gwId)` 是「**设备**连上来了」，
+`onConfigSuccess` / `onActiveSuccess` 是配网与激活的进度。**这是一条 AP 直连配网会话的监听器，
+不是「把手机连上 Wi-Fi 热点」的监听器**——它仍然以「手机已经在热点上」为前提。
+
+### 没查到的
+
+- 6 个模块里**没有**任何名字带 `Hotspot` / `ApConnect` / `ApConfig` 的**API 类**（只有上面那个
+  Listener 接口本身）。
+- `ThingSmartHotspotCredentialKit`：Maven 两个仓库 × 4 个 groupId × 3 种命名**全部 404**。
+- `IApConnectListener` 的**消费方**（哪个接口的哪个方法收它）在已查模块里没找到——大概率在
+  未下载的模块里，或被混淆。
+
+### 因此还缺的东西（需要有开发者平台登录权限的人提供）
+
+1. **AP 配网 Android 接入文档的正文**。文档页有「以 Markdown 格式查看 / LLM 副本 / 下载 PDF」
+   三个按钮，导出任意一种即可（需登录）。要的是 SDK 接入文档，**不是**《使用智能生活 App》
+   那篇用户手册。
+2. 文档里 **`IApConnectListener` 是被哪个接口的哪个方法消费的**（类全名 + 方法签名）。
+3. 官方 Android Demo 工程里 **AP 配网那一段的代码**。
+4. **最关键的一句**：文档是否提供「**由 SDK/App 把手机连上设备热点**」的 API？还是写着
+   「请先让手机连上热点」？——这一句决定那个系统授权框能不能去掉，其余都是细节。
+
 ## 四、如果确认「必须让用户少一步」，可选的方向（都要产品决定，本轮未做）
 
 | 方向 | 效果 | 代价 |
