@@ -1704,12 +1704,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             return
         }
         // 设备热点是开放网络（涂鸦 AP-cfg 的 SmartLife-xxxx 不带密码），所以不设
-        // passphrase。`setIsAppInteractionRequired(true)`：按文档这会让系统在连接这条
-        // 建议前征求用户同意，也是它唯一能"被推动"的地方。
+        // passphrase。
+        //
+        // ⚠️ 不要加 `setIsAppInteractionRequired(true)`：官方指南里它标的是
+        // 「Optional (Needs location permission)」，既不是连接的必要条件，又多一个
+        // 运行时权限依赖，加了只会多一种失败方式。
         val suggestion = runCatching {
             WifiNetworkSuggestion.Builder()
                 .setSsid(target)
-                .setIsAppInteractionRequired(true)
                 .build()
         }.getOrElse { failure ->
             trace("join: suggestion 构造失败 ${failure.javaClass.simpleName}: ${failure.message}")
@@ -1734,13 +1736,29 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             done(false)
             return
         }
-        // 平台是"有空再连"，给它 20 秒；每跨一秒打一行当前 SSID，从截图就能看出它到底
-        // 有没有动过。不阻塞线程，所以等多久都不会 ANR。
-        awaitSsid(target, 20_000) { joined ->
+        // ⚠️ **`addNetworkSuggestions` 返回 0 不等于平台会连。**
+        //
+        // 官方指南（developer.android.com/develop/connectivity/wifi/wifi-suggest）写得很清楚：
+        //
+        // - 「Immediately after the app places a suggestion for the first time, the user is
+        //   notified. … On **Android 10 (API level 29), the user sees a notification**,
+        //   regardless of whether the app is running in the foreground or the background.」
+        //   —— 也就是说**首次必须由用户在通知栏点同意**，没点，建议就是摆设，而 add 照样返回 0。
+        // - 「The platform **ultimately chooses** which access point to accept based on the
+        //   input from your app and others.」—— 平台自己挑，没有 API 能要求它立刻连某一条。
+        //
+        // 所以这里只等 **10 秒**。以前写 20 秒是错的：设备静置一会儿就会退出配网模式
+        // （`PRODUCT_RULES` §1.5），白等 20 秒等于把配网窗口烧掉一半，而多等 10 秒并不会让
+        // 一个"平台不打算连"的建议变成连上。
+        awaitSsid(target, 10_000) { joined ->
             if (joined) {
                 trace("join: suggestion 连上了，全程没有入网授权框")
             } else {
-                trace("join: suggestion 20 秒没连上，撤掉建议，改走 WifiNetworkSpecifier")
+                trace(
+                    "join: suggestion 10 秒没连上。若通知栏里有「允许本应用建议 Wi-Fi 网络？」" +
+                        "请点允许后重试；点过仍不连说明平台不肯从有外网的路由器切到没外网的" +
+                        "热点（这是平台策略，App 无法干预）。现在改走 WifiNetworkSpecifier。",
+                )
                 removeHotspotSuggestions()
             }
             done(joined)

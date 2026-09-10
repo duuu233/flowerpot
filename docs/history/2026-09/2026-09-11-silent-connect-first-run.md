@@ -124,3 +124,47 @@ join: addNetworkSuggestions → ? ?
 - `→ 0 SUCCESS` 但 20 秒 SSID 一直是 `ChinaNet-duu`：平台不肯切（就是上面表格里那个"悬"），
   只能接受 `Specifier` 的一次授权框。
 - `→ 2 ERROR_APP_DISALLOWED`：通知栏里有一条「允许花盆建议 Wi-Fi 网络？」没点允许。点了再试。
+
+---
+
+## 七、第三次真机：`Suggestion` 没连上，走了 `Specifier`，系统框照旧
+
+产品反馈：「我刚才测试了这个版本还是走的兜底 弹出系统框了」。
+
+**这是机制决定的，不是实现漏了什么。** 官方指南
+（`developer.android.com/develop/connectivity/wifi/wifi-suggest`）两句话就解释完了：
+
+1. 「Immediately after the app places a suggestion for the first time, the user is notified.
+   … On **Android 10 (API level 29), the user sees a notification**, regardless of whether the
+   app is running in the foreground or the background.」
+
+   ⇒ **首次放建议必须由用户在通知栏点同意。** 没点，这条建议就是摆设——而
+   `addNetworkSuggestions()` **照样返回 0（SUCCESS）**，`ERROR_APP_DISALLOWED(2)` 只在用户
+   明确拒绝过之后才返回。所以"返回 0"根本不能当成"平台会连"。
+
+2. 「The platform **ultimately chooses** which access point to accept based on the input from
+   your app and others.」
+
+   ⇒ 平台自己挑，**没有任何 API 能要求它立刻连某一条**。而设备热点**没有外网**，手机正连着
+   有外网的路由器——按 Android 的网络评分，它基本不会切过去。
+
+⇒ **`WifiNetworkSuggestion` 不适合"按需连一个没有外网的指定热点"这件事。** 它是为"用户将来
+会遇到这个网络，凭据先给你"设计的（运营商 Wi-Fi、酒店），不是为配网设计的。
+
+### 这一轮改了三处
+
+1. **等待从 20 秒压到 10 秒。** 原来那 20 秒是纯烧配网窗口——设备静置会退出配网模式
+   （§1.5），而多等 10 秒并不会让一个"平台不打算连"的建议变成连上。
+2. **去掉 `setIsAppInteractionRequired(true)`。** 官方指南标的是
+   「Optional (Needs location permission)」，不是连接的必要条件，加了只多一种失败方式。
+3. **失败那行日志写清下一步**：通知栏里若有「允许本应用建议 Wi-Fi 网络？」请点允许后重试；
+   点过仍不连，就是平台不肯从有外网的路由器切到没外网的热点，App 无法干预。
+
+### 还剩两条路，都要产品拍板
+
+| 方案 | 系统 UI | 代价 |
+| --- | --- | --- |
+| **维持现状**：`Specifier` 的一次授权框，收在「连接」按钮上（§1.2） | 一次，点一下 | 产品已经接受过这个口径；**这是目前唯一能配成的路** |
+| **SDK 自连热点**：`queryDeviceConfigState`（`tuya-ap-mode-android.md:216`，「只针对新设备固件有效」） | 未知——SDK 内部若也用 `Specifier` 就照样弹 | 要涂鸦回答固件门槛；见 `docs/reference/tuya-question-ap-hotspot-join.md` 第 2 问 |
+
+**不建议再花时间在 `Suggestion` 上。**

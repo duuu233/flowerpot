@@ -213,12 +213,19 @@ join: addNetwork 返回 -1
 
 1. **捷径**（零点击）：已持有该热点连接、或手机本来就连在该热点上 —— 直接成功。
 2. **`WifiNetworkSuggestion`**（产品 2026-09-11 指定：「我是安卓 10 就用这种」）。
-   连上就**没有入网授权框**。已知两个不利因素，所以要能干净让位：
-   - 它是「凭据给你，你觉得合适就连」，**平台只在判定某建议网络当前最优时才自动连**，
-     没有 API 能要求它立刻连。而设备热点**没有外网**，手机正连着有外网的路由器。
-   - 首次调用系统会发通知问「是否允许本应用建议网络」；没点允许，
-     `addNetworkSuggestions` 返回 `ERROR_APP_DISALLOWED(2)`。那条通知本身也是系统 UI。
-   - 给它 20 秒，状态码和每一秒的当前 SSID 全部打到页面上。
+   连上就**没有入网授权框**。但 2026-09-11 实测**没连上、走了 `Specifier`**，原因在机制上，
+   不是实现问题——官方指南（`developer.android.com/develop/connectivity/wifi/wifi-suggest`）：
+   - 「Immediately after the app places a suggestion for the first time, the user is
+     notified. … On **Android 10 (API level 29), the user sees a notification**…」
+     ⇒ **首次必须用户在通知栏点同意**；没点，建议就是摆设，而 `addNetworkSuggestions`
+     **照样返回 0**（`ERROR_APP_DISALLOWED(2)` 只在用户明确拒绝过时才返回）。
+   - 「The platform **ultimately chooses** which access point to accept…」
+     ⇒ 平台自己挑，**没有 API 能要求它立刻连某一条**。而设备热点**没有外网**，手机正连着
+     有外网的路由器，平台基本不会切。
+   - 所以只等 **10 秒**（不是 20 秒）：设备静置会退出配网模式（§1.5），白等就是烧配网窗口；
+     而多等并不会让一个"平台不打算连"的建议变成连上。状态码 + 每一秒的当前 SSID 全打页面。
+   - **不要加 `setIsAppInteractionRequired(true)`**：官方标的是
+     「Optional (Needs location permission)」，不是连接的必要条件，加了只多一种失败方式。
 3. **`WifiNetworkSpecifier` + `requestNetwork`** —— Android 10+ 上**唯一**能让第三方应用
    按需连上一个指定的、没有外网的热点的公开 API。代价是系统弹一次入网授权框，关不掉、
    不能代点。位置见 §1.2：**收在搜索页那颗「连接」按钮上，只出现一次。**
