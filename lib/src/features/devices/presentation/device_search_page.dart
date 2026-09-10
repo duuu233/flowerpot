@@ -7,6 +7,9 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+// `FlowerpotState`：dispose / paused 里要还原网络，那时已经不能查 InheritedWidget，
+// 所以得按类型持有引用。
+import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import 'pairing_page.dart';
 
@@ -587,21 +590,25 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 已经找到设备时，标题就该讲这件事，而不是继续报「搜索中」。
     if (hotspots.isNotEmpty) {
       final target = hotspots.first.ssid;
+      final String subtitle;
+      if (_hotspotError != null) {
+        subtitle = _hotspotError!;
+      } else if (_hotspotReady) {
+        // 连上之后这一句取代「点设备」：接下来要用户做的是点「连接」，
+        // 而设备本身已经不需要他再挑了。
+        subtitle =
+            '已连接「$target」。设备本身不联网，需要给它配置一个 Wi-Fi 网络——'
+            '点「连接」选择网络并输入密码。';
+      } else if (_connecting || _autoOpened) {
+        // `_autoOpened` 一置起就算已经认定这台、马上要去连它了，文案跟着走，
+        // 别在 600ms 的停留里回到「点击下方设备」。
+        subtitle = '正在连接「$target」…系统若弹出确认框请点「连接」。';
+      } else {
+        subtitle = '点击下方设备继续配网。';
+      }
       return _SearchOutcome(
         '发现 ${hotspots.length} 台设备',
-        switch (true) {
-          _ when _hotspotError != null => _hotspotError!,
-          // 连上之后这一句取代「点设备」：接下来要用户做的是点「连接」，
-          // 而设备本身已经不需要他再挑了。
-          _ when _hotspotReady =>
-            '已连接「$target」。设备本身不联网，需要给它配置一个 Wi-Fi 网络——'
-                '点「连接」选择网络并输入密码。',
-          // `_autoOpened` 一置起就算已经认定这台、马上要去连它了，文案跟着走，
-          // 别在 600ms 的停留里回到「点击下方设备」。
-          _ when _connecting || _autoOpened =>
-            '正在连接「$target」…系统若弹出确认框请点「连接」。',
-          _ => '点击下方设备继续配网。',
-        },
+        subtitle,
         compactTitle: true,
       );
     }
@@ -681,8 +688,12 @@ class _SearchOutcome {
 ///
 /// 什么时候画由页面决定（见 `build` 里那段注释），这里只管长什么样。
 class _SearchActions extends StatelessWidget {
-  const _SearchActions({this.onRescan, this.onContinue, this.onConnect, this.connectLabel})
-    : assert(
+  const _SearchActions({
+    this.onRescan,
+    this.onContinue,
+    this.onConnect,
+    this.connectLabel,
+  }) : assert(
         (onRescan == null ? 0 : 1) +
                 (onContinue == null ? 0 : 1) +
                 (onConnect == null ? 0 : 1) ==
@@ -703,24 +714,24 @@ class _SearchActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (Key key, VoidCallback? action, String label) = switch (this) {
-      _ when onConnect != null => (
-        const Key('device-search-connect'),
-        onConnect,
-        connectLabel ?? '连接',
-      ),
-      _ when onContinue != null => (
-        const Key('device-search-continue'),
-        onContinue,
-        '下一步',
-      ),
-      _ => (const Key('device-search-rescan'), onRescan, '重新扫描'),
-    };
+    // 刻意用最笨的写法：三种形态互斥，if 链一眼能看懂，也不会和 `Widget.key` 撞名。
+    var buttonKey = const Key('device-search-rescan');
+    var action = onRescan;
+    var label = '重新扫描';
+    if (onConnect != null) {
+      buttonKey = const Key('device-search-connect');
+      action = onConnect;
+      label = connectLabel ?? '连接';
+    } else if (onContinue != null) {
+      buttonKey = const Key('device-search-continue');
+      action = onContinue;
+      label = '下一步';
+    }
     return SizedBox(
       width: 220,
       height: 46,
       child: FilledButton(
-        key: key,
+        key: buttonKey,
         onPressed: action,
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.brandPrimary,

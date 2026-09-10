@@ -170,3 +170,12 @@
 - **产品说过的要求要归纳到本文件**，不要让产品反复强调。（2026-09-10）
 - 本机（dev box）没有 Flutter / Dart / Kotlin 工具链，所以 flowerpot 的改动**一律未经
   编译与测试**。报告时必须说明这一点，不得宣称通过。
+- 既然编译不了，就**把编译器会替你抓的事自己抓一遍**（2026-09-10 被一次打包失败教训到）：
+  1. **新引用的类型必须确认 import。** `FlowerpotState` 在 `lib/src/state.dart`，
+     `FlowerpotScope` 在 `lib/src/app/flowerpot_app.dart`——两者是**不同文件**，
+     只 import 后者拿不到前者（那次报错就是这个）。照已有页面（如 `device_list_page.dart`）
+     的 import 清单抄。
+  2. **删 import 之前先搜一遍还有没有人用**；删方法/字段之后搜一遍引用是否归零。
+  3. **用最保守的语法。** 不写没法验证的新语法糖（带 `when` 守卫的模式 switch、
+     记录模式解构之类）；`if` 链和局部变量一眼能看懂，也不会和 `Widget.key` 之类撞名。
+  4. 改完做一次括号配平自检，并和 `git show HEAD:<file>` 的基线对比增量。
