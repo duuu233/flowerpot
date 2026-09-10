@@ -13,7 +13,6 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSpecifier
-import android.net.wifi.WifiNetworkSuggestion
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -296,24 +295,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * 自己记账不依赖任何权限，也不依赖系统怎么报当前网络。
      */
     private var boundHotspotSsid: String? = null
-
-    /**
-     * 当前挂在系统里的 `WifiNetworkSuggestion` 的 SSID（没有就是 null）。
-     *
-     * 建议是**进程外状态**：不撤掉的话，用户退出 App 之后系统还会继续往这条没有外网的
-     * 热点上连。`PRODUCT_RULES` §1.4.1 要求"无论怎么退出都把手机的 Wi-Fi 还回去"，所以
-     * 释放热点时必须连这条一起撤。
-     */
-    private var suggestedHotspotSsid: String? = null
-
-    /**
-     * 上面那条建议的 `WifiNetworkSuggestion` 对象本体，撤销时要原物奉还。
-     *
-     * 故意声明成 `Any?`：`minSdk = 24`，而 `WifiNetworkSuggestion` 是 API 29 才有的类，
-     * 字段类型写成它会让老设备上加载这个类时多一次解析。实际用到的地方都在
-     * `SDK_INT >= Q` 的分支里强转回来。
-     */
-    private var suggestedHotspot: Any? = null
 
     /**
      * `IThingDevice` instances that currently hold a registered listener, keyed
@@ -1642,172 +1623,31 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             success(result, false)
             return
         }
-        // 两条路按顺序试：先 `WifiNetworkSuggestion`（产品 2026-09-11 指定：「我是安卓 10
-        // 就用这种」），它连上就**一个入网授权框都没有**；连不上再走
-        // `WifiNetworkSpecifier`（系统框收在这颗「连接」按钮上，`PRODUCT_RULES` §1.2）。
+        // 连热点**只有这一条路**：`WifiNetworkSpecifier` + `requestNetwork`，系统必弹一次
+        // 入网授权框。这不是取舍，是 2026-09-11 涂鸦官方书面确认的结论：
         //
-        // ## 为什么不是 `WifiManager#connect()`——2026-09-11 真机判定，不是推测
+        // > - Android 10+ 第三方 App **无法**通过 `WifiManager#connect()` 静默连接任意热点
+        // >   （需 `NETWORK_SETTINGS` 系统权限，**不可申请**）；
+        // > - `WifiNetworkSpecifier + requestNetwork()` 是**唯一可行路径**，但强制弹出系统
+        // >   授权框（**无绕过方案**）；
+        // > - 「SDK 自动连热点」仅适用于 TuyaOS ≥ 3.6.1 固件 + **智能生活 App（预置/白名单
+        // >   应用）**，第三方 App 不具备同等能力；
+        // > - 文档中「SDK 会在指定时间内自动连接」指**设备端行为**，非手机侧静默连接。
+        // >
+        // > 因此，对第三方 App 而言，「零系统框」在 Android 10+ 上**技术上不可行**。
         //
-        // ```
-        // join: connect(WifiConfiguration,ActionListener) 存在，调用
-        // join: 已交给系统，开始等关联（当前「ChinaNet-duu」）
-        // join: 0s…11s 当前「ChinaNet-duu」
-        // join: 等了 12194ms 还在「ChinaNet-duu」
-        // join: addNetwork 返回 -1
-        // ```
+        // 配合这条结论，我们真机上跑死过的两条路：
         //
-        // 三条同时成立，结论钉死：方法**存在**、调用**不抛异常**、但注册进去的
-        // `ActionListener` **一个回调都没来**，且 `addNetwork()` 返回 **-1**（系统拒绝让本
-        // 应用保存网络）。⇒ 本应用没有 `NETWORK_SETTINGS`（signature|privileged）特权，
-        // **涂鸦那句「智能生活用 `WifiManager#connect()` 静默连接、系统不弹框」对第三方应用
-        // 不成立。不要再回去试它。**
-        suggestHotspot(target) { joined ->
-            if (joined) {
-                boundHotspotSsid = target
-                success(result, true)
-            } else {
-                joinViaSpecifier(target, manager, result)
-            }
-        }
-    }
-
-    /**
-     * 用 `WifiNetworkSuggestion` 连设备热点（API 29+）。连上回调 `true`。
-     *
-     * ## 它和 `WifiNetworkSpecifier` 的区别，以及为什么可能不成
-     *
-     * `Specifier` 是「**现在**给我连这个网络」——所以系统必须弹框问用户。
-     * `Suggestion` 是「这个网络的凭据给你，**你觉得合适就连**」——不弹入网授权框，但
-     * **平台只在判定某个建议网络是当前最优时才自动连**，没有任何 API 能要求它立刻连。
-     *
-     * 两个已知的不利因素（所以连不上要能干净地让位给 `Specifier`）：
-     *
-     * 1. 设备热点**没有外网**，而手机正连着有外网的路由器。Android 的网络评分里
-     *    "已验证外网"权重很高，很可能压根不切过去。
-     * 2. 首次调用系统会发一条**通知**问用户"是否允许本应用建议网络"；没点允许，
-     *    `addNetworkSuggestions` 之后也不会有人连。那条通知本身也是系统 UI。
-     *
-     * 但这些都是推断，产品要求就按这个实现，**结论交给真机**：状态码、每一秒的当前 SSID
-     * 全部打到页面上。
-     */
-    private fun suggestHotspot(target: String, done: (Boolean) -> Unit) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            trace("join: suggestion 需要 Android 10+，跳过")
-            done(false)
-            return
-        }
-        val wifi = activity.applicationContext
-            .getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        if (wifi == null) {
-            trace("join: suggestion 拿不到 WifiManager，跳过")
-            done(false)
-            return
-        }
-        // 设备热点是开放网络（涂鸦 AP-cfg 的 SmartLife-xxxx 不带密码），所以不设
-        // passphrase。
+        // 1. `WifiManager.connect(WifiConfiguration, ActionListener)`——方法存在、调用不抛
+        //    异常，但 `ActionListener` 一个回调都没来，`addNetwork()` 返回 **-1**；
+        // 2. `WifiNetworkSuggestion`——`addNetworkSuggestions` 返回 0 也没用：Android 10 上
+        //    首次必须用户在通知栏点同意，且平台只在它判定某建议网络"当前最优"时才连，而设备
+        //    热点没有外网、手机正连着有外网的路由器。它是为"凭据先给你，将来遇到再连"设计的，
+        //    不是为配网设计的。**已删除**（留着只会在配网关键路径上白等十秒，而设备静置会退出
+        //    配网模式，见 §1.5）。要看实现去 git：`747d871`。
         //
-        // ⚠️ 不要加 `setIsAppInteractionRequired(true)`：官方指南里它标的是
-        // 「Optional (Needs location permission)」，既不是连接的必要条件，又多一个
-        // 运行时权限依赖，加了只会多一种失败方式。
-        val suggestion = runCatching {
-            WifiNetworkSuggestion.Builder()
-                .setSsid(target)
-                .build()
-        }.getOrElse { failure ->
-            trace("join: suggestion 构造失败 ${failure.javaClass.simpleName}: ${failure.message}")
-            done(false)
-            return
-        }
-        // 上一次留下的建议先撤掉，否则会拿到 ERROR_ADD_DUPLICATE。
-        runCatching { wifi.removeNetworkSuggestions(listOf(suggestion)) }
-        val status = runCatching { wifi.addNetworkSuggestions(listOf(suggestion)) }
-            .getOrElse { failure ->
-                trace(
-                    "join: addNetworkSuggestions 抛 " +
-                        "${failure.javaClass.simpleName}: ${failure.message}",
-                )
-                done(false)
-                return
-            }
-        suggestedHotspotSsid = if (status == 0) target else null
-        suggestedHotspot = if (status == 0) suggestion else null
-        trace("join: addNetworkSuggestions → $status ${suggestionStatusName(status)}")
-        if (status != 0) {
-            done(false)
-            return
-        }
-        // ⚠️ **`addNetworkSuggestions` 返回 0 不等于平台会连。**
-        //
-        // 官方指南（developer.android.com/develop/connectivity/wifi/wifi-suggest）写得很清楚：
-        //
-        // - 「Immediately after the app places a suggestion for the first time, the user is
-        //   notified. … On **Android 10 (API level 29), the user sees a notification**,
-        //   regardless of whether the app is running in the foreground or the background.」
-        //   —— 也就是说**首次必须由用户在通知栏点同意**，没点，建议就是摆设，而 add 照样返回 0。
-        // - 「The platform **ultimately chooses** which access point to accept based on the
-        //   input from your app and others.」—— 平台自己挑，没有 API 能要求它立刻连某一条。
-        //
-        // 所以这里只等 **10 秒**。以前写 20 秒是错的：设备静置一会儿就会退出配网模式
-        // （`PRODUCT_RULES` §1.5），白等 20 秒等于把配网窗口烧掉一半，而多等 10 秒并不会让
-        // 一个"平台不打算连"的建议变成连上。
-        awaitSsid(target, 10_000) { joined ->
-            if (joined) {
-                trace("join: suggestion 连上了，全程没有入网授权框")
-            } else {
-                trace(
-                    "join: suggestion 10 秒没连上。若通知栏里有「允许本应用建议 Wi-Fi 网络？」" +
-                        "请点允许后重试；点过仍不连说明平台不肯从有外网的路由器切到没外网的" +
-                        "热点（这是平台策略，App 无法干预）。现在改走 WifiNetworkSpecifier。",
-                )
-                removeHotspotSuggestions()
-            }
-            done(joined)
-        }
-    }
-
-    /** `addNetworkSuggestions` 的状态码。0 是成功，其余都连不上。 */
-    private fun suggestionStatusName(status: Int): String = when (status) {
-        0 -> "SUCCESS"
-        1 -> "ERROR_INTERNAL"
-        2 -> "ERROR_APP_DISALLOWED（用户没允许本应用建议网络，去通知栏/设置里打开）"
-        3 -> "ERROR_ADD_DUPLICATE"
-        4 -> "ERROR_ADD_EXCEEDS_MAX_PER_APP"
-        5 -> "ERROR_REMOVE_INVALID"
-        6 -> "ERROR_RESTRICTED_BY_ADMIN"
-        else -> "未知状态码"
-    }
-
-    /**
-     * 每 500 ms 读一次当前 SSID，连上 [target] 就回 `true`，到 [timeoutMs] 还没连上回
-     * `false`。**用 `Handler` 排队，不阻塞线程**，所以等多久都不会 ANR。每跨一秒打一行
-     * 当前 SSID，方便从截图上看出"到底有没有动过"。
-     */
-    private fun awaitSsid(target: String, timeoutMs: Long, done: (Boolean) -> Unit) {
-        val handler = Handler(Looper.getMainLooper())
-        val startedAt = SystemClock.elapsedRealtime()
-        var loggedSecond = -1L
-        handler.post(object : Runnable {
-            override fun run() {
-                val elapsed = SystemClock.elapsedRealtime() - startedAt
-                val now = currentSsidForLog()
-                if (now == target) {
-                    trace("join: 已连上「$target」，用时 ${elapsed}ms")
-                    done(true)
-                    return
-                }
-                if (elapsed >= timeoutMs) {
-                    trace("join: 等了 ${elapsed}ms 还在「$now」")
-                    done(false)
-                    return
-                }
-                val second = elapsed / 1000
-                if (second != loggedSecond) {
-                    loggedSecond = second
-                    trace("join: ${second}s 当前「$now」")
-                }
-                handler.postDelayed(this, 500)
-            }
-        })
+        // ⚠️ **不要再尝试这两条路，也不要再以"SDK 会自己连"为由删掉连热点这一步。**
+        joinViaSpecifier(target, manager, result)
     }
 
     /**
@@ -1895,25 +1735,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             runCatching { manager?.unregisterNetworkCallback(callback) }
         }
         hotspotCallback = null
-        // 建议也要撤：它不撤，用户退出 App 后系统还会继续往这条没有外网的热点上连。
-        removeHotspotSuggestions()
-    }
-
-    /** 撤掉本应用挂在系统里的 `WifiNetworkSuggestion`。没有挂就什么都不做。 */
-    private fun removeHotspotSuggestions() {
-        val ssid = suggestedHotspotSsid ?: return
-        suggestedHotspotSsid = null
-        val held = suggestedHotspot
-        suggestedHotspot = null
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        val wifi = activity.applicationContext
-            .getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
-        val status = runCatching {
-            val one = held as? WifiNetworkSuggestion
-            // 传空列表 = 撤掉本应用的全部建议；拿得到原对象就精确撤那一条。
-            wifi.removeNetworkSuggestions(if (one == null) emptyList() else listOf(one))
-        }.getOrNull()
-        trace("join: 撤掉 suggestion（$ssid）→ $status ${status?.let { suggestionStatusName(it) }}")
     }
 
     private fun stopActivator() {

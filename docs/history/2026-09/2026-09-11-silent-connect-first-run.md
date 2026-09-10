@@ -168,3 +168,39 @@ join: addNetworkSuggestions → ? ?
 | **SDK 自连热点**：`queryDeviceConfigState`（`tuya-ap-mode-android.md:216`，「只针对新设备固件有效」） | 未知——SDK 内部若也用 `Specifier` 就照样弹 | 要涂鸦回答固件门槛；见 `docs/reference/tuya-question-ap-hotspot-join.md` 第 2 问 |
 
 **不建议再花时间在 `Suggestion` 上。**
+
+---
+
+## 八、结案：涂鸦官方书面确认「零系统框」不可行
+
+2026-09-11 涂鸦回复（全文见 `docs/reference/tuya-question-ap-hotspot-join.md` 末尾）：
+
+1. Android 10+ 第三方 App **无法**用 `WifiManager#connect()` 静默连接（需 `NETWORK_SETTINGS`,
+   **不可申请**）——和我们的真机判定一致（`addNetwork` 返回 -1）；
+2. **`WifiNetworkSpecifier + requestNetwork()` 是唯一可行路径**，系统授权框**无绕过方案**；
+3. 「SDK 自动连热点」仅适用于 TuyaOS ≥ 3.6.1 固件 + **智能生活 App（预置/白名单应用）**；
+4. 文档里「SDK 会在指定时间内自动连接」指的是**设备端行为**，**不是手机侧静默连接**。
+
+### 第 4 条就是 `223bdae` 返工的根因
+
+我们当时把那句话读成了"手机侧 SDK 会自己连热点"，于是删掉了连热点这一步，之后全是 `207220`
+整体超时，来回折腾了好几天。**这句话说的是设备端。** 已写进 `PRODUCT_RULES` §4.0 置顶。
+
+### 第 3 条解释了为什么照抄智能生活不成立
+
+它是预置/白名单应用。「智能生活不弹框」这个观察对第三方 App **不是可复制的目标**。
+
+### 这一轮的代码动作
+
+- **删掉 `WifiNetworkSuggestion` 整条路**（`suggestHotspot` / `suggestionStatusName` /
+  `awaitSsid` / 两个字段 / `removeHotspotSuggestions` / import）。留着只会在配网关键路径上
+  白等十秒，而设备静置就会退出配网模式（§1.5）——**直接降低配网成功率**。实现要找回去
+  git `747d871`。
+- `joinDeviceHotspot` 现在直接 `joinViaSpecifier(...)`，并把涂鸦那四条原文抄在调用点上方，
+  后面谁再想"优化掉"这一步，先读那段注释。
+
+### 剩下的唯一可做的事：把这一次授权框做得不突兀
+
+涂鸦的建议和我们 §1.2 的口径一致——**收在搜索页那颗「连接」按钮上，只出现一次**，之后选
+Wi-Fi、输密码、配网进度都没有系统框。手机已在该热点上时（上次留下的、或系统记住后自动重连）
+直接跳过，零点击。

@@ -121,3 +121,34 @@ addNetwork 返回 -1
 我们会把你们给的每个类名从 Maven 拉 AAR 拆包核对（`thingsmart-activator-core-kit` 就是这么
 确认的）。**所以请附上：类全名、方法完整签名、所在 artifact 与版本。** 文档链接也请给具体
 章节锚点。谢谢。
+
+---
+
+# 涂鸦回复（2026-09-11）——结案
+
+> ✅ Android 10+ 第三方 App **无法**通过 `WifiManager#connect()` 静默连接任意热点
+> （需 `NETWORK_SETTINGS` 系统权限，**不可申请**）；
+> ✅ **`WifiNetworkSpecifier + requestNetwork()` 是唯一可行路径**，但强制弹出系统授权框
+> （**无绕过方案**）；
+> ✅ 「SDK 自动连热点」仅适用于 TuyaOS ≥ 3.6.1 固件 + **智能生活 App（预置/白名单应用）**,
+> 第三方 App 不具备同等能力；
+> ✅ 文档中「SDK 会在指定时间内自动连接」指**设备端行为**（如 `tkl_wifi_start_ap` 后自动
+> 监听），**非手机侧静默连接**。
+>
+> 因此，对第三方 App 而言，**「零系统框」在 Android 10+ 上技术上不可行**。建议按产品需求
+> 收口至显式引导页（如「点击连接设备热点」按钮），并调用 `WifiNetworkSpecifier` 流程。
+
+这四条把我们前面所有反复都解释清楚了，尤其第 3、4 条：
+
+- **第 4 条解释了 `223bdae` 那次返工的根因。** 「SDK 会在指定时间内自动去连接 AP 热点」说的是
+  **设备端**行为，我们当时读成了"手机侧 SDK 会自己连"，于是把连热点那一步删掉，之后全是
+  `207220` 整体超时。
+- **第 3 条解释了为什么照抄智能生活 App 不成立**：它是预置/白名单应用，第三方 App 没有同等
+  能力。所以「智能生活不弹框」这个观察，对我们不是可复制的目标。
+
+## 回复末尾有两处 artifact 归属不准（已拆包核对，记下来免得以后被误导）
+
+| 回复里的说法 | 拆包结果 |
+| --- | --- |
+| `thingsmart-activator-core-kit` 含 `IThingOptimizedActivator`、`ThingApActivatorBuilder` | ❌ 这个 AAR 里**这两个类都没有**（`find` 结果为空）。它们在 Home SDK（`com.thingclips.smart:thingsmart`）里。该 artifact 装的是 `ThingActivatorCoreKit` / `ThingDeviceActiveBuilder` / `ThingDeviceActiveModeEnum` 那一套 |
+| `ActivatorModelEnum.TY_AP` | ❌ 7.5.1 里只有 `THING_*`（`THING_AP` / `THING_EZ` / …），**没有任何 `TY_*`**。代码里两种拼写都试是为了兼容更老的 SDK，别"订正"成只剩 `TY_AP` |

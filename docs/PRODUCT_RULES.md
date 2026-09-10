@@ -191,58 +191,47 @@ Android 10+ 上第 2 步会弹一次系统入网授权框（`WifiNetworkSpecifie
 
 ---
 
-## 4.0 连热点：先 `WifiNetworkSuggestion`，连不上再 `WifiNetworkSpecifier`
+## 4.0 连热点：只有 `WifiNetworkSpecifier` 一条路，系统框**必出现一次**
 
-### `WifiManager#connect()` 这条路已经判死（2026-09-11 真机）
+### 这是涂鸦官方 2026-09-11 的书面结论，不是我们的取舍
 
-```
-join: connect(WifiConfiguration,ActionListener) 存在，调用
-join: 已交给系统，开始等关联（当前「ChinaNet-duu」）
-join: 0s…11s 当前「ChinaNet-duu」
-join: 等了 12194ms 还在「ChinaNet-duu」
-join: addNetwork 返回 -1
-```
+原文：
 
-三条同时成立：方法**存在**、反射调用**不抛异常**、但注册进去的 `ActionListener`
-**一个回调都没来**，且 `addNetwork()` 返回 **-1**（系统拒绝让本应用保存网络）。
+> - Android 10+ 第三方 App **无法**通过 `WifiManager#connect()` 静默连接任意热点
+>   （需 `NETWORK_SETTINGS` 系统权限，**不可申请**）；
+> - **`WifiNetworkSpecifier + requestNetwork()` 是唯一可行路径**，但强制弹出系统授权框
+>   （**无绕过方案**）；
+> - 「SDK 自动连热点」仅适用于 TuyaOS ≥ 3.6.1 固件 + **智能生活 App（预置/白名单应用）**,
+>   第三方 App 不具备同等能力；
+> - 文档中「SDK 会在指定时间内自动连接」指**设备端行为**（如 `tkl_wifi_start_ap` 后自动
+>   监听），**非手机侧静默连接**。
+>
+> 因此，对第三方 App 而言，**「零系统框」在 Android 10+ 上技术上不可行**。
 
-⇒ 本应用没有 `NETWORK_SETTINGS`（signature|privileged）特权。**涂鸦那句「智能生活用
-`WifiManager#connect()` 静默连接、系统不弹框」对第三方应用不成立。不要再回去试它。**
+⚠️ **「零系统框」这件事到此结案。** 不要再花时间找绕过方案，也**不要再以「SDK 会自己连」为
+由删掉连热点这一步**——那句话说的是设备端，不是手机端（这正是 `223bdae` 那次返工的根因）。
 
-### 现在的顺序
+### 我们真机上亲手跑死的两条路（别再试）
+
+| 路 | 真机结果 |
+| --- | --- |
+| `WifiManager.connect(WifiConfiguration, ActionListener)` | 方法**存在**、调用**不抛异常**，但 `ActionListener` **一个回调都没来**；`addNetwork()` 返回 **-1**（系统拒绝保存网络）。12 秒内手机一直留在路由器上 |
+| `WifiNetworkSuggestion` | `addNetworkSuggestions` 返回 **0 也没用**：Android 10 上**首次必须用户在通知栏点同意**，且「The platform **ultimately chooses** which access point to accept」——没有 API 能要求它立刻连。设备热点没有外网、手机正连着有外网的路由器，平台不会切。**代码已删**（留着只会在配网关键路径上白等十秒，而设备静置会退出配网模式，§1.5）。实现见 git `747d871` |
+
+### 现在的实现
 
 1. **捷径**（零点击）：已持有该热点连接、或手机本来就连在该热点上 —— 直接成功。
-2. **`WifiNetworkSuggestion`**（产品 2026-09-11 指定：「我是安卓 10 就用这种」）。
-   连上就**没有入网授权框**。但 2026-09-11 实测**没连上、走了 `Specifier`**，原因在机制上，
-   不是实现问题——官方指南（`developer.android.com/develop/connectivity/wifi/wifi-suggest`）：
-   - 「Immediately after the app places a suggestion for the first time, the user is
-     notified. … On **Android 10 (API level 29), the user sees a notification**…」
-     ⇒ **首次必须用户在通知栏点同意**；没点，建议就是摆设，而 `addNetworkSuggestions`
-     **照样返回 0**（`ERROR_APP_DISALLOWED(2)` 只在用户明确拒绝过时才返回）。
-   - 「The platform **ultimately chooses** which access point to accept…」
-     ⇒ 平台自己挑，**没有 API 能要求它立刻连某一条**。而设备热点**没有外网**，手机正连着
-     有外网的路由器，平台基本不会切。
-   - 所以只等 **10 秒**（不是 20 秒）：设备静置会退出配网模式（§1.5），白等就是烧配网窗口；
-     而多等并不会让一个"平台不打算连"的建议变成连上。状态码 + 每一秒的当前 SSID 全打页面。
-   - **不要加 `setIsAppInteractionRequired(true)`**：官方标的是
-     「Optional (Needs location permission)」，不是连接的必要条件，加了只多一种失败方式。
-3. **`WifiNetworkSpecifier` + `requestNetwork`** —— Android 10+ 上**唯一**能让第三方应用
-   按需连上一个指定的、没有外网的热点的公开 API。代价是系统弹一次入网授权框，关不掉、
-   不能代点。位置见 §1.2：**收在搜索页那颗「连接」按钮上，只出现一次。**
-
-### 退出时必须撤掉建议
-
-`WifiNetworkSuggestion` 是**进程外状态**：不撤，用户退出 App 之后系统还会继续往这条没有
-外网的热点上连。所以 `releaseHotspotRequest()` 里一并 `removeNetworkSuggestions`
-（见 §1.4.1「无论怎么退出，都要把手机的 Wi-Fi 还回去」）。
+2. **`WifiNetworkSpecifier` + `requestNetwork`**，60 秒等用户操作；
+   `onAvailable` → `bindProcessToNetwork`，`onUnavailable` → 报「热点不存在（设备可能已退出
+   配网模式，断电重启再试）/ 用户取消 / 超时」。
+3. 系统框的位置见 §1.2：**收在搜索页那颗「连接」按钮上，只出现一次**；之后选 Wi-Fi、输密码、
+   配网进度**一个系统框都没有**。涂鸦的建议也是这个（「收口至显式引导页」）。
 
 ### 其它
 
 - 已核实：`CHANGE_WIFI_STATE` / `ACCESS_WIFI_STATE` / `ACCESS_FINE_LOCATION` /
   `NEARBY_WIFI_DEVICES` 清单里**都已声明**，失败不会是权限缺失。
-- 「失败不给兜底、把原因原样打到页面」这条**仍然有效**，而且正是靠它才拿到上面的判定。
-  它约束的是**不要用退路把结论掩盖掉**；现在结论已经有了，两条路的顺序是按证据排的，
-  每一步走没走通都打在页面上。
+- 「失败不给兜底、把原因原样打到页面」这条**仍然有效**，而且正是靠它才拿到上面两条判定。
 
 ## 4.1 配网排障：先看事实，别先猜
 
