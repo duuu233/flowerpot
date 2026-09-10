@@ -34,6 +34,14 @@ class MockTuyaRepository implements TuyaRepository {
   @override
   Stream<String> get pairingSteps => _pairingSteps.stream;
 
+  final StreamController<String> _pairingLogs =
+      StreamController<String>.broadcast();
+
+  @override
+  Stream<String> get pairingLogs => _pairingLogs.stream;
+
+  void emitPairingLog(String line) => _pairingLogs.add(line);
+
   void emitPairingStep(String step) => _pairingSteps.add(step);
 
   /// 让测试和演示能驱动升级进度，无需真实设备。

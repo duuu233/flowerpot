@@ -38,31 +38,41 @@
 - 走涂鸦的**「热点配网新流程」**。固件前提 TuyaOS ≥ 3.6.1 已由设备团队确认满足。
   （2026-09-10）
 
-### 1.2 配网全程**不出现系统入网授权框**——连热点由 SDK 内部完成
+### 1.2 配网步骤以**涂鸦官方回复**为准；系统 UI 只允许出现在「连接」那一刻
 
-**（2026-09-11 定稿口径：新流程 = 把连设备这件事整个嫁接给涂鸦 SDK，不要弹框授权设备。）**
+**涂鸦 SDK 官方给的 Android AP 配网步骤（2026-09-11 产品转达）：**
 
-- 那个框（「要与智能花盆搭配使用的设备 / 取消 / 连接」）由 `WifiNetworkSpecifier` +
-  `requestNetwork` 触发，Android 10+ 必弹、关不掉、不能由 App 代点。
-- ⇒ **App 侧一次都不调它。** 连设备热点交给 SDK：
-  `queryDeviceConfigState`（`apQueryDeviceWifi`）内部完成连接与设备状态查询，
-  `startActivator`（`apStartPairing`）负责下发凭据。
-- 依据：产品提供的智能生活截图（`docs/配网1.jpg` / `配网2.jpg`）证明它就是这么做的——
-  五步进度 + 让用户从**设备扫到的** Wi-Fi 列表里选。
+1. 设备准备：设备进入 AP 模式（指示灯慢闪），热点名以 `SmartLife_` 开头
+2. **连接热点：App 调用系统 API 自动连接设备热点**（Android 允许直接跳转 Wi-Fi 列表）
+3. 获取配网 Token & 安全配置：`getDeviceSecurityConfigs(...)`
+4. 查询设备扫描的 Wi-Fi 列表：`ApQueryBuilder` + `queryDeviceConfigState(...)`
+5. 提交配网信息：传入 SSID、密码、Token、安全配置
+6. 监听结果回调
 
-#### 当前动线上唯一允许调的 state 方法
+#### ⛔ 第 2 步不能省——这是四条独立证据的交集
 
-`connectDeviceForPairing()` / `pairViaDeviceHotspot()` / `probeWifi()` /
-`stopDevicePairing()` / `cancelPairing()` / `prepareForPairing()` /
-`releaseDeviceHotspot()`。**这七个都不触达 `_joinHotspotForPairing`。**
+**「连接热点」是 App 的活，不是 SDK 的。** 删掉它就配不上：
 
-⚠️ `pairViaHotspot()` 与 `connectDeviceHotspot()` 会调 `WifiNetworkSpecifier`，
-**它们只作为 AP 原流程的回退路径存在，不得接进当前动线**；两处调用点的注释写了怎么切。
+1. 涂鸦官方回复原文：「App 调用系统 API 自动连接设备热点」；
+2. 官方 AP 文档的定义：「……**但用户需要手动切换手机的 Wi-Fi 设置**」；
+3. git：`223bdae^`（有这一步）能配网成功；`223bdae`（改成"指望 SDK 自己连"）之后
+   **全是 `207220` 配网任务整体超时**；
+4. 四次真机实测：失败时手机**始终留在路由器上**，SDK 从没把它切过去。
 
-#### 顺带记住
+⚠️ **不要再以"SDK 会自己连"为由把它删掉。**
 
-手机若**已经保存过**该热点，设备一开机系统就自动重连——那是唯一"天然已连上"的情形，
-与 App 无关。我们自己用 `WifiNetworkSpecifier` 连的那次不会被系统保存。
+#### 我们与涂鸦步骤表的一处**有意偏差**
+
+涂鸦把「取 Token 与安全配置」排在第 3 步（连热点**之后**）。**那样走不通**——连上设备热点
+手机就没有外网，取不到云端的东西。所以我们把这两件事提前到**搜索页进页面时**预取
+（`prepareForPairing`），连热点时它们早就到手了。
+
+#### 系统 UI 的位置
+
+Android 10+ 上第 2 步会弹一次系统入网授权框（`WifiNetworkSpecifier`，关不掉、不能代点）。
+产品口径：**如果必须授权，就统一收在搜索页那颗「连接」按钮上**——只在那一刻出现一次，
+之后的页面（选 Wi-Fi、输密码、配网进度）**一个系统框都没有**。手机已经在该热点上时
+（上次留下的、或系统记住后自动重连）**直接跳过，零点击**。
 
 ### 1.3 智能生活 App 只是参考，不照抄
 

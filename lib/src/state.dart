@@ -605,6 +605,34 @@ class FlowerpotState extends ChangeNotifier {
     );
   });
 
+  /// 配网过程中的原生日志，**给页面直接显示用**。
+  ///
+  /// 产品不看 logcat（「你把日志直接打印到页面上，我截图给你」），所以这些行要能画在
+  /// 界面上、能被截图。每次发起连接/配网时清空，之后原样追加。
+  ///
+  /// 只留最近 [_pairingLogLimit] 行——页面放不下更多，而定位问题看的就是最后那几行。
+  List<String> get pairingLog => List<String>.unmodifiable(_pairingLog);
+  final List<String> _pairingLog = <String>[];
+  static const int _pairingLogLimit = 20;
+
+  StreamSubscription<String>? _pairingLogSub;
+
+  /// 开始一次连接/配网前调：清空旧日志并开始收。
+  void _startPairingLog() {
+    _pairingLog.clear();
+    _pairingLogSub?.cancel();
+    _pairingLogSub = _repository.pairingLogs.listen((line) {
+      _pairingLog.add(line);
+      if (_pairingLog.length > _pairingLogLimit) _pairingLog.removeAt(0);
+      notifyListeners();
+    });
+  }
+
+  Future<void> _stopPairingLog() async {
+    await _pairingLogSub?.cancel();
+    _pairingLogSub = null;
+  }
+
   /// 「热点配网新流程」查到的、**设备自己扫到的** Wi-Fi 列表。
   List<DeviceWifiNetwork> get deviceWifiNetworks => _deviceWifiNetworks;
   List<DeviceWifiNetwork> _deviceWifiNetworks = const <DeviceWifiNetwork>[];
@@ -625,6 +653,7 @@ class FlowerpotState extends ChangeNotifier {
     // 才能去扫 Wi-Fi。列表拿回来就意味着「设备找网络」也做完了，所以成功后把阶段推到
     // `deviceScanning` 再收尾——这样进度页上那两行的状态是真的，不是排出来的。
     _setPairingStage(PairingStage.connectingDevice);
+    _startPairingLog();
     var scanned = false;
     // 失败时把**能拿到的一切**都带出去：原始码、原文、用时、手机当时连的网络。
     // 这一步只会给一个笼统的超时码，不把这些附上，页面上就只剩一句 time out，
@@ -644,6 +673,7 @@ class FlowerpotState extends ChangeNotifier {
       // 恰恰最需要看到原文。
       throw TuyaException('connect_failed', _connectDiagnostic('$error', watch));
     } finally {
+      await _stopPairingLog();
       // 成功时把阶段留在 `deviceScanning`：页面正要跳去选网络，这时归零会让进度页
       // 闪一下回到「准备中」。失败才复位。
       if (!scanned) _setPairingStage(PairingStage.idle);
@@ -799,6 +829,7 @@ class FlowerpotState extends ChangeNotifier {
     var pairingStarted = false;
     StreamSubscription<String>? stepSub;
     _setPairingStage(PairingStage.connectingDevice);
+    _startPairingLog();
     try {
       // 只读一次「当前连的是哪个网络」，**纯诊断，不拦路**。
       //
@@ -885,6 +916,7 @@ class FlowerpotState extends ChangeNotifier {
       rethrow;
     } finally {
       await stepSub?.cancel();
+      await _stopPairingLog();
       _setPairingStage(PairingStage.idle);
     }
   });

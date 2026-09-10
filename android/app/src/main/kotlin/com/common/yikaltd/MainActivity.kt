@@ -1097,9 +1097,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // ⚠️ **每一步都打日志。** 这个调用失败时 SDK 只给一个笼统的超时，光看结果分不清
         // 是「配网器没建起来」「反射签名对不上」还是「调出去了但回调永远不来」。
         // 三种的修法完全不同，所以宁可日志啰嗦一点。用 `adb logcat -s $TUYA_LOG_TAG` 看。
-        Log.i(TUYA_LOG_TAG, "ap query: begin")
+        trace("ap query: begin")
         val activator = newOptimizedActivator()
-        Log.i(TUYA_LOG_TAG, "ap query: activator=${activator.javaClass.name}")
+        trace("ap query: activator=${activator.javaClass.simpleName}")
 
         // ApQueryBuilder.Builder().setContext(ctx).setTimeout(ms).build()
         val timeout = (call.argument<Number>("timeout")?.toLong() ?: 0L)
@@ -1113,11 +1113,11 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         invoke(queryBuilder, "setTimeout", timeout)
         val query = invoke(queryBuilder, "build")
             ?: throw IllegalStateException("ApQueryBuilder.build 返回空")
-        Log.i(TUYA_LOG_TAG, "ap query: builder ok, timeout=${timeout}ms")
+        trace("ap query: builder ok, timeout=${timeout}ms")
 
         // 手机此刻连在哪个网络上——这一行是判断"SDK 到底有没有把手机切到设备热点"的关键。
         // 调用前打一次、回调里再打一次，两相对照就知道它动没动过。
-        Log.i(TUYA_LOG_TAG, "ap query: wifi before = ${currentSsidForLog()}")
+        trace("ap query: wifi before = ${currentSsidForLog()}")
         val startedAt = SystemClock.elapsedRealtime()
         invokeWithCallback(
             activator,
@@ -1125,23 +1125,21 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             query,
             onSuccess = { value ->
                 val count = (value as? Collection<*>)?.size ?: -1
-                Log.i(
-                    TUYA_LOG_TAG,
+                trace(
                     "ap query: success in ${SystemClock.elapsedRealtime() - startedAt}ms, " +
                         "networks=$count, wifi now = ${currentSsidForLog()}",
                 )
                 onMain(result) { success(result, wifiInfoList(value)) }
             },
             onError = { code, message ->
-                Log.i(
-                    TUYA_LOG_TAG,
+                trace(
                     "ap query: error $code after ${SystemClock.elapsedRealtime() - startedAt}ms, " +
                         "msg=$message, wifi now = ${currentSsidForLog()}",
                 )
                 error(result, code, message)
             },
         )
-        Log.i(TUYA_LOG_TAG, "ap query: handed to SDK, waiting for callback")
+        trace("ap query: handed to SDK, waiting for callback")
     }
 
     /** 当前连着的 Wi-Fi 名，只给日志用；读不到就说读不到，不猜。 */
@@ -1966,6 +1964,17 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         else -> value
     }
 
+    /**
+     * 打一行配网日志，**同时推给 Dart** —— 页面上要直接显示出来。
+     *
+     * 产品不看 logcat（「你把日志直接打印到页面上，我截图给你」），所以这些行必须能到
+     * 界面上。`Log.i` 照旧保留：真机联调时两边都能看。
+     */
+    private fun trace(line: String) {
+        Log.i(TUYA_LOG_TAG, line)
+        emit(mapOf("type" to "pairingLog", "line" to line))
+    }
+
     private fun emit(event: Map<String, Any?>) {
         activity.runOnUiThread { events?.success(event) }
     }
@@ -2044,7 +2053,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 // 在 Dart 侧按名字精确映射。
                 "onStep" -> {
                     val step = args?.firstOrNull()?.toString().orEmpty()
-                    Log.i(TUYA_LOG_TAG, "pairing step: $step")
+                    trace("pairing step: $step")
                     emit(mapOf("type" to "pairingStep", "step" to step))
                     defaultValue(method.returnType)
                 }

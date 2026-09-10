@@ -492,13 +492,33 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 预取失败不拦路：配网时还会自己再取一次令牌。
     await _prepared;
     if (!mounted) return;
-    // **新流程**：由 SDK 连上设备并让设备扫 Wi-Fi（`queryDeviceConfigState`）。
-    // 回来的列表存在 `state.deviceWifiNetworks` 里，下一页给用户选——这正是智能生活
-    // 「选择Wi-Fi / 可用Wi-Fi」那一页的数据来源（`docs/配网2.jpg`）。
+    // ② **App 自己把手机连到设备热点上。**
     //
-    // ⚠️ 要切回 AP 原流程（`223bdae^` 那版能配成的路径）只需把这一行换成
-    // `state.connectDeviceHotspot(hotspotSsid: hotspot.ssid)`，并把「连接 Wi-Fi」页的
-    // `pairViaDeviceHotspot` 换回 `pairViaHotspot`。两条路径的代码都完整保留。
+    // 这一步是涂鸦官方回复里明写的（2026-09-11 产品转达）：
+    //
+    // > 连接热点：**App 调用系统 API 自动连接设备热点**（Android 允许直接跳转 Wi-Fi 列表）
+    //
+    // ⚠️ **不是 SDK 干的，删掉就配不上。** 四条独立证据都指向它：官方 AP 文档的定义
+    // 「用户需要手动切换手机的 Wi-Fi 设置」；git 上 `223bdae^`（有这步）能配成、`223bdae`
+    // （删掉这步）之后全是 `207220` 超时；四次真机实测失败时手机始终留在路由器上；
+    // 以及涂鸦这份回复。
+    //
+    // Android 10+ 上这一步会弹一次系统入网授权框——产品口径是**如果必须授权，就统一收在
+    // 「连接」这颗按钮上**，只在这里出现一次，后面的页面一个框都没有。手机已经在该热点上
+    // 时直接跳过、零点击。
+    final joined = await state.connectDeviceHotspot(hotspotSsid: hotspot.ssid);
+    if (!mounted) return;
+    if (!joined.success) {
+      setState(() {
+        _connectingIndex = null;
+        _connectError = _connectFailureHint(joined.code, joined.message);
+      });
+      return;
+    }
+    // ③ 取 Token 与安全配置已经在 `_prepared` 里做完了（涂鸦的步骤表把它排在连接热点
+    //    之后，但那样是走不通的——连上热点手机就没有外网，取不到云端的东西）。
+    // ④ 让设备扫 Wi-Fi：`queryDeviceConfigState`。回来的列表存在
+    //    `state.deviceWifiNetworks`，下一页给用户选（对应 `docs/配网2.jpg` 的「可用Wi-Fi」）。
     final result = await state.connectDeviceForPairing();
     // 只要发起过就留引用：即便失败也可能留下半条连接，离开本页时要放掉。
     _hotspotState = state;
@@ -657,6 +677,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                             ),
                           ),
                         ),
+                        // 连设备失败时把**原生日志原样画出来**，产品直接截图给开发。
+                        // 不看 logcat 也能定位：停在哪一步、手机当时连的是什么、用了多久。
+                        if (_connectError != null &&
+                            state.pairingLog.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 12),
+                          _PairingLogBox(lines: state.pairingLog),
+                        ],
                         // 找到的设备直接列在下面，边扫边冒出来。
                         if (hotspots.isNotEmpty) ...<Widget>[
                           const SizedBox(height: 20),
@@ -802,6 +829,52 @@ class _SearchOutcome {
   /// 「搜索附近设备…」「未发现设备」是这一屏的主标题，28 撑得住；而「发现 N 台
   /// 设备」下面紧跟着设备列表，重点在列表上，同样 28 就显得太大了。
   final bool compactTitle;
+}
+
+/// 配网原生日志，**直接画在页面上**。
+///
+/// 产品不看 logcat（「你把日志直接打印到页面上，我截图给你」），所以这几行必须能被截图。
+/// 内容是原生 `trace()` 推上来的：`ap query: begin` / `activator=…` / `builder ok` /
+/// `wifi before` / `handed to SDK…` / `success|error … wifi now` / `pairing step: …`。
+///
+/// 等长字体 + 左对齐 + 可长按复制：这是给人读的诊断，不是给用户看的文案。
+class _PairingLogBox extends StatelessWidget {
+  const _PairingLogBox({required this.lines});
+
+  final List<String> lines;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = lines.join('\n');
+    return GestureDetector(
+      onLongPress: () async {
+        await Clipboard.setData(ClipboardData(text: text));
+        if (context.mounted) {
+          showAppMessage(context, '日志已复制', tone: AppMessageTone.success);
+        }
+      },
+      child: Container(
+        key: const Key('device-search-pairing-log'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.textTertiary.withValues(alpha: .3)),
+        ),
+        child: Text(
+          text,
+          textAlign: TextAlign.left,
+          style: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 11,
+            height: 1.45,
+            fontFamily: 'monospace',
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// 页面底部那颗按钮：要么「重新扫描」，要么 iOS 上的「下一步」。

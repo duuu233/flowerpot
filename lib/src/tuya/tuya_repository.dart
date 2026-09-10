@@ -162,6 +162,14 @@ abstract class TuyaRepository {
   /// 平台上保持静默而不是抛错。
   Stream<OtaProgress> get otaUpdates;
 
+  /// 配网过程中的**原生日志行**，原样转上来。
+  ///
+  /// 产品不看 logcat（「你把日志直接打印到页面上，我截图给你」），所以这些行要能画到
+  /// 界面上。内容是原生 `trace()` 打的那几行：`ap query: begin` / `activator=…` /
+  /// `builder ok` / `wifi before` / `handed to SDK…` / `success|error … wifi now` /
+  /// `pairing step: …`。
+  Stream<String> get pairingLogs;
+
   /// 配网进度：涂鸦 activator 的 `onStep` 回调，原样转上来的步骤名。
   ///
   /// 智能生活 App 在 AP 配网时展示的「设备连接建立成功 / Wi-Fi 配置已下发 /
@@ -210,6 +218,19 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       .map(_otaUpdate)
       .where((update) => update != null)
       .cast<OtaProgress>();
+
+  @override
+  late final Stream<String> pairingLogs = _rawEvents
+      .map((event) => _stringField(event, 'pairingLog', 'line'))
+      .where((line) => line != null && line.isNotEmpty)
+      .cast<String>();
+
+  /// 从原生事件里取一个字符串字段：`{type: <type>, <field>: '…'}`。
+  String? _stringField(Object? event, String type, String field) {
+    if (event is! Map) return null;
+    if ('${event['type'] ?? ''}' != type) return null;
+    return event[field]?.toString();
+  }
 
   @override
   late final Stream<String> pairingSteps = _rawEvents
