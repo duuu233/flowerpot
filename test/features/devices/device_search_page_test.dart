@@ -84,7 +84,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(pairingArguments, 'unset');
 
-    // 点该行的「连接」才进下一步，并把热点名带过去。
+    // 点该行的「连接」：**真的去连这台设备的热点**，连上了才进下一步。
     expect(find.byKey(const Key('device-search-connect-0')), findsOneWidget);
     await tester.tap(find.byKey(const Key('device-search-connect-0')));
     await tester.pumpAndSettle();
@@ -92,8 +92,10 @@ void main() {
     expect(find.text('pairing-wifi-target'), findsOneWidget);
     final arguments = pairingArguments! as PairingArguments;
     expect(arguments.hotspotSsid, 'SmartLife-A1B2');
-    // 设备名也要带过去：用户没点过「就连这台」，下一页必须写清楚连的是哪台。
     expect(arguments.deviceName, 'SmartLife-A1B2');
+    // 连热点**之前**抓到的路由器名要带过去：连上之后手机离开路由器，下一页就读不到
+    // 当前网络了，没有这一项用户得自己再挑一遍 Wi-Fi。
+    expect(arguments.routerSsid, 'TP-LINK_2.4G');
     expect(arguments.request, same(request));
     expect(tester.takeException(), isNull);
   });

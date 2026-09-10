@@ -7,6 +7,9 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+// `FlowerpotState`：连上热点之后本页就持有一条连接，dispose / paused 里要还原网络，
+// 那时已经不能查 InheritedWidget，所以得按类型留引用。
+import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import 'pairing_page.dart';
 
@@ -58,7 +61,7 @@ class DeviceSearchPage extends StatefulWidget {
 }
 
 class _DeviceSearchPageState extends State<DeviceSearchPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   /// 当前平台能不能列出附近的 Wi-Fi。
   ///
   /// **iOS 不能，而且没有替代方案**：系统没有任何公开 API 可以枚举附近热点
@@ -157,6 +160,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 上一次扫描是不是被系统限流了（拿回的是旧缓存）。界面据此换一句话。
   bool _throttled = false;
 
+  /// 正在连某一行设备的热点时，那一行的下标；空闲时为 null。
+  ///
+  /// 点「连接」是**真的去连**（见 [_connectAndOpen]），所以要有进行中的态，也要挡住
+  /// 期间的重复点击。
+  int? _connectingIndex;
+
+  /// 连热点失败的原因，画在页面上让用户能照着做。
+  String? _connectError;
+
+  /// 连过热点的那个状态对象，给 [dispose] / [didChangeAppLifecycleState] 还原网络用。
+  FlowerpotState? _hotspotState;
+
   /// 搜了这么久还一台都没有，就把「设备可能已经退出配网状态」这条说出来，并且**立刻**
   /// 把动作交给用户，不要让他等满整个 3 分钟窗口。
   ///
@@ -182,13 +197,34 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       vsync: this,
       duration: const Duration(seconds: 4),
     )..repeat();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scan());
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
+    // 切到后台就把手机的 Wi-Fi 还回去：连上设备热点之后手机是没有外网的，不还原等于
+    // 把用户撂在那儿直到进程被杀。
+    //
+    // ⚠️ 正在连的那一刻不能放：系统入网授权框会把本页 pause，这时放等于自己把刚发出去
+    // 的请求撤回。`_connectingIndex != null` 正好覆盖那一段。
+    if (lifecycleState != AppLifecycleState.paused) return;
+    if (_connectingIndex != null) return;
+    final state = _hotspotState;
+    if (state == null) return;
+    _hotspotState = null;
+    unawaited(state.releaseDeviceHotspot());
+  }
+
+  @override
   void dispose() {
-    // 本页不再持有任何热点连接（设备由用户手动点「连接」、热点在配网那一步才连），
-    // 所以这里没有网络要还原——那件事由「连接 Wi-Fi」页负责。
+    // ⚠️ 离开本页一定要把手机的 Wi-Fi 还回去：用户点过「连接」之后本页就持有一条
+    // 设备热点连接，那期间手机没有外网。无条件调、幂等——漏放的代价（用户莫名断网）
+    // 远大于多调一次。配网期间本页不会被 dispose（下一页是 push 上去的）。
+    final hotspotState = _hotspotState;
+    _hotspotState = null;
+    if (hotspotState != null) unawaited(hotspotState.releaseDeviceHotspot());
+    WidgetsBinding.instance.removeObserver(this);
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
     _deadlineTimer?.cancel();
@@ -209,6 +245,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _autoOpened = false;
     _stalledTimer?.cancel();
     _stalled = false;
+    _connectingIndex = null;
+    _connectError = null;
     _radarController.repeat();
     setState(() {
       _scanning = true;
@@ -367,7 +405,52 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// `deviceName` 也一起带过去：用户没有点过「确认连接这台」，那么连接的是哪台
   /// 必须在下一页上写清楚，否则整条流程就成了黑箱。设备名就用热点名——AP 模式下
   /// App 能拿到的就这一个标识。
-  void _openPairing(WifiNetwork hotspot) {
+  /// 用户点了某一行的「连接」：**真的把手机连到这台设备的热点上**，成功后再进下一页。
+  ///
+  /// ## 为什么连接放在这里
+  ///
+  /// 按钮叫「连接」就该在这一刻连。2026-09-10 晚一度把它做成只跳页、热点留到点
+  /// 「开始配网」时才连，结果那个系统入网授权框跑到**输完 Wi-Fi 密码之后**才弹——
+  /// 用户已经以为连过了，又被问一次，莫名其妙。（查过 git：更早那版的「选择设备」页
+  /// 也只跳页、不连热点，注释写着 "Nothing is 'connected' here"，所以那一版的框同样在
+  /// 密码之后；"早期不需要"很可能是当时测试机已经保存过该热点。）
+  ///
+  /// 连在这里之后，配网那一步的第①步会检测到**已持有这条连接**并原地跳过
+  /// （原生 `boundHotspotSsid` 记账，不依赖读 SSID 的权限），所以**框只会出现这一次**。
+  ///
+  /// ## 为什么要先把路由器名抓下来
+  ///
+  /// 一连上设备热点，手机就离开了路由器，「连接 Wi-Fi」页那条「带出当前 Wi-Fi 名」的
+  /// 规则就只能留空。所以趁还连着路由器，先把名字读出来带过去——用户到了下一页仍然
+  /// 看到自己的 Wi-Fi 已经填好，只需输密码。
+  Future<void> _connectAndOpen(int index, WifiNetwork hotspot) async {
+    if (_connectingIndex != null || !mounted) return;
+    final state = FlowerpotScope.of(context);
+    // 趁手机还在路由器上：①把路由器名记下来 ②等云端预取落地（取令牌 / 取安全配置 /
+    // 确认家庭都要走云端，连上热点之后就没外网了）。
+    final scan = state.wifiScan;
+    final routerSsid = (scan?.currentIsDeviceHotspot ?? false)
+        ? ''
+        : (scan?.current ?? '');
+    setState(() {
+      _connectingIndex = index;
+      _connectError = null;
+    });
+    await _prepared;
+    if (!mounted) return;
+    final result = await state.connectDeviceHotspot(hotspotSsid: hotspot.ssid);
+    // 只要发起过就记下引用：即便失败也可能留下半条连接要放。
+    _hotspotState = state;
+    if (!mounted) return;
+    setState(() {
+      _connectingIndex = null;
+      _connectError = result.success ? null : result.message;
+    });
+    if (!result.success) return;
+    _openPairing(hotspot, routerSsid: routerSsid);
+  }
+
+  void _openPairing(WifiNetwork hotspot, {String routerSsid = ''}) {
     Navigator.pushNamed(
       context,
       AppRoutes.pairing,
@@ -375,6 +458,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         request: widget.request,
         hotspotSsid: hotspot.ssid,
         deviceName: hotspot.ssid,
+        routerSsid: routerSsid,
       ),
     );
   }
@@ -456,7 +540,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           const SizedBox(height: 20),
                           _FoundDeviceList(
                             hotspots: hotspots,
-                            onSelected: _openPairing,
+                            busyIndex: _connectingIndex,
+                            onSelected: (index) => unawaited(
+                              _connectAndOpen(index, hotspots[index]),
+                            ),
                           ),
                         ],
                         // iOS 列不出设备，「下一步」全程都在——那是它唯一的
@@ -505,7 +592,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       return _SearchOutcome(
         '发现 ${hotspots.length} 台设备',
         // 设备本身不联网，所以下一步是给它配一个 Wi-Fi；这里先说清要点哪个按钮。
-        '点设备右侧的「连接」，然后选择要让它加入的 Wi-Fi 并输入密码。',
+        // 连失败时（多半是用户在系统框上点了「取消」）把原因顶上来，再点一次即可。
+        _connectError ??
+            '点设备右侧的「连接」，然后输入要让它加入的 Wi-Fi 密码。'
+                '系统会弹一次确认框，请点「连接」。',
         compactTitle: true,
       );
     }
@@ -635,12 +725,21 @@ class _SearchActions extends StatelessWidget {
 /// 2026-09-10 之前这一步是跳到「选择设备」页；跳走会把「还有第二台正在冒出来」
 /// 整个吃掉，用户也没机会确认自己点的是哪台。现在边扫边往下加。
 class _FoundDeviceList extends StatelessWidget {
-  const _FoundDeviceList({required this.hotspots, required this.onSelected});
+  const _FoundDeviceList({
+    required this.hotspots,
+    required this.onSelected,
+    required this.busyIndex,
+  });
 
   static const listKey = Key('device-search-found-list');
 
   final List<WifiNetwork> hotspots;
-  final ValueChanged<WifiNetwork> onSelected;
+
+  /// 回调给的是**下标**：页面要据它知道是哪一行在转圈。
+  final ValueChanged<int> onSelected;
+
+  /// 正在连接的那一行；null 表示空闲。
+  final int? busyIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -653,7 +752,9 @@ class _FoundDeviceList extends StatelessWidget {
           _FoundDeviceTile(
             index: index,
             hotspot: hotspots[index],
-            onTap: () => onSelected(hotspots[index]),
+            busy: busyIndex == index,
+            // 正在连某一行时，别的行一律不可点——同时只能有一条热点连接。
+            onTap: busyIndex == null ? () => onSelected(index) : null,
           ),
         ],
       ],
@@ -666,11 +767,17 @@ class _FoundDeviceTile extends StatelessWidget {
     required this.index,
     required this.hotspot,
     required this.onTap,
+    required this.busy,
   });
 
   final int index;
   final WifiNetwork hotspot;
-  final VoidCallback onTap;
+
+  /// null 表示此刻不可点（别的行正在连）。
+  final VoidCallback? onTap;
+
+  /// 这一行正在连热点。
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -709,7 +816,7 @@ class _FoundDeviceTile extends StatelessWidget {
               // 整行也照旧可点，两者同一个动作。
               FilledButton(
                 key: Key('device-search-connect-$index'),
-                onPressed: onTap,
+                onPressed: busy ? null : onTap,
                 style: FilledButton.styleFrom(
                   minimumSize: const Size(68, 34),
                   padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -718,7 +825,15 @@ class _FoundDeviceTile extends StatelessWidget {
                   shape: const StadiumBorder(),
                   textStyle: const TextStyle(fontSize: 14),
                 ),
-                child: const Text('连接'),
+                child: busy
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.surface,
+                        ),
+                      )
+                    : const Text('连接'),
               ),
             ],
           ),

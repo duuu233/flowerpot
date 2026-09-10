@@ -27,7 +27,15 @@ class PairingArguments {
     this.deviceName,
     this.hotspotSsid,
     this.request,
+    this.routerSsid = '',
   });
+
+  /// 搜索页**在连设备热点之前**读到的路由器 Wi-Fi 名。
+  ///
+  /// 用户点「连接」时手机就挂到设备热点上了，此后「带出当前 Wi-Fi 名」那条规则只能留空
+  /// （当前连的是热点，填它等于让设备去连它自己）。所以趁还在路由器上先把名字抓下来带
+  /// 过来，用户到这一页仍然看到自己的 Wi-Fi 已经填好，只需输密码。
+  final String routerSsid;
 
   /// Planter picked on the selection page, shown above the credentials.
   final String? deviceName;
@@ -192,8 +200,12 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
         current != null &&
         current.isNotEmpty &&
         !(scan?.currentIsDeviceHotspot ?? false);
-    ssidController.text = connected ? current : '';
-    _autoFilledSsid = connected ? current : null;
+    // 手机还在路由器上就用当前网络；已经挂到设备热点上了就用搜索页连热点**之前**抓到
+    // 的那个路由器名（见 [PairingArguments.routerSsid]）。两者都没有才留空。
+    final preset = widget.arguments?.routerSsid ?? '';
+    final filled = connected ? current : preset;
+    ssidController.text = filled;
+    _autoFilledSsid = filled.isEmpty ? null : filled;
     setState(() {});
   }
 
