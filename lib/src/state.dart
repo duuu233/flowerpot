@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -568,13 +569,19 @@ class FlowerpotState extends ChangeNotifier {
       // 其它错误都是真的没查到，照常抛出去。
       if (error.code != 'sdk_unavailable') rethrow;
     }
-    if (home == '0') {
-      throw const TuyaException(
-        'home_unresolved',
-        '没能确认账号下的家庭，请确认手机已连上可上网的 Wi-Fi 后重试',
-      );
-    }
-    if (home.isNotEmpty) {
+    // ⚠️ **家庭没确认下来不再拦路。**
+    //
+    // 这道门禁是 2026-09-09 的 `d0ab4d0` 加的，本意是「别在设备热点上查家庭、
+    // 免得拿到空列表自动建一个空家庭」。但它把「查不到」也当成了「不能配网」：
+    // `currentHomeId` 返回 0 只表示此刻还没解析出来，涂鸦的 activator 自己会在
+    // 配网时解析家庭，而这一步跑在**还连着路由器**的时候，本来就不存在建空家庭
+    // 的风险。原样抛出去的结果是「开始配网」直接失败、配网根本没开始——用户看到
+    // 的就是「昨天还能配，今天点了没反应」。
+    //
+    // 现在只把它记进诊断信息，照常往下走：真的没有家庭时，配网自己会失败，
+    // 那时的报错才是真实原因。
+    final homeUnresolved = home == '0';
+    if (home.isNotEmpty && !homeUnresolved) {
       _lastHomeId = home;
       await _rememberHome(home);
     }
@@ -585,7 +592,11 @@ class FlowerpotState extends ChangeNotifier {
     notifyListeners();
     return ActionResult(
       true,
-      home.isEmpty ? '准备就绪' : '准备就绪（家庭 $home）',
+      switch (home) {
+        '' => '准备就绪',
+        '0' => '准备就绪（家庭待解析）',
+        _ => '准备就绪（家庭 $home）',
+      },
     );
   });
 
@@ -635,11 +646,7 @@ class FlowerpotState extends ChangeNotifier {
         target: target,
         joinedManually: hotspotJoinedManually,
       );
-      mark(
-        joinedByApp
-            ? '连热点${target == null ? '(前缀匹配)' : '($target)'}'
-            : '连热点(手动)',
-      );
+      mark(joinedByApp ? '连热点($target)' : '连热点(手动)');
 
       pairingStarted = true;
       _setPairingStage(PairingStage.sendingWifi);
@@ -699,11 +706,19 @@ class FlowerpotState extends ChangeNotifier {
     required bool joinedManually,
   }) async {
     try {
+      // ⚠️ **只用确切的热点名去请求**。给前缀时 `WifiNetworkSpecifier` 走的是
+      // 「按模式搜索」那一支，系统会弹出「查找设备…」并在扫不到时停在「没有找到
+      // 任何设备。请确保要连接的设备已打开并准备好进行连接。」——那是系统 UI，
+      // App 关不掉它，只能不触发它。搜索页现在会把选中的热点名一路带过来，拿不到
+      // 名字就说清楚让用户回去挑，而不是丢给系统去猜。
+      if (target == null) {
+        throw const TuyaException(
+          'hotspot_unknown',
+          '还不知道要连哪台设备的热点，请回到「搜索设备」选中设备后再配网',
+        );
+      }
       final joined = await _repository
-          .joinDeviceHotspot(
-            ssid: target,
-            prefix: target == null ? WifiNetwork.hotspotJoinPrefix : null,
-          )
+          .joinDeviceHotspot(ssid: target, prefix: null)
           .timeout(
             hotspotJoinDeadline,
             onTimeout: () => throw const TuyaException(
@@ -770,10 +785,20 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '已中止配网，设备热点连接已释放');
   });
 
+  /// 第三步「连接云端」的停留时长。
+  ///
+  /// ⚠️ **这一步目前没有接任何实际业务**：涂鸦的 activator 返回时设备其实已经注册
+  /// 到云端了，所以没有可等的东西。产品口径是先给它一个 1–2 秒的随机停留、然后
+  /// 直接按成功处理——否则第三步会一闪而过，用户看到的是「第二步刚亮起就跳走了」。
+  /// 真接上云端回执之后，把这段延时换成真正的等待即可。
+  static Duration _cloudStageDelay() =>
+      Duration(milliseconds: 1000 + Random().nextInt(1000));
+
   Future<ActionResult> _pairInternal(PairingRequest request) async {
     final device = await _pairOrRecover(request);
     // 凭据已经被设备收下，接下来是它自己连路由器、注册到云端。
     _setPairingStage(PairingStage.connectingCloud);
+    await Future<void>.delayed(_cloudStageDelay());
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.
     _activatorTokenAt = null;

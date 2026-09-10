@@ -73,7 +73,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
 
   /// 配网前的准备（确认家庭 + 取令牌）正在跑。这两步都要走云端，必须在还连着
   /// 路由器时完成，所以先转个圈等它结束，成了才去碰设备热点。
-  bool _preparing = false;
 
   /// 上一次由扫描自动填进输入框的名称。用户自己打字或从「切换」里选过之后，
   /// 输入框的内容就和它对不上了，此后的刷新不再覆盖用户的选择。
@@ -183,11 +182,17 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // 先把家庭确认下来、把令牌取到，全程手机还在路由器上。连上设备热点之后这
     // 两步都做不了：查家庭可能拿到空列表被当成「账号还没有家庭」而新建一个，
     // 之后登录就可能读到那个空家庭、一台设备都没有。
-    setState(() => _preparing = true);
+    //
+    // 2026-09-10 起这一步**并进进度页的第一步**，不再单独盖一层 AppLoading 遮罩：
+    // 配网期间已经有一个系统的热点确认框（Android 10+ 必弹、App 关不掉），再叠
+    // 自己的全屏遮罩和 toast，用户分不清哪个才是要他操作的。
+    _pairingState = state;
+    setState(() => _pairing = true);
     final ready = await state.prepareForPairing();
     if (!mounted) return;
-    setState(() => _preparing = false);
     if (!ready.success) {
+      _pairingState = null;
+      setState(() => _pairing = false);
       showAppMessage(context, ready.message, tone: AppMessageTone.error);
       return;
     }
@@ -198,8 +203,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // 取令牌 → 连热点 → 下发凭据串成一次操作。这三步有顺序约束（令牌只能在还有
     // 外网时取，连上热点后就取不到了），交给用户按顺序点三个按钮，错一次就是两
     // 分钟超时，而失败原因从 `1006` 里看不出来。
-    _pairingState = state;
-    setState(() => _pairing = true);
     final result = await state.pairViaHotspot(
       ssid: request.ssid,
       password: request.password,
@@ -210,9 +213,9 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() => _pairing = false);
     if (result.code == 'hotspot_manual_required') {
-      // 不是失败：令牌已取好，等用户去系统设置把热点连上再点一次。
+      // 不是失败：令牌已取好，等用户去系统设置把热点连上再点一次。页面上那段
+      // 引导文案已经把该做什么说清楚了，不再叠一个 toast。
       setState(() => _manualHotspot = true);
-      showAppMessage(context, '请先到系统设置连接设备热点', tone: AppMessageTone.info);
       return;
     }
     if (!result.success) {
@@ -270,11 +273,20 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接Wi-Fi', leading: AppBackButton()),
       background: AppPageBackground.account,
+      // 键盘避让：`resizeToAvoidBottomInset: false` 让页面保持整屏高度不被压缩
+      // （压缩会让整页跳一下），改由滚动区自己在底部让出键盘那么高的一段——焦点
+      // 落到输入框时 Flutter 会把光标滚进可视区，于是输入框正好停在键盘上方。
+      // 这是表单页的通行做法；只靠默认的 resize 在「内容本来就放得下一屏」时不会
+      // 产生可滚动区间，输入框照样被键盘盖住。
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: <Widget>[
           SingleChildScrollView(
             key: const Key('pairing-scroll-view'),
-            padding: const EdgeInsets.only(bottom: 92),
+            // 键盘避让，见登录页同处注释；92 是底部按钮条的高度。
+            padding: EdgeInsets.only(
+              bottom: 92 + MediaQuery.viewInsetsOf(context).bottom,
+            ),
             child: ResponsiveContent(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
@@ -391,18 +403,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                   : Text(_manualHotspot ? '已连接热点，开始配网' : '开始配网'),
             ),
           ),
-          // 准备阶段（确认家庭 + 取令牌）盖一层遮罩：这两步要走云端，用户此时
-          // 不能去切网络，也不该以为页面卡住了。成功之后才会去连设备热点。
-          if (_preparing)
-            const Positioned.fill(
-              key: Key('pairing-preparing'),
-              child: AbsorbPointer(
-                child: ColoredBox(
-                  color: Color(0x66000000),
-                  child: AppLoading(label: '正在确认账号与家庭，请保持当前 Wi-Fi…'),
-                ),
-              ),
-            ),
         ],
       ),
     );

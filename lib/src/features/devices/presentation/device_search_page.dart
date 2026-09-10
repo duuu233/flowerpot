@@ -21,8 +21,8 @@ import 'pairing_page.dart';
 ///
 /// 一次扫描只是那一瞬间的快照：用户长按设备让它进入配网状态时，热点往往还没
 /// 广播出来。所以这一页在 [DeviceSearchPage.searchWindow] 的窗口里反复扫描，
-/// 扫到就直接进下一步。两条出路（「重新扫描」「设备已在配网状态，继续」）**全程
-/// 都在**，用户不必等窗口走完；从附近网络里手动挑一个的入口已经下线。
+/// **扫到就把设备直接列在下面，不再跳页**——这一页就是一个监听器，用户看着它
+/// 一台台冒出来，点哪台就带哪台进「连接 Wi-Fi」。
 ///
 /// ⚠️ **扫描节奏受系统配额约束，不能想扫多密就多密。** Android 9 起前台应用每 2
 /// 分钟只允许 4 次 `startScan`，超了直接被拒、返回上一次的缓存。2026-09-08 那版
@@ -147,19 +147,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (result.success && !_throttled) _scannedForReal = true;
     // Only a real hotspot advances on its own. Every other outcome keeps the
     // user here with a reason and a way forward.
-    final found =
-        result.success && (state.wifiScan?.deviceHotspots.isNotEmpty ?? false);
-    if (found) {
-      // The searching state is kept while the selection page takes over: this
-      // page is still on screen during the transition and would otherwise
-      // flash the "nothing found" copy on its way out.
-      Navigator.pushReplacementNamed(
-        context,
-        AppRoutes.deviceSelection,
-        arguments: widget.request,
-      );
-      return;
-    }
+    // 2026-09-10 起不再自动跳页：扫到什么就画在下面，由用户点。自动跳走会把
+    // 「还有第二台正在冒出来」这件事整个吃掉，用户也没机会确认自己点的是哪台。
     // 扫描本身成功、只是这一轮没看见设备热点时，窗口没走完就按节奏再扫一次，页面
     // 保持「搜索中」。Wi-Fi 没开、没权限这类失败重扫多少次都是同一个结果，直接报出来。
     final retryable = result.success || result.code == 'wifi_scanning';
@@ -182,23 +171,23 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     });
   }
 
-  /// Skips the evidence and goes straight to the Wi-Fi credentials.
-  ///
-  /// Needed on iOS, where the platform only reports the network the phone is
-  /// on, and on any Android whose scan is throttled or refused — provisioning
-  /// itself still works there.
-  void _continueAnyway() {
-    Navigator.pushReplacementNamed(
+  /// 点中某台设备：带着它的热点名进「连接 Wi-Fi」。
+  void _openPairing(WifiNetwork hotspot) {
+    Navigator.pushNamed(
       context,
       AppRoutes.pairing,
-      arguments: PairingArguments(request: widget.request),
+      arguments: PairingArguments(
+        request: widget.request,
+        hotspotSsid: hotspot.ssid,
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final scan = FlowerpotScope.of(context).wifiScan;
-    final outcome = _outcome(scan);
+    final hotspots = scan?.deviceHotspots ?? const <WifiNetwork>[];
+    final outcome = _outcome(scan, hotspots);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '搜索设备', leading: AppBackButton()),
       background: AppPageBackground.account,
@@ -252,15 +241,16 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                             height: 1.5,
                           ),
                         ),
-                        // 两条出路全程都在。窗口从 45 秒拉长到 3 分钟之后，藏起
-                        // 按钮等窗口走完就是把用户困在原地——尤其是他明知道设备
-                        // 已经在配网状态、只想直接下一步的时候。
+                        // 找到的设备直接列在下面，边扫边冒出来。
+                        if (hotspots.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 20),
+                          _FoundDeviceList(
+                            hotspots: hotspots,
+                            onSelected: _openPairing,
+                          ),
+                        ],
                         const SizedBox(height: 20),
-                        _SearchActions(
-                          scanning: _scanning,
-                          onRescan: _scan,
-                          onContinue: _continueAnyway,
-                        ),
+                        _SearchActions(scanning: _scanning, onRescan: _scan),
                       ],
                     ),
                   ),
@@ -284,7 +274,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   /// Copy for the current scan outcome. Kept in one place so the page never
   /// says "no device" when the platform simply cannot answer.
-  _SearchOutcome _outcome(WifiScan? scan) {
+  _SearchOutcome _outcome(WifiScan? scan, List<WifiNetwork> hotspots) {
+    // 已经找到设备时，标题就该讲这件事，而不是继续报「搜索中」。
+    if (hotspots.isNotEmpty) {
+      return _SearchOutcome(
+        '发现 ${hotspots.length} 台设备',
+        _scanning ? '点击下方设备继续配网，仍在继续搜索…' : '点击下方设备继续配网。',
+      );
+    }
     if (_scanning) {
       // 被系统限流时别装作还在扫：这几十秒确实什么都没在查，说清楚比转圈诚实。
       if (_throttled) {
@@ -346,46 +343,116 @@ class _SearchOutcome {
 }
 
 class _SearchActions extends StatelessWidget {
-  const _SearchActions({
-    required this.scanning,
-    required this.onRescan,
-    required this.onContinue,
-  });
+  const _SearchActions({required this.scanning, required this.onRescan});
 
   final bool scanning;
   final VoidCallback onRescan;
-  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 220,
+      height: 46,
+      child: FilledButton(
+        key: const Key('device-search-rescan'),
+        // 搜索中时「重新扫描」只会白白再烧一次系统配额（Android 每 2 分钟 4 次），
+        // 禁用它。
+        onPressed: scanning ? null : onRescan,
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.brandPrimary,
+          foregroundColor: AppColors.surface,
+          shape: const StadiumBorder(),
+          textStyle: const TextStyle(fontSize: 17),
+        ),
+        child: const Text('重新扫描'),
+      ),
+    );
+  }
+}
+
+/// 扫到的设备热点，直接列在搜索页上。
+///
+/// 2026-09-10 之前这一步是跳到「选择设备」页；跳走会把「还有第二台正在冒出来」
+/// 整个吃掉，用户也没机会确认自己点的是哪台。现在边扫边往下加。
+class _FoundDeviceList extends StatelessWidget {
+  const _FoundDeviceList({required this.hotspots, required this.onSelected});
+
+  static const listKey = Key('device-search-found-list');
+
+  final List<WifiNetwork> hotspots;
+  final ValueChanged<WifiNetwork> onSelected;
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      key: listKey,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        SizedBox(
-          width: 220,
-          height: 46,
-          child: FilledButton(
-            key: const Key('device-search-rescan'),
-            // 搜索中时「重新扫描」只会白白再烧一次系统配额，禁用它；
-            // 「设备已在配网状态，继续」全程可点。
-            onPressed: scanning ? null : onRescan,
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.brandPrimary,
-              foregroundColor: AppColors.surface,
-              shape: const StadiumBorder(),
-              textStyle: const TextStyle(fontSize: 17),
-            ),
-            child: const Text('重新扫描'),
+        for (var index = 0; index < hotspots.length; index++) ...<Widget>[
+          if (index > 0) const SizedBox(height: 10),
+          _FoundDeviceTile(
+            index: index,
+            hotspot: hotspots[index],
+            onTap: () => onSelected(hotspots[index]),
           ),
-        ),
-        TextButton(
-          key: const Key('device-search-continue'),
-          onPressed: onContinue,
-          child: const Text(
-            '设备已在配网状态，继续',
-            style: TextStyle(color: AppColors.brandPrimary, fontSize: 15),
-          ),
-        ),
+        ],
       ],
+    );
+  }
+}
+
+class _FoundDeviceTile extends StatelessWidget {
+  const _FoundDeviceTile({
+    required this.index,
+    required this.hotspot,
+    required this.onTap,
+  });
+
+  final int index;
+  final WifiNetwork hotspot;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: AppRadius.card,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: Key('device-search-found-$index'),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+          child: Row(
+            children: <Widget>[
+              const Icon(
+                Icons.wifi_tethering,
+                size: 22,
+                color: AppColors.brandPrimary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  hotspot.ssid,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: AppColors.textTertiary,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

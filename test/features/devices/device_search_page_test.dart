@@ -12,6 +12,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/asset_finder.dart';
 
+/// 搜索页上「已发现设备」列表的 key，与页面里的 `_FoundDeviceList.listKey` 同值。
+abstract final class _FoundListKey {
+  static const key = Key('device-search-found-list');
+}
+
 void main() {
   testWidgets('device search page exposes the Figma content', (tester) async {
     await _pumpDeviceSearchPage(tester, const Size(375, 812));
@@ -48,40 +53,46 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a planter hotspot in the scan opens the selection page', (
-    tester,
-  ) async {
-    Object? selectionArguments = 'unset';
+  testWidgets('扫到的设备直接列在页面下方，不再跳页', (tester) async {
+    Object? pairingArguments = 'unset';
     final state = await _pumpDeviceSearchPage(
       tester,
       const Size(375, 812),
-      onSelectionArguments: (value) => selectionArguments = value,
+      onPairingArguments: (value) => pairingArguments = value,
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     // The mock scan carries a SmartLife-* access point, which is the only real
     // evidence the app has that a planter is waiting to be provisioned.
     expect(state.wifiScan?.deviceHotspots, hasLength(1));
-    expect(find.text('device-selection-target'), findsOneWidget);
-    expect(selectionArguments, isNull);
+    // 列在页面上，而不是把用户带走。
+    expect(find.byKey(_FoundListKey.key), findsOneWidget);
+    expect(find.text('SmartLife-A1B2'), findsOneWidget);
+    expect(find.text('发现 1 台设备'), findsOneWidget);
+    expect(pairingArguments, 'unset');
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a retry carries the credentials to the selection step', (
-    tester,
-  ) async {
-    Object? selectionArguments;
+  testWidgets('点中列表里的设备，带着它的热点名进连接 Wi-Fi', (tester) async {
+    Object? pairingArguments;
     const request = PairingRequest(ssid: 'Home_2.4G', password: '12345678');
     await _pumpDeviceSearchPage(
       tester,
       const Size(375, 812),
       request: request,
-      onSelectionArguments: (value) => selectionArguments = value,
+      onPairingArguments: (value) => pairingArguments = value,
     );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('device-search-found-0')));
     await tester.pumpAndSettle();
 
-    expect(find.text('device-selection-target'), findsOneWidget);
-    expect(selectionArguments, same(request));
+    expect(find.text('pairing-wifi-target'), findsOneWidget);
+    final arguments = pairingArguments! as PairingArguments;
+    expect(arguments.hotspotSsid, 'SmartLife-A1B2');
+    expect(arguments.request, same(request));
     expect(tester.takeException(), isNull);
   });
 
@@ -105,7 +116,6 @@ void main() {
     );
     await _runOutSearchWindow(tester);
 
-    expect(find.text('device-selection-target'), findsNothing);
     expect(find.text('未发现配网中的设备'), findsOneWidget);
     // 扫描台数、手机当前连接、手动选择这三段都已下线。
     expect(find.textContaining('扫描到'), findsNothing);
@@ -113,12 +123,10 @@ void main() {
     expect(find.byKey(const Key('device-search-manual-pick')), findsNothing);
     expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
 
-    // Provisioning still has to be reachable: the scan is evidence, not a gate.
-    await tester.tap(find.byKey(const Key('device-search-continue')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('pairing-wifi-target'), findsOneWidget);
-    expect((pairingArguments! as PairingArguments).request, isNull);
+    // 「设备已在配网状态，继续」2026-09-10 已按产品要求删除。
+    expect(find.byKey(const Key('device-search-continue')), findsNothing);
+    expect(find.text('设备已在配网状态，继续'), findsNothing);
+    expect(pairingArguments, isNull);
     expect(tester.takeException(), isNull);
   });
 
@@ -142,29 +150,27 @@ void main() {
     expect(find.textContaining('手动选择'), findsNothing);
     expect(find.byKey(const Key('device-search-manual-pick')), findsNothing);
     expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
-    expect(find.byKey(const Key('device-search-continue')), findsOneWidget);
+    expect(find.byKey(const Key('device-search-continue')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('窗口内会按节奏反复扫描，中途出现的设备热点照样能进下一步', (tester) async {
+  testWidgets('窗口内会按节奏反复扫描，中途出现的设备热点照样会列出来', (tester) async {
     // 用户长按设备让它进配网时，第一次扫描往往还看不到热点。窗口没走完就一直
-    // 重扫，热点一出现就走，不用用户自己点「重新扫描」。
-    Object? selectionArguments = 'unset';
+    // 重扫，热点一出现就列在下面，不用用户自己点「重新扫描」。
     await _pumpDeviceSearchPage(
       tester,
       const Size(375, 812),
       repository: _LateHotspotRepository(silentScans: 2),
-      onSelectionArguments: (value) => selectionArguments = value,
     );
     // 头两次是 3 秒一次的快扫，第三次要等 30 秒的慢节奏——这就是系统配额
     // （Android 每 2 分钟 4 次）逼出来的间隔，扫得更密只会拿回旧缓存。
     await tester.pump(const Duration(seconds: 6));
-    expect(find.text('device-selection-target'), findsNothing);
+    expect(find.byKey(_FoundListKey.key), findsNothing);
     await tester.pump(const Duration(seconds: 31));
-    await tester.pumpAndSettle();
+    await tester.pump();
 
-    expect(find.text('device-selection-target'), findsOneWidget);
-    expect(selectionArguments, isNull);
+    expect(find.byKey(_FoundListKey.key), findsOneWidget);
+    expect(find.text('SmartLife-A1B2'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -199,31 +205,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('搜索中也能直接进下一步，不必等窗口走完', (tester) async {
-    // 窗口从 45 秒拉长到 3 分钟之后，藏起按钮等窗口走完就是把用户困在原地——
-    // 尤其是他明知道设备已经在配网状态、只想直接下一步的时候。
-    await _pumpDeviceSearchPage(
-      tester,
-      const Size(375, 812),
-      repository: _ScanRepository(
-        const WifiScan(
-          current: 'TP-LINK_2.4G',
-          currentFrequency: 2437,
-          networks: <WifiNetwork>[
-            WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
-          ],
-        ),
-      ),
-    );
-
-    expect(find.byKey(const Key('device-search-continue')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('device-search-continue')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('pairing-wifi-target'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
   testWidgets('a platform that cannot enumerate networks is not "no device"', (
     tester,
   ) async {
@@ -238,7 +219,7 @@ void main() {
     await _runOutSearchWindow(tester);
 
     expect(find.text('无法列出附近设备'), findsOneWidget);
-    expect(find.byKey(const Key('device-search-continue')), findsOneWidget);
+    expect(find.byKey(const Key('device-search-continue')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -268,7 +249,6 @@ Future<FlowerpotState> _pumpDeviceSearchPage(
   Size size, {
   PairingRequest? request,
   TuyaRepository? repository,
-  ValueChanged<Object?>? onSelectionArguments,
   ValueChanged<Object?>? onPairingArguments,
 }) async {
   await tester.binding.setSurfaceSize(size);
@@ -284,14 +264,6 @@ Future<FlowerpotState> _pumpDeviceSearchPage(
         theme: buildAppTheme(),
         home: DeviceSearchPage(request: request),
         onGenerateRoute: (settings) {
-          if (settings.name == AppRoutes.deviceSelection) {
-            onSelectionArguments?.call(settings.arguments);
-            return MaterialPageRoute<void>(
-              builder: (_) => const Scaffold(
-                body: Center(child: Text('device-selection-target')),
-              ),
-            );
-          }
           if (settings.name == AppRoutes.pairing) {
             onPairingArguments?.call(settings.arguments);
             return MaterialPageRoute<void>(

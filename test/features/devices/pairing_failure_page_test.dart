@@ -17,7 +17,7 @@ void main() {
     expect(find.text('设备未能成功连接到当前Wi-Fi网络'), findsOneWidget);
     expect(find.text('小提示'), findsOneWidget);
     expect(find.text('重新配网'), findsOneWidget);
-    expect(find.text('返回选择设备'), findsOneWidget);
+    expect(find.text('返回搜索设备'), findsOneWidget);
     expect(
       findAssetImage(AppAssets.pairingFailureIllustration),
       findsOneWidget,
@@ -123,7 +123,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('return keeps the request and opens device selection', (
+  testWidgets('return keeps the request and reopens the search page', (
     tester,
   ) async {
     Object? selectionArguments;
@@ -169,7 +169,7 @@ Future<void> _pumpFailurePage(
                   ),
                 );
               }
-              if (settings.name == AppRoutes.deviceSelection) {
+              if (settings.name == AppRoutes.deviceSearch) {
                 onSelectionArguments?.call(settings.arguments);
                 return MaterialPageRoute<void>(
                   builder: (_) => const Scaffold(

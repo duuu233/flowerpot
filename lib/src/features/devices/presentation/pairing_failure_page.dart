@@ -55,44 +55,48 @@ class PairingFailurePage extends StatelessWidget {
     );
   }
 
+  /// 回到搜索页重新找设备。
+  ///
+  /// 2026-09-10 之前这里回的是「选择设备」页；那一页已经删掉——扫到的设备现在
+  /// 直接列在搜索页上，不再单独占一页。
   void _returnToDevices(BuildContext context) {
     Navigator.pushReplacementNamed(
       context,
-      AppRoutes.deviceSelection,
+      AppRoutes.deviceSearch,
       arguments: request,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // 版式从「Stack + 写死的 Positioned 偏移」改成正常的纵向流。
+    //
+    // 原来标题在 top:315、副标题 top:362、小提示卡 top:400 —— 副标题只有 38px 的空档，
+    // 而它是 14px/1.5 的两行（42px），失败码带上提示语时必然顶进小提示卡里，看起来就是
+    // 两段文字重叠。同一段 `SizedBox(height: max(690, 屏高))` 还把内容硬撑到 690，
+    // 于是矮屏上凭空多出一条滚动条。现在让每段自己占高度，短屏才滚。
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接设备', leading: AppBackButton()),
       background: AppPageBackground.account,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final contentHeight = constraints.maxHeight < 690
-              ? 690.0
-              : constraints.maxHeight;
           final horizontalPadding = constraints.maxWidth < 360 ? 12.0 : 20.0;
+          final compact = constraints.maxHeight < 690;
           return SingleChildScrollView(
             key: const Key('pairing-failure-scroll-view'),
-            child: SizedBox(
-              height: contentHeight,
-              child: ResponsiveContent(
-                padding: EdgeInsets.zero,
-                child: Stack(
-                  children: <Widget>[
-                    const Positioned(
-                      top: 70,
-                      left: 0,
-                      right: 0,
-                      child: Center(child: _FailureRadar()),
-                    ),
-                    const Positioned(
-                      top: 315,
-                      left: 12,
-                      right: 12,
-                      child: Text(
+            child: ConstrainedBox(
+              // 撑满一屏，好让两个按钮沉到底部；内容比一屏高时照常滚。
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: ResponsiveContent(
+                  padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      SizedBox(height: compact ? 28 : 70),
+                      const Center(child: _FailureRadar()),
+                      SizedBox(height: compact ? 12 : 24),
+                      const Text(
                         '配网失败，请重试',
                         key: Key('pairing-failure-title'),
                         textAlign: TextAlign.center,
@@ -103,35 +107,28 @@ class PairingFailurePage extends StatelessWidget {
                           height: 1.3,
                         ),
                       ),
-                    ),
-                    Positioned(
-                      top: 362,
-                      left: 16,
-                      right: 16,
-                      child: Text(
+                      const SizedBox(height: 12),
+                      Text(
                         _subtitle,
                         key: const Key('pairing-failure-subtitle'),
                         textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                        // 行数不再写死 2：失败码带上提示语时本来就是三四行，
+                        // 截断反而把唯一能照着做的那句话吃掉了。
                         style: const TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 14,
                           height: 1.5,
                         ),
                       ),
-                    ),
-                    Positioned(
-                      top: 400,
-                      left: horizontalPadding + 8,
-                      right: horizontalPadding + 8,
-                      child: const _FailureTipCard(),
-                    ),
-                    Positioned(
-                      left: horizontalPadding,
-                      right: horizontalPadding,
-                      bottom: 75,
-                      child: SizedBox(
+                      const SizedBox(height: 20),
+                      const _FailureTipCard(),
+                      // 内容不足一屏时把按钮推到底部；够高时 24 就是普通间距。
+                      // `IntrinsicHeight` 是 SingleChildScrollView 里用 Expanded
+                      // 的标准写法：没有它，Column 拿到的高度约束是无界的，Expanded
+                      // 会直接抛「non-zero flex but unbounded height」。
+                      const SizedBox(height: 24),
+                      const Expanded(child: SizedBox.shrink()),
+                      SizedBox(
                         height: 50,
                         child: FilledButton(
                           key: const Key('retry-pairing-button'),
@@ -145,12 +142,8 @@ class PairingFailurePage extends StatelessWidget {
                           child: const Text('重新配网'),
                         ),
                       ),
-                    ),
-                    Positioned(
-                      left: horizontalPadding,
-                      right: horizontalPadding,
-                      bottom: 10,
-                      child: SizedBox(
+                      const SizedBox(height: 12),
+                      SizedBox(
                         height: 50,
                         child: OutlinedButton(
                           key: const Key('return-device-selection-button'),
@@ -163,11 +156,12 @@ class PairingFailurePage extends StatelessWidget {
                             shape: const StadiumBorder(),
                             textStyle: const TextStyle(fontSize: 19),
                           ),
-                          child: const Text('返回选择设备'),
+                          child: const Text('返回搜索设备'),
                         ),
                       ),
-                    ),
-                  ],
+                      SizedBox(height: compact ? 16 : 24),
+                    ],
+                  ),
                 ),
               ),
             ),

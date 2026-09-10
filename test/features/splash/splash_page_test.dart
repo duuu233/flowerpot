@@ -22,9 +22,9 @@ void main() {
     );
   });
 
-  testWidgets('the splash shows the brand over the home backdrop', (
-    tester,
-  ) async {
+  testWidgets('启动页只画背景图，品牌那一组内容先隐藏', (tester) async {
+    // 2026-09-10 产品要求：启动页先只留背景图。logo / 字标 / 标语的代码还在
+    // （`_showBranding` 开关），但当前不该画出来。
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -33,9 +33,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
 
     expect(findAssetImage(AppAssets.homeBackground), findsOneWidget);
-    expect(findAssetImage(AppAssets.appLogo), findsOneWidget);
-    expect(findAssetImage(AppAssets.ysplanterWordmark), findsOneWidget);
-    expect(find.text('您的智能花盆贴心伴侣'), findsOneWidget);
+    expect(findAssetImage(AppAssets.appLogo), findsNothing);
+    expect(findAssetImage(AppAssets.ysplanterWordmark), findsNothing);
+    expect(find.text('您的智能花盆贴心伴侣'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

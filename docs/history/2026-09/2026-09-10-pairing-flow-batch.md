@@ -1,0 +1,116 @@
+# 配网动线七项：键盘避让、弹框收敛、搜索页内联列表、失败页版式、启动页只留背景
+
+> 文档类型：Historical Change Record
+> 日期：2026-09-10
+> 环境：SSH（无 Flutter/Dart 工具链、无 Android SDK）
+> 分支与起始版本：main / bef2ca0
+> 范围：`lib/src/features/auth/presentation/`、`lib/src/features/devices/presentation/`、`lib/src/features/splash/`、`lib/src/state.dart`、`lib/src/tuya/tuya_models.dart`、`lib/src/routes/app_routes.dart`、对应用例
+> 当前权威文档：`AI_CONTEXT.md`
+
+## 背景
+
+产品一次给了七条，集中在配网动线上，其中第 5 条是「配网又不行了，昨天改了优化版本，是不是影响到了」。
+
+## 逐条
+
+### 1. 输入框获焦时被系统键盘挡住
+
+登录、注册、找回密码、连接 Wi-Fi 四页统一改成表单页的通行做法：
+`resizeToAvoidBottomInset: false`（页面保持整屏高度，不被压缩得整页跳一下）+ 滚动区底部
+`MediaQuery.viewInsetsOf(context).bottom` 让出键盘那么高的一段。焦点落到输入框时 Flutter 自己
+会把光标滚进可视区，输入框正好停在键盘上方。
+
+⚠️ 只靠 Scaffold 默认的 resize 不够：内容本来就放得下一屏时**不会产生可滚动区间**，光标
+「滚进可视区」无处可滚，输入框照样被盖住——这正是这次的现象。
+
+### 2. 配网阶段不要多余弹框，必要文案并进 1/2/3 步
+
+- **`PairingStage.hint`**：三步各带一句说明，只在「进行中」那一步画出来（三行同时铺出来
+  用户不知道该看哪句）。
+- **删掉「正在确认账号与家庭」那层全屏遮罩**：准备阶段（确认家庭 + 取令牌）并进进度页的
+  第一步，`_preparing` 字段一并去掉。
+- **删掉「请先到系统设置连接设备热点」那条 toast**：页面上本来就有一段引导文案。
+- **不再用通配前缀去请求系统弹框**（关键）：`WifiNetworkSpecifier` 给 `setSsidPattern` 时走的是
+  「按模式搜索」那一支，系统弹的正是产品截到的**「查找设备…」→「没有找到任何设备。请确保要
+  连接的设备已打开并准备好进行连接。」**。现在只用确切热点名请求；拿不到名字就以
+  `hotspot_unknown` 失败并让用户回搜索页选设备，而不是丢给系统去猜。
+
+  ⚠️ **系统那个「连接到 xxx?」确认框删不掉**：Android 10 起应用不能自己连任意 Wi-Fi，
+  `WifiNetworkSpecifier` 必然弹一次确认，这是系统 UI。能做的只是不触发那个更啰嗦的
+  「搜索」变体。
+
+### 3. 第三步「连接云端」给 1–2 秒随机停留再按成功处理
+
+`_pairInternal` 在 `_pairOrRecover` 返回后设 `connectingCloud`，随后 `Future.delayed(1–2s 随机)`
+再返回成功。**这一步目前没有接任何实际业务**——activator 返回时设备其实已经注册到云端，没有
+可等的东西；不停留的话第二步刚亮起就跳走了。真接上云端回执后把这段延时换成真正的等待即可。
+
+### 4. 配网失败页版式：小提示和上面的文案重叠 + 多余滚动条
+
+根因是写死的绝对定位：标题 `top:315`、副标题 `top:362`、小提示卡 `top:400` —— 副标题只有
+**38px** 的空档，而它是 14px/1.5 的两行（**42px**），失败码带上提示语时必然顶进小提示卡里。
+同一段 `SizedBox(height: max(690, 屏高))` 又把内容硬撑到 690，矮屏上凭空多一条滚动条。
+
+改成正常的纵向流（`ConstrainedBox(minHeight) + IntrinsicHeight + Column`，按钮用 `Expanded`
+推到底部），每段自己占高度，副标题不再 `maxLines: 2` 截断——截断反而把唯一能照着做的那句话
+吃掉了。内容够放时不再出现滚动条。
+
+### 5. 搜索页改成「监听器」：扫到就列在下面，不跳页
+
+- 扫到的热点直接画成列表（`device-search-found-list`），点哪台就带哪台的 SSID 进「连接 Wi-Fi」。
+- 自动 `pushReplacementNamed(deviceSelection)` 删除；**`device_selection_page.dart` 与
+  `AppRoutes.deviceSelection` 一并删除**（那一页唯一的职责就是列热点 + 点了带 SSID 跳走，
+  现在搜索页自己做了）。配网失败页的「返回选择设备」改成「返回搜索设备」。
+- 自动跳走会把「还有第二台正在冒出来」整个吃掉，用户也没机会确认自己点的是哪台。
+
+### 6. 去掉「设备已在配网状态，继续」
+
+按产品要求删除按钮、文案与 `_continueAnyway`。
+
+⚠️ **这条有代价，需要产品复核**：iOS 不枚举附近网络（`scanWifi` 只返回当前连接的那一个），
+搜索页在 iOS 上**永远列不出任何设备**，而这个按钮是 iOS 唯一能进下一步的入口。删掉之后
+**iOS 用户走不到配网**。Android 上被系统限流、或热点名落在
+`WifiNetwork.isDeviceHotspotName` 白名单之外时，同样没有出路。
+
+### 7. 启动页先只留背景图
+
+`SplashPage` 的 logo / 字标 / 标语整块不画。是「先隐藏」不是删除：代码留在
+`_buildBranding()` 里，`_showBranding` 改回 true 就恢复原样。
+
+### 关于第 5 条「配网又不行了」的排查
+
+昨天（09-09）动到配网的是 `d0ab4d0`（家庭按账号固定 + 配网前 `prepareForPairing`）、
+`1763f74` / `ffbefb6` / `c612166`（家庭 id 与账号键）。最可疑的是 **`prepareForPairing` 里那道
+新门禁**：
+
+```dart
+if (home == '0') throw TuyaException('home_unresolved', '没能确认账号下的家庭…');
+```
+
+它把「查不到家庭」当成了「不能配网」。`currentHomeId` 返回 0 只表示此刻还没解析出来，涂鸦的
+activator 自己会在配网时解析家庭；而这一步跑在**手机还连着路由器**的时候，本来就不存在
+「在设备热点上查家庭 → 拿到空列表 → 自动建空家庭」那个风险（那才是 `d0ab4d0` 要防的东西）。
+门禁一触发，「开始配网」直接失败、配网根本没开始——现象正是「昨天还能配，今天点了没反应」。
+
+本轮把它降级为诊断：家庭没解析出来时不再抛错，照常往下走，结果文案写「准备就绪（家庭待解析）」。
+真的没有家庭时配网自己会失败，那时的报错才是真实原因。
+
+⚠️ **这是基于代码的推断，不是实测**：本机没有设备也没有 SDK。若真机上换掉这道门禁仍然配不了网，
+下一个要查的是 `setHomeId` 钉住的家庭是否过期/不属于当前账号（`ffbefb6`/`c612166` 改过账号键），
+排查看设备列表页底部那行 `sessionDiagnostics` 与 `[pair]` 日志。
+
+## 验证结果
+
+- 本机**没有 Flutter/Dart SDK，也没有 Android SDK**：`flutter analyze`、`flutter test` 与 Kotlin
+  编译**均未执行**。所有改动经逐行通读，改动过的 Dart 文件全部过了自写的括号配平检查。
+- 用例改动（**未运行**）：搜索页用例改为断言内联列表与点击带 SSID 跳转、删掉选择页桩路由；
+  失败页用例改 `deviceSearch` 与「返回搜索设备」；启动页用例改为断言品牌内容**不**出现；
+  `device_selection_page_test.dart` 随页面一并删除。
+- **真机全部未验**。第 2、5 条尤其需要真机：系统弹框行为、家庭解析、第三步停留观感。
+
+## 未完成项与风险
+
+- **iOS 配网入口**（见第 6 条）：删掉「继续」之后 iOS 走不到配网，需要产品决定补什么入口。
+- `WifiNetwork.hotspotJoinPrefix` 与 `joinDeviceHotspot` 的 `prefix` 参数现在没有调用方了，
+  桥接两端与仓库接口仍保留，本轮没有顺手删——那会牵动两端原生签名。
+- 第三步的随机停留是**假的**；接上真实云端回执前，它只是让第三步看得见。

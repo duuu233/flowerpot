@@ -11,7 +11,6 @@ import '../features/devices/presentation/device_info_page.dart';
 import '../features/devices/presentation/device_list_page.dart';
 import '../features/devices/presentation/device_other_settings_page.dart';
 import '../features/devices/presentation/device_search_page.dart';
-import '../features/devices/presentation/device_selection_page.dart';
 import '../features/devices/presentation/device_settings_page.dart';
 import '../features/devices/presentation/display_settings_page.dart';
 import '../features/devices/presentation/hearing_settings_page.dart';
@@ -55,7 +54,6 @@ abstract final class AppRoutes {
   static const pairingFailure = '/devices/pairing-failure';
   static const pairingSuccess = '/devices/pairing-success';
   static const deviceSearch = '/devices/search';
-  static const deviceSelection = '/devices/select';
   static const deviceList = '/devices/list';
   static const deviceHome = '/devices/home';
   static const deviceInfo = '/devices/info';
@@ -131,9 +129,6 @@ abstract final class AppRoutes {
         deviceId: settings.arguments! as String,
       ),
       deviceSearch => DeviceSearchPage(
-        request: settings.arguments as PairingRequest?,
-      ),
-      deviceSelection => DeviceSelectionPage(
         request: settings.arguments as PairingRequest?,
       ),
       deviceList => const DeviceListPage(),

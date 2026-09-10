@@ -795,6 +795,18 @@ enum PairingStage {
     PairingStage.connectingCloud => '连接云端',
   };
 
+  /// 每一步在进度页上那句说明。
+  ///
+  /// 2026-09-10 起必要的话都写在这三行里，不再另外弹框：配网期间已经有一个系统
+  /// 的热点连接确认框（Android 10+ 的 `WifiNetworkSpecifier` 必弹，App 关不掉），
+  /// 再叠自己的 toast 和遮罩，用户根本分不清哪个是要他操作的。
+  String get hint => switch (this) {
+    PairingStage.idle => '',
+    PairingStage.connectingDevice => '系统若弹出连接热点的确认框，请点「连接」',
+    PairingStage.sendingWifi => '正在把 Wi-Fi 名称和密码发给设备，请勿离开本页',
+    PairingStage.connectingCloud => '设备正在连接路由器并注册到云端',
+  };
+
   /// 界面上按顺序画出来的三步。
   static const List<PairingStage> steps = <PairingStage>[
     PairingStage.connectingDevice,

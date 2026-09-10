@@ -78,6 +78,7 @@ class PairingProgressView extends StatelessWidget {
                         _StepRow(
                           index: index,
                           label: PairingStage.steps[index].label,
+                          hint: PairingStage.steps[index].hint,
                           // stage 还是 idle 时 current 为 -1：那是刚点下按钮、
                           // 状态层还没推第一步，按「第一步进行中」画。
                           state: _stateFor(index, current < 0 ? 0 : current),
@@ -119,12 +120,17 @@ class _StepRow extends StatelessWidget {
   const _StepRow({
     required this.index,
     required this.label,
+    required this.hint,
     required this.state,
     required this.isLast,
   });
 
   final int index;
   final String label;
+
+  /// 这一步的必要说明；只在「进行中」那一步画出来。
+  final String hint;
+
   final _StepState state;
   final bool isLast;
 
@@ -202,6 +208,19 @@ class _StepRow extends StatelessWidget {
                       fontSize: 14,
                     ),
                   ),
+                  // 说明只跟着当前这一步走：三行同时铺出来，用户就不知道该看哪句。
+                  if (state == _StepState.running && hint.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text(
+                      hint,
+                      key: Key('pairing-step-hint-$index'),
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
