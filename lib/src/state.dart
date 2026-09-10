@@ -745,9 +745,16 @@ class FlowerpotState extends ChangeNotifier {
     final tuyaSteps = <String>[];
 
     String withSteps(String message) {
+      // 手机当时连在哪个网络上——这一项比失败码更能定位问题：AP 配网要求手机在**设备
+      // 热点**上，如果这里显示的是路由器名，那就说明它从头到尾没连过去，再看别的都白搭。
+      final now = _wifiScan?.current;
+      final where = now == null || now.isEmpty
+          ? '手机网络未知'
+          : '手机在「$now」${(_wifiScan?.currentIsDeviceHotspot ?? false) ? '(设备热点)' : '(不是设备热点)'}';
       final parts = <String>[
         ...steps,
         if (tuyaSteps.isNotEmpty) '涂鸦进度「${tuyaSteps.last}」',
+        where,
       ];
       return parts.isEmpty ? message : '$message｜${parts.join(' · ')}';
     }
@@ -757,6 +764,27 @@ class FlowerpotState extends ChangeNotifier {
     StreamSubscription<String>? stepSub;
     _setPairingStage(PairingStage.connectingDevice);
     try {
+      // **前置检查：手机必须已经在设备热点上。**
+      //
+      // AP 配网是"手机连上设备热点后直接跟它通信"，手机若还在路由器上，
+      // `queryDeviceConfigState` 就是在对空气说话——只会静静耗满超时再报 `207220`
+      // （配网任务整体超时），用户等 45 秒却看不出到底缺了什么。
+      //
+      // 这里只读扫描缓存（不发起扫描、不占配额），不在就**立刻**把话说清楚：
+      // 该去连哪个热点、怎么连。产品要求全程不出现系统入网授权框，所以我们不代劳，
+      // 而是引导用户在系统 Wi-Fi 里连一次——连过之后系统会记住，之后配网全自动。
+      await _refreshOnDeviceHotspot();
+      if (!onDeviceHotspot) {
+        final now = _wifiScan?.current ?? '';
+        final target = hotspotSsid ?? '设备热点（smartlife_… / tuya_mdev_…）';
+        throw TuyaException(
+          notOnHotspotCode,
+          '手机还没有连到设备热点，配网无法开始。'
+          '${now.isEmpty ? '' : '当前连的是「$now」。'}'
+          '请到系统 Wi-Fi 里连接「$target」，连上后回来再点「开始配网」'
+          '（连过一次系统会记住，之后就不用再管了）。',
+        );
+      }
       stepSub = _repository.pairingSteps.listen((step) {
         tuyaSteps.add(step);
         debugPrint('[pairing] step $step');
@@ -991,6 +1019,20 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   static const String _manualHotspotCode = 'hotspot_manual_required';
+
+  /// 手机还没连到设备热点，配网不能开始。页面据此给出「去系统 Wi-Fi 连一次」的引导。
+  static const String notOnHotspotCode = 'not_on_device_hotspot';
+
+  /// 只读一次扫描缓存来更新「当前连的是哪个网络」。不发起扫描、不占配额。
+  ///
+  /// 不走 [_guard]：`pairViaDeviceHotspot` 正占着那把锁。
+  Future<void> _refreshOnDeviceHotspot() async {
+    try {
+      _wifiScan = await _repository.scanWifi(refresh: false);
+    } catch (_) {
+      // 读不到就按已知信息判断，不因为一次读缓存失败把配网拦下来。
+    }
+  }
 
   /// 让手机连上设备热点。返回 true 表示由 App 发起的连接（配网后由原生释放），
   /// false 表示走的是手动路径（用户自己在系统设置里连的）。

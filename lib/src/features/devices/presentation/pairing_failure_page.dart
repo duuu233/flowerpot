@@ -92,6 +92,10 @@ class PairingFailurePage extends StatelessWidget {
     'hotspot_ssid_required' => '还不知道要连哪台设备，请回到「搜索设备」页从列表里选中设备后再配网',
     'pair_cancelled' => '配网已中止',
     'pair_timeout' => '长时间没有收到结果，请给设备断电重启后重试',
+    // 正常路径上这个码由「连接 Wi-Fi」页就地处理（画提示 + 给「打开系统 Wi-Fi 列表」），
+    // 不会跳到本页；留一条映射是兜底。
+    'not_on_device_hotspot' =>
+      '手机还没连到设备热点：请到系统 Wi-Fi 里连接 smartlife_… / tuya_mdev_… 那个网络，连上后回「连接 Wi-Fi」页再点「开始配网」',
     '1006' => '设备没有在两分钟内连上路由器：多半是 Wi-Fi 密码有误，或所选网络不是 2.4GHz',
     // 「热点配网新流程」的失败码，抄自涂鸦官方文档（存档见
     // docs/reference/tuya-ap-mode-android.md 的「错误码」表）。这些码之前一个都没
