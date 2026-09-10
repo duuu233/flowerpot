@@ -121,8 +121,11 @@ void main() {
     expect(find.byKey(const Key('device-search-rescan')), findsNothing);
 
     // 40 秒还一台都没有就别让用户继续干等：**设备静置一段时间会退出配网模式**，
-    // 那之后扫多久都没用（真扫已经跑在系统配额上限 32 秒一次）。这时要告诉他
-    // 断电重启，并把「重新扫描」立刻交出去——不是等满 3 分钟窗口。
+    // 那之后扫多久都没用。这时要告诉他断电重启，并把「重新扫描」立刻交出去——
+    // 不是等满 3 分钟窗口。
+    //
+    // （真扫的节奏 2026-09-11 由 32 秒放到 62 秒：`startScan` 配额按 UID 算，涂鸦 SDK
+    // 和搜索页共用，把 4 次用满会让 SDK 连不上设备热点。空档由 1 秒一次的读缓存补。）
     await tester.pump(const Duration(seconds: 41));
     await tester.pump();
     expect(find.text('还没搜到设备'), findsOneWidget);

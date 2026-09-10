@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
@@ -88,6 +89,22 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   static const int quotaScans = 4;
   static const Duration quotaWindow = Duration(minutes: 2);
 
+  /// 给**涂鸦 SDK** 留出来的扫描次数。
+  ///
+  /// ⚠️ **这是 2026-09-11「连接设备卡几十秒」的解法，别把它改回 0。**
+  ///
+  /// `startScan` 的配额是**按 UID 算的**——涂鸦 SDK 就跑在我们进程里，**和搜索页共用
+  /// 同一份 4 次 / 2 分钟**。原来搜索页 32 秒一次真扫，两分钟正好把 4 次用满；用户紧接着
+  /// 点「连接」，SDK 想扫一次去找设备热点却被系统限流，**它在等一个永远不会来的扫描结果
+  /// 广播**，于是一直挂到超时（表现就是「连接设备」卡几十秒然后退回列表）。
+  ///
+  /// 所以搜索页最多只用 `quotaScans - _quotaReservedForSdk` 次，把剩下的留给 SDK。
+  /// 代价是发现设备变慢（最坏 60 秒而不是 32 秒），但配不上比慢更糟。
+  static const int _quotaReservedForSdk = 2;
+
+  /// 搜索页自己能用的真扫次数（每 [quotaWindow] 内）。
+  static const int _ownScanBudget = quotaScans - _quotaReservedForSdk;
+
   /// 主动扫描的节奏：**均匀铺满**，间隔取配额允许的最小值。
   ///
   /// 4 次 / 2 分钟 ⇒ 平均 30 秒一次就是上限，再密只会被拒。留 2 秒余量取 32 秒，
@@ -103,7 +120,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 而「设备先开机」那条仍然是第一次就扫到，没有损失。
   ///
   /// 中间的空档由 [_cachePollGap] 的读缓存补上，那条路不占配额。
-  static const Duration _forceScanGap = Duration(seconds: 32);
+  /// 两次主动扫描之间的间隔。
+  ///
+  /// 由 [_ownScanBudget] 反推：2 次 / 2 分钟 ⇒ 60 秒一次；留 2 秒余量取 62 秒，免得第 3 次
+  /// 正好卡在滚动窗口边界上。改 [_quotaReservedForSdk] 就要跟着改这里。
+  static const Duration _forceScanGap = Duration(seconds: 62);
 
   /// **读缓存**的节奏。
   ///
@@ -132,6 +153,19 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 本轮搜索窗口的截止时间，到点之前扫不到就一直重扫。
   Timer? _deadlineTimer;
   bool _windowExpired = false;
+
+  /// 本轮自己发起过的真扫时刻，只保留滚动窗口内的。
+  ///
+  /// 光靠定时器间隔不够稳：用户点「重新扫描」、页面重进都会额外发一次。这里如实记账，
+  /// 超预算就不发——**宁可慢，也要给 SDK 留出配额**（见 [_quotaReservedForSdk]）。
+  final List<DateTime> _ownScans = <DateTime>[];
+
+  /// 现在还能不能发一次真扫。
+  bool get _canForceScan {
+    final now = DateTime.now();
+    _ownScans.removeWhere((at) => now.difference(at) >= quotaWindow);
+    return _ownScans.length < _ownScanBudget;
+  }
 
   /// 下一次**主动扫描**的定时器（[_forceScanGap] 一次，受系统配额约束）。
   Timer? _forceScanTimer;
@@ -167,7 +201,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 期间的重复点击。
   int? _connectingIndex;
 
-  /// 连热点失败的原因，画在页面上让用户能照着做。
+  /// 连设备失败的完整原因（含原始码、用时、当时连的网络），画在页面上。
+  ///
+  /// 长按可复制——排查时要的就是这一整段原文。
   String? _connectError;
 
   /// 连过热点的那个状态对象，给 [dispose] / [didChangeAppLifecycleState] 还原网络用。
@@ -176,8 +212,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 搜了这么久还一台都没有，就把「设备可能已经退出配网状态」这条说出来，并且**立刻**
   /// 把动作交给用户，不要让他等满整个 3 分钟窗口。
   ///
-  /// 为什么是这个数：真扫 32 秒一次（配额上限），40 秒保证已经真扫过两次——两次都空
-  /// 才说得上"附近确实没有"。再往前提就会在设备正常启动的那几十秒里误报。
+  /// 为什么是这个数：进页面立刻真扫一次，之后 40 秒里一直在读缓存（系统自己、别的应用
+  /// 扫出来的结果都会被捡到）。这么久还什么都没有，就该提醒用户设备可能已经退出配网状态
+  /// 了。再往前提会在设备正常启动的那几十秒里误报。
   static const Duration _stalledAfter = Duration(seconds: 40);
 
   Timer? _stalledTimer;
@@ -246,6 +283,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _autoOpened = false;
     _stalledTimer?.cancel();
     _stalled = false;
+    // ⚠️ **不清 `_ownScans`**：配额由系统按时间算，重新扫描 / 重进页面都不会让它回补。
+    // 清了只会让我们以为还有预算、继续把 SDK 的那份也花掉。
     _connectingIndex = null;
     _connectError = null;
     _radarController.repeat();
@@ -355,7 +394,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   Future<void> _runScan() async {
     if (!mounted || _inFlight) return;
+    // 预算用完就不发真扫了：剩下的配额要留给涂鸦 SDK 去找设备热点
+    // （见 [_quotaReservedForSdk]）。这一轮改成读缓存——不占配额，而系统自己、别的应用
+    // 也在扫，缓存照样会被刷新。
+    if (!_canForceScan) {
+      await _pollCache();
+      if (!mounted || _windowExpired || _autoOpened) return;
+      _forceScanTimer = Timer(_cachePollGap, () => unawaited(_runScan()));
+      return;
+    }
     _inFlight = true;
+    _ownScans.add(DateTime.now());
     setState(() {
       _scanning = true;
       _result = null;
@@ -456,10 +505,41 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (!mounted) return;
     setState(() {
       _connectingIndex = null;
-      _connectError = result.success ? null : result.message;
+      _connectError = result.success
+          ? null
+          : _connectFailureHint(result.code, result.message);
     });
     if (!result.success) return;
     _openPairing(hotspot, routerSsid: routerSsid);
+  }
+
+  /// 长按复制页面上那段说明——失败时它就是完整的诊断信息。
+  Future<void> _copyMessage(String message) async {
+    await Clipboard.setData(ClipboardData(text: message));
+    if (!mounted) return;
+    showAppMessage(context, '已复制', tone: AppMessageTone.success);
+  }
+
+  /// 连设备失败时画在页面上的话。
+  ///
+  /// SDK 这一步只会给一个笼统的超时（`207220`），用户看了不知道该做什么。把**最可能的
+  /// 两个原因**摆出来——它们都是可以立刻动手排除的：
+  ///
+  /// 1. **设备已经退出配网状态**。设备静置一段时间就不再广播热点了（产品口径，见
+  ///    `docs/PRODUCT_RULES.md` 1.5），断电重启即可恢复。
+  /// 2. **手机的扫描配额被占满**。`startScan` 的配额按 UID 算，SDK 和我们共用；虽然已经
+  ///    给它留了 [_quotaReservedForSdk] 次，但如果刚刚反复搜索过，系统那边可能仍在限流，
+  ///    等一会儿再试就好。
+  String _connectFailureHint(String? code, String reason) {
+    final tag = code == null || code.isEmpty ? '' : '【$code】';
+    // ⚠️ **原文原样打出来，不要加工。** 这一步只会给一个笼统的超时码，页面上若只留
+    // 一句"time out"就什么都定位不了。`connectDeviceForPairing` 已经把用时和手机当时
+    // 连的网络拼进 message 里了，这里连同原始码一起如实呈现。
+    return '没能连上设备。最常见的两个原因：\n'
+        '① 设备静置后退出了配网状态——给它断电重启，然后再点「连接」；\n'
+        '② 刚才搜索得太频繁，系统限制了 Wi-Fi 扫描——等十几秒再点一次。\n'
+        '\n'
+        '$tag$reason';
   }
 
   /// 进度页上的「取消」：中止正在跑的连接，回到列表。
@@ -562,14 +642,19 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           ),
                         ),
                         const SizedBox(height: 12),
-                        Text(
-                          outcome.message,
-                          key: const Key('device-search-message'),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 14,
-                            height: 1.5,
+                        // 长按可复制：连设备失败时这里带着原始码、原文、用时和手机
+                        // 当时连的网络，排查要的就是这一整段。
+                        GestureDetector(
+                          onLongPress: () => _copyMessage(outcome.message),
+                          child: Text(
+                            outcome.message,
+                            key: const Key('device-search-message'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 14,
+                              height: 1.5,
+                            ),
                           ),
                         ),
                         // 找到的设备直接列在下面，边扫边冒出来。

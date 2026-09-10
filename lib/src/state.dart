@@ -617,13 +617,19 @@ class FlowerpotState extends ChangeNotifier {
   /// ⚠️ 只对新固件有效（TuyaOS ≥ 3.6.1）。老固件上会以 `207206`（设备状态无法识别）
   /// 或超时失败，那时才需要退回原流程。
   Future<ActionResult> connectDeviceForPairing({
-    Duration timeout = const Duration(seconds: 60),
+    // 35 秒：SDK 找热点 + 连上 + 握手，正常情况远用不到；给太久只是让用户干等。
+    // 失败要快，原因要清楚。
+    Duration timeout = const Duration(seconds: 35),
   }) => _guard(() async {
     // 这一步覆盖进度页的前两步：先和设备建立通道（`connectingDevice`），通道通了设备
     // 才能去扫 Wi-Fi。列表拿回来就意味着「设备找网络」也做完了，所以成功后把阶段推到
     // `deviceScanning` 再收尾——这样进度页上那两行的状态是真的，不是排出来的。
     _setPairingStage(PairingStage.connectingDevice);
     var scanned = false;
+    // 失败时把**能拿到的一切**都带出去：原始码、原文、用时、手机当时连的网络。
+    // 这一步只会给一个笼统的超时码，不把这些附上，页面上就只剩一句 time out，
+    // 定位不了任何东西。
+    final watch = Stopwatch()..start();
     try {
       final networks = await _repository.apQueryDeviceWifi(timeout: timeout);
       _deviceWifiNetworks = networks;
@@ -631,6 +637,15 @@ class FlowerpotState extends ChangeNotifier {
       _setPairingStage(PairingStage.deviceScanning);
       notifyListeners();
       return ActionResult(true, '已连接设备，读到 ${networks.length} 个可用网络');
+    } on TuyaException catch (error) {
+      final now = _wifiScan?.current;
+      final where = now == null || now.isEmpty
+          ? '手机网络未知'
+          : '手机在「$now」${(_wifiScan?.currentIsDeviceHotspot ?? false) ? '(设备热点)' : '(不是设备热点)'}';
+      final detail =
+          '${error.message}｜用时 ${watch.elapsedMilliseconds}ms · $where';
+      debugPrint('[pairing] connectDeviceForPairing 失败 ${error.code} $detail');
+      throw TuyaException(error.code, detail);
     } finally {
       // 成功时把阶段留在 `deviceScanning`：页面正要跳去选网络，这时归零会让进度页
       // 闪一下回到「准备中」。失败才复位。
