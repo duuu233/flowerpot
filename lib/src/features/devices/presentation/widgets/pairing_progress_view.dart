@@ -12,11 +12,19 @@ class PairingProgressView extends StatelessWidget {
   const PairingProgressView({
     required this.stage,
     required this.onCancel,
+    this.notice,
     super.key,
   });
 
   final PairingStage stage;
   final VoidCallback onCancel;
+
+  /// 正在等用户处理**系统**弹框时显示的一句话（没有就传 null）。
+  ///
+  /// 系统入网授权框盖在这一页上面，用户点完「连接」它才消失——消失后这一页是他看到
+  /// 的第一屏。写清"刚才那个框是正常步骤、现在在干什么"，比让他盯着一个没头没尾的
+  /// 转圈要好。文案与按钮上方那条预告是同一口径（`PRODUCT_RULES` §4.0）。
+  final String? notice;
 
   @override
   Widget build(BuildContext context) {
@@ -63,12 +71,14 @@ class PairingProgressView extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      '预计需要10-30秒，请勿关闭页面',
+                    Text(
+                      notice ?? '预计需要10-30秒，请勿关闭页面',
+                      key: const Key('pairing-progress-subtitle'),
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 14,
+                        height: 1.45,
                       ),
                     ),
                     SizedBox(height: compact ? 16 : 20),

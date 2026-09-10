@@ -201,6 +201,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 期间的重复点击。
   int? _connectingIndex;
 
+  /// 正在等用户在**系统**入网授权框上点「连接」。
+  ///
+  /// 只在这一小段为真：`connectDeviceHotspot` 发出去、用户还没处理完。进度页据它把
+  /// 副标题换成"系统会问一次…"，用户点完框、框消失时看到的就不是一个没头没尾的转圈。
+  bool _awaitingConsent = false;
+
   /// 连设备失败的完整原因（含原始码、用时、当时连的网络），画在页面上。
   ///
   /// 长按可复制——排查时要的就是这一整段原文。
@@ -286,6 +292,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // ⚠️ **不清 `_ownScans`**：配额由系统按时间算，重新扫描 / 重进页面都不会让它回补。
     // 清了只会让我们以为还有预算、继续把 SDK 的那份也花掉。
     _connectingIndex = null;
+    _awaitingConsent = false;
     _connectError = null;
     _radarController.repeat();
     setState(() {
@@ -506,11 +513,16 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // Android 10+ 上这一步会弹一次系统入网授权框——产品口径是**如果必须授权，就统一收在
     // 「连接」这颗按钮上**，只在这里出现一次，后面的页面一个框都没有。手机已经在该热点上
     // 时直接跳过、零点击。
+    // 手机已经在这个热点上时原生会原地返回、不弹框，那就不必说"系统会问一次"。
+    final needsConsent = (state.wifiScan?.current ?? '') != hotspot.ssid;
+    if (needsConsent) setState(() => _awaitingConsent = true);
     final joined = await state.connectDeviceHotspot(hotspotSsid: hotspot.ssid);
     if (!mounted) return;
+    setState(() => _awaitingConsent = false);
     if (!joined.success) {
       setState(() {
         _connectingIndex = null;
+        _awaitingConsent = false;
         _connectError = _connectFailureHint(joined.code, joined.message);
       });
       return;
@@ -557,9 +569,15 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 问题」。现在原始码与原文顶在第一行，建议缩成一行放最后。
   String _connectFailureHint(String? code, String reason) {
     final tag = code == null || code.isEmpty ? '' : '【$code】';
+    // 事实在前、建议在后（`PRODUCT_RULES` §4.1）。在系统框上点了「取消」是**用户的
+    // 选择，不是故障**，那一种单独给话术——别把"断电重启"这种排障步骤推给他。
+    final advice = code == 'hotspot_join_cancelled'
+        ? '重新点「连接」，在系统框里选「连接」即可。\n'
+              '设备放久了会退出配网模式，那种情况下断电重启再试。'
+        : '可以先试：给设备断电重启后再点「连接」；或等十几秒让系统的 Wi-Fi 扫描限制缓过来。';
     return '$tag$reason\n'
         '\n'
-        '可以先试：给设备断电重启后再点「连接」；或等十几秒让系统的 Wi-Fi 扫描限制缓过来。';
+        '$advice';
   }
 
   /// 进度页上的「取消」：中止正在跑的连接，回到列表。
@@ -569,6 +587,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (!mounted) return;
     setState(() {
       _connectingIndex = null;
+      _awaitingConsent = false;
       _connectError = '已取消连接，可重新点「连接」。';
     });
   }
@@ -614,6 +633,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         body: PairingProgressView(
           stage: state.pairingStage,
           onCancel: _cancelConnect,
+          notice: _awaitingConsent
+              ? '系统会问一次是否连接设备热点，选「连接」继续。\n'
+                    '这是 Android 的必经一步，只在这里出现一次。'
+              : null,
         ),
       );
     }
@@ -690,6 +713,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           _FoundDeviceList(
                             hotspots: hotspots,
                             busyIndex: _connectingIndex,
+                            // 手机已经在某个设备热点上（上次留下的、或系统记住后
+                            // 自动重连）时不会再弹框，这行预告就别出现。
+                            showConsentHint:
+                                !(scan?.currentIsDeviceHotspot ?? false),
                             onSelected: (index) => unawaited(
                               _connectAndOpen(index, hotspots[index]),
                             ),
@@ -924,6 +951,7 @@ class _FoundDeviceList extends StatelessWidget {
     required this.hotspots,
     required this.onSelected,
     required this.busyIndex,
+    required this.showConsentHint,
   });
 
   static const listKey = Key('device-search-found-list');
@@ -936,12 +964,36 @@ class _FoundDeviceList extends StatelessWidget {
   /// 正在连接的那一行；null 表示空闲。
   final int? busyIndex;
 
+  /// 要不要在按钮上方说明"系统会问一次"。手机已经在设备热点上时不会弹框，
+  /// 那就别说——说了反而让人以为还有一步要做。
+  final bool showConsentHint;
+
   @override
   Widget build(BuildContext context) {
     return Column(
       key: listKey,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        // **把系统框"预告"在按钮正上方。**
+        //
+        // 涂鸦 2026-09-11 书面确认：Android 10+ 第三方 App 连设备热点只能走
+        // `WifiNetworkSpecifier`，系统授权框强制出现、无绕过方案（见
+        // `PRODUCT_RULES` §4.0）。既然关不掉，那就别让它显得像出错——在用户按下去
+        // 之前一句话说清会发生什么、点哪个、只问一次。
+        if (showConsentHint) ...<Widget>[
+          const Text(
+            '点「连接」后，系统会问一次是否连接设备热点，选「连接」即可。\n'
+            '只在这一步问一次，后面输密码、配网都不会再弹。',
+            key: Key('device-search-consent-hint'),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         for (var index = 0; index < hotspots.length; index++) ...<Widget>[
           if (index > 0) const SizedBox(height: 10),
           _FoundDeviceTile(
