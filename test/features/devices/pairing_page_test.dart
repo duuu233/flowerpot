@@ -19,7 +19,7 @@ void main() {
   // 2026-09-11 起运行时开关默认是 EZ 快连，所以这里把模式钉住，别让默认值变动把用例
   // 的含义改掉。EZ 那条单独有一条用例（见文件末尾）。
   setUp(() => PairingModeSwitch.current = PairingMode.ap);
-  tearDown(() => PairingModeSwitch.current = PairingMode.ez);
+  tearDown(() => PairingModeSwitch.current = PairingMode.ap);
 
   testWidgets('pairing page exposes the Figma content', (tester) async {
     await _pumpPairingPage(tester, const Size(375, 812));

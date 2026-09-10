@@ -47,8 +47,11 @@ enum PairingMode {
 
 /// 当前选中的配网方式。
 ///
-/// 默认 [PairingMode.ez]——产品这一轮要测的就是它；测不通再在页面上切回
-/// [PairingMode.ap]（那是 git 里最后一版能配网成功的方式）。
+/// **默认 [PairingMode.ap]**（2026-09-11 产品决定切回 AP）。
+///
+/// EZ 那条仍然留着、页面上随时可切，但产品判断它走不通：智能生活的配网截图显示它走的是
+/// 涂鸦**新流程**（连上设备后让**设备**扫 Wi-Fi、把设备扫到的列表给用户选），而不是 EZ
+/// 广播——见 `docs/history/2026-09/2026-09-11-smartlife-screenshots.md`。
 abstract final class PairingModeSwitch {
-  static PairingMode current = PairingMode.ez;
+  static PairingMode current = PairingMode.ap;
 }
