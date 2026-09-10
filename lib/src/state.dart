@@ -734,6 +734,9 @@ class FlowerpotState extends ChangeNotifier {
   /// [pairViaDeviceHotspot] 的第①步照常保留——已连就跳过，掉了就重连。
   Future<ActionResult> connectDeviceHotspot({String? hotspotSsid}) =>
       _guard(() async {
+        // 连热点这一步的原生日志也要留在页面上：失败原因（比如
+        // `WifiManager.connect` 不可用）就在这几行里。
+        _startPairingLog();
         final target =
             hotspotSsid ??
             _wifiScan?.deviceHotspots.map((item) => item.ssid).firstOrNull;
@@ -748,6 +751,7 @@ class FlowerpotState extends ChangeNotifier {
             joinedByApp ? '已连接设备热点' : '手机已经在设备热点上',
           );
         } finally {
+          await _stopPairingLog();
           _setPairingStage(PairingStage.idle);
         }
       });
