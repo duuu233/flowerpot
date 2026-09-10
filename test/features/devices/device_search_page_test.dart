@@ -54,27 +54,37 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('扫到的设备直接列在页面下方，不再跳页', (tester) async {
+  testWidgets('扫到的设备先画出来，随后自动带着它进下一步', (tester) async {
+    // 2026-09-10 产品口径：整个配网只留一步要用户操作（输 Wi-Fi 密码）。选设备
+    // 不该让用户自己点，但设备本身还是要看得见——所以先画出来、停一下再跳。
     Object? pairingArguments = 'unset';
+    const request = PairingRequest(ssid: 'Home_2.4G', password: '12345678');
     final state = await _pumpDeviceSearchPage(
       tester,
       const Size(375, 812),
+      request: request,
       onPairingArguments: (value) => pairingArguments = value,
     );
     await tester.pump();
     await tester.pump();
 
-    // The mock scan carries a SmartLife-* access point, which is the only real
-    // evidence the app has that a planter is waiting to be provisioned.
+    // 先看得见：列表画出来了，页面还没被带走。
     expect(state.wifiScan?.deviceHotspots, hasLength(1));
-    // 列在页面上，而不是把用户带走。
     expect(find.byKey(_FoundListKey.key), findsOneWidget);
     expect(find.text('SmartLife-A1B2'), findsOneWidget);
-    expect(find.text('发现 1 台设备'), findsOneWidget);
+    expect(find.textContaining('正在连接「SmartLife-A1B2」'), findsOneWidget);
     expect(pairingArguments, 'unset');
-    // 2026-09-10 产品口径：「重新扫描」只在一台都没搜到时才出现。搜到了设备，
-    // 用户要点的是那台设备，不是再扫一遍。
+    // 搜到设备了就不该再画「重新扫描」。
     expect(find.byKey(const Key('device-search-rescan')), findsNothing);
+
+    // 停留结束后自动跳，并把热点名带过去。
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+
+    expect(find.text('pairing-wifi-target'), findsOneWidget);
+    final arguments = pairingArguments! as PairingArguments;
+    expect(arguments.hotspotSsid, 'SmartLife-A1B2');
+    expect(arguments.request, same(request));
     expect(tester.takeException(), isNull);
   });
 
@@ -103,28 +113,6 @@ void main() {
     // 搜完一轮、一台都没有：这时才画。
     expect(find.text('未发现设备'), findsOneWidget);
     expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('点中列表里的设备，带着它的热点名进连接 Wi-Fi', (tester) async {
-    Object? pairingArguments;
-    const request = PairingRequest(ssid: 'Home_2.4G', password: '12345678');
-    await _pumpDeviceSearchPage(
-      tester,
-      const Size(375, 812),
-      request: request,
-      onPairingArguments: (value) => pairingArguments = value,
-    );
-    await tester.pump();
-    await tester.pump();
-
-    await tester.tap(find.byKey(const Key('device-search-found-0')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('pairing-wifi-target'), findsOneWidget);
-    final arguments = pairingArguments! as PairingArguments;
-    expect(arguments.hotspotSsid, 'SmartLife-A1B2');
-    expect(arguments.request, same(request));
     expect(tester.takeException(), isNull);
   });
 
@@ -207,6 +195,9 @@ void main() {
     expect(find.byKey(_FoundListKey.key), findsOneWidget);
     expect(find.text('SmartLife-A1B2'), findsOneWidget);
     expect(tester.takeException(), isNull);
+    // 之后会自动跳走，把定时器跑完，别留下待处理的 Timer。
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('被系统限流时不下「未发现设备」的结论', (tester) async {

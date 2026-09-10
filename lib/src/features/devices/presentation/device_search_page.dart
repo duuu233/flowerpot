@@ -22,8 +22,11 @@ import 'pairing_page.dart';
 ///
 /// 一次扫描只是那一瞬间的快照：**设备开机就一定处于可配网状态、不需要任何额外
 /// 操作**，但它上电后要过一会儿热点才广播出来。所以这一页在 [DeviceSearchPage.searchWindow] 的窗口里反复扫描，
-/// **扫到就把设备直接列在下面，不再跳页**——这一页就是一个监听器，用户看着它
-/// 一台台冒出来，点哪台就带哪台进「连接 Wi-Fi」。
+/// **扫到就把设备列在下面，并自动带着它进下一步**——2026-09-10 产品口径：整个
+/// 配网流程只留一步要用户操作（输 Wi-Fi 密码），选设备这一步不该让用户自己点。
+/// 设备仍然画出来（[_DeviceSearchPageState._autoOpenDelay] 那一小段停留就是给
+/// 用户看清楚扫到了什么），之后自动跳「连接 Wi-Fi」。多台时取信号最强的那台，
+/// 用户返回本页可以改点别的。
 ///
 /// ⚠️ **扫描节奏受系统配额约束，不能想扫多密就多密。** Android 9 起前台应用每 2
 /// 分钟只允许 4 次 `startScan`，超了直接被拒、返回上一次的缓存。2026-09-08 那版
@@ -118,6 +121,20 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// **读缓存**的定时器（2 秒一次，不受配额约束）。
   Timer? _pollTimer;
 
+  /// 扫到设备之后、自动进下一步之前停留的时间。
+  ///
+  /// 不是零：这一停留就是让用户看清楚「扫到了哪台」。但也只到这个程度——产品要求
+  /// 中间环节尽量不让用户等，600ms 刚够眼睛认出那一行，再长就是干等。
+  static const Duration _autoOpenDelay = Duration(milliseconds: 600);
+
+  /// 自动跳转的定时器。
+  Timer? _autoOpenTimer;
+
+  /// 本轮是否已经自动跳过一次。
+  ///
+  /// 只自动一次：用户从「连接 Wi-Fi」返回本页时不该被再弹走一次，那样就退不出来了。
+  bool _autoOpened = false;
+
   /// 本轮已经发起过几次**主动扫描**，用来决定下一次隔多久。
   int _forceScanCount = 0;
 
@@ -142,6 +159,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   @override
   void dispose() {
+    _autoOpenTimer?.cancel();
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
     _deadlineTimer?.cancel();
@@ -151,6 +169,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   /// 开始一轮搜索：重置 [DeviceSearchPage.searchWindow] 窗口，立刻扫一次。
   void _scan() {
+    _autoOpenTimer?.cancel();
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
     if (!mounted) return;
@@ -169,6 +188,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       setState(() => _scanning = false);
     });
     // 两条线并行：30 秒一次真扫（受配额约束），2 秒一次读缓存（不受约束）。
+    _autoOpened = false;
     _pollTimer = Timer.periodic(_cachePollGap, (_) => unawaited(_pollCache()));
     unawaited(_runScan());
   }
@@ -187,6 +207,28 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     }
     if (!mounted) return;
     setState(() {});
+    _maybeAutoOpen();
+  }
+
+  /// 扫到设备就自动带着它进下一步。
+  ///
+  /// 设备先画出来、停 [_autoOpenDelay] 再跳：用户要看得见自己连的是哪台。跳之前
+  /// 把两条扫描线都停掉——已经选定目标了，再扫只是白烧配额。
+  void _maybeAutoOpen() {
+    if (_autoOpened || !mounted) return;
+    final hotspots =
+        FlowerpotScope.of(context).wifiScan?.deviceHotspots ??
+        const <WifiNetwork>[];
+    if (hotspots.isEmpty) return;
+    _forceScanTimer?.cancel();
+    _pollTimer?.cancel();
+    _deadlineTimer?.cancel();
+    setState(() => _autoOpened = true);
+    _autoOpenTimer = Timer(_autoOpenDelay, () {
+      if (!mounted) return;
+      _radarController.stop();
+      _openPairing(hotspots.first);
+    });
   }
 
   Future<void> _runScan() async {
@@ -219,6 +261,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 保持「搜索中」。Wi-Fi 没开、没权限这类失败重扫多少次都是同一个结果，直接报出来。
     final retryable = result.success || result.code == 'wifi_scanning';
     _result = result;
+    _maybeAutoOpen();
+    if (_autoOpened) return;
     if (retryable && !_windowExpired) {
       // 开头两次靠得近（6 秒），之后 40 秒一次——排下来 0/6/46/86/126s，任意
       // 2 分钟窗口里都不超过配额的 4 次。中间的空档由读缓存补上，那条不占配额。
@@ -371,7 +415,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (hotspots.isNotEmpty) {
       return _SearchOutcome(
         '发现 ${hotspots.length} 台设备',
-        _scanning ? '点击下方设备继续配网，仍在继续搜索…' : '点击下方设备继续配网。',
+        _autoOpened
+            ? '正在连接「${hotspots.first.ssid}」…'
+            : '点击下方设备继续配网。',
         compactTitle: true,
       );
     }

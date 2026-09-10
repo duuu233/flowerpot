@@ -85,7 +85,10 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // 强制重扫，不吃 state 里的缓存：那份快照可能是搜索页几分钟前留下的，
     // 用户之后很可能已经把手机切到了别的网络。
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _loadNetworks(),
+      (_) {
+        unawaited(_loadNetworks());
+        unawaited(_warmUpPairing());
+      },
     );
   }
 
@@ -119,6 +122,25 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// Only a real scan result is used, and only a 2.4 GHz one: handing the SDK a
   /// 5 GHz or hotspot name would make provisioning fail in a way that looks
   /// like a device problem.
+  /// 进页面就把「确认家庭 + 取令牌」在后台跑掉。
+  ///
+  /// 这两步都是云端往返，原来是点了「开始配网」之后才跑，用户干等在那儿。而用户
+  /// 进到这一页之后必然要输密码——那几秒正好拿来跑它。跑完令牌缓存在
+  /// `FlowerpotState` 里（`activatorTokenReady`），点按钮时直接复用，省掉一次往返。
+  ///
+  /// **失败一声不响**：这只是预热，用户还没表达配网意图。真失败了点按钮时会再跑
+  /// 一次，那时的报错才该弹给用户看。
+  Future<void> _warmUpPairing() async {
+    if (!mounted) return;
+    final state = FlowerpotScope.of(context);
+    if (state.busy || state.activatorTokenReady) return;
+    try {
+      await state.prepareForPairing();
+    } catch (_) {
+      // 预热失败不打扰用户，点按钮时会再来一次。
+    }
+  }
+
   /// 把手机当前连着的 Wi-Fi 名带进输入框。
   ///
   /// **只读缓存、不发起扫描**：名字来自 `WifiManager.connectionInfo`，根本不需要
