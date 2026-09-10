@@ -7,6 +7,7 @@ import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -202,6 +203,36 @@ void main() {
 
     expect(find.text('未发现设备'), findsNothing);
     expect(find.text('无法确认附近设备'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('iOS 列不出设备时给一个无条件的「下一步」', (tester) async {
+    // iOS 没有任何公开 API 能枚举附近 Wi-Fi，这一页在 iOS 上永远列不出设备。
+    // 但配网不需要先列出来（`NEHotspotConfiguration(ssidPrefix:)` 按前缀连），
+    // 加上「设备开机即可配网」，也没有要用户确认的东西——所以直接给下一步。
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    Object? pairingArguments;
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(
+        const WifiScan(current: 'Home_2.4G', currentFrequency: 2437),
+      ),
+      onPairingArguments: (value) => pairingArguments = value,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('下一步'), findsOneWidget);
+    expect(find.byKey(const Key('device-search-rescan')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('device-search-continue')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('pairing-wifi-target'), findsOneWidget);
+    // 不带热点名：iOS 侧按前缀连。
+    expect((pairingArguments! as PairingArguments).hotspotSsid, isNull);
     expect(tester.takeException(), isNull);
   });
 

@@ -16,7 +16,6 @@ import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.PatternMatcher
 import android.os.SystemClock
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
@@ -1120,22 +1119,27 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             return
         }
         val ssid = call.argument<String>("ssid").orEmpty()
-        val prefix = call.argument<String>("prefix").orEmpty()
-        val target = if (ssid.isNotEmpty()) ssid else "${prefix.ifEmpty { "SmartLi" }}*"
-        val specifier = WifiNetworkSpecifier.Builder().apply {
-            // 给了确切 SSID 就精确匹配；只给前缀时让系统列出所有匹配的热点，由
-            // 用户在弹框里挑——设备热点名带随机后缀，扫不到时前缀更实用。
-            if (ssid.isNotEmpty()) {
-                setSsid(ssid)
-            } else {
-                setSsidPattern(
-                    PatternMatcher(
-                        prefix.ifEmpty { "SmartLi" },
-                        PatternMatcher.PATTERN_PREFIX,
-                    ),
-                )
-            }
-        }.build()
+        // ⚠️ **只接受确切的 SSID。**
+        //
+        // 以前只给前缀时这里走 `setSsidPattern`，那是 `WifiNetworkSpecifier` 的
+        // 「按模式搜索」一支：系统会弹出「查找设备…」，扫不到就停在「没有找到任何
+        // 设备。请确保要连接的设备已打开并准备好进行连接。」——那是系统 UI，App
+        // 关不掉它，只能不触发它。Android 能枚举附近网络，搜索页一定拿得到确切
+        // 名字，所以这条路在 Android 上没有存在的必要。
+        // （iOS 相反：它列不出附近网络，`NEHotspotConfiguration(ssidPrefix:)` 是
+        // 唯一可行的路，那边照常收前缀。）
+        if (ssid.isEmpty()) {
+            error(
+                result,
+                "hotspot_ssid_required",
+                "还不知道要连哪台设备的热点，请回到「搜索设备」选中设备后再配网",
+            )
+            return
+        }
+        val target = ssid
+        val specifier = WifiNetworkSpecifier.Builder()
+            .setSsid(ssid)
+            .build()
         val request = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)

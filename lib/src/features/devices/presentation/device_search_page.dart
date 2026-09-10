@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -47,6 +48,19 @@ class DeviceSearchPage extends StatefulWidget {
 
 class _DeviceSearchPageState extends State<DeviceSearchPage>
     with SingleTickerProviderStateMixin {
+  /// 当前平台能不能列出附近的 Wi-Fi。
+  ///
+  /// **iOS 不能，而且没有替代方案**：系统没有任何公开 API 可以枚举附近热点
+  /// （`NEHotspotHelper` 要 Apple 特批的 entitlement，普通 App 拿不到），
+  /// `CNCopyCurrentNetworkInfo` 只回答「此刻连着哪个」。所以这一页在 iOS 上
+  /// 永远列不出设备——这是平台限制，不是搜不到。
+  ///
+  /// 但**配网本身不需要先列出来**：iOS 侧用 `NEHotspotConfiguration(ssidPrefix:)`
+  /// 按前缀直接连设备热点，系统弹一次确认框即可。加上「设备开机即可配网」这条
+  /// 产品事实，iOS 上根本没有要确认的东西，给一个无条件的「下一步」就够了。
+  static bool get _canListNetworks =>
+      defaultTargetPlatform != TargetPlatform.iOS;
+
   /// 开头连扫几次，用来抓「设备早就开着、热点已经在广播」这种常见情形。
   ///
   /// 只花掉系统配额（每 2 分钟 4 次）里的 2 次，剩下的留给后面慢扫。
@@ -183,6 +197,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     );
   }
 
+  /// iOS 专用的下一步：不带热点名，直接进「连接 Wi-Fi」。
+  ///
+  /// 不是「确认设备已在配网状态」那种按钮——设备开机就一定可配网，没有要用户
+  /// 确认的东西；这只是 iOS 列不出设备时唯一的入口。
+  void _continueWithoutList() {
+    Navigator.pushNamed(
+      context,
+      AppRoutes.pairing,
+      arguments: PairingArguments(request: widget.request),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scan = FlowerpotScope.of(context).wifiScan;
@@ -250,7 +276,15 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           ),
                         ],
                         const SizedBox(height: 20),
-                        _SearchActions(scanning: _scanning, onRescan: _scan),
+                        _SearchActions(
+                          scanning: _scanning,
+                          onRescan: _scan,
+                          // iOS 列不出设备，「重新扫描」在那边没有意义，换成
+                          // 直接进下一步。
+                          onContinue: _canListNetworks
+                              ? null
+                              : _continueWithoutList,
+                        ),
                       ],
                     ),
                   ),
@@ -316,6 +350,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (scan == null || scan.networks.isEmpty) {
       // iOS never enumerates access points, and a throttled Android scan can
       // come back empty too. Neither means the planter is missing.
+      if (!_canListNetworks) {
+        return const _SearchOutcome(
+          '本机无法列出附近设备',
+          'iOS 不提供附近 Wi-Fi 列表，设备无法在这里列出来。\n设备开机即可配网，直接下一步即可。',
+        );
+      }
       return const _SearchOutcome(
         '无法列出附近设备',
         '当前系统不提供附近网络列表，无法在这里列出设备。',
@@ -343,13 +383,38 @@ class _SearchOutcome {
 }
 
 class _SearchActions extends StatelessWidget {
-  const _SearchActions({required this.scanning, required this.onRescan});
+  const _SearchActions({
+    required this.scanning,
+    required this.onRescan,
+    this.onContinue,
+  });
 
   final bool scanning;
   final VoidCallback onRescan;
 
+  /// 列不出设备的平台（iOS）上的下一步；能列的平台传 null。
+  final VoidCallback? onContinue;
+
   @override
   Widget build(BuildContext context) {
+    final next = onContinue;
+    if (next != null) {
+      return SizedBox(
+        width: 220,
+        height: 46,
+        child: FilledButton(
+          key: const Key('device-search-continue'),
+          onPressed: next,
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.brandPrimary,
+            foregroundColor: AppColors.surface,
+            shape: const StadiumBorder(),
+            textStyle: const TextStyle(fontSize: 17),
+          ),
+          child: const Text('下一步'),
+        ),
+      );
+    }
     return SizedBox(
       width: 220,
       height: 46,

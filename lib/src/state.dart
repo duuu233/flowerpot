@@ -646,7 +646,11 @@ class FlowerpotState extends ChangeNotifier {
         target: target,
         joinedManually: hotspotJoinedManually,
       );
-      mark(joinedByApp ? '连热点($target)' : '连热点(手动)');
+      mark(
+        joinedByApp
+            ? '连热点${target == null ? '(前缀)' : '($target)'}'
+            : '连热点(手动)',
+      );
 
       pairingStarted = true;
       _setPairingStage(PairingStage.sendingWifi);
@@ -706,19 +710,22 @@ class FlowerpotState extends ChangeNotifier {
     required bool joinedManually,
   }) async {
     try {
-      // ⚠️ **只用确切的热点名去请求**。给前缀时 `WifiNetworkSpecifier` 走的是
-      // 「按模式搜索」那一支，系统会弹出「查找设备…」并在扫不到时停在「没有找到
-      // 任何设备。请确保要连接的设备已打开并准备好进行连接。」——那是系统 UI，
-      // App 关不掉它，只能不触发它。搜索页现在会把选中的热点名一路带过来，拿不到
-      // 名字就说清楚让用户回去挑，而不是丢给系统去猜。
-      if (target == null) {
-        throw const TuyaException(
-          'hotspot_unknown',
-          '还不知道要连哪台设备的热点，请回到「搜索设备」选中设备后再配网',
-        );
-      }
+      // 有确切热点名就用它；没有就给前缀。**这两条路的可用性按平台分**：
+      //
+      // - Android：`WifiNetworkSpecifier` 给前缀时走「按模式搜索」那一支，系统会
+      //   弹「查找设备…」并可能停在「没有找到任何设备…」——那是系统 UI，App 关不
+      //   掉，只能不触发它。所以 Android 原生侧**拒绝只给前缀的请求**
+      //   （`hotspot_ssid_required`）；Android 能枚举附近网络，搜索页一定拿得到
+      //   确切名字。
+      // - iOS：**没有任何公开 API 能列出附近 Wi-Fi**（`NEHotspotHelper` 要 Apple
+      //   特批的 entitlement），所以确切名字永远拿不到。但 iOS 不需要——
+      //   `NEHotspotConfiguration(ssidPrefix:)` 可以直接按前缀连上热点，系统弹一次
+      //   确认框即可。前缀是 iOS 唯一可行的路，不能砍。
       final joined = await _repository
-          .joinDeviceHotspot(ssid: target, prefix: null)
+          .joinDeviceHotspot(
+            ssid: target,
+            prefix: target == null ? WifiNetwork.hotspotJoinPrefix : null,
+          )
           .timeout(
             hotspotJoinDeadline,
             onTimeout: () => throw const TuyaException(
