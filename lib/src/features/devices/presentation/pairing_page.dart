@@ -6,7 +6,6 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../state.dart';
-import '../../../tuya/pairing_mode.dart';
 import '../../../tuya/tuya_models.dart';
 import 'widgets/pairing_progress_view.dart';
 
@@ -297,21 +296,15 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       _pairing = true;
       _needHotspotHint = null;
     });
-    // 两条路由测试开关决定（见 `PairingModeSwitch`）：
-    // - EZ 快连：手机留在当前 Wi-Fi 上广播凭据，**全程没有任何系统 UI**；
-    // - AP 热点：先连设备热点再下发，Android 10+ 会弹一次系统授权框。
-    final result = PairingModeSwitch.current == PairingMode.ez
-        ? await state.pairViaEz(
-            ssid: request.ssid,
-            password: request.password,
-          )
-        : await state.pairViaHotspot(
-            ssid: request.ssid,
-            password: request.password,
-            // 确切热点名：`_joinHotspotForPairing` 靠它判断"是不是已经连在目标热点上"，
-            // 判断成立就跳过 `requestNetwork`、不再弹框。
-            hotspotSsid: widget.arguments?.hotspotSsid,
-          );
+    // 固定走 AP 热点。**EZ 已于 2026-09-11 实测不支持，入口已屏蔽**
+    // （见 `docs/PRODUCT_RULES.md` 1.1）。
+    final result = await state.pairViaHotspot(
+      ssid: request.ssid,
+      password: request.password,
+      // 确切热点名：`_joinHotspotForPairing` 靠它判断"是不是已经连在目标热点上"，
+      // 判断成立就跳过 `requestNetwork`、不再弹框。
+      hotspotSsid: widget.arguments?.hotspotSsid,
+    );
     _pairingState = null;
     if (!mounted) return;
     setState(() => _pairing = false);
@@ -420,15 +413,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                   // 不必到系统设置里手动连」那一整段删掉。系统弹框来了用户自然看得见，
                   // 提前解释一遍只是占掉半屏。
                   //
-                  const SizedBox(height: 14),
-                  // 配网方式的**测试开关**（2026-09-11 产品要求：同一个包里两种都要能测）。
-                  // 定稿后删掉这一段，只留选中的那一种。
-                  _PairingModeSelector(
-                    current: PairingModeSwitch.current,
-                    onChanged: (mode) =>
-                        setState(() => PairingModeSwitch.current = mode),
-                  ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 18),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
@@ -524,76 +509,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                   : const Text('开始配网'),
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 配网方式选择器——**测试用**。
-///
-/// 产品要在同一个包里把 EZ 与 AP 都测一遍（2026-09-11），所以做成页面上可切换，而不是
-/// 编译常量。**定稿之后应当把这个组件和 `PairingModeSwitch` 一起删掉，只留选中的那一种。**
-class _PairingModeSelector extends StatelessWidget {
-  const _PairingModeSelector({required this.current, required this.onChanged});
-
-  final PairingMode current;
-  final ValueChanged<PairingMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: const Key('pairing-mode-selector'),
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.brandPrimary.withValues(alpha: .25)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              const Text(
-                '配网方式',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 13,
-                ),
-              ),
-              const Spacer(),
-              for (final mode in PairingMode.values) ...<Widget>[
-                if (mode != PairingMode.values.first) const SizedBox(width: 8),
-                ChoiceChip(
-                  key: Key('pairing-mode-${mode.wire}'),
-                  label: Text(mode.label),
-                  selected: current == mode,
-                  onSelected: (selected) {
-                    if (selected) onChanged(mode);
-                  },
-                  labelStyle: TextStyle(
-                    fontSize: 13,
-                    color: current == mode
-                        ? AppColors.surface
-                        : AppColors.textSecondary,
-                  ),
-                  selectedColor: AppColors.brandPrimary,
-                  backgroundColor: AppColors.canvas,
-                  showCheckmark: false,
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            current.hint,
-            style: const TextStyle(
-              color: AppColors.textTertiary,
-              fontSize: 12,
-              height: 1.4,
             ),
           ),
         ],

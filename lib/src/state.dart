@@ -920,7 +920,21 @@ class FlowerpotState extends ChangeNotifier {
     _setPairingStage(PairingStage.idle);
   }
 
-  /// **EZ / 快连配网**：手机留在当前路由器上，把凭据广播给设备。
+  /// **EZ / 快连配网**——⛔ **实测不支持，已从动线上屏蔽，不要接回去。**
+  ///
+  /// 2026-09-11 按产品要求做了 EZ 并在真机上测过：**设备不支持 EZ/SmartConfig**，配不上。
+  /// 设备开发原先的说法（「采用 AP-cfg，**没使用** EZ」）就此坐实成"不能用"。
+  /// 同一天产品提供的智能生活截图也印证了方向：**它走的是涂鸦「新流程」AP**
+  /// （连上设备 → 让设备扫 Wi-Fi → 把设备扫到的列表给用户选），不是 EZ 广播。
+  /// 详见 `docs/history/2026-09/2026-09-11-smartlife-screenshots.md`。
+  ///
+  /// 方法体保留是为了留证据与备查（万一以后固件开了 EZ，接回去只需换调用点）。
+  /// **`PairingModeSwitch` / `_PairingModeSelector` / `pairing_mode.dart` 已全部删除**，
+  /// 现在没有任何入口能走到这里。
+  ///
+  /// ---
+  ///
+  /// 原理：手机留在当前路由器上，把凭据广播给设备。
   ///
   /// 和 [pairViaHotspot] 的区别只有一个，但很关键：**全程不连设备热点**，所以
   /// **不会出现任何系统 UI**（Android 10+ 的入网授权框只由 `WifiNetworkSpecifier` 触发，
