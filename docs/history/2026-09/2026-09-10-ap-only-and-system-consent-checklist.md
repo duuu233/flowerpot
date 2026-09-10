@@ -85,6 +85,47 @@
 在框上点一次，比跑一趟系统设置少得多。所以在 A 被证实的前提下，**当前实现已经是步数更少的
 那一个**，不建议为了消掉那个框改回手动引导。
 
+## 三点六、测试再确认：智能生活**不跳系统设置、也不弹框，直接就连上了**
+
+A（送用户去系统设置）被排除。智能生活没有系统签名，能静默连网只剩一条已知机制：
+
+### 最可能：它的 `targetSdkVersion` 停在 28 或更低，走的是**旧 API**
+
+Android 的 Wi-Fi 限制是按**应用的 `targetSdkVersion`** 生效的，不是按设备系统版本。
+`WifiManager.addNetwork()` / `enableNetwork()` 的官方兼容性说明写得很直白：
+
+> **Compatibility Note:** For applications targeting `Build.VERSION_CODES.Q`（API 29）or above,
+> this API will always fail and return -1 / false.
+
+反过来：**`targetSdk ≤ 28` 的应用，在 Android 10/11/12/13 的机器上仍然可以
+`addNetwork()` + `enableNetwork()` 自己加的网络并静默连上，没有任何弹框。**
+国内市场的 App 常年停在低 targetSdk，正是为了保住这类能力；Google Play 强制的
+targetSdk 下限对国内商店不适用。
+
+**我们的 `targetSdk` 跟着 Flutter 走**（`android/app/build.gradle.kts`：
+`targetSdk = flutter.targetSdkVersion`），是现代版本 ⇒ 落在「always fail」那一侧 ⇒
+只能用 `WifiNetworkSpecifier`，于是必然弹框。**这就是两边行为不同的根源，不是权限差异。**
+
+### 怎么一条命令验证
+
+```bash
+adb shell dumpsys package com.tuya.smartlife | grep -i targetSdk
+# 包名也可能是 com.thingclips.smartlife；或用 aapt dump badging <apk> 看 targetSdkVersion
+```
+
+`targetSdk` 是 28 或更低 ⇒ 结论坐实。
+
+### 那我们能照做吗——能，但代价是产品级的
+
+| 方案 | 效果 | 代价 |
+| --- | --- | --- |
+| **把 targetSdk 降到 28** | 恢复静默连网，彻底没有框 | **Google Play 拒绝**低于其下限的更新（只发国内商店才可行）；放弃十年的平台行为与安全改进；Flutter/三方库在低 target 下的行为要重测；属于产品 + 安全决策，不是改一行 |
+| **`WifiNetworkSuggestion`** | **首次**在通知里允许一次「建议 Wi-Fi 网络」，之后系统可自动连、不再打断 | 连接时机由系统决定（不保证立刻），对配网这种即时场景可靠性待测；仍需一次首启授权 |
+| 维持现状（`WifiNetworkSpecifier`） | 每次一个框，点「连接」即可 | 框去不掉；较新 Android 会记住同一应用+同一网络的授权，之后可能不再弹（未实测） |
+
+⚠️ 以上三条**都没有在真机验证过**，`targetSdk` 那条也还只是待验证的推断——但它是目前唯一能
+解释「同机同设备、官方 App 静默连上」的机制。
+
 ## 四、如果确认「必须让用户少一步」，可选的方向（都要产品决定，本轮未做）
 
 | 方向 | 效果 | 代价 |
