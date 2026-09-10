@@ -309,7 +309,6 @@ void main() {
     await _enterPassword(tester);
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pump();
-    await _connectDeviceHotspot(tester, repository);
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
@@ -340,13 +339,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('用户没连上设备热点就一直停在引导态，不会去配网', (tester) async {
-    // 这条用例替掉了原来的「a refused hotspot join opens the failure page」。
-    // 那条覆写的是 `joinDeviceHotspot`，而新流程**根本不调它**（Android 10+ 上
-    // `WifiNetworkSpecifier` 必弹系统入网授权框，产品要求不要那个框），所以它已经
-    // 测不到任何东西。现在的等价行为是：没连上就停在引导态，绝不把凭据发出去。
+  testWidgets('a refused hotspot join opens the failure page and releases', (
+    tester,
+  ) async {
     Object? failureArguments;
-    final repository = _TokenRepository();
+    final repository = _RefusedHotspotRepository();
     await _pumpPairingPage(
       tester,
       const Size(375, 812),
@@ -359,26 +356,14 @@ void main() {
     );
 
     await tester.tap(find.byKey(const Key('start-pairing-button')));
-    await tester.pump();
-
-    // 引导态：页面写明要去连哪个热点，并且已经把系统 Wi-Fi 面板拉起来一次。
-    expect(find.byKey(const Key('pairing-hotspot-handoff')), findsOneWidget);
-    expect(find.byKey(const Key('open-wifi-panel-button')), findsOneWidget);
-    expect(find.textContaining('SmartLife-A1B2'), findsWidgets);
-    expect(repository.wifiPanelOpens, 1);
-
-    // 用户一直没连：轮询怎么转都不会发凭据，也不跳失败页。
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pump(const Duration(seconds: 1));
-    expect(repository.pairCalls, 0);
-    expect(failureArguments, isNull);
-    expect(find.byKey(const Key('pairing-hotspot-handoff')), findsOneWidget);
-
-    // 连上之后自动续跑，不用再点一次「开始配网」。
-    await _connectDeviceHotspot(tester, repository);
     await tester.pumpAndSettle();
-    expect(repository.pairCalls, 1);
+
+    expect(find.text('pairing-failure-target'), findsOneWidget);
+    final failure = failureArguments! as PairingFailureArguments;
+    expect(failure.code, 'hotspot_join_cancelled');
+    expect(repository.pairCalls, 0);
+    // Whatever the system did with the request, the app lets go of it.
+    expect(repository.leaveCalls, 1);
     expect(tester.takeException(), isNull);
   });
 
@@ -396,7 +381,6 @@ void main() {
 
     await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pump();
-    await _connectDeviceHotspot(tester, repository);
     await tester.pump(const Duration(seconds: 1));
     expect(state.busy, isTrue);
     expect(repository.pairCalls, 1);
@@ -419,11 +403,10 @@ void main() {
 
   testWidgets('a provisioning error opens the failure page', (tester) async {
     Object? failureArguments;
-    final repository = _FailingRepository();
     await _pumpPairingPage(
       tester,
       const Size(375, 812),
-      repository: repository,
+      repository: _FailingRepository(),
       arguments: const PairingArguments(
         request: PairingRequest(
           ssid: 'TP-LINK_2.4G',
@@ -434,8 +417,6 @@ void main() {
     );
 
     await tester.tap(find.byKey(const Key('start-pairing-button')));
-    await tester.pump();
-    await _connectDeviceHotspot(tester, repository);
     await tester.pumpAndSettle();
 
     expect(find.text('pairing-failure-target'), findsOneWidget);
@@ -447,24 +428,6 @@ void main() {
     expect(failure.message, '配网失败');
     expect(tester.takeException(), isNull);
   });
-}
-
-/// 点完「开始配网」之后，模拟用户在系统 Wi-Fi 面板里把手机连上了设备热点。
-///
-/// AP 配网要求手机**先**在设备热点上（涂鸦文档：「将手机连接到配网设备 Wi-Fi 热点后
-/// ……但用户需要手动切换手机的 Wi-Fi 设置」）。2026-09-10 实测确认 SDK 不会替我们连，
-/// 而 Android 10+ 下 App 自己发起必弹系统入网授权框——产品要求不要那个框，所以页面改成
-/// 拉起系统 Wi-Fi 面板、等用户点一下，连上后自动续跑配网。
-Future<void> _connectDeviceHotspot(
-  WidgetTester tester,
-  MockTuyaRepository repository,
-) async {
-  expect(find.byKey(const Key('pairing-hotspot-handoff')), findsOneWidget);
-  expect(repository.wifiPanelOpens, greaterThan(0));
-  repository.currentSsid = 'SmartLife-A1B2';
-  // 轮询每秒看一次当前网络，读缓存、不占扫描配额。
-  await tester.pump(const Duration(seconds: 1));
-  await tester.pump();
 }
 
 Future<void> _enterPassword(WidgetTester tester) async {
@@ -599,6 +562,18 @@ class _FailingRepository extends MockTuyaRepository {
 
 /// The iOS / Android 9 shape: the app cannot join the hotspot itself, and the
 /// phone is still on the router when the first attempt is made.
+class _RefusedHotspotRepository extends _TokenRepository {
+  int leaveCalls = 0;
+
+  @override
+  Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {
+    throw const TuyaException('hotspot_join_cancelled', '未连上热点');
+  }
+
+  @override
+  Future<void> leaveDeviceHotspot() async => leaveCalls++;
+}
+
 /// A bridge whose pairing only ends when it is cancelled, like the real one
 /// while the activator is waiting on the device.
 class _HangingRepository extends _TokenRepository {
