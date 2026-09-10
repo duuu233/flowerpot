@@ -265,6 +265,19 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private var activatorToken: String? = null
     private var activatorTokenAt: Long = 0L
 
+    /**
+     * 「热点配网新流程」的设备安全配置（`getDeviceSecurityConfigs` 的返回）。
+     *
+     * 官方新流程的**第一步**就是取它，再通过 `ApActivatorBuilder.setSecurityConfig`
+     * 交给配网器——「主要是给设备配网对应安全等级信息」。文档标它可选，但新固件
+     * （TuyaOS ≥ 3.6.1，已由设备团队确认）走的正是这条路，该带上就带上。
+     *
+     * ⚠️ 和取令牌一样是**云端请求，必须在手机还连着路由器时完成**：配网一开始 SDK
+     * 就会把手机连到没有外网的设备热点上。所以它跟着 `prepareActivatorToken` 一起
+     * 预取（搜索页进页面时），失败不拦路——这一项本来就是可选的。
+     */
+    private var deviceSecurityConfig: String? = null
+
     /** AP 配网期间进程被绑定到的那个 Wi-Fi，用于识别热点何时消失。 */
     private var boundNetwork: Network? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -903,8 +916,38 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             Log.i(TUYA_LOG_TAG, "token fetch: dropping stale network binding")
             unbindProcessNetwork()
         }
+        prefetchDeviceSecurityConfig()
         withHome(result) { id ->
             fetchActivatorToken(id, result) { success(result, null) }
+        }
+    }
+
+    /**
+     * 顺手把 [deviceSecurityConfig] 取回来。
+     *
+     * 不挂在 `result` 上、不报错：这一项是可选的，取不到也照样能配网，没有理由让它
+     * 把「配网前准备」整件事拖失败。老 SDK 上没有这个方法，`runCatching` 直接吞掉。
+     */
+    private fun prefetchDeviceSecurityConfig() {
+        runCatching {
+            val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance") ?: return
+            invokeWithCallback(
+                activatorApi,
+                "getDeviceSecurityConfigs",
+                onSuccess = { value ->
+                    val config = value?.toString()?.takeIf { it.isNotBlank() }
+                    deviceSecurityConfig = config
+                    Log.i(
+                        TUYA_LOG_TAG,
+                        "device security configs: ${if (config == null) "empty" else "${config.length} chars"}",
+                    )
+                },
+                onError = { code, message ->
+                    Log.i(TUYA_LOG_TAG, "device security configs failed: $code $message")
+                },
+            )
+        }.onFailure {
+            Log.i(TUYA_LOG_TAG, "device security configs unavailable: ${it.message}")
         }
     }
 
@@ -1104,8 +1147,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 新流程的超时单位是**毫秒**（原流程的 setTimeOut 是秒），别搞混。
         invoke(builder, "setTimeout", call.argument<Number>("timeout")?.toLong() ?: 120_000L)
         invoke(builder, "setToken", token)
-        call.argument<String>("securityConfig")?.takeIf { it.isNotBlank() }?.let {
-            runCatching { invoke(builder, "setSecurityConfig", it) }
+        // Dart 侧可以显式传，没传就用预取到的那份（见 [deviceSecurityConfig]）。
+        val securityConfig = call.argument<String>("securityConfig")
+            ?.takeIf { it.isNotBlank() }
+            ?: deviceSecurityConfig
+        if (securityConfig != null) {
+            runCatching { invoke(builder, "setSecurityConfig", securityConfig) }
+                .onFailure { Log.i(TUYA_LOG_TAG, "setSecurityConfig skipped: ${it.message}") }
         }
         invokeWithCallback(
             builder,
