@@ -920,6 +920,75 @@ class FlowerpotState extends ChangeNotifier {
     _setPairingStage(PairingStage.idle);
   }
 
+  /// **EZ / 快连配网**：手机留在当前路由器上，把凭据广播给设备。
+  ///
+  /// 和 [pairViaHotspot] 的区别只有一个，但很关键：**全程不连设备热点**，所以
+  /// **不会出现任何系统 UI**（Android 10+ 的入网授权框只由 `WifiNetworkSpecifier` 触发，
+  /// 而这条路一次都不用它）。2026-09-11 产品要求先测这条，AP 那条完整保留备用。
+  ///
+  /// ## 前置条件（失败时先查这两条）
+  ///
+  /// 1. **手机必须连在要配给设备的那个 Wi-Fi 上**，而且必须是 **2.4GHz**。EZ 是在那张网上
+  ///    广播，手机不在上面、或在 5GHz 上，设备收不到。
+  /// 2. 设备固件要开启了 EZ。设备开发口径是「采用 AP-cfg，**没使用** EZ/SmartConfig」——
+  ///    「没使用」不等于「不能用」，这一条正是这次要测的。若固件确实没开，这里会以超时
+  ///    （涂鸦常见 `1006 out of time`）失败。
+  ///
+  /// 令牌在这里现取即可——EZ 全程有外网，不像 AP 那样一连热点就断网。
+  Future<ActionResult> pairViaEz({
+    required String ssid,
+    required String password,
+  }) => _guard(() async {
+    final steps = <String>[];
+    final watch = Stopwatch()..start();
+    void mark(String name) {
+      steps.add('$name ${watch.elapsedMilliseconds}ms');
+      watch.reset();
+    }
+
+    String withSteps(String message) {
+      // 手机当时连在哪个网络上——EZ 失败时这一项最要紧：不在目标网络上就一定收不到。
+      final now = _wifiScan?.current;
+      final where = now == null || now.isEmpty ? '手机网络未知' : '手机在「$now」';
+      final parts = <String>[...steps, where];
+      return parts.isEmpty ? message : '$message｜${parts.join(' · ')}';
+    }
+
+    var pairingStarted = false;
+    _setPairingStage(PairingStage.connectingDevice);
+    try {
+      if (activatorTokenReady) {
+        mark('令牌(复用)');
+      } else {
+        await _repository.prepareActivatorToken();
+        _activatorTokenAt = DateTime.now();
+        mark('令牌');
+      }
+      pairingStarted = true;
+      _setPairingStage(PairingStage.sendingWifi);
+      final result = await _pairInternal(
+        PairingRequest(ssid: ssid, password: password, mode: 'ez'),
+      );
+      mark('广播配网');
+      return ActionResult(
+        result.success,
+        withSteps(result.message),
+        code: result.code,
+      );
+    } on TuyaException catch (error) {
+      mark('失败');
+      // 凭据广播出去后令牌就可能已被设备用掉，失败要作废、下次重新取。
+      if (pairingStarted) _activatorTokenAt = null;
+      throw TuyaException(error.code, withSteps(error.message));
+    } catch (_) {
+      mark('失败');
+      if (pairingStarted) _activatorTokenAt = null;
+      rethrow;
+    } finally {
+      _setPairingStage(PairingStage.idle);
+    }
+  });
+
   Future<ActionResult> pairViaHotspot({
     required String ssid,
     required String password,

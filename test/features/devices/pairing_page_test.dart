@@ -6,6 +6,7 @@ import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/pairing_mode.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +15,12 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../support/asset_finder.dart';
 
 void main() {
+  // 本文件里的配网用例都是按 **AP 热点**那条路写的（令牌、连热点、下发凭据）。
+  // 2026-09-11 起运行时开关默认是 EZ 快连，所以这里把模式钉住，别让默认值变动把用例
+  // 的含义改掉。EZ 那条单独有一条用例（见文件末尾）。
+  setUp(() => PairingModeSwitch.current = PairingMode.ap);
+  tearDown(() => PairingModeSwitch.current = PairingMode.ez);
+
   testWidgets('pairing page exposes the Figma content', (tester) async {
     await _pumpPairingPage(tester, const Size(375, 812));
 
@@ -433,6 +440,40 @@ void main() {
     expect(failure.message, '配网失败');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('EZ 快连：不连任何热点，直接广播凭据配网', (tester) async {
+    // 这条是 2026-09-11 产品要求加的测试路径：EZ 模式手机全程留在当前 Wi-Fi 上，
+    // 把凭据广播给设备，**一次都不调 joinDeviceHotspot** —— 那正是它零系统 UI 的原因。
+    PairingModeSwitch.current = PairingMode.ez;
+    Object? successArguments;
+    final repository = _TokenRepository();
+    await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+      arguments: const PairingArguments(hotspotSsid: 'SmartLife-A1B2'),
+      onSuccessArguments: (value) => successArguments = value,
+    );
+
+    // 页面上能切模式（测试开关），当前是 EZ。
+    expect(find.byKey(const Key('pairing-mode-selector')), findsOneWidget);
+
+    await _enterPassword(tester);
+    await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    // 关键断言：热点一次都没连。
+    expect(repository.hotspotJoins, 0);
+    // 令牌由 pairViaEz 现取（EZ 全程有外网，不像 AP 要提前预取）。
+    expect(repository.tokenCalls, 1);
+    expect(repository.pairCalls, 1);
+    expect(find.text('pairing-success-target'), findsOneWidget);
+    expect(successArguments, 'vdevo17235508413621');
+    expect(tester.takeException(), isNull);
+  });
+
 }
 
 Future<void> _enterPassword(WidgetTester tester) async {

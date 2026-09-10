@@ -10,6 +10,7 @@ import '../../../routes/app_routes.dart';
 // `FlowerpotState`：连上热点之后本页就持有一条连接，dispose / paused 里要还原网络，
 // 那时已经不能查 InheritedWidget，所以得按类型留引用。
 import '../../../state.dart';
+import '../../../tuya/pairing_mode.dart';
 import '../../../tuya/tuya_models.dart';
 import 'pairing_page.dart';
 
@@ -442,6 +443,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 预取失败不拦路：配网时还会自己再取一次令牌。
     await _prepared;
     if (!mounted) return;
+    // **EZ 快连不连热点**——那正是它零系统 UI 的原因：手机留在当前 Wi-Fi 上，
+    // 凭据靠广播发给设备。所以这一路只做选定 + 跳页。
+    if (PairingModeSwitch.current == PairingMode.ez) {
+      setState(() => _connectingIndex = null);
+      _openPairing(hotspot, routerSsid: routerSsid);
+      return;
+    }
     final result = await state.connectDeviceHotspot(hotspotSsid: hotspot.ssid);
     // 只要发起过就留引用：即便失败也可能留下半条连接，离开本页时要放掉。
     _hotspotState = state;
@@ -598,8 +606,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         // 设备本身不联网，所以下一步是给它配一个 Wi-Fi；这里先说清要点哪个按钮。
         // 预取失败时把原因顶上来，免得用户后面遇到失败完全没有线索。
         _connectError ??
-            '点设备右侧的「连接」连上这台设备（系统会弹一次确认框，请点「连接」），'
-                '之后只需输入 Wi-Fi 密码。',
+            (PairingModeSwitch.current == PairingMode.ez
+                ? '点设备右侧的「连接」，然后确认要让它加入的 Wi-Fi 并输入密码。'
+                : '点设备右侧的「连接」连上这台设备（系统会弹一次确认框，请点「连接」），'
+                      '之后只需输入 Wi-Fi 密码。'),
         compactTitle: true,
       );
     }

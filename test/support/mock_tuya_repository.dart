@@ -178,8 +178,12 @@ class MockTuyaRepository implements TuyaRepository {
   @override
   Future<void> prepareActivatorToken() => _wait();
 
+  /// 连热点被调过几次。EZ 模式下应当**恒为 0**——那正是它零系统 UI 的原因。
+  int hotspotJoins = 0;
+
   @override
   Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {
+    hotspotJoins++;
     await _wait();
     return true;
   }
