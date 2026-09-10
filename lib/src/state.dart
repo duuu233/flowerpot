@@ -449,7 +449,7 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// [refresh] = false 时**只读系统的扫描缓存、不主动发起扫描**：那条路不受
   /// Android 的扫描配额限制（前台每 2 分钟 4 次 `startScan`），也不必等广播，
-  /// 所以搜索页可以 2 秒读一次；真扫留给 30 秒一次的节奏。系统自己（连接管理、
+  /// 所以搜索页可以 1 秒读一次；真扫按配额均匀排到 32 秒一次。系统自己（连接管理、
   /// 其它应用、设置页）也在扫，缓存会被它们刷新——这正是「读缓存」能提速的原因。
   Future<ActionResult> probeWifi({bool refresh = true}) async {
     if (_wifiScanning) {

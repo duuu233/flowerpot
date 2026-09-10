@@ -32,7 +32,8 @@ import 'pairing_page.dart';
 /// 分钟只允许 4 次 `startScan`，超了直接被拒、返回上一次的缓存。2026-09-08 那版
 /// 每 2 秒重扫一次，配额在头 20 秒就烧光，之后整个窗口拿到的都是**用户开机之前**
 /// 的那份旧缓存——「先进搜索页、再给设备上电」于是永远搜不到。现在改成
-/// 主动扫描退到 [_forceScanGap]（配额允许的最快节奏），中间的空档由
+/// 主动扫描退到 [_forceScanGap]（配额允许的最快节奏，且**均匀铺满**整个窗口，
+/// 不在开头扎堆），中间的空档由
 /// [_cachePollGap] 的读缓存补上——受配额限制的只有 `startScan`，读缓存不受限。
 class DeviceSearchPage extends StatefulWidget {
   const DeviceSearchPage({super.key, this.request});
@@ -72,34 +73,41 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 见 Android 官方文档「Wi-Fi scanning restrictions」。用户可以在开发者选项里
   /// 关掉「Wi-Fi 扫描节流」（Android 10 起有这个开关），所以开发机上常常测不出来。
   /// iOS 不适用——它根本不提供扫描接口。
-  /// 配额本身（4 次 / 2 分钟）只作记录：下面那张时间表就是按它排的，改配额就要
-  /// 重排 0s / 6s / 46s / 86s。
+  /// 配额本身（4 次 / 2 分钟）只作记录：[_forceScanGap] 就是按它算出来的，改配额
+  /// 就要重算那个间隔。
   static const int quotaScans = 4;
   static const Duration quotaWindow = Duration(minutes: 2);
 
-  /// **开头那两次**主动扫描的间隔。
+  /// 主动扫描的节奏：**均匀铺满**，间隔取配额允许的最小值。
   ///
-  /// 「用户打开页面时设备早就开着」是最常见的情形，第一次就该扫到；6 秒后再补一次
-  /// 兜住「刚好差一点」。配额是 4 次/2 分钟，前置两次不会把后面饿死。
-  static const Duration _earlyForceScanGap = Duration(seconds: 6);
-  static const int _earlyForceScans = 2;
-
-  /// 前两次之后的节奏。
+  /// 4 次 / 2 分钟 ⇒ 平均 30 秒一次就是上限，再密只会被拒。留 2 秒余量取 32 秒，
+  /// 排下来 0 / 32 / 64 / 96 / 128s……：第 5 次发生在 128s，此时滚动窗口
+  /// [8s, 128s] 里只有 32/64/96 三次，稳稳在配额内（定时器只会偏慢不会偏快，
+  /// 余量只增不减）。
   ///
-  /// 排下来是 0s / 6s / 46s / 86s / 126s…… 任意 2 分钟窗口里都不超过 4 次，
-  /// 符合配额；而**开头 6 秒就有两次真扫**，比原来「均匀 30 秒一次」快得多。
+  /// **为什么不再前置加密。** 上一版排的是 0/6/46/86s——把 4 次里的 2 次押在头
+  /// 6 秒，赌「用户进页面时设备早就开着」。这个赌对了一半：设备先开机那条确实第一
+  /// 次就扫到；但反过来「先进搜索页、再给设备上电」时，头两次全扫在设备还没广播
+  /// 热点的时刻，白扔，真正有用的第一次要等到 46s，错过就是 86s。均匀排之后，
+  /// 设备无论什么时候上电，最多 32 秒就被扫到——最坏情况从 86 秒降到 32 秒，
+  /// 而「设备先开机」那条仍然是第一次就扫到，没有损失。
+  ///
   /// 中间的空档由 [_cachePollGap] 的读缓存补上，那条路不占配额。
-  static const Duration _forceScanGap = Duration(seconds: 40);
+  static const Duration _forceScanGap = Duration(seconds: 32);
 
   /// **读缓存**的节奏。
   ///
   /// 受配额限制的只有 `startScan`，读系统的扫描结果缓存不受限、也几乎不耗时。而
   /// 系统自己（连接管理、设置页、别的应用）同样在扫，缓存会被它们刷新。所以这里
-  /// 2 秒读一次：设备热点一旦被**任何一次**扫描看到，最多 2 秒就出现在列表里。
+  /// 1 秒读一次：设备热点一旦被**任何一次**扫描看到，最多 1 秒就出现在列表里。
   ///
-  /// 这一条是「为什么要等一分钟才搜到」的答案：改之前两次主动扫描之间的 30 秒是
-  /// 完全瞎的，设备在那 30 秒里冒出来也要等到下一次真扫才看得见。
-  static const Duration _cachePollGap = Duration(seconds: 2);
+  /// 这一条是「为什么要等一分钟才搜到」的答案：改之前两次主动扫描之间的几十秒是
+  /// 完全瞎的，设备在那几十秒里冒出来也要等到下一次真扫才看得见。
+  ///
+  /// 1 秒一次是这一页唯一能无代价拉高的频率——真扫的节奏封死在配额上，读缓存
+  /// 不是。它决定的是「某一次扫描（我们的或系统的）看到热点」到「列表上出现」
+  /// 之间的延迟，拉到 1 秒就基本感知不到了。
+  static const Duration _cachePollGap = Duration(seconds: 1);
 
   late final AnimationController _radarController;
 
@@ -115,10 +123,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   Timer? _deadlineTimer;
   bool _windowExpired = false;
 
-  /// 下一次**主动扫描**的定时器（30 秒一次，受系统配额约束）。
+  /// 下一次**主动扫描**的定时器（[_forceScanGap] 一次，受系统配额约束）。
   Timer? _forceScanTimer;
 
-  /// **读缓存**的定时器（2 秒一次，不受配额约束）。
+  /// **读缓存**的定时器（[_cachePollGap] 一次，不受配额约束）。
   Timer? _pollTimer;
 
   /// 扫到设备之后、自动进下一步之前停留的时间。
@@ -133,13 +141,25 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 正在让 SDK 连设备热点（新流程第一步）。
   bool _connecting = false;
 
+  /// 「取令牌 + 确认家庭」这两步云端请求的预取。
+  ///
+  /// ⚠️ **必须在手机还连着路由器的时候跑完。** 涂鸦文档原文：「开始配网之前，
+  /// SDK 需要在**联网状态下**从云端获取配网 Token」。而新流程一旦走到
+  /// [_connectAndOpen]，SDK 就把手机连到设备热点上了，那张网没有外网——之后
+  /// `apStartPairing` 内部再去取令牌，只能指望系统回落到蜂窝，慢且不一定成。
+  ///
+  /// 改新流程时把这一步漏了：原流程是 `pairViaHotspot` 内部先取令牌再连热点，
+  /// 顺序天然是对的；新流程把连热点提前到了本页，取令牌却还留在下一页的
+  /// `apStartPairing` 里，于是变成「先断网、再取令牌」。这里补回来——进本页就
+  /// 预取，等真要连热点时它早就好了，`apStartPairing` 直接复用缓存的令牌。
+  ///
+  /// 尽力而为：失败不拦路，`apStartPairing` 仍会自己再取一次，和改之前一样。
+  Future<ActionResult>? _prepared;
+
   /// 本轮是否已经自动跳过一次。
   ///
   /// 只自动一次：用户从「连接 Wi-Fi」返回本页时不该被再弹走一次，那样就退不出来了。
   bool _autoOpened = false;
-
-  /// 本轮已经发起过几次**主动扫描**，用来决定下一次隔多久。
-  int _forceScanCount = 0;
 
   /// 上一次扫描是不是被系统限流了（拿回的是旧缓存）。界面据此换一句话。
   bool _throttled = false;
@@ -178,7 +198,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (!mounted) return;
     _deadlineTimer?.cancel();
     _windowExpired = false;
-    _forceScanCount = 0;
     _throttled = false;
     _scannedForReal = false;
     _radarController.repeat();
@@ -190,7 +209,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       _radarController.stop();
       setState(() => _scanning = false);
     });
-    // 两条线并行：30 秒一次真扫（受配额约束），2 秒一次读缓存（不受约束）。
+    // 趁手机还连着路由器，先把要走云端的两步取回来，别等到连上设备热点没外网了
+    // 才去取。只取一次：令牌有效期比一轮搜索窗口长得多，重新扫描不必重取。
+    _prepared ??= FlowerpotScope.of(context).prepareForPairing();
+    // 两条线并行：32 秒一次真扫（受配额约束），1 秒一次读缓存（不受约束）。
     _autoOpened = false;
     _pollTimer = Timer.periodic(_cachePollGap, (_) => unawaited(_pollCache()));
     unawaited(_runScan());
@@ -237,7 +259,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   Future<void> _runScan() async {
     if (!mounted || _inFlight) return;
     _inFlight = true;
-    _forceScanCount++;
     setState(() {
       _scanning = true;
       _result = null;
@@ -267,13 +288,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _maybeAutoOpen();
     if (_autoOpened) return;
     if (retryable && !_windowExpired) {
-      // 开头两次靠得近（6 秒），之后 40 秒一次——排下来 0/6/46/86/126s，任意
-      // 2 分钟窗口里都不超过配额的 4 次。中间的空档由读缓存补上，那条不占配额。
-      final gap = _forceScanCount < _earlyForceScans
-          ? _earlyForceScanGap
-          : _forceScanGap;
+      // 均匀 32 秒一次——排下来 0/32/64/96/128s，任意 2 分钟窗口里都不超过配额的
+      // 4 次。中间的空档由读缓存补上，那条不占配额。
       setState(() {});
-      _forceScanTimer = Timer(gap, () => unawaited(_runScan()));
+      _forceScanTimer = Timer(_forceScanGap, () => unawaited(_runScan()));
       return;
     }
     _deadlineTimer?.cancel();
@@ -296,6 +314,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (!mounted) return;
     setState(() => _connecting = true);
     final state = FlowerpotScope.of(context);
+    // 先等预取落地：一是令牌必须在还有外网时取到（见 [_prepared]），二是这两个
+    // 调用共用同一把单操作锁，不等的话 connectDeviceForPairing 会直接被挡成 busy。
+    // 失败不拦路——真缺令牌时 apStartPairing 自己还会再取一次。
+    await _prepared;
+    if (!mounted) return;
     final result = await state.connectDeviceForPairing();
     if (!mounted) return;
     setState(() => _connecting = false);
