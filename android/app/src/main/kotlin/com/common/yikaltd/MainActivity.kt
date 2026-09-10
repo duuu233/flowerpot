@@ -1473,8 +1473,27 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 搜索页连过之后，配网那一步的重试会走到这里并原地返回，不会再发
         // `requestNetwork`、也就不会再弹框。
         if (boundHotspotSsid == target && boundNetwork != null && hotspotCallback != null) {
-            Log.i(TUYA_LOG_TAG, "hotspot $target already held, reusing")
+            trace("join: $target already held, reusing (no dialog)")
             success(result, false)
+            return
+        }
+        // 手机本来就连在这个热点上（系统记住后自动重连的）：什么都不用做，也没有框。
+        if (currentSsidForLog() == target) {
+            trace("join: phone already on $target (system auto-reconnect), no dialog")
+            success(result, false)
+            return
+        }
+        // 先试一次**静默连接**再退回弹框那条。
+        //
+        // 2026-09-11 涂鸦回复称智能生活用的是 `WifiManager#connect()`「静默连接、系统不弹框」。
+        // 按我的理解那是 `@SystemApi`，要 `NETWORK_SETTINGS`（signature|privileged）权限，
+        // 普通应用拿不到；但**与其争论不如在真机上试一次**——成本很低，结果确定，
+        // 而且失败会原地退回原路径，不可能让事情变坏。
+        //
+        // 每一步都 `trace` 出来：页面上能直接看到走的是哪条路、为什么退回。
+        if (trySilentConnect(target)) {
+            trace("join: silent connect worked, no dialog")
+            success(result, true)
             return
         }
         val specifier = WifiNetworkSpecifier.Builder()
@@ -1537,6 +1556,61 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 hotspotCallback = null
                 error(result, "hotspot_join_failed", it.message ?: "请求连接热点失败")
             }
+    }
+
+    /**
+     * 试一次 `WifiManager#connect()` 静默连接热点，成功返回 true。
+     *
+     * 这个方法**不在公开 SDK 里**（`@SystemApi`，要 `NETWORK_SETTINGS` 这种
+     * signature|privileged 权限），所以正常情况下反射会抛 `NoSuchMethodException` 或
+     * `SecurityException`——那时原地返回 false，调用方退回 `WifiNetworkSpecifier`。
+     *
+     * 之所以还要试：2026-09-11 涂鸦回复称智能生活就是用它做到"不弹框"的。与其在文档上
+     * 争论，不如在真机上跑一次拿结论；失败零代价。
+     *
+     * ⚠️ 即便 `connect()` 调用没抛异常，也**不代表连上了**——它只是把请求交给系统。
+     * 所以下面还要轮询当前 SSID 做确认，确认不了一律当失败。
+     */
+    @Suppress("DEPRECATION")
+    private fun trySilentConnect(target: String): Boolean = runCatching {
+        val wifi = activity.applicationContext
+            .getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            ?: return@runCatching false
+        // 设备热点是开放网络（涂鸦 AP-cfg 的 smartlife_xxxx 不带密码）。
+        val config = android.net.wifi.WifiConfiguration().apply {
+            SSID = "\"" + target + "\""
+            allowedKeyManagement.set(
+                android.net.wifi.WifiConfiguration.KeyMgmt.NONE,
+            )
+        }
+        val method = wifi.javaClass.methods.firstOrNull {
+            it.name == "connect" &&
+                it.parameterTypes.size == 2 &&
+                it.parameterTypes[0] == android.net.wifi.WifiConfiguration::class.java
+        } ?: run {
+            trace("join: WifiManager.connect(WifiConfiguration,…) not found → fallback")
+            return@runCatching false
+        }
+        trace("join: WifiManager.connect() exists, invoking …")
+        method.isAccessible = true
+        method.invoke(wifi, config, null)
+        // 调用没抛不等于连上了：它只是把请求交给系统，所以要靠当前 SSID 确认。
+        //
+        // ⚠️ **这里在主线程上等，所以上限必须远低于 ANR 的 5 秒。** 取 2.5 秒：
+        // 正常路径根本走不到这儿（反射在上面就抛了、瞬间返回），只有这个方法真的可用时
+        // 才会等；而它一旦可用，关联通常一两秒内就完成。等不到就退回弹框那条，不会卡死。
+        val deadline = SystemClock.elapsedRealtime() + 2_500
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (currentSsidForLog() == target) return@runCatching true
+            Thread.sleep(250)
+        }
+        trace("join: connect() invoked but not associated in 2.5s → fallback")
+        false
+    }.getOrElse { failure ->
+        // 正常预期：NoSuchMethod / SecurityException / IllegalAccess。原样打出来，
+        // 这一行就是"这条路到底通不通"的证据。
+        trace("join: silent connect unavailable (${failure.javaClass.simpleName}: ${failure.message}) → fallback")
+        false
     }
 
     /** 释放热点请求，系统随即断开这条进程专属连接。 */
