@@ -825,11 +825,30 @@ class FirmwareUpdate {
 }
 
 class WifiScan {
-  const WifiScan({required this.networks, this.current, this.currentFrequency});
+  const WifiScan({
+    required this.networks,
+    this.current,
+    this.currentFrequency,
+    this.throttled = false,
+    this.ageMs,
+  });
 
   final List<WifiNetwork> networks;
   final String? current;
   final int? currentFrequency;
+
+  /// 这一轮**没有真的扫**，答的是上一次的缓存。
+  ///
+  /// Android 9 起前台应用每 2 分钟只允许 4 次 `startScan`，超了就直接拒绝。被拒时
+  /// 列表里当然没有用户刚开机的那台设备——把它当成「附近没有设备」是错的，页面得
+  /// 改成等配额回来再扫。iOS 不枚举附近网络，这里恒为 false。
+  final bool throttled;
+
+  /// 缓存里最新一条结果的年龄（毫秒）；平台不报时为 null。
+  ///
+  /// 和 [throttled] 互为佐证：有些机型限流时 `startScan` 照样返回 true、只是不
+  /// 重扫，这时只有年龄看得出来这一轮是白跑的。
+  final int? ageMs;
 
   /// Null when the platform does not report a band. A non-positive frequency
   /// is the "not connected" answer some Android builds give, and is unknown

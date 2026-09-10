@@ -425,6 +425,8 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       networks: networks,
       current: raw['current']?.toString(),
       currentFrequency: (raw['currentFrequency'] as num?)?.toInt(),
+      throttled: raw['throttled'] == true,
+      ageMs: (raw['ageMs'] as num?)?.toInt(),
     );
   }
 

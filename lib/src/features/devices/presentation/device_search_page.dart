@@ -21,15 +21,23 @@ import 'pairing_page.dart';
 ///
 /// 一次扫描只是那一瞬间的快照：用户长按设备让它进入配网状态时，热点往往还没
 /// 广播出来。所以这一页在 [DeviceSearchPage.searchWindow] 的窗口里反复扫描，
-/// 扫到就直接进下一步，窗口走完仍然没有才给结论——用户不必自己反复点「重新
-/// 扫描」。扫不到时页面只留「重新扫描」和「设备已在配网状态，继续」两条路，
-/// 从附近网络里手动挑一个的入口已经下线。
+/// 扫到就直接进下一步。两条出路（「重新扫描」「设备已在配网状态，继续」）**全程
+/// 都在**，用户不必等窗口走完；从附近网络里手动挑一个的入口已经下线。
+///
+/// ⚠️ **扫描节奏受系统配额约束，不能想扫多密就多密。** Android 9 起前台应用每 2
+/// 分钟只允许 4 次 `startScan`，超了直接被拒、返回上一次的缓存。2026-09-08 那版
+/// 每 2 秒重扫一次，配额在头 20 秒就烧光，之后整个窗口拿到的都是**用户开机之前**
+/// 的那份旧缓存——「先进搜索页、再给设备上电」于是永远搜不到。现在改成
+/// [_burstScans] 次快扫之后退到 [_pacedGap]，并在被限流时明说正在等配额。
 class DeviceSearchPage extends StatefulWidget {
   const DeviceSearchPage({super.key, this.request});
 
-  /// 一轮搜索的时长。一次扫描只是那一瞬间的快照，设备刚长按进入配网时热点往往
-  /// 还没广播出来，所以在这个窗口里反复扫，扫到就走，走完才落到「未发现」。
-  static const Duration searchWindow = Duration(seconds: 45);
+  /// 一轮搜索的时长。
+  ///
+  /// 3 分钟不是拍脑袋：设备上电、启动、长按进配网、热点广播出来，本身就要几十秒；
+  /// 而配额是每 2 分钟 4 次，窗口短于 2 分钟就等不到配额回补。两条出路全程都在，
+  /// 窗口长不会把用户困住。
+  static const Duration searchWindow = Duration(minutes: 3);
 
   final PairingRequest? request;
 
@@ -39,9 +47,19 @@ class DeviceSearchPage extends StatefulWidget {
 
 class _DeviceSearchPageState extends State<DeviceSearchPage>
     with SingleTickerProviderStateMixin {
-  /// 两次扫描之间的间隔。原生一次扫描最多等 5 秒（被系统限流时直接回缓存），
-  /// 加上这个间隔，一轮窗口里大约能扫六七次。
-  static const Duration _rescanGap = Duration(seconds: 2);
+  /// 开头连扫几次，用来抓「设备已经在配网状态」这种常见情形。
+  ///
+  /// 只花掉系统配额（每 2 分钟 4 次）里的 2 次，剩下的留给后面慢扫。
+  static const int _burstScans = 2;
+
+  /// 快扫阶段两次之间的间隔。
+  static const Duration _burstGap = Duration(seconds: 3);
+
+  /// 快扫用完之后的节奏。
+  ///
+  /// 配额是每 2 分钟 4 次 ⇒ 平均 30 秒一次。比这更密只会被拒、拿回同一份旧缓存，
+  /// 而且看不出来是旧的——这正是 09-08 那版搜不到设备的原因。
+  static const Duration _pacedGap = Duration(seconds: 30);
 
   late final AnimationController _radarController;
 
@@ -57,6 +75,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   Timer? _deadlineTimer;
   bool _windowExpired = false;
   Timer? _retryTimer;
+
+  /// 本轮已经发起过几次扫描，用来决定还在不在快扫阶段。
+  int _scanCount = 0;
+
+  /// 上一次扫描是不是被系统限流了（拿回的是旧缓存）。界面据此换一句话。
+  bool _throttled = false;
+
+  /// 本轮有没有真的扫成过一次。
+  ///
+  /// 一次都没真扫过就说「未发现配网中的设备」是撒谎——那句结论只有在真扫过之后
+  /// 才成立。
+  bool _scannedForReal = false;
 
   @override
   void initState() {
@@ -82,6 +112,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (!mounted) return;
     _deadlineTimer?.cancel();
     _windowExpired = false;
+    _scanCount = 0;
+    _throttled = false;
+    _scannedForReal = false;
     _radarController.repeat();
     _deadlineTimer = Timer(DeviceSearchPage.searchWindow, () {
       _windowExpired = true;
@@ -96,6 +129,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   Future<void> _runScan() async {
     if (!mounted || _inFlight) return;
     _inFlight = true;
+    _scanCount++;
     setState(() {
       _scanning = true;
       _result = null;
@@ -104,6 +138,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     final result = await state.probeWifi();
     _inFlight = false;
     if (!mounted) return;
+    final scan = state.wifiScan;
+    // 被限流 ⇒ 这一轮答的是旧缓存，不能算「扫过了」。有些机型限流时 startScan 照样
+    // 返回 true，只是不重扫，所以再看一眼缓存年龄兜底。
+    _throttled =
+        scan?.throttled == true ||
+        (scan?.ageMs != null && scan!.ageMs! > _pacedGap.inMilliseconds);
+    if (result.success && !_throttled) _scannedForReal = true;
     // Only a real hotspot advances on its own. Every other outcome keeps the
     // user here with a reason and a way forward.
     final found =
@@ -119,12 +160,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       );
       return;
     }
-    // 扫描本身成功、只是这一轮没看见设备热点时，窗口没走完就再扫一次，页面保持
-    // 「搜索中」。Wi-Fi 没开、没权限这类失败重扫多少次都是同一个结果，直接报出来。
+    // 扫描本身成功、只是这一轮没看见设备热点时，窗口没走完就按节奏再扫一次，页面
+    // 保持「搜索中」。Wi-Fi 没开、没权限这类失败重扫多少次都是同一个结果，直接报出来。
     final retryable = result.success || result.code == 'wifi_scanning';
     _result = result;
     if (retryable && !_windowExpired) {
-      _retryTimer = Timer(_rescanGap, _runScan);
+      // 头几次快扫抓「设备已经在配网状态」；之后退到 30 秒一次，让系统配额回补。
+      // 被限流时同样按慢节奏等——立刻重试只会再被拒一次。
+      final gap = (_scanCount < _burstScans && !_throttled)
+          ? _burstGap
+          : _pacedGap;
+      setState(() {});
+      _retryTimer = Timer(gap, _runScan);
       return;
     }
     _deadlineTimer?.cancel();
@@ -205,13 +252,15 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                             height: 1.5,
                           ),
                         ),
-                        if (!_scanning) ...<Widget>[
-                          const SizedBox(height: 20),
-                          _SearchActions(
-                            onRescan: _scan,
-                            onContinue: _continueAnyway,
-                          ),
-                        ],
+                        // 两条出路全程都在。窗口从 45 秒拉长到 3 分钟之后，藏起
+                        // 按钮等窗口走完就是把用户困在原地——尤其是他明知道设备
+                        // 已经在配网状态、只想直接下一步的时候。
+                        const SizedBox(height: 20),
+                        _SearchActions(
+                          scanning: _scanning,
+                          onRescan: _scan,
+                          onContinue: _continueAnyway,
+                        ),
                       ],
                     ),
                   ),
@@ -237,6 +286,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// says "no device" when the platform simply cannot answer.
   _SearchOutcome _outcome(WifiScan? scan) {
     if (_scanning) {
+      // 被系统限流时别装作还在扫：这几十秒确实什么都没在查，说清楚比转圈诚实。
+      if (_throttled) {
+        return const _SearchOutcome(
+          '搜索附近设备...',
+          '系统限制了 Wi-Fi 扫描频率，正在等待下一次扫描。\n设备已进入配网状态的话，可以直接继续下一步。',
+        );
+      }
       return const _SearchOutcome(
         '搜索附近设备...',
         '请让设备进入配网状态，并确认手机连接的是2.4GHz Wi-Fi',
@@ -252,6 +308,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     }
     if (result != null && !result.success) {
       return _SearchOutcome('无法扫描附近设备', _failureHint(result));
+    }
+    // 一次都没真扫成过（全程被限流）就不能下「附近没有设备」的结论。
+    if (!_scannedForReal) {
+      return const _SearchOutcome(
+        '无法确认附近设备',
+        '系统限制了 Wi-Fi 扫描频率，这段时间拿到的是旧的扫描结果。\n确认设备指示灯已进入配网状态后继续下一步。',
+      );
     }
     if (scan == null || scan.networks.isEmpty) {
       // iOS never enumerates access points, and a throttled Android scan can
@@ -283,8 +346,13 @@ class _SearchOutcome {
 }
 
 class _SearchActions extends StatelessWidget {
-  const _SearchActions({required this.onRescan, required this.onContinue});
+  const _SearchActions({
+    required this.scanning,
+    required this.onRescan,
+    required this.onContinue,
+  });
 
+  final bool scanning;
   final VoidCallback onRescan;
   final VoidCallback onContinue;
 
@@ -297,7 +365,9 @@ class _SearchActions extends StatelessWidget {
           height: 46,
           child: FilledButton(
             key: const Key('device-search-rescan'),
-            onPressed: onRescan,
+            // 搜索中时「重新扫描」只会白白再烧一次系统配额，禁用它；
+            // 「设备已在配网状态，继续」全程可点。
+            onPressed: scanning ? null : onRescan,
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.brandPrimary,
               foregroundColor: AppColors.surface,

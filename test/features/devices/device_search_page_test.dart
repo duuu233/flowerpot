@@ -146,7 +146,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('45 秒窗口内会反复扫描，中途出现的设备热点照样能进下一步', (tester) async {
+  testWidgets('窗口内会按节奏反复扫描，中途出现的设备热点照样能进下一步', (tester) async {
     // 用户长按设备让它进配网时，第一次扫描往往还看不到热点。窗口没走完就一直
     // 重扫，热点一出现就走，不用用户自己点「重新扫描」。
     Object? selectionArguments = 'unset';
@@ -156,11 +156,71 @@ void main() {
       repository: _LateHotspotRepository(silentScans: 2),
       onSelectionArguments: (value) => selectionArguments = value,
     );
+    // 头两次是 3 秒一次的快扫，第三次要等 30 秒的慢节奏——这就是系统配额
+    // （Android 每 2 分钟 4 次）逼出来的间隔，扫得更密只会拿回旧缓存。
     await tester.pump(const Duration(seconds: 6));
+    expect(find.text('device-selection-target'), findsNothing);
+    await tester.pump(const Duration(seconds: 31));
     await tester.pumpAndSettle();
 
     expect(find.text('device-selection-target'), findsOneWidget);
     expect(selectionArguments, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('被系统限流时不下「未发现设备」的结论', (tester) async {
+    // Android 9 起前台应用每 2 分钟只允许 4 次 startScan，超了就返回上一次的缓存。
+    // 「先进搜索页、再给设备上电」时缓存里当然没有那台设备——把它当成「附近没有
+    // 设备」是撒谎，这正是 2026-09-08 那版每 2 秒重扫留下的坑。
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(
+        const WifiScan(
+          current: 'TP-LINK_2.4G',
+          currentFrequency: 2437,
+          throttled: true,
+          networks: <WifiNetwork>[
+            WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+          ],
+        ),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+
+    // 搜索中就明说在等配额，不装作还在查。
+    expect(find.textContaining('系统限制了 Wi-Fi 扫描频率'), findsOneWidget);
+
+    await _runOutSearchWindow(tester);
+
+    expect(find.text('未发现配网中的设备'), findsNothing);
+    expect(find.text('无法确认附近设备'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('搜索中也能直接进下一步，不必等窗口走完', (tester) async {
+    // 窗口从 45 秒拉长到 3 分钟之后，藏起按钮等窗口走完就是把用户困在原地——
+    // 尤其是他明知道设备已经在配网状态、只想直接下一步的时候。
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(
+        const WifiScan(
+          current: 'TP-LINK_2.4G',
+          currentFrequency: 2437,
+          networks: <WifiNetwork>[
+            WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+          ],
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('device-search-continue')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('device-search-continue')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('pairing-wifi-target'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

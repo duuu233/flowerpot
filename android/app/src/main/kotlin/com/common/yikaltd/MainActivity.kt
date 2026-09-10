@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PatternMatcher
+import android.os.SystemClock
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -502,11 +503,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val replied = AtomicBoolean(false)
         val handler = Handler(Looper.getMainLooper())
         var receiver: BroadcastReceiver? = null
+        // `throttled` 决定上层怎么走：被限流时这次答的是**旧缓存**，不是「附近没有设备」。
+        val throttled = AtomicBoolean(false)
         val reply = {
             if (replied.compareAndSet(false, true)) {
                 receiver?.let { runCatching { context.unregisterReceiver(it) } }
                 handler.removeCallbacksAndMessages(null)
-                success(result, wifiSnapshot(wifi))
+                success(result, wifiSnapshot(wifi, throttled.get()))
             }
         }
         receiver = object : BroadcastReceiver() {
@@ -531,6 +534,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // of sitting out the timeout.
         val started = runCatching { wifi.startScan() }.getOrDefault(false)
         if (!started) {
+            // Android 9 起前台应用每 2 分钟只允许 4 次 startScan，超了就返回 false 且
+            // 不再广播。这时 `scanResults` 是上一次真扫的缓存——用户刚开机的设备不在
+            // 里面，报「未发现设备」是假的。标出来，让上层改成等配额回来再扫。
+            throttled.set(true)
             reply()
             return
         }
@@ -538,7 +545,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     /** The scan cache and the current connection, as the Dart `WifiScan`. */
-    private fun wifiSnapshot(wifi: WifiManager): Map<String, Any?> {
+    private fun wifiSnapshot(wifi: WifiManager, throttled: Boolean): Map<String, Any?> {
         val networks = runCatching { wifi.scanResults }
             .getOrDefault(emptyList())
             .filter { !it.SSID.isNullOrBlank() }
@@ -559,10 +566,18 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             @Suppress("DEPRECATION")
             wifi.connectionInfo?.frequency
         }.getOrNull()
+        // 缓存有多旧：`ScanResult.timestamp` 是开机以来的微秒数，取最新一条来算。
+        // 上层用它判断「这一轮到底扫没扫」，不必只靠 throttled 这一个信号。
+        val newest = runCatching { wifi.scanResults }
+            .getOrDefault(emptyList())
+            .maxOfOrNull { it.timestamp }
+        val ageMs = newest?.let { (SystemClock.elapsedRealtime() - it / 1000).coerceAtLeast(0) }
         return mapOf(
             "current" to current?.takeIf { it != "<unknown ssid>" },
             "currentFrequency" to currentFrequency,
             "networks" to networks,
+            "throttled" to throttled,
+            "ageMs" to ageMs,
         )
     }
 
