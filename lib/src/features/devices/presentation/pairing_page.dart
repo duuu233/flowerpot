@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -81,6 +82,21 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// 全局操作锁，别处的写操作也会把它拉起来。
   bool _pairing = false;
 
+  /// 正在等用户在系统 Wi-Fi 面板里把手机连到设备热点上。
+  ///
+  /// AP 配网的**前置条件**是手机已经在设备热点上（涂鸦文档原话：「将手机连接到配网
+  /// 设备 Wi-Fi 热点后……但用户需要手动切换手机的 Wi-Fi 设置」）。2026-09-10 实测
+  /// 确认 SDK 不会替我们连（完整序列下 `queryDeviceConfigState` 跑满 45 秒报 207220、
+  /// 全程没有任何系统框、手机始终在路由器上）。Android 10+ 下只有两条路：App 发起
+  /// `WifiNetworkSpecifier`（**必弹**入网授权框）或用户自己连——产品选了后者。
+  bool _awaitingHotspot = false;
+
+  /// 等热点时的轮询。读扫描缓存，不发起扫描、不占配额。
+  Timer? _hotspotPoll;
+
+  /// 等到热点之后要继续配网的那份凭据。
+  PairingRequest? _pendingRequest;
+
   /// 配网前的准备（确认家庭 + 取令牌）正在跑。这两步都要走云端，必须在还连着
   /// 路由器时完成，所以先转个圈等它结束，成了才去碰设备热点。
 
@@ -101,6 +117,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _hotspotPoll?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     final state = _pairingState;
     if (state != null) {
@@ -120,6 +137,11 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
     if (lifecycleState != AppLifecycleState.resumed || _pairing) return;
+    // 等用户去连设备热点这段**不能刷新 SSID**：那时手机正挂在设备热点上，
+    // `_applyCurrentSsid` 会按「没连 Wi-Fi」把输入框清空——恰好在用户从系统 Wi-Fi
+    // 面板回来的那一刻把他填好的路由器名擦掉。配网本身不受影响（凭据在发起前就
+    // 存进了 `_pendingRequest`），但界面上看起来像是白填了一遍。
+    if (_awaitingHotspot) return;
     unawaited(_loadNetworks());
   }
 
@@ -217,12 +239,63 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       ssid: ssidController.text.trim(),
       password: passwordController.text,
     );
-    // 全按涂鸦的**新流程**走，**全程不碰 `WifiNetworkSpecifier`**：连设备热点由 SDK
-    // 内部完成，所以 Android 10+ 那个必弹的系统入网授权框不存在。序列与踩过的坑都写在
-    // `pairViaDeviceHotspot` 的文档注释里，改这里之前先读它。
+    // **前置条件：手机必须已经连在设备热点上。** 没连就先引导用户去连，连上后由
+    // `_hotspotPoll` 自动续跑配网——用户不用回来再点一次「开始配网」。
+    // iOS 不走这条：那边靠 `NEHotspotConfiguration(ssidPrefix:)` 按前缀连，且没有
+    // 可拉起的 Wi-Fi 面板，保持原有行为。
+    if (_needsHotspotHandoff && !await state.refreshOnDeviceHotspot()) {
+      if (!mounted) return;
+      _pendingRequest = request;
+      setState(() => _awaitingHotspot = true);
+      await _openWifiPanel(state);
+      _startHotspotPoll();
+      return;
+    }
+    await _startPairing(state, request);
+  }
+
+  /// 当前平台是否需要「让用户自己去系统 Wi-Fi 连设备热点」这一步。
+  static bool get _needsHotspotHandoff =>
+      defaultTargetPlatform == TargetPlatform.android;
+
+  Future<void> _openWifiPanel(FlowerpotState state) async {
+    final result = await state.openWifiPanel();
+    if (!mounted || result.success) return;
+    // 面板拉不起来（极少见）也不卡死：把话说清楚，用户手动去设置连，轮询照常等。
+    showAppMessage(context, result.message, tone: AppMessageTone.error);
+  }
+
+  /// 每秒看一眼手机连上了没有。读扫描缓存，不发起扫描、不占配额。
+  void _startHotspotPoll() {
+    _hotspotPoll?.cancel();
+    _hotspotPoll = Timer.periodic(const Duration(seconds: 1), (_) async {
+      if (!mounted) return;
+      final state = FlowerpotScope.of(context);
+      if (!await state.refreshOnDeviceHotspot()) {
+        if (mounted) setState(() {});
+        return;
+      }
+      _hotspotPoll?.cancel();
+      _hotspotPoll = null;
+      if (!mounted) return;
+      setState(() => _awaitingHotspot = false);
+      final pending = _pendingRequest;
+      _pendingRequest = null;
+      if (pending != null) await _startPairing(state, pending);
+    });
+  }
+
+  /// 手机已经在设备热点上，真正开始配网。
+  Future<void> _startPairing(
+    FlowerpotState state,
+    PairingRequest request,
+  ) async {
+    // 走涂鸦的新流程，**App 侧不碰 `WifiNetworkSpecifier`**：手机连热点这一步已经由
+    // 用户在系统 Wi-Fi 面板里完成（见 [_awaitingHotspot]），所以 Android 10+ 那个必弹的
+    // 入网授权框不会出现。序列与踩过的坑写在 `pairViaDeviceHotspot` 的文档注释里。
     //
     // 令牌与设备安全配置由搜索页在**还连着路由器**时预取（`prepareForPairing`）：
-    // 配网一开始 SDK 就把手机切到设备热点，那张网没有外网，而那两件事都要走云端。
+    // 手机一挂到设备热点上就没有外网，而那两件事都要走云端。
     _pairingState = state;
     setState(() => _pairing = true);
     final result = await state.pairViaDeviceHotspot(
@@ -391,33 +464,122 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
             left: AppSpacing.pageMargin,
             right: AppSpacing.pageMargin,
             bottom: 8,
-            child: FilledButton(
-              key: const Key('start-pairing-button'),
-              onPressed: state.busy ? null : _pair,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(50),
-                backgroundColor: AppColors.brandPrimary,
-                foregroundColor: AppColors.surface,
-                elevation: 2,
-                shadowColor: AppColors.brandPrimary.withValues(alpha: .35),
-                shape: const StadiumBorder(),
-                textStyle: AppTypography.pageTitle.copyWith(
-                  color: AppColors.surface,
-                ),
-              ),
-              child: state.busy
-                  ? const SizedBox.square(
-                      dimension: 22,
-                      child: CircularProgressIndicator(
+            // 等用户去系统 Wi-Fi 连设备热点时，底部换成一句说明 + 「再打开一次」的入口。
+            // 不用弹层：产品口径是不要弹框，说明就画在页面上。连上后由 `_hotspotPoll`
+            // 自动续跑配网，用户不必回来再点一次。
+            child: _awaitingHotspot
+                ? _HotspotHandoffBar(
+                    hotspotSsid: widget.arguments?.hotspotSsid,
+                    currentSsid: state.wifiScan?.current,
+                    onOpenPanel: () => unawaited(_openWifiPanel(state)),
+                  )
+                : FilledButton(
+                    key: const Key('start-pairing-button'),
+                    onPressed: state.busy ? null : _pair,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(50),
+                      backgroundColor: AppColors.brandPrimary,
+                      foregroundColor: AppColors.surface,
+                      elevation: 2,
+                      shadowColor: AppColors.brandPrimary.withValues(alpha: .35),
+                      shape: const StadiumBorder(),
+                      textStyle: AppTypography.pageTitle.copyWith(
                         color: AppColors.surface,
-                        strokeWidth: 2,
                       ),
-                    )
-                  : const Text('开始配网'),
-            ),
+                    ),
+                    child: state.busy
+                        ? const SizedBox.square(
+                            dimension: 22,
+                            child: CircularProgressIndicator(
+                              color: AppColors.surface,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text('开始配网'),
+                  ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 底部那条「请先在系统 Wi-Fi 里连上设备热点」的引导。
+///
+/// 为什么要有这一步：AP 配网要求手机**已经**连在设备热点上，而 Android 10+ 不允许应用
+/// 静默连网——App 自己发起必弹系统入网授权框。产品要求不要那个框，所以改成把系统 Wi-Fi
+/// 面板拉到 App 上方、由用户点一下。连上后页面自动继续配网，不用再点「开始配网」。
+class _HotspotHandoffBar extends StatelessWidget {
+  const _HotspotHandoffBar({
+    required this.hotspotSsid,
+    required this.currentSsid,
+    required this.onOpenPanel,
+  });
+
+  /// 搜索页扫到的那台设备的热点名。写出来用户才知道该点哪一个。
+  final String? hotspotSsid;
+
+  /// 手机此刻连着的网络，让用户看得见「还没切过去」。
+  final String? currentSsid;
+
+  final VoidCallback onOpenPanel;
+
+  @override
+  Widget build(BuildContext context) {
+    final target = hotspotSsid ?? '设备热点（smartlife_… / tuya_mdev_…）';
+    return Column(
+      key: const Key('pairing-hotspot-handoff'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.brandPrimary.withValues(alpha: .3)),
+          ),
+          child: Row(
+            children: <Widget>[
+              const SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.brandPrimary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '请在系统 Wi-Fi 列表里选择「$target」'
+                  '${currentSsid == null || currentSsid!.isEmpty ? '' : '（当前：$currentSsid）'}'
+                  '，连上后会自动继续配网。',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        FilledButton(
+          key: const Key('open-wifi-panel-button'),
+          onPressed: onOpenPanel,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(50),
+            backgroundColor: AppColors.brandPrimary,
+            foregroundColor: AppColors.surface,
+            shape: const StadiumBorder(),
+            textStyle: AppTypography.pageTitle.copyWith(
+              color: AppColors.surface,
+            ),
+          ),
+          child: const Text('打开系统 Wi-Fi 列表'),
+        ),
+      ],
     );
   }
 }

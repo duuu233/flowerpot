@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -365,6 +366,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "cancelAccount" -> userAction("cancelAccount", result)
                 "getDevices" -> withHome(result) { home -> loadHomeDevices(home, result) }
                 "prepareActivatorToken" -> prepareActivatorToken(result)
+                // 让用户在系统 Wi-Fi 列表里自己连设备热点。见 openWifiPanel 的说明。
+                "openWifiPanel" -> openWifiPanel(result)
                 "pairWifiDevice" -> pairWifi(call, result)
                 // 「热点配网新流程」：SDK 自己连热点、读回设备扫到的 Wi-Fi 列表，
                 // 再下发凭据。见 apQueryDeviceWifi 的说明。
@@ -909,6 +912,55 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * again` — the token has to be obtained while the phone is still on the
      * router.
      */
+    /**
+     * 拉起系统的 Wi-Fi 选择界面，让**用户自己**把手机连到设备热点上。
+     *
+     * ## 为什么要有这个
+     *
+     * 涂鸦的 AP 配网（新旧流程都一样）要求**手机已经连在设备热点上**才能开始：
+     * 官方文档开篇原话「将手机连接到配网设备 Wi-Fi 热点后，App 与设备直接通过 Wi-Fi
+     * 进行通信配网……**但用户需要手动切换手机的 Wi-Fi 设置**」。
+     *
+     * 2026-09-10 实测确认 SDK **不会**替我们完成这一步：完整官方序列下
+     * `queryDeviceConfigState` 跑满 45 秒报 `207220`（配网任务整体超时），全程没有弹出
+     * 任何系统框，手机始终在路由器上。涂鸦 SDK 只是跑在本进程里的库、没有额外特权，
+     * Android 10+ 上连指定热点只有两条路：`WifiNetworkSpecifier`（**必弹**系统入网
+     * 授权框）或用户自己去系统设置连。产品选了后者——不要弹框。
+     *
+     * ## 为什么用 Panel 而不是设置页
+     *
+     * `Settings.Panel.ACTION_INTERNET_CONNECTIVITY`（Android 10 / API 29 起）是**浮在
+     * 当前应用之上的底部面板**：用户点一下热点就连上，不用离开 App，回来即可继续。
+     * 低版本退回 `ACTION_WIFI_SETTINGS`（整页设置，要手动返回）。
+     *
+     * 顺带的好处：这样连上的网络会被**系统保存**，同一台设备下次开机时系统可能自动
+     * 重连，于是第二次配网可能完全无感——这是 `WifiNetworkSpecifier` 做不到的
+     * （它建立的是进程专属的一次性连接，不进「已保存的网络」，所以每次都要弹框）。
+     *
+     * 不在这里等结果：连上与否由 Dart 侧轮询 `scanWifi(refresh = false)` 的
+     * `currentIsDeviceHotspot` 判断——读缓存不占扫描配额。
+     */
+    private fun openWifiPanel(result: MethodChannel.Result) {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
+        } else {
+            Intent(Settings.ACTION_WIFI_SETTINGS)
+        }
+        try {
+            // 不加 FLAG_ACTIVITY_NEW_TASK：从 Activity 启动才会以面板形式叠在
+            // 当前应用上；开新任务会把它变成独立页面，用户得手动返回。
+            activity.startActivity(intent)
+            success(result, null)
+        } catch (failure: Throwable) {
+            Log.i(TUYA_LOG_TAG, "open wifi panel failed: ${failure.message}")
+            error(
+                result,
+                "wifi_panel_unavailable",
+                "无法打开系统 Wi-Fi 列表，请手动到「设置 - WLAN」连接设备热点",
+            )
+        }
+    }
+
     private fun prepareActivatorToken(result: MethodChannel.Result) {
         // 取令牌要走云端。没有配网在跑却还绑着网络，只能是上一次失败留下的——
         // 绑着的那个热点早就没了，不解开这次取令牌必然无网失败。

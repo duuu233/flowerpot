@@ -52,7 +52,7 @@ void main() {
   testWidgets('pairing runs search → selection → Wi-Fi → success', (
     tester,
   ) async {
-    await _pumpApp(tester, const Size(375, 812));
+    final repository = await _pumpApp(tester, const Size(375, 812));
     await _signIn(tester);
 
     await tester.tap(find.byKey(const Key('add-device-button')));
@@ -86,6 +86,12 @@ void main() {
     // The page only explains that the system will ask to join the hotspot.
     expect(find.byKey(const Key('pairing-hotspot-step')), findsOneWidget);
     await tester.tap(find.byKey(const Key('start-pairing-button')));
+    await tester.pump();
+    // AP 配网要求手机先连在设备热点上。Android 10+ 下 App 自己发起必弹系统入网授权框，
+    // 产品要求不要那个框，所以页面改成拉起系统 Wi-Fi 面板等用户点一下；这里模拟用户
+    // 连上了，页面随后自动续跑配网。
+    repository.currentSsid = 'SmartLife-A1B2';
+    await tester.pump(const Duration(seconds: 1));
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('pairing-success-title')), findsOneWidget);
@@ -145,7 +151,7 @@ void main() {
   });
 }
 
-Future<void> _pumpApp(
+Future<MockTuyaRepository> _pumpApp(
   WidgetTester tester,
   Size size, {
   bool seedDevice = false,
@@ -153,18 +159,20 @@ Future<void> _pumpApp(
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
   SharedPreferences.setMockInitialValues(<String, Object>{});
+  final repository = MockTuyaRepository(
+    latency: Duration.zero,
+    seedDevice: seedDevice,
+  );
   await tester.pumpWidget(
     FlowerpotApp(
       backendRepository: FixtureBackend(),
       // Skip the cold-start screen; it is covered by its own test.
       splashDuration: Duration.zero,
-      repository: MockTuyaRepository(
-        latency: Duration.zero,
-        seedDevice: seedDevice,
-      ),
+      repository: repository,
     ),
   );
   await tester.pumpAndSettle();
+  return repository;
 }
 
 /// Signs in with an arbitrary phone number and code, which is all the demo

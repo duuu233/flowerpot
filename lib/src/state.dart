@@ -753,6 +753,29 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
+  /// 手机此刻是不是已经连在设备热点上。
+  ///
+  /// AP 配网的前置条件。读的是扫描缓存里的当前 SSID，不发起扫描、不占配额。
+  bool get onDeviceHotspot => _wifiScan?.currentIsDeviceHotspot ?? false;
+
+  /// 刷新一次「当前连的是哪个网络」。只读缓存，不占扫描配额。
+  ///
+  /// 等用户在系统 Wi-Fi 面板里连设备热点时就靠它轮询。
+  Future<bool> refreshOnDeviceHotspot() async {
+    await probeWifi(refresh: false);
+    return onDeviceHotspot;
+  }
+
+  /// 拉起系统 Wi-Fi 选择界面，让用户自己连设备热点。
+  ///
+  /// 为什么是「用户自己连」而不是 App 发起：见原生 `openWifiPanel` 的说明——
+  /// Android 10+ 上 App 发起必弹系统入网授权框，产品要求不要那个框。
+  Future<ActionResult> openWifiPanel() =>
+      _run(() async {
+        await _repository.openWifiPanel();
+        return const ActionResult(true, '已打开系统 Wi-Fi 列表');
+      });
+
   /// 放掉新流程的配网器与它持有的热点连接。退出配网动线时调用。
   Future<void> stopDevicePairing() async {
     _deviceWifiNetworks = const <DeviceWifiNetwork>[];

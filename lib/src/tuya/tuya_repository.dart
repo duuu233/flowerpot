@@ -132,6 +132,12 @@ abstract class TuyaRepository {
 
   /// 停掉新流程的配网器并释放它持有的热点连接。
   Future<void> apStopPairing();
+
+  /// 拉起系统的 Wi-Fi 选择界面，让用户自己把手机连到设备热点上。
+  ///
+  /// AP 配网要求手机**已经**在设备热点上，而 Android 10+ 不允许应用静默连网；
+  /// 产品选了「用户自己连」而不是系统入网授权框。见原生 `openWifiPanel` 的说明。
+  Future<void> openWifiPanel();
   Future<void> publishDps(String deviceId, Map<int, Object> dps);
   Future<void> renameDevice(String deviceId, String name);
   Future<void> removeDevice(String deviceId, {required bool resetFactory});
@@ -462,6 +468,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     }
     return _device(raw);
   }
+
+  @override
+  Future<void> openWifiPanel() => _invoke<void>('openWifiPanel');
 
   @override
   Future<void> apStopPairing() => _invoke<void>('apStopPairing');

@@ -216,13 +216,28 @@ class MockTuyaRepository implements TuyaRepository {
   @override
   Future<void> apStopPairing() async {}
 
+  /// 测试里没有系统界面可拉起。记一笔，供用例断言「有没有引导用户去连热点」。
+  int wifiPanelOpens = 0;
+
+  @override
+  Future<void> openWifiPanel() async {
+    wifiPanelOpens++;
+  }
+
+  /// 手机此刻连着的网络名。
+  ///
+  /// 用例把它改成设备热点名（`SmartLife-…` / `smartlife_…` / `tuya_mdev_…`）就能模拟
+  /// 「用户已经在系统 Wi-Fi 面板里连上了设备热点」——AP 配网要求手机先在热点上，
+  /// Android 10+ 不允许应用静默连网，产品选了「用户自己连」而不是系统入网授权框。
+  String currentSsid = 'TP-LINK_2.4G';
+
   @override
   Future<WifiScan> scanWifi({bool refresh = true}) async {
     await _wait();
-    return const WifiScan(
-      current: 'TP-LINK_2.4G',
+    return WifiScan(
+      current: currentSsid,
       currentFrequency: 2437,
-      networks: <WifiNetwork>[
+      networks: const <WifiNetwork>[
         WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
         WifiNetwork(ssid: 'SmartLife-A1B2', level: -58, frequency: 2412),
         WifiNetwork(ssid: 'TP-LINK_5G', level: -52, frequency: 5180),
