@@ -58,41 +58,62 @@ class _AnimationsPageState extends State<AnimationsPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '定制动画', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: CustomScrollView(
-        slivers: <Widget>[
-          SliverToBoxAdapter(
-            child: ResponsiveContent(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.pageMargin,
-                AppSpacing.xxxl,
-                AppSpacing.pageMargin,
-                40,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  const _AnimationTipsCard(),
-                  const SizedBox(height: AppSpacing.md),
-                  _UploadCard(
-                    fileCount: files.length,
-                    enabled: !state.busy && files.length < 10,
-                    onTap: () => _pickFile(context),
+      body: Stack(
+        children: <Widget>[
+          CustomScrollView(
+            slivers: <Widget>[
+              SliverToBoxAdapter(
+                child: ResponsiveContent(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.pageMargin,
+                    AppSpacing.xxxl,
+                    AppSpacing.pageMargin,
+                    // 给底部那条悬浮按钮留位置，否则最后一行缩略图会被压在下面。
+                    _GalleryActionBar.height + AppSpacing.xxl,
                   ),
-                  if (files.isNotEmpty) ...<Widget>[
-                    const SizedBox(height: AppSpacing.md),
-                    _UploadedFilesCard(
-                      files: files,
-                      selected: _selected,
-                      busy: state.busy,
-                      onToggle: _toggleSelection,
-                      onPin: (file) => _pinFile(context, file),
-                      onUpload: () => _pickFile(context),
-                      onDeleteSelected: () => _deleteSelected(context, files),
-                      onClearSelection: () => setState(_selected.clear),
-                    ),
-                  ],
-                ],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      const _AnimationTipsCard(),
+                      const SizedBox(height: AppSpacing.md),
+                      // 有图就只画图库卡：v2 设计稿
+                      // `docs/UI/v2/智能花盆ysplanter/定制动画-已上传图片（图库管理）.png`
+                      // 里没有虚线上传位。虚线位是空态的样子（`docs/UI/定制动画.png`），
+                      // 上传入口本身已经常驻在底部悬浮条上。
+                      if (files.isEmpty)
+                        _UploadCard(
+                          fileCount: files.length,
+                          enabled: !state.busy,
+                          onTap: () => _pickFile(context),
+                        )
+                      else
+                        _UploadedFilesCard(
+                          files: files,
+                          selected: _selected,
+                          onToggle: _toggleSelection,
+                          onPin: (file) => _pinFile(context, file),
+                        ),
+                    ],
+                  ),
+                ),
               ),
+            ],
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _GalleryActionBar(
+              hasFiles: files.isNotEmpty,
+              onUpload: state.busy || files.length >= 10
+                  ? null
+                  : () => _pickFile(context),
+              onDeleteSelected: state.busy || _selected.isEmpty
+                  ? null
+                  : () => _deleteSelected(context, files),
+              onClearSelection: _selected.isEmpty
+                  ? null
+                  : () => setState(_selected.clear),
             ),
           ),
         ],
@@ -360,7 +381,7 @@ class _UploadCard extends StatelessWidget {
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Text(
-                      enabled ? '点击或拖拽文件到这里上传' : '文件数量已达到上限',
+                      '点击或拖拽文件到这里上传',
                       style: AppTypography.body.copyWith(
                         color: AppColors.textSecondary,
                       ),
@@ -400,28 +421,21 @@ class _UploadCard extends StatelessWidget {
 
 /// 已上传文件（`docs/UI/v2/智能花盆ysplanter/定制动画-已上传图片（图库管理）.png`）。
 ///
-/// 三列缩略图 + 右上角勾选圈，下面一排三个圆按钮：上传 / 删除选中 / 取消选择。
-/// 长按一张是「置顶」（DP 157），frame 里没有按钮位置，放在长按上。
+/// 三列缩略图 + 右上角勾选圈。设计稿里那排圆按钮搬到了页面底部的
+/// [_GalleryActionBar]，卡片本身只管网格。长按一张是「置顶」（DP 157），
+/// frame 里没有按钮位置，放在长按上。
 class _UploadedFilesCard extends StatelessWidget {
   const _UploadedFilesCard({
     required this.files,
     required this.selected,
-    required this.busy,
     required this.onToggle,
     required this.onPin,
-    required this.onUpload,
-    required this.onDeleteSelected,
-    required this.onClearSelection,
   });
 
   final List<AnimationAsset> files;
   final Set<String> selected;
-  final bool busy;
   final ValueChanged<AnimationAsset> onToggle;
   final ValueChanged<AnimationAsset> onPin;
-  final VoidCallback onUpload;
-  final VoidCallback onDeleteSelected;
-  final VoidCallback onClearSelection;
 
   @override
   Widget build(BuildContext context) {
@@ -475,24 +489,69 @@ class _UploadedFilesCard extends StatelessWidget {
               onLongPress: () => onPin(files[index]),
             ),
           ),
-          const SizedBox(height: AppSpacing.xl),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              _GalleryAction(
-                actionKey: const Key('animation-upload-action'),
-                icon: Icons.file_upload_outlined,
-                color: AppColors.brandPrimary,
-                tooltip: '上传文件',
-                onTap: busy || files.length >= 10 ? null : onUpload,
-              ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 底部悬浮操作条。
+///
+/// 上传按钮常驻，不跟着网格一起消失：图库空着的时候页面上只剩虚线上传位，这颗
+/// 按钮是随手就能点到的那个入口。「删除选中」「取消选择」只在已经有上传的图片时
+/// 才画——没有图的时候这两个按钮永远点不动，画出来只是两个灰圈。
+class _GalleryActionBar extends StatelessWidget {
+  const _GalleryActionBar({
+    required this.hasFiles,
+    required this.onUpload,
+    required this.onDeleteSelected,
+    required this.onClearSelection,
+  });
+
+  /// 条子的高度，滚动内容按它留底部内边距。
+  static const double height = _GalleryAction.diameter + AppSpacing.md * 2;
+
+  final bool hasFiles;
+  final VoidCallback? onUpload;
+  final VoidCallback? onDeleteSelected;
+  final VoidCallback? onClearSelection;
+
+  @override
+  Widget build(BuildContext context) {
+    // 缩略图会从按钮下面滚过去，底部渐变把它压淡，圆按钮才始终看得清。空白处不
+    // 吃点击（DecoratedBox 自己不参与命中测试），贴边滚动仍然滚得动。
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[Color(0x00FAFAFA), AppColors.canvas],
+          stops: <double>[0, .55],
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.pageMargin,
+          vertical: AppSpacing.md,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            _GalleryAction(
+              actionKey: const Key('animation-upload-action'),
+              icon: Icons.file_upload_outlined,
+              color: AppColors.brandPrimary,
+              tooltip: '上传文件',
+              onTap: onUpload,
+            ),
+            if (hasFiles) ...<Widget>[
               const SizedBox(width: AppSpacing.xl),
               _GalleryAction(
                 actionKey: const Key('animation-delete-action'),
                 icon: Icons.delete_outline,
                 color: AppColors.danger,
                 tooltip: '删除选中',
-                onTap: busy || selected.isEmpty ? null : onDeleteSelected,
+                onTap: onDeleteSelected,
               ),
               const SizedBox(width: AppSpacing.xl),
               _GalleryAction(
@@ -500,11 +559,11 @@ class _UploadedFilesCard extends StatelessWidget {
                 icon: Icons.close,
                 color: AppColors.textSecondary,
                 tooltip: '取消选择',
-                onTap: selected.isEmpty ? null : onClearSelection,
+                onTap: onClearSelection,
               ),
             ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -619,6 +678,8 @@ class _GalleryAction extends StatelessWidget {
     required this.onTap,
   });
 
+  static const double diameter = 56;
+
   final Key actionKey;
   final IconData icon;
   final Color color;
@@ -634,11 +695,14 @@ class _GalleryAction extends StatelessWidget {
         color: enabled ? color : AppColors.disabled,
         shape: const CircleBorder(),
         clipBehavior: Clip.antiAlias,
+        // 按钮悬浮在页面内容之上，给一点投影把它和底下的缩略图分开。
+        elevation: enabled ? 4 : 0,
+        shadowColor: AppColors.textPrimary,
         child: InkWell(
           key: actionKey,
           onTap: onTap,
           child: SizedBox.square(
-            dimension: 56,
+            dimension: diameter,
             child: Icon(icon, color: AppColors.surface, size: 24),
           ),
         ),

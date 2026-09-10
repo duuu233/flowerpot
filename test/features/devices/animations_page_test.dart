@@ -23,6 +23,13 @@ void main() {
     expect(find.text('Files  0/10'), findsOneWidget);
     expect(find.byKey(AnimationsPage.uploadZoneKey), findsOneWidget);
     expect(find.text('清晨问候'), findsNothing);
+    // 一张图都没有时底部只留上传按钮：删除选中和取消选择这时候点了也没对象。
+    expect(find.byKey(const Key('animation-upload-action')), findsOneWidget);
+    expect(find.byKey(const Key('animation-delete-action')), findsNothing);
+    expect(
+      find.byKey(const Key('animation-clear-selection-action')),
+      findsNothing,
+    );
     expect(state.animations, isEmpty);
     expect(tester.takeException(), isNull);
   });
@@ -65,30 +72,76 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('uploaded files appear and can be deleted with a long press', (
-    tester,
-  ) async {
-    final state = await _createState(tester);
-    await tester.runAsync(
-      () => state.addAnimation(
-        state.devices.single.id,
-        name: 'demo.gif',
-        path: 'C:/tmp/demo.gif',
-      ),
-    );
+  testWidgets('有图时画图库网格，虚线上传位让位给它', (tester) async {
+    final state = await _uploadOne(tester);
     await _pumpWithState(tester, state, const Size(375, 812));
 
-    expect(find.text('demo.gif'), findsOneWidget);
-    expect(find.text('Files  1/10'), findsOneWidget);
-
-    await tester.longPress(find.text('demo.gif'));
-    await tester.pump();
-
-    expect(find.text('demo.gif'), findsNothing);
-    expect(find.text('Files  0/10'), findsOneWidget);
+    // v2 设计稿里有图那一屏没有虚线上传位，只有「已上传文件」这张卡。
+    expect(find.byKey(AnimationsPage.uploadZoneKey), findsNothing);
+    expect(find.text('已上传文件'), findsOneWidget);
+    expect(find.byKey(const Key('animation-tile-0')), findsOneWidget);
+    final count = tester.widget<Text>(
+      find.byKey(const Key('animation-file-count')),
+    );
+    expect(count.data, '1/10');
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('有图才画删除选中与取消选择，上传按钮一直在', (tester) async {
+    final state = await _uploadOne(tester);
+    await _pumpWithState(tester, state, const Size(375, 812));
+
+    expect(find.byKey(const Key('animation-upload-action')), findsOneWidget);
+    expect(find.byKey(const Key('animation-delete-action')), findsOneWidget);
+    expect(
+      find.byKey(const Key('animation-clear-selection-action')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('底部按钮悬浮固定，滚到底最后一行也不会被压住', (tester) async {
+    // 九张图三行网格，矮屏上一定滚得动。
+    final state = await _uploadMany(tester, 9);
+    await _pumpWithState(tester, state, const Size(320, 568));
+
+    final upload = find.byKey(const Key('animation-upload-action'));
+    final firstTile = find.byKey(const Key('animation-tile-0'));
+    final barRect = tester.getRect(upload);
+    final tileTop = tester.getRect(firstTile).top;
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -120));
+    await tester.pumpAndSettle();
+
+    // 内容滚上去了，按钮条还钉在原地。
+    expect(tester.getRect(firstTile).top, lessThan(tileTop));
+    expect(tester.getRect(upload), barRect);
+
+    // 滚到底：内容底部留的位置要够，最后一行缩略图不能钻到按钮下面。
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+    final lastTile = tester.getRect(find.byKey(const Key('animation-tile-8')));
+
+    expect(lastTile.bottom, lessThanOrEqualTo(barRect.top));
+    expect(tester.getRect(upload), barRect);
+    expect(tester.takeException(), isNull);
+  });
+}
+
+Future<FlowerpotState> _uploadOne(WidgetTester tester) => _uploadMany(tester, 1);
+
+Future<FlowerpotState> _uploadMany(WidgetTester tester, int count) async {
+  final state = await _createState(tester);
+  for (var index = 0; index < count; index++) {
+    await tester.runAsync(
+      () => state.addAnimation(
+        state.devices.single.id,
+        name: 'demo-$index.gif',
+        path: 'C:/tmp/demo-$index.gif',
+      ),
+    );
+  }
+  return state;
 }
 
 Future<FlowerpotState> _pumpAnimationsPage(

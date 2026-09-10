@@ -2,7 +2,7 @@
 
 > 文档类型：当前项目上下文
 > 状态：Active
-> 最后核验：2026-09-05
+> 最后核验：2026-09-10
 > 适用范围：`flowerpot` 当前工作树
 > 事实来源：源码与 CodeGraph、`pubspec.yaml`、平台配置和 `docs/` 中的当前文档
 
@@ -109,7 +109,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 - 我的与关于：「我的」进页即 `refreshUserInfo()` + `loadBasicData()`（昵称此前只有个人信息页会刷、意见反馈邮箱此前写死）；意见反馈读后台平台邮箱并复制到剪贴板；关于页去掉「版本说明」，「检查更新」与 App 启动检测共用一套升级弹窗——`compulsory==1` 强制升级不可取消，其余有新版本时在「关于YSplanter」点红点。`getLastVersion` 按 swagger 的 `AppVersionConApiOutput` 解析（`isUpdate`/`compulsory`/`downloadPath`/`upgradeTips`）。**版本号仍是 `AboutPageModel.current()` 里写死的 1.0.0，没有 package_info；「立即更新」只复制下载链接，没有 url_launcher。**
 - 状态详情的养护建议 2026-09-08 起写在 `TuyaStatusCopy` 的第三段 `advice` 里（中英各 12 条），四个状态页按界面语言取，不再各写一段。
 - 设置与行为：「自动检测植物」（DP 163）和 LED 设置一样是独立页面里的单开关，设置页那一行只显示状态；帮助中心 2026-09-08 从「我的」搬到设备设置页；设备设置右上角的分享入口按产品要求先隐藏（`_shareEntryEnabled`）；「行为」页除午休 / 夜间两个时段外，第三张卡就是「休眠模式」本身（2026-09-09 由二级页面改为页内展开，`StandbySettingsCard`，原 `standby_settings_page.dart` 与 `AppRoutes.standbySettings` 已删除）——版式与交互跟午休 / 夜间一致：开关 DP 151 即时下发，「延迟时间」一行点开滚轮弹窗（`showStandbyDelayDialog`），按弹窗里的「保存」才写 DP 152（1–180 分钟），取值没变就不发。「其他设置」已删除只弹「暂未开放」的「系统文件更新」「修复系统文件」两行。
-- 内容与维护：定制动画（图库多选、上传、删除、置顶，分别对应 155/156/157）、纪念日（固定生日/结婚走 158/159，自定义条目走 154 的 upsert 帧，列表满员 12 条 = 10 自定义 + 2 固定）、设备分享、解绑、恢复出厂和 OTA。OTA 没有对应功能点，走 SDK 的 OTA 接口：`checkFirmware` 查版本、`startFirmwareUpgrade` 只发起，进度与成败从事件通道回来，版本号只在 success 时更新。App 不直接和设备说话——进「设置」和「其他设置」页时静默查一次版本，查到新版本就在这两页各点一个小红点，用户点一下才通知涂鸦给设备下发升级。
+- 内容与维护：定制动画（图库多选、上传、删除、置顶，分别对应 155/156/157；**2026-09-10 起版式分两态**——图库空着画虚线上传位（`docs/UI/定制动画.png`），有图只画三列缩略图网格（`docs/UI/v2/智能花盆ysplanter/定制动画-已上传图片（图库管理）.png`，虚线位让位），那排圆按钮不在卡里而是页面底部的悬浮条：上传常驻，「删除选中」「取消选择」有图才画。顶部「文件同步」按钮与「仅支持屏幕录制或本地文件」权限提示条 2026-09-08 已下线，不要按老设计稿加回来）、纪念日（固定生日/结婚走 158/159，自定义条目走 154 的 upsert 帧，列表满员 12 条 = 10 自定义 + 2 固定）、设备分享、解绑、恢复出厂和 OTA。OTA 没有对应功能点，走 SDK 的 OTA 接口：`checkFirmware` 查版本、`startFirmwareUpgrade` 只发起，进度与成败从事件通道回来，版本号只在 success 时更新。App 不直接和设备说话——进「设置」和「其他设置」页时静默查一次版本，查到新版本就在这两页各点一个小红点，用户点一下才通知涂鸦给设备下发升级。
 - 个人中心：资料、账号安全、帮助、协议、隐私、关于与偏好。
 - 设计系统：统一色彩、间距、资源、页面骨架和公共 Widget。所有提示/确认弹窗走 `AppDialog`（`design_system/widgets/dialogs/app_dialog.dart`），版式取自兄弟项目 `flutter` 的同名组件、配色换成 YSplanter 的品牌青；页面里不再出现 Material `AlertDialog`。
 - OTA：设备固件版本取涂鸦 `DeviceBean.verSw` / `ThingSmartDeviceModel.verSw`（Android 曾误取协议版本 `pv`，2026-09-09 修正）；`checkFirmware` 两端都返回 `{version, currentVersion}`，成对来自同一条 OTA 记录（`upgradeStatus == 1` 那条），Dart 侧是 `FirmwareUpdate`，弹窗「当前版本」优先用 `currentVersion`、取不到才退回设备字段——设备可能有 MCU / Wi-Fi 模块多个可升级组件，混着取会让两行版本号对不上。
