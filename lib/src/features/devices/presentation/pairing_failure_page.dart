@@ -20,11 +20,37 @@ class PairingFailurePage extends StatelessWidget {
 
   String get _subtitle {
     const generic = '设备未能成功连接到当前Wi-Fi网络';
-    final hint = hintFor(code);
-    if (hint != null) return '$generic\n$hint（$code）';
+    // 失败码**无论认不认得都要显示**。
+    //
+    // 改之前只在认得的那一支里带上 `（$code）`，认不得时整个把 code 丢了、只剩涂鸦
+    // 的原文。2026-09-10 测试报回来的就是这种：「……，out of time」——看不到任何码，
+    // 于是没法判断失败在哪一步。而认不得恰恰是最需要这个码的情形。
+    final tag = code?.trim() ?? '';
+    final suffix = tag.isEmpty ? '' : '（$tag）';
+    final hint = hintFor(code) ?? _hintForMessage(message);
+    if (hint != null) return '$generic\n$hint$suffix';
     final detail = message?.trim() ?? '';
-    if (detail.isEmpty) return generic;
-    return '$generic\n$detail';
+    if (detail.isEmpty) {
+      return tag.isEmpty ? generic : '$generic\n失败码 $tag';
+    }
+    return '$generic\n$detail$suffix';
+  }
+
+  /// 码认不出来时，退一步看涂鸦给的那句原文。
+  ///
+  /// `out of time` 是涂鸦 activator 的超时原文，不分新旧流程都可能出现，而它在新流程
+  /// 里的含义很具体：**没有收到设备的任何结构化回复**（收到了就会是 207xxx）——
+  /// 也就是整条通道没建起来，不是密码错或连不上路由器。
+  static String? _hintForMessage(String? message) {
+    final text = message?.toLowerCase() ?? '';
+    if (text.isEmpty) return null;
+    // 只认涂鸦那句**没翻译的英文原文**。我们自己的中文文案（「配网超时」之类）本来
+    // 就读得懂，不该被换掉——换掉反而把原始信息弄没了。
+    if (text.contains('out of time') || text.contains('timeout')) {
+      return '等待设备回应超时，整条配网通道没有建立起来：请给设备重新上电，'
+          '确认手机靠近设备、且手机连的是 2.4GHz Wi-Fi，然后重试';
+    }
+    return null;
   }
 
   /// 认得的失败码换成一句能照着做的话；原始码仍附在括号里，联调时对照日志用。
@@ -108,9 +134,12 @@ class PairingFailurePage extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      SizedBox(height: compact ? 28 : 70),
-                      const Center(child: _FailureRadar()),
-                      SizedBox(height: compact ? 12 : 24),
+                      // 插图上下的留白是这一页唯一能让的地方：失败原因一多，
+                      // 副标题就涨到三四行，再按原来的 70 + 235 + 24 排，底部那颗
+                      // 「返回搜索设备」会被挤出首屏、只露出上半截。
+                      SizedBox(height: compact ? 16 : 36),
+                      Center(child: _FailureRadar(size: compact ? 160 : 200)),
+                      SizedBox(height: compact ? 10 : 16),
                       const Text(
                         '配网失败，请重试',
                         key: Key('pairing-failure-title'),
@@ -135,13 +164,13 @@ class PairingFailurePage extends StatelessWidget {
                           height: 1.5,
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      SizedBox(height: compact ? 14 : 18),
                       const _FailureTipCard(),
                       // 内容不足一屏时把按钮推到底部；够高时 24 就是普通间距。
                       // `IntrinsicHeight` 是 SingleChildScrollView 里用 Expanded
                       // 的标准写法：没有它，Column 拿到的高度约束是无界的，Expanded
                       // 会直接抛「non-zero flex but unbounded height」。
-                      const SizedBox(height: 24),
+                      SizedBox(height: compact ? 14 : 20),
                       const Expanded(child: SizedBox.shrink()),
                       SizedBox(
                         height: 50,
@@ -188,14 +217,16 @@ class PairingFailurePage extends StatelessWidget {
 }
 
 class _FailureRadar extends StatelessWidget {
-  const _FailureRadar();
+  const _FailureRadar({required this.size});
+
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     return Image.asset(
       AppAssets.pairingFailureIllustration,
-      width: 235,
-      height: 235,
+      width: size,
+      height: size,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       excludeFromSemantics: true,

@@ -152,6 +152,8 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
         children: <Widget>[
           SingleChildScrollView(
             key: const Key('memorial-edit-scroll-view'),
+            // 96 = 底部那颗浮着的保存按钮的占位（bottom: 12 + 高 50 + 余量）。
+            // 输入框的 scrollPadding 用的是同一个数，见下面那行注释。
             padding: const EdgeInsets.only(bottom: 96),
             child: ResponsiveContent(
               padding: const EdgeInsets.fromLTRB(
@@ -189,6 +191,11 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                           key: const Key('memorial-title-field'),
                           controller: _titleController,
                           maxLength: 20,
+                          // 和「连接 Wi-Fi」页同一个坑：Scaffold 默认会按键盘把
+                          // body 缩矮、框架也会把光标滚进视口，但默认只留 20px，
+                          // 而那 20px 正好被浮在底部的保存按钮（bottom: 12 + 高 50）
+                          // 占着。把按钮的占位算进来，获焦时页面就多往上滚一点。
+                          scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 96),
                           style: const TextStyle(
                             color: AppColors.textPrimary,
                             fontSize: 17,

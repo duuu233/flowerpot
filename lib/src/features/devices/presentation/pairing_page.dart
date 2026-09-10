@@ -11,6 +11,17 @@ import 'widgets/pairing_progress_view.dart';
 
 /// Route arguments for the Wi-Fi step, which now runs after a device is
 /// connected on the selection page.
+/// 底部那颗浮着的「开始配网」按钮占掉的高度（`bottom: 8` + 按钮高 50，再留点余量）。
+///
+/// 两处都要用它，而且必须是同一个数：
+///
+/// 1. 滚动区的底部 padding —— 让内容能滚到按钮上方，不被压在按钮下面；
+/// 2. 输入框的 [TextField.scrollPadding] —— 键盘弹出时框架把光标滚进视口时，
+///    默认只保证离视口底部 20px，而**视口底部就是键盘顶部**，那 20px 正好是这颗
+///    按钮占着的位置。不把按钮的高度告诉它，获焦的输入框就会停在按钮后面，看起来
+///    就是「被键盘挡住了」。
+const double _startButtonInset = 92;
+
 class PairingArguments {
   const PairingArguments({this.deviceName, this.hotspotSsid, this.request});
 
@@ -276,17 +287,16 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
         children: <Widget>[
           SingleChildScrollView(
             key: const Key('pairing-scroll-view'),
-            // 92 是底部那颗「开始配网」按钮的高度：它浮在滚动区外面，内容要
-            // 让出这一段才不会被压在按钮下面。
+            // [_startButtonInset] 是底部那颗「开始配网」按钮的占位：它浮在滚动区
+            // 外面，内容要让出这一段才不会被压在按钮下面。键盘弹出时它还有第二个
+            // 作用——给自动滚动留出可滚的余量，详见输入框上的 `scrollPadding`。
             //
-            // 键盘避让不在这里做——Scaffold 默认 `resizeToAvoidBottomInset: true`
-            // 会把 body 的高度按键盘缩掉，滚动视口跟着变矮，焦点落到输入框时
-            // Flutter 自己把光标滚进这块变矮的视口，输入框就停在键盘上方。
-            // ⚠️ 那种「关掉 resize、改在底部加 viewInsets 高度的 padding」的写法
-            // 在这里是**错的**：视口不缩，`ensureVisible` 认为整屏都可见，根本
-            // 不会滚；而且 Scaffold 开着 resize 时 body 里的 `viewInsets.bottom`
-            // 本来就是 0，那段 padding 连值都取不到。
-            padding: const EdgeInsets.only(bottom: 92),
+            // 键盘避让靠两件事配合：Scaffold 默认 `resizeToAvoidBottomInset: true`
+            // 把 body 按键盘缩矮、滚动视口跟着变矮（这一半本来就对），**加上**输入框
+            // 的 `scrollPadding` 把这颗按钮的高度算进去（这一半 2026-09-10 才补上：
+            // 框架默认只留 20px，而那 20px 正好被按钮占着，所以获焦的输入框看起来
+            // 还是被挡住）。
+            padding: const EdgeInsets.only(bottom: _startButtonInset),
             child: ResponsiveContent(
               // 顶部留白由 88 收到 56：这一页的目标是**整屏放得下、不用滚**，
               // 88 是按「上面还有一段说明」排的，那段已经删了。
@@ -691,6 +701,24 @@ class _CredentialInput extends StatelessWidget {
           key: fieldKey,
           controller: controller,
           obscureText: obscureText,
+          // 键盘避让的关键一行。
+          //
+          // Scaffold 的 `resizeToAvoidBottomInset`（默认 true）已经把 body 按键盘
+          // 缩矮、滚动视口跟着变矮，框架也会自动把光标滚进视口——但它默认只留
+          // `EdgeInsets.all(20)`，也就是光标离视口底部 20px 就算「可见」。视口底部
+          // 就是键盘顶部，而那一带被浮着的「开始配网」按钮占了，所以获焦的输入框
+          // 会停在按钮后面。这里把按钮的占位加进去，页面就会多往上滚一点。
+          //
+          // ⚠️ 不要改成「关掉 resizeToAvoidBottomInset + 自己加 viewInsets 的
+          // padding」那一套：视口不缩的话 `ensureVisible` 根本没有可滚的余量，
+          // 而开着 resize 时 body 里读到的 `viewInsets.bottom` 恒为 0（已被
+          // Scaffold 消费掉），两头都不成立。
+          scrollPadding: const EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            _startButtonInset + 12,
+          ),
           style: TextStyle(
             color: AppColors.textPrimary,
             fontSize: 15,

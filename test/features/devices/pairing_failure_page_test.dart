@@ -96,6 +96,33 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('认不出的失败码也要显示出来，涂鸦的英文原文换成能照着做的话', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: const PairingFailurePage(
+          request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
+          code: 'pair_failed',
+          message: 'out of time',
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final subtitle = tester.widget<Text>(
+      find.byKey(const Key('pairing-failure-subtitle')),
+    );
+    // 2026-09-10 测试报回来的正是这一条：只看到「……，out of time」，没有任何码，
+    // 于是判断不了失败在哪一步。码现在无论认不认得都带出来。
+    expect(subtitle.data, contains('（pair_failed）'));
+    expect(subtitle.data, contains('等待设备回应超时'));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a known failure code is explained in plain words', (
     tester,
   ) async {
