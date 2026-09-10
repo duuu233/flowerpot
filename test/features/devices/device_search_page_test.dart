@@ -84,6 +84,8 @@ void main() {
     expect(find.text('pairing-wifi-target'), findsOneWidget);
     final arguments = pairingArguments! as PairingArguments;
     expect(arguments.hotspotSsid, 'SmartLife-A1B2');
+    // 设备名也要带过去：用户没点过「就连这台」，下一页必须写清楚连的是哪台。
+    expect(arguments.deviceName, 'SmartLife-A1B2');
     expect(arguments.request, same(request));
     expect(tester.takeException(), isNull);
   });

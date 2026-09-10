@@ -278,7 +278,7 @@ void main() {
     );
 
     expect(find.byKey(const Key('pairing-connected-device')), findsOneWidget);
-    expect(find.text('已连接 SmartLife-A1B2'), findsOneWidget);
+    expect(find.text('已选择设备 SmartLife-A1B2'), findsOneWidget);
     final ssid = tester.widget<TextField>(
       find.byKey(const Key('pairing-ssid-field')),
     );

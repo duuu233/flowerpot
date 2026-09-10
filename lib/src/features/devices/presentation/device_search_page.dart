@@ -282,7 +282,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     });
   }
 
-  /// 点中某台设备：带着它的热点名进「连接 Wi-Fi」。
+  /// 带着这台设备进「连接 Wi-Fi」。
+  ///
+  /// `deviceName` 也一起带过去：用户没有点过「确认连接这台」，那么连接的是哪台
+  /// 必须在下一页上写清楚，否则整条流程就成了黑箱。设备名就用热点名——AP 模式下
+  /// App 能拿到的就这一个标识。
   void _openPairing(WifiNetwork hotspot) {
     Navigator.pushNamed(
       context,
@@ -290,6 +294,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       arguments: PairingArguments(
         request: widget.request,
         hotspotSsid: hotspot.ssid,
+        deviceName: hotspot.ssid,
       ),
     );
   }

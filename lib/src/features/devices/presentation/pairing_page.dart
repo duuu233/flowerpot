@@ -341,16 +341,33 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                 children: <Widget>[
                   const _WifiConnectionIllustration(),
                   const SizedBox(height: 20),
+                  // 用户没有点过「就连这台」——设备是搜到后自动带过来的，所以
+                  // 连的是哪台必须在这里写清楚，否则整条流程就成了黑箱。
                   if (widget.arguments?.deviceName case final String name) ...[
-                    Text(
-                      '已连接 $name',
+                    Row(
                       key: const Key('pairing-connected-device'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        const Icon(
+                          Icons.check_circle,
+                          size: 18,
+                          color: AppColors.brandPrimary,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            '已选择设备 $name',
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                   ],
