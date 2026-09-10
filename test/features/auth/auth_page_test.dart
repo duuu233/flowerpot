@@ -144,10 +144,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('手机号没填对时点获取验证码：给提示，不发短信', (tester) async {
+  testWidgets('手机号没填对时点获取验证码：给 toast，不发短信', (tester) async {
     await _pumpAuthPage(tester, const Size(375, 812));
 
-    // 2026-09-10 起按钮不再按格式置灰——灰按钮点不动也不说话，用户只会以为页面坏了。
+    // 按钮不按格式置灰——灰按钮点不动也不说话，用户只会以为页面坏了。
     await tester.enterText(find.byType(TextField).first, '1380013');
     await tester.pump();
     expect(_sendCodeButton(tester).onPressed, isNotNull);
@@ -155,34 +155,27 @@ void main() {
     await tester.tap(find.text('获取验证码'));
     await tester.pumpAndSettle();
 
-    // 两种反馈都要有：toast 当场回话，输入框下面那行留着说清哪儿不对。
-    expect(find.text('请输入正确的 11 位手机号'), findsWidgets);
-    expect(find.byKey(AuthFieldError.fieldKey), findsOneWidget);
+    // 2026-09-10 产品口径：登录页**只要 toast**，输入框下面那行常驻提示已去掉。
+    expect(find.text('请输入正确的 11 位手机号'), findsOneWidget);
+    expect(find.byKey(AuthFieldError.fieldKey), findsNothing);
     // 短信不能真的发出去：成功提示不该出现，页面也不进倒计时。
     expect(find.text('验证码已发送'), findsNothing);
     expect(find.text('获取验证码'), findsOneWidget);
-
-    // 号码补对之后那行提示要自己消失。
-    await tester.enterText(find.byType(TextField).first, '13800138000');
-    await tester.pump();
-    expect(find.byKey(AuthFieldError.fieldKey), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('手机号框失焦时就把格式提示画出来', (tester) async {
+  testWidgets('登录页不画输入框下面那行校验提示', (tester) async {
     await _pumpAuthPage(tester, const Size(375, 812));
 
     await tester.enterText(find.byType(TextField).first, '1380013');
     await tester.pump();
-    // 还在输入中：不报错，边打字边报红是噪音。
     expect(find.byKey(AuthFieldError.fieldKey), findsNothing);
 
-    // 焦点挪到验证码框（＝手机号那栏填完了）：这时才提示。
+    // 焦点挪到验证码框（＝手机号那栏填完了）也不画：这一页只靠 toast。
     await tester.tap(find.byType(TextField).at(1));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(AuthFieldError.fieldKey), findsOneWidget);
-    expect(find.text('请输入正确的 11 位手机号'), findsOneWidget);
+    expect(find.byKey(AuthFieldError.fieldKey), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
