@@ -41,7 +41,7 @@ class HelpCenterPageModel {
       HelpCenterFaqItem(
         id: 'device-not-found',
         question: '为什么搜索不到设备？',
-        answer: '请确认设备已开机并处于配网状态（指示灯闪烁）。若指示灯没有闪烁，请长按复位键让设备重新进入配网模式，必要时先为花盆充电。',
+        answer: '请确认设备已开机——设备开机后即可被搜索并配网，不需要长按或其它额外操作。若仍搜索不到，请让手机靠近设备，并确认手机连的是 2.4GHz Wi-Fi，必要时先为花盆充电。',
       ),
       HelpCenterFaqItem(
         id: 'device-offline',

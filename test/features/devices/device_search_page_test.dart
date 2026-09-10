@@ -24,7 +24,7 @@ void main() {
     expect(find.text('搜索设备'), findsOneWidget);
     expect(find.text('搜索附近设备...'), findsOneWidget);
     // The planter provisions over 2.4G Wi-Fi only; no Bluetooth is involved.
-    expect(find.text('请让设备进入配网状态，并确认手机连接的是2.4GHz Wi-Fi'), findsOneWidget);
+    expect(find.text('请确认设备已开机，并确认手机连接的是 2.4GHz Wi-Fi'), findsOneWidget);
     expect(find.text('小提示'), findsOneWidget);
     expect(find.text('若长时间未搜索到设备，请确认设备已开机\n请将手机靠近设备'), findsOneWidget);
     expect(
@@ -116,7 +116,7 @@ void main() {
     );
     await _runOutSearchWindow(tester);
 
-    expect(find.text('未发现配网中的设备'), findsOneWidget);
+    expect(find.text('未发现设备'), findsOneWidget);
     // 扫描台数、手机当前连接、手动选择这三段都已下线。
     expect(find.textContaining('扫描到'), findsNothing);
     expect(find.textContaining('手机当前连接'), findsNothing);
@@ -146,7 +146,7 @@ void main() {
     );
     await _runOutSearchWindow(tester);
 
-    expect(find.text('未发现配网中的设备'), findsOneWidget);
+    expect(find.text('未发现设备'), findsOneWidget);
     expect(find.textContaining('手动选择'), findsNothing);
     expect(find.byKey(const Key('device-search-manual-pick')), findsNothing);
     expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
@@ -200,7 +200,7 @@ void main() {
 
     await _runOutSearchWindow(tester);
 
-    expect(find.text('未发现配网中的设备'), findsNothing);
+    expect(find.text('未发现设备'), findsNothing);
     expect(find.text('无法确认附近设备'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

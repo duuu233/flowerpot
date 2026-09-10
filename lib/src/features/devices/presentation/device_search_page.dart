@@ -19,8 +19,8 @@ import 'pairing_page.dart';
 /// evidence the device entered pairing state; anything else leaves the decision
 /// to the user instead of pretending to have found something.
 ///
-/// 一次扫描只是那一瞬间的快照：用户长按设备让它进入配网状态时，热点往往还没
-/// 广播出来。所以这一页在 [DeviceSearchPage.searchWindow] 的窗口里反复扫描，
+/// 一次扫描只是那一瞬间的快照：**设备开机就一定处于可配网状态、不需要任何额外
+/// 操作**，但它上电后要过一会儿热点才广播出来。所以这一页在 [DeviceSearchPage.searchWindow] 的窗口里反复扫描，
 /// **扫到就把设备直接列在下面，不再跳页**——这一页就是一个监听器，用户看着它
 /// 一台台冒出来，点哪台就带哪台进「连接 Wi-Fi」。
 ///
@@ -34,7 +34,7 @@ class DeviceSearchPage extends StatefulWidget {
 
   /// 一轮搜索的时长。
   ///
-  /// 3 分钟不是拍脑袋：设备上电、启动、长按进配网、热点广播出来，本身就要几十秒；
+  /// 3 分钟不是拍脑袋：设备上电、启动到热点广播出来本身就要几十秒；
   /// 而配额是每 2 分钟 4 次，窗口短于 2 分钟就等不到配额回补。两条出路全程都在，
   /// 窗口长不会把用户困住。
   static const Duration searchWindow = Duration(minutes: 3);
@@ -47,7 +47,7 @@ class DeviceSearchPage extends StatefulWidget {
 
 class _DeviceSearchPageState extends State<DeviceSearchPage>
     with SingleTickerProviderStateMixin {
-  /// 开头连扫几次，用来抓「设备已经在配网状态」这种常见情形。
+  /// 开头连扫几次，用来抓「设备早就开着、热点已经在广播」这种常见情形。
   ///
   /// 只花掉系统配额（每 2 分钟 4 次）里的 2 次，剩下的留给后面慢扫。
   static const int _burstScans = 2;
@@ -154,7 +154,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     final retryable = result.success || result.code == 'wifi_scanning';
     _result = result;
     if (retryable && !_windowExpired) {
-      // 头几次快扫抓「设备已经在配网状态」；之后退到 30 秒一次，让系统配额回补。
+      // 头几次快扫抓「设备早就开着」；之后退到 30 秒一次，让系统配额回补。
       // 被限流时同样按慢节奏等——立刻重试只会再被拒一次。
       final gap = (_scanCount < _burstScans && !_throttled)
           ? _burstGap
@@ -287,12 +287,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       if (_throttled) {
         return const _SearchOutcome(
           '搜索附近设备...',
-          '系统限制了 Wi-Fi 扫描频率，正在等待下一次扫描。\n设备已进入配网状态的话，可以直接继续下一步。',
+          '系统限制了 Wi-Fi 扫描频率，正在等待下一次扫描。\n设备开机即可被搜索到，保持开机并靠近手机即可。',
         );
       }
       return const _SearchOutcome(
         '搜索附近设备...',
-        '请让设备进入配网状态，并确认手机连接的是2.4GHz Wi-Fi',
+        '请确认设备已开机，并确认手机连接的是 2.4GHz Wi-Fi',
       );
     }
     final result = _result;
@@ -300,7 +300,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (result != null && result.code == 'wifi_scanning') {
       return const _SearchOutcome(
         '搜索附近设备...',
-        '请让设备进入配网状态，并确认手机连接的是2.4GHz Wi-Fi',
+        '请确认设备已开机，并确认手机连接的是 2.4GHz Wi-Fi',
       );
     }
     if (result != null && !result.success) {
@@ -310,7 +310,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (!_scannedForReal) {
       return const _SearchOutcome(
         '无法确认附近设备',
-        '系统限制了 Wi-Fi 扫描频率，这段时间拿到的是旧的扫描结果。\n确认设备指示灯已进入配网状态后继续下一步。',
+        '系统限制了 Wi-Fi 扫描频率，这段时间拿到的是旧的扫描结果。\n请保持设备开机并靠近手机，稍后会自动重试。',
       );
     }
     if (scan == null || scan.networks.isEmpty) {
@@ -318,12 +318,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       // come back empty too. Neither means the planter is missing.
       return const _SearchOutcome(
         '无法列出附近设备',
-        '当前系统不提供附近网络列表。\n确认设备指示灯已进入配网状态后继续下一步。',
+        '当前系统不提供附近网络列表，无法在这里列出设备。',
       );
     }
     return const _SearchOutcome(
-      '未发现配网中的设备',
-      '请长按设备按键让它进入配网状态后重新扫描。',
+      '未发现设备',
+      '请确认设备已开机并靠近手机后重新扫描。',
     );
   }
 
