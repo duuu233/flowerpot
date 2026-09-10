@@ -772,27 +772,17 @@ class FlowerpotState extends ChangeNotifier {
     StreamSubscription<String>? stepSub;
     _setPairingStage(PairingStage.connectingDevice);
     try {
-      // **前置检查：手机必须已经在设备热点上。**
+      // 只读一次「当前连的是哪个网络」，**纯诊断，不拦路**。
       //
-      // AP 配网是"手机连上设备热点后直接跟它通信"，手机若还在路由器上，
-      // `queryDeviceConfigState` 就是在对空气说话——只会静静耗满超时再报 `207220`
-      // （配网任务整体超时），用户等 45 秒却看不出到底缺了什么。
+      // 走到这里时，手机应该已经被 **SDK**（`queryDeviceConfigState`）连到设备热点上了。
+      // 但这一判断依赖 `connectionInfo.ssid`，而它在没有定位权限时会读成
+      // `<unknown ssid>`——据它拦下配网会**误伤新流程**。所以只把结果写进失败诊断
+      // （`withSteps` 末尾的「手机在「xxx」」），让它去回答"到底连没连上"，
+      // 而不是替 SDK 下结论。
       //
-      // 这里只读扫描缓存（不发起扫描、不占配额），不在就**立刻**把话说清楚：
-      // 该去连哪个热点、怎么连。产品要求全程不出现系统入网授权框，所以我们不代劳，
-      // 而是引导用户在系统 Wi-Fi 里连一次——连过之后系统会记住，之后配网全自动。
+      // ⚠️ 这里曾经是一道硬门禁（不在热点上就抛 `not_on_device_hotspot`）。那是为
+      // 「没有任何东西连热点」的旧形态写的；新流程由 SDK 负责连，硬拦会把它拦死。
       await _refreshOnDeviceHotspot();
-      if (!onDeviceHotspot) {
-        final now = _wifiScan?.current ?? '';
-        final target = hotspotSsid ?? '设备热点（smartlife_… / tuya_mdev_…）';
-        throw TuyaException(
-          notOnHotspotCode,
-          '手机还没有连到设备热点，配网无法开始。'
-          '${now.isEmpty ? '' : '当前连的是「$now」。'}'
-          '请到系统 Wi-Fi 里连接「$target」，连上后回来再点「开始配网」'
-          '（连过一次系统会记住，之后就不用再管了）。',
-        );
-      }
       stepSub = _repository.pairingSteps.listen((step) {
         tuyaSteps.add(step);
         debugPrint('[pairing] step $step');
@@ -1112,9 +1102,6 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   static const String _manualHotspotCode = 'hotspot_manual_required';
-
-  /// 手机还没连到设备热点，配网不能开始。页面据此给出「去系统 Wi-Fi 连一次」的引导。
-  static const String notOnHotspotCode = 'not_on_device_hotspot';
 
   /// 只读一次扫描缓存来更新「当前连的是哪个网络」。不发起扫描、不占配额。
   ///

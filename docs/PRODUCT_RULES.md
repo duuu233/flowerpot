@@ -38,54 +38,31 @@
 - 走涂鸦的**「热点配网新流程」**。固件前提 TuyaOS ≥ 3.6.1 已由设备团队确认满足。
   （2026-09-10）
 
-### 1.2 系统 UI 只允许出现在一处：搜索页那颗「连接」
+### 1.2 配网全程**不出现系统入网授权框**——连热点由 SDK 内部完成
 
-**原则（2026-09-11 产品口径）：整个配网流程都不弹系统 UI，用我们自己的页面。**
-**但如果某一步必须授权，就统一收在「连接」那颗按钮上。**
+**（2026-09-11 定稿口径：新流程 = 把连设备这件事整个嫁接给涂鸦 SDK，不要弹框授权设备。）**
 
-#### 为什么必须有一次
+- 那个框（「要与智能花盆搭配使用的设备 / 取消 / 连接」）由 `WifiNetworkSpecifier` +
+  `requestNetwork` 触发，Android 10+ 必弹、关不掉、不能由 App 代点。
+- ⇒ **App 侧一次都不调它。** 连设备热点交给 SDK：
+  `queryDeviceConfigState`（`apQueryDeviceWifi`）内部完成连接与设备状态查询，
+  `startActivator`（`apStartPairing`）负责下发凭据。
+- 依据：产品提供的智能生活截图（`docs/配网1.jpg` / `配网2.jpg`）证明它就是这么做的——
+  五步进度 + 让用户从**设备扫到的** Wi-Fi 列表里选。
 
-Android 10+ 上让应用连接指定 Wi-Fi 热点**只有** `WifiNetworkSpecifier` +
-`requestNetwork` 一条公开路，它**必然弹一次系统确认框**（「要与智能花盆搭配使用的设备 /
-取消 / 连接」），关不掉、也不能由 App 代点。`addNetwork`/`enableNetwork` 对
-targetSdk ≥ 29 的应用 always fail。涂鸦 SDK 也没有特权——它只是跑在我们进程里的库。
+#### 当前动线上唯一允许调的 state 方法
 
-#### ⚠️ 这一步不能省（git 查证，2026-09-11）
+`connectDeviceForPairing()` / `pairViaDeviceHotspot()` / `probeWifi()` /
+`stopDevicePairing()` / `cancelPairing()` / `prepareForPairing()` /
+`releaseDeviceHotspot()`。**这七个都不触达 `_joinHotspotForPairing`。**
 
-`git show 223bdae^` 是**最后一版能配网成功**的代码，路径是
-`pairViaHotspot`：取令牌 → **`_joinHotspotForPairing`（即 `WifiNetworkSpecifier`）** →
-`pairWifiDevice`（涂鸦「原流程」TY_AP）。
+⚠️ `pairViaHotspot()` 与 `connectDeviceHotspot()` 会调 `WifiNetworkSpecifier`，
+**它们只作为 AP 原流程的回退路径存在，不得接进当前动线**；两处调用点的注释写了怎么切。
 
-提交 `223bdae`「配网切到涂鸦热点配网新流程，SDK 自己连热点」把"App 自己连热点"换成
-"指望 SDK 自己连"，**从那以后全是 `207220`（配网任务整体超时）**——反复实测证明
-**SDK 并不连**。所以这一步不能省，省掉就配不上。
+#### 顺带记住
 
-#### 真正的零弹框只有两条路（2026-09-11 查证，详见 history）
-
-1. **设备固件开启 EZ/SmartConfig（快连）**——EZ 模式下手机**全程留在路由器上**，
-   App 广播凭据，**根本不需要连设备热点** ⇒ 没有任何系统 UI。这是唯一真正"永远不弹框"的
-   配网方式。设备开发的原话是「**没使用** EZ/SmartConfig」，而「没使用」≠「不能用」；
-   ⏳ **待设备团队确认固件能否同时开启 EZ**。桥接层 EZ 代码仍在（死代码），启用只需换
-   `PairingRequest.mode`。**未经产品与设备团队确认不得擅自切换。**
-2. **让用户在系统设置里手动连一次该热点**——系统会保存它，之后设备一开机自动重连，
-   我们检测到「已在目标热点上」全程跳过。这也最可能是"以前都不弹框"的真相。
-   ⚠️ 我们自己用 `WifiNetworkSpecifier` 连的那次**不会**被系统保存。
-
-已排除的（不要再试）：`WifiNetworkSuggestion`（Android 11+ 前台首次**仍是对话框**，且
-**应用无法强制立刻连上指定网络**——平台自己决定，而它倾向于不切到没有互联网的网络）；
-`CompanionDeviceManager`（本身就是系统选择弹窗，且不授予静默连网能力）；降 targetSdk 到 28
-（Play 要求 33+）。涂鸦文档对 Android 10+ 限制**一字未提**，其 AP 定义原话反而是
-「**用户需要手动切换手机的 Wi-Fi 设置**」——比我们现在多一步。
-
-#### 落地规则
-
-- 搜索页那颗「连接」**就是连接动作**：点了立刻把手机连到这台设备的热点上，
-  系统框**只在这一刻出现、只出现一次**。
-- 手机若已经在该热点上（上次留下的，或系统记住后自动重连）**直接跳过，零点击**。
-- 之后的页面（输 Wi-Fi 密码、配网进度）**一个系统框都没有**：配网时的连热点一步会检测到
-  「已在目标热点上」而跳过（原生 `boundHotspotSsid` 记账，不依赖读 SSID 的权限）。
-- 想让某台手机以后完全无框：让用户在**系统设置**里手动连一次那个热点，系统会保存它，
-  之后设备一开机就自动重连。（我们用 `WifiNetworkSpecifier` 连的那次**不会**被系统保存。）
+手机若**已经保存过**该热点，设备一开机系统就自动重连——那是唯一"天然已连上"的情形，
+与 App 无关。我们自己用 `WifiNetworkSpecifier` 连的那次不会被系统保存。
 
 ### 1.3 智能生活 App 只是参考，不照抄
 

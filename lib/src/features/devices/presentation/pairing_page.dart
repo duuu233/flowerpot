@@ -92,14 +92,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// 本页拿到过的状态对象，`dispose` 里用来还原网络（那时已不能查 InheritedWidget）。
   FlowerpotState? _scopeState;
 
-  /// 「手机还没连到设备热点」这条前置检查没过时的说明。
-  ///
-  /// 不跳失败页：这不是配网失败，是还没开始——跳过去只会让用户以为配不上了。就在本页
-  /// 把话说清楚，并给一颗「打开系统 Wi-Fi 列表」。产品要求全程不出现系统入网授权框，
-  /// 所以我们不代劳连接，而是把用户送到系统 Wi-Fi 里连一次；**连过之后系统会记住**，
-  /// 之后配网全自动、一次框都没有。
-  String? _needHotspotHint;
-
   /// 本页发起的配网正在跑。用它而不是 `state.busy` 来决定是否盖进度页：busy 是
   /// 全局操作锁，别处的写操作也会把它拉起来。
   bool _pairing = false;
@@ -294,18 +286,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     }
   }
 
-  /// 把系统 Wi-Fi 列表拉到 App 上方，让用户自己连一次设备热点。
-  ///
-  /// 不用 `WifiNetworkSpecifier` 代劳——那会弹系统入网授权框，产品要求配网全程不出现
-  /// （见 `docs/PRODUCT_RULES.md` 1.2）。这样连上的网络会被**系统保存**，之后设备一开机
-  /// 手机就自动重连，配网全自动、一次框都没有。
-  Future<void> _openWifiPanel() async {
-    final state = _scopeState ?? FlowerpotScope.of(context);
-    final result = await state.openWifiPanel();
-    if (!mounted || result.success) return;
-    showAppMessage(context, result.message, tone: AppMessageTone.error);
-  }
-
   Future<void> _pair() async {
     if (ssidController.text.trim().isEmpty || passwordController.text.isEmpty) {
       showAppMessage(context, '请输入 Wi-Fi 名称与密码', tone: AppMessageTone.error);
@@ -332,10 +312,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // 令牌与设备安全配置由搜索页在**还连着路由器**时预取（`prepareForPairing`）：
     // 手机一挂到设备热点上就没有外网，而那两件事都要走云端。
     _pairingState = state;
-    setState(() {
-      _pairing = true;
-      _needHotspotHint = null;
-    });
+    setState(() => _pairing = true);
     // 走涂鸦**新流程**（照智能生活的做法，见 `docs/配网1.jpg` / `配网2.jpg`）：
     // 搜索页那一步已经由 `queryDeviceConfigState` 连上设备并拿到它扫到的 Wi-Fi 列表，
     // 这里只剩 `startActivator` 下发凭据，后三步进度由 `onStep` 真实驱动。
@@ -353,11 +330,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() => _pairing = false);
     if (!result.success) {
-      // 前置检查没过：还没开始配网，就别跳失败页。
-      if (result.code == FlowerpotState.notOnHotspotCode) {
-        setState(() => _needHotspotHint = result.message);
-        return;
-      }
       Navigator.pushReplacementNamed(
         context,
         AppRoutes.pairingFailure,
@@ -486,49 +458,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
             left: AppSpacing.pageMargin,
             right: AppSpacing.pageMargin,
             bottom: 8,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                // 前置检查没过时：把原因画在按钮上方，并给一条去系统 Wi-Fi 的路。
-                if (_needHotspotHint != null) ...<Widget>[
-                  Container(
-                    key: const Key('pairing-need-hotspot'),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.brandPrimary.withValues(alpha: .3),
-                      ),
-                    ),
-                    child: Text(
-                      _needHotspotHint!,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 13,
-                        height: 1.45,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton(
-                    key: const Key('pairing-open-wifi-panel'),
-                    onPressed: () => unawaited(_openWifiPanel()),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                      foregroundColor: AppColors.brandPrimary,
-                      side: const BorderSide(color: AppColors.brandPrimary),
-                      shape: const StadiumBorder(),
-                    ),
-                    child: const Text('打开系统 Wi-Fi 列表'),
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                FilledButton(
+            child: FilledButton(
               key: const Key('start-pairing-button'),
               onPressed: state.busy ? null : _pair,
               style: FilledButton.styleFrom(
@@ -551,8 +481,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                       ),
                     )
                   : const Text('开始配网'),
-                ),
-              ],
             ),
           ),
         ],
