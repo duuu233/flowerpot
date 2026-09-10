@@ -287,6 +287,16 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private var hotspotCallback: ConnectivityManager.NetworkCallback? = null
 
     /**
+     * 我们当前**自己持有**的那条热点连接对应的 SSID。
+     *
+     * 为什么要自己记：判断「是不是已经连上了」原先只看 `connectionInfo.ssid`，而那个值
+     * 在**没有定位权限**时会返回 `<unknown ssid>`（Android 8.1 起的限制）。读不到就判断成
+     * 「还没连」，于是又发一次 `requestNetwork` —— 用户就会看到**第二个**系统确认框。
+     * 自己记账不依赖任何权限，也不依赖系统怎么报当前网络。
+     */
+    private var boundHotspotSsid: String? = null
+
+    /**
      * `IThingDevice` instances that currently hold a registered listener, keyed
      * by device id. Written from the main thread, read from the SDK's callback
      * threads.
@@ -1430,6 +1440,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             return
         }
         val target = ssid
+        // 已经持有这条热点连接就直接复用。**这一步决定了系统确认框只会出现一次**：
+        // 搜索页连过之后，配网那一步的重试会走到这里并原地返回，不会再发
+        // `requestNetwork`、也就不会再弹框。
+        if (boundHotspotSsid == target && boundNetwork != null && hotspotCallback != null) {
+            Log.i(TUYA_LOG_TAG, "hotspot $target already held, reusing")
+            success(result, false)
+            return
+        }
         val specifier = WifiNetworkSpecifier.Builder()
             .setSsid(ssid)
             .build()
@@ -1452,6 +1470,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 if (!answered.compareAndSet(false, true)) return
                 if (bound) {
                     boundNetwork = network
+                    boundHotspotSsid = target
                     success(result, true)
                 } else {
                     // 连上了却绑不过去，这条连接没有用处：立刻放掉，别让手机挂在
@@ -1554,6 +1573,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
 
     private fun unbindProcessNetwork() {
         releaseHotspotRequest()
+        boundHotspotSsid = null
         val manager = activity.getSystemService(ConnectivityManager::class.java)
         runCatching { manager?.bindProcessToNetwork(null) }
         networkCallback?.let { callback ->
