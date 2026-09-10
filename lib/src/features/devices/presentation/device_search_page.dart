@@ -405,22 +405,32 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// `deviceName` 也一起带过去：用户没有点过「确认连接这台」，那么连接的是哪台
   /// 必须在下一页上写清楚，否则整条流程就成了黑箱。设备名就用热点名——AP 模式下
   /// App 能拿到的就这一个标识。
-  /// 用户点了某一行的「连接」：选定这台设备，进「连接 Wi-Fi」。
+  /// 用户点了某一行的「连接」：**把手机连到这台设备的热点上**，连上了才进下一页。
   ///
-  /// ⚠️ **这里不连热点。** 产品硬性要求：配网全程不得出现「要与智能花盆搭配使用的设备」
-  /// 那个系统入网授权框，而 Android 10+ 上只要调 `WifiNetworkSpecifier` 就必弹。连设备
-  /// 热点交给 SDK 在配网时内部完成，见 `FlowerpotState.pairViaDeviceHotspot` 的注释。
+  /// ## 授权统一收在这一颗按钮上（2026-09-11 产品口径）
   ///
-  /// 2026-09-10 晚到 09-11 之间这里一度真的去连热点（为了让框出现在"用户刚表达意图"的
-  /// 时刻），产品明确否掉：**框从始至终都不该出现**。不要再加回来。
+  /// 产品原则是"整个配网流程都不弹系统 UI、用我们自己的页面"，但 Android 10+ 上让应用
+  /// 连指定热点**只有** `WifiNetworkSpecifier` 一条公开路，它必然弹一次系统确认框。
+  /// 产品给的处置是：**如果必须授权，就统一收在这颗「连接」按钮上**——只在这里出现、
+  /// 只出现一次，之后的页面（输密码、配网进度）一个系统框都没有。
   ///
-  /// 点了之后仍有一小段异步：要等 [_prepared]（取令牌 / 取安全配置 / 确认家庭）落地。
-  /// 这三件都走云端，而配网一开始 SDK 就会把手机切到设备热点、那时没有外网。
+  /// 手机已经在该热点上时（上次配网留下的、或系统记住后自动重连的）**直接跳过，零点击**。
+  ///
+  /// ## 为什么必须有这一步
+  ///
+  /// `git show 223bdae^` 是最后一版**能配网成功**的代码，它的路径是
+  /// `pairViaHotspot`：取令牌 → **`_joinHotspotForPairing`（就是这个 API）** →
+  /// `pairWifiDevice`。提交 `223bdae` 把"App 自己连热点"换成"指望 SDK 自己连"，从那以后
+  /// 全是 `207220`（配网任务整体超时）——**SDK 实测并不连**。所以这一步不能省。
+  ///
+  /// ## 顺序：云端三件事必须在连热点之前
+  ///
+  /// 取令牌 / 取安全配置 / 确认家庭都走云端，而一连上设备热点手机就没有外网了。
+  /// 所以先 `await _prepared`，再连。
   Future<void> _connectAndOpen(int index, WifiNetwork hotspot) async {
     if (_connectingIndex != null || !mounted) return;
     final state = FlowerpotScope.of(context);
-    // 趁手机还在路由器上，把当前网络名记下来带给下一页：配网一开始 SDK 就会把手机切到
-    // 设备热点，那之后「带出当前 Wi-Fi 名」就只能留空了。
+    // 趁还在路由器上把当前网络名记下来带给下一页：连上热点之后就读不到它了。
     final scan = state.wifiScan;
     final routerSsid = (scan?.currentIsDeviceHotspot ?? false)
         ? ''
@@ -429,17 +439,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       _connectingIndex = index;
       _connectError = null;
     });
-    // 留引用给 dispose / paused：本页自己不建连接，但 SDK 配网时可能把进程绑到设备
-    // 热点上，离开动线时照样要解开（`releaseDeviceHotspot` 幂等、不抛错）。
+    // 预取失败不拦路：配网时还会自己再取一次令牌。
+    await _prepared;
+    if (!mounted) return;
+    final result = await state.connectDeviceHotspot(hotspotSsid: hotspot.ssid);
+    // 只要发起过就留引用：即便失败也可能留下半条连接，离开本页时要放掉。
     _hotspotState = state;
-    final result = await _prepared;
     if (!mounted) return;
     setState(() {
       _connectingIndex = null;
-      // 预取失败不拦路：`apStartPairing` 内部还会自己取一次令牌。只在页面上留一句，
-      // 免得用户遇到后续失败时完全没有线索。
-      _connectError = (result?.success ?? true) ? null : result!.message;
+      _connectError = result.success ? null : result.message;
     });
+    if (!result.success) return;
     _openPairing(hotspot, routerSsid: routerSsid);
   }
 
@@ -587,7 +598,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         // 设备本身不联网，所以下一步是给它配一个 Wi-Fi；这里先说清要点哪个按钮。
         // 预取失败时把原因顶上来，免得用户后面遇到失败完全没有线索。
         _connectError ??
-            '点设备右侧的「连接」，然后选择要让它加入的 Wi-Fi 并输入密码。',
+            '点设备右侧的「连接」连上这台设备（系统会弹一次确认框，请点「连接」），'
+                '之后只需输入 Wi-Fi 密码。',
         compactTitle: true,
       );
     }

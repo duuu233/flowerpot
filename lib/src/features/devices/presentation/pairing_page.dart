@@ -277,13 +277,17 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       ssid: ssidController.text.trim(),
       password: passwordController.text,
     );
-    // 三步一次点完：连设备热点 → 建通道查状态 → 下发凭据。序列、顺序为什么不能动、
-    // 以及那个系统确认框为什么删不掉，都写在 `pairViaDeviceHotspot` 的文档注释里，
-    // 改这里之前先读它。
+    // 走 `pairViaHotspot`——**这是最后一版能配网成功的路径**（取令牌 → 连热点 →
+    // `pairWifiDevice`，涂鸦「原流程」TY_AP）。
     //
-    // 产品口径（`docs/PRODUCT_RULES.md` 1.2）：做不到零确认，但**自动选中**——把搜索页
-    // 拿到的确切热点名交给系统，框里只有这一台、已经选好，用户点一下「连接」，全程不
-    // 离开 App；手机已经连在该热点上时连框都不弹。
+    // ⚠️ 2026-09-11 查 git 定论：`git show 223bdae^` 那版就是用它配成功的；提交
+    // `223bdae`「配网切到涂鸦热点配网新流程，SDK 自己连热点」把"App 自己连热点"换成
+    // "指望 SDK 自己连"，**从那以后全是 `207220`（配网任务整体超时）**——SDK 实测并不连。
+    // 所以回到这条。新流程的代码（`pairViaDeviceHotspot` / `apStartPairing` / 安全配置
+    // 预取）全部保留，将来要再试只需换这一处调用点。
+    //
+    // 手机已经在设备热点上了（搜索页那颗「连接」干的），所以 `pairViaHotspot` 内部的
+    // 连热点一步会检测到"已在目标热点上"而跳过——**这一页不会再弹系统框**。
     //
     // 令牌与设备安全配置由搜索页在**还连着路由器**时预取（`prepareForPairing`）：
     // 手机一挂到设备热点上就没有外网，而那两件事都要走云端。
@@ -292,11 +296,11 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       _pairing = true;
       _needHotspotHint = null;
     });
-    final result = await state.pairViaDeviceHotspot(
+    final result = await state.pairViaHotspot(
       ssid: request.ssid,
       password: request.password,
-      // 只进诊断文案，便于对上搜索页扫到的是哪一台。新流程**不需要**我们给热点名，
-      // SDK 自己找。
+      // 确切热点名：`_joinHotspotForPairing` 靠它判断"是不是已经连在目标热点上"，
+      // 判断成立就跳过 `requestNetwork`、不再弹框。
       hotspotSsid: widget.arguments?.hotspotSsid,
     );
     _pairingState = null;
