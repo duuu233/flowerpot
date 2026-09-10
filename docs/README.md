@@ -30,6 +30,8 @@
 | [`FLUTTER_PROJECT_ARCHITECTURE.md`](FLUTTER_PROJECT_ARCHITECTURE.md) | Design Reference | 目标架构；与当前源码冲突时不作为实现事实。 |
 | [`UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`](UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md) | Active | 本项目 UI 页面和组件实施规范。 |
 | [`UI/UI_ASSET_INTEGRATION_PROGRESS.md`](UI/UI_ASSET_INTEGRATION_PROGRESS.md) | Tracking | 图片和图标接入进度。 |
+| [`TUYA_CAPABILITY_AUDIT.md`](TUYA_CAPABILITY_AUDIT.md) | Active | 项目功能点逐条对照涂鸦官方文档：哪些已用官方 API、哪些涂鸦不支持只能自研、哪些接错了 SDK。 |
+| [`reference/`](reference/) | Reference | 涂鸦官方文档的本地存档（AP 热点模式 Android / iOS、扩展 SDK），仅作依据引用，不是本项目口径。 |
 | [`history/README.md`](history/README.md) | Active | 本地操作更新记录规则、模板与索引。 |
 
 `FIGMA_DESIGN_ANALYSIS.md` 和 `UI/*_IMPLEMENTATION.md` 是设计分析或页面级说明；使用前核对其日期和当前源码。[`TEMP_STATIC_PAGE_PREVIEW.md`](TEMP_STATIC_PAGE_PREVIEW.md) 描述当前静态演示构建的动线与开关，不承担生产配置说明。原始 DOCX 和 PNG 是输入资料，不是当前代码事实。
