@@ -28,6 +28,44 @@ class DeviceInfoPage extends StatelessWidget {
     }
   }
 
+  /// 联调用：把 DP 162 `plant_confirm` 当前上报的值弹出来。
+  ///
+  /// 直接用系统的 `AlertDialog`，不走 App 自己的提示组件——这里要的是"原样看到设备报了
+  /// 什么"，越少加工越好。同时把 DP 116 一起列出来：162 是跟着 116 走的（下发 116 之后
+  /// 固件会把 162 改回 0 并立即上报），单看 162 判断不了是不是正常。
+  ///
+  /// `plantConfirmRaw` 是上报的**原文**；`plantConfirm` 是 App 解析后的结论
+  /// （`fromDp` 只认明确的 1，其它一律当 0），两者都显示才看得出解析有没有偏差。
+  Future<void> _showPlantConfirmDp(
+    BuildContext context,
+    SmartPlanterDevice device,
+  ) async {
+    final raw = device.plantConfirmRaw;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        key: const Key('device-info-dp162-dialog'),
+        title: const Text('DP 162 plant_confirm'),
+        content: Text(
+          '上报原值：${raw.isEmpty ? '（未上报过）' : raw}\n'
+          'App 解析：${device.plantConfirm.name}'
+          '（${device.plantConfirm.dpValue}，1 才弹引导窗）\n'
+          '\n'
+          'DP 116 plant_variety：'
+          '${device.plantVariety.isEmpty ? '（未上报过）' : device.plantVariety}\n'
+          '设备：${device.name}\n'
+          'devId：${device.id}',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final device = FlowerpotScope.of(context).deviceById(deviceId);
@@ -97,6 +135,19 @@ class DeviceInfoPage extends StatelessWidget {
                         value: details.planterUuid,
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 20),
+                  // 联调用：把 DP 162 当前上报的值原样弹出来核对。
+                  OutlinedButton(
+                    key: const Key('device-info-dp162-probe'),
+                    onPressed: () => _showPlantConfirmDp(context, device),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                      foregroundColor: AppColors.brandPrimary,
+                      side: const BorderSide(color: AppColors.brandPrimary),
+                      shape: const StadiumBorder(),
+                    ),
+                    child: const Text('查看 DP 162（plant_confirm）'),
                   ),
                 ],
               ),

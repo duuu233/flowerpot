@@ -542,6 +542,7 @@ class SmartPlanterDevice {
     this.hardwareVersion = '--',
     this.plantVariety = '',
     this.plantConfirm = PlantConfirmState.hidden,
+    this.plantConfirmRaw = '',
     this.deviceStatus = '',
     this.reportedDays,
     this.status = const DeviceStatusReport(),
@@ -578,6 +579,12 @@ class SmartPlanterDevice {
   /// `plant_confirm` (162)：设备要不要 App 弹「发现新植物」引导窗，只上报、
   /// App 不下发。取值见 [PlantConfirmState]。
   final PlantConfirmState plantConfirm;
+
+  /// DP 162 **上报上来的原始值**，原样保留，供联调核对用。
+  ///
+  /// [plantConfirm] 会把一切非 1 的东西都归成 `hidden`，排查时就看不出设备到底报了
+  /// 什么（没上报过？报了 0？报了别的？）。这里留一份原文：没上报过是空串。
+  final String plantConfirmRaw;
 
   /// `device_status`, an opaque product-defined string.
   final String deviceStatus;
@@ -625,6 +632,7 @@ class SmartPlanterDevice {
     String? firmwareVersion,
     String? plantVariety,
     PlantConfirmState? plantConfirm,
+    String? plantConfirmRaw,
     DeviceStatusReport? status,
     DeviceHistory? history,
     DateTime? birthday,
@@ -649,6 +657,7 @@ class SmartPlanterDevice {
     hardwareVersion: hardwareVersion,
     plantVariety: plantVariety ?? this.plantVariety,
     plantConfirm: plantConfirm ?? this.plantConfirm,
+    plantConfirmRaw: plantConfirmRaw ?? this.plantConfirmRaw,
     deviceStatus: deviceStatus,
     reportedDays: reportedDays,
     status: status ?? this.status,

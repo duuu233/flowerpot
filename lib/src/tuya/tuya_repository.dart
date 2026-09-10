@@ -813,6 +813,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       hardwareVersion: '${dp('hardware_version') ?? '--'}',
       plantVariety: '${dp('plant_variety') ?? ''}',
       plantConfirm: PlantConfirmState.fromDp(dp('plant_confirm')),
+      // 原始值原样留一份：`fromDp` 会把一切非 1 的都归成 hidden，联调时那样就看不出
+      // 设备到底报了什么。写法和上面 plant_variety 一致（没上报过 ⇒ 空串）。
+      plantConfirmRaw: '${dp('plant_confirm') ?? ''}',
       deviceStatus: '${dp('device_status') ?? ''}',
       reportedDays: reportedDays == null ? null : integer(reportedDays, 0),
       status: status,

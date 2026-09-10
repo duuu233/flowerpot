@@ -157,6 +157,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 上一次扫描是不是被系统限流了（拿回的是旧缓存）。界面据此换一句话。
   bool _throttled = false;
 
+  /// 搜了这么久还一台都没有，就把「设备可能已经退出配网状态」这条说出来，并且**立刻**
+  /// 把动作交给用户，不要让他等满整个 3 分钟窗口。
+  ///
+  /// 为什么是这个数：真扫 32 秒一次（配额上限），40 秒保证已经真扫过两次——两次都空
+  /// 才说得上"附近确实没有"。再往前提就会在设备正常启动的那几十秒里误报。
+  static const Duration _stalledAfter = Duration(seconds: 40);
+
+  Timer? _stalledTimer;
+
+  /// 到点了还一台都没搜到。
+  bool _stalled = false;
+
   /// 本轮有没有真的扫成过一次。
   ///
   /// 一次都没真扫过就说「未发现配网中的设备」是撒谎——那句结论只有在真扫过之后
@@ -180,6 +192,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
     _deadlineTimer?.cancel();
+    _stalledTimer?.cancel();
     _radarController.dispose();
     super.dispose();
   }
@@ -194,6 +207,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _throttled = false;
     _scannedForReal = false;
     _autoOpened = false;
+    _stalledTimer?.cancel();
+    _stalled = false;
     _radarController.repeat();
     setState(() {
       _scanning = true;
@@ -244,9 +259,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       _windowExpired = true;
       _forceScanTimer?.cancel();
       _pollTimer?.cancel();
+      _stalledTimer?.cancel();
       if (!mounted) return;
       _radarController.stop();
       setState(() => _scanning = false);
+    });
+    _stalledTimer = Timer(_stalledAfter, () {
+      if (!mounted) return;
+      setState(() => _stalled = true);
     });
     // 两条线并行：32 秒一次真扫（受配额约束），1 秒一次读缓存（不受约束）。
     _pollTimer = Timer.periodic(_cachePollGap, (_) => unawaited(_pollCache()));
@@ -448,8 +468,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         if (!_canListNetworks) ...<Widget>[
                           const SizedBox(height: 20),
                           _SearchActions(onContinue: _continueWithoutList),
-                        ] else if (!_scanning && hotspots.isEmpty) ...<Widget>[
+                        ] else if ((!_scanning || _stalled) &&
+                            hotspots.isEmpty) ...<Widget>[
                           const SizedBox(height: 20),
+                          // `_stalled` 让这颗按钮在 40 秒就出现，而不是等满 3 分钟窗口。
+                          // 设备静置一段时间会退出配网状态，这时用户要做的事（断电重启
+                          // 再搜）和我们能做的事（重排扫描）都得尽早给他。
                           _SearchActions(onRescan: _scan),
                         ],
                       ],
@@ -491,6 +515,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         return const _SearchOutcome(
           '搜索附近设备...',
           '系统限制了 Wi-Fi 扫描频率，正在等待下一次扫描。\n设备开机即可被搜索到，保持开机并靠近手机即可。',
+        );
+      }
+      if (_stalled) {
+        // ⚠️ 这一句是 2026-09-10 产品反馈换来的：**设备静置一段时间会退出配网模式**，
+        // 那之后它不再广播热点，扫多久都没用。真扫受系统配额限制（前台 4 次 / 2 分钟）
+        // 已经跑在上限上，所以这时有用的不是再等，而是让用户把设备断电重启——重启后
+        // 热点一定在，下一次扫描就能看见。
+        return const _SearchOutcome(
+          '还没搜到设备',
+          '设备静置一段时间会退出配网状态，此时它不再广播热点。\n'
+              '请给设备断电重启（重新上电后会自动回到配网状态），再点「重新扫描」。',
         );
       }
       return const _SearchOutcome(

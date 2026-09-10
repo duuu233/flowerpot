@@ -98,7 +98,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('搜索中不画「重新扫描」，搜完且一台都没有才画', (tester) async {
+  testWidgets('刚开始搜不画「重新扫描」，40 秒还没搜到就立刻给出（并提示断电重启）', (tester) async {
     await _pumpDeviceSearchPage(
       tester,
       const Size(375, 812),
@@ -115,12 +115,21 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    // 还在搜：不画。点了也只是白烧一次系统配额。
+    // 刚开始搜：不画。点了也只是白烧一次系统配额。
     expect(find.byKey(const Key('device-search-rescan')), findsNothing);
+
+    // 40 秒还一台都没有就别让用户继续干等：**设备静置一段时间会退出配网模式**，
+    // 那之后扫多久都没用（真扫已经跑在系统配额上限 32 秒一次）。这时要告诉他
+    // 断电重启，并把「重新扫描」立刻交出去——不是等满 3 分钟窗口。
+    await tester.pump(const Duration(seconds: 41));
+    await tester.pump();
+    expect(find.text('还没搜到设备'), findsOneWidget);
+    expect(find.textContaining('断电重启'), findsOneWidget);
+    expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
 
     await _runOutSearchWindow(tester);
 
-    // 搜完一轮、一台都没有：这时才画。
+    // 窗口也走完了：标题回到最终结论。
     expect(find.text('未发现设备'), findsOneWidget);
     expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
     expect(tester.takeException(), isNull);
