@@ -191,20 +191,51 @@ Android 10+ 上第 2 步会弹一次系统入网授权框（`WifiNetworkSpecifie
 
 ---
 
-## 4.0 连热点：只走静默连接，**不兜底**
+## 4.0 连热点：先 `WifiNetworkSuggestion`，连不上再 `WifiNetworkSpecifier`
 
-**（2026-09-11 产品：「不要退回、不要给兜底，错了就把错误信息打印到页面」）**
+### `WifiManager#connect()` 这条路已经判死（2026-09-11 真机）
 
-- 连设备热点**只调 `WifiManager#connect()`**（涂鸦回复称智能生活即用此法、系统不弹框）。
-- **失败不退回 `WifiNetworkSpecifier`**：那条会弹出产品明确不要的系统框，而且会把
-  「这条路到底通不通」的结论掩盖掉。失败就把**原因原样**报出来、打印到页面。
-- 两条不需要连接的捷径保留：已持有该热点连接、或手机本来就连在该热点上
-  （系统记住后自动重连）——都直接成功、零点击。
+```
+join: connect(WifiConfiguration,ActionListener) 存在，调用
+join: 已交给系统，开始等关联（当前「ChinaNet-duu」）
+join: 0s…11s 当前「ChinaNet-duu」
+join: 等了 12194ms 还在「ChinaNet-duu」
+join: addNetwork 返回 -1
+```
+
+三条同时成立：方法**存在**、反射调用**不抛异常**、但注册进去的 `ActionListener`
+**一个回调都没来**，且 `addNetwork()` 返回 **-1**（系统拒绝让本应用保存网络）。
+
+⇒ 本应用没有 `NETWORK_SETTINGS`（signature|privileged）特权。**涂鸦那句「智能生活用
+`WifiManager#connect()` 静默连接、系统不弹框」对第三方应用不成立。不要再回去试它。**
+
+### 现在的顺序
+
+1. **捷径**（零点击）：已持有该热点连接、或手机本来就连在该热点上 —— 直接成功。
+2. **`WifiNetworkSuggestion`**（产品 2026-09-11 指定：「我是安卓 10 就用这种」）。
+   连上就**没有入网授权框**。已知两个不利因素，所以要能干净让位：
+   - 它是「凭据给你，你觉得合适就连」，**平台只在判定某建议网络当前最优时才自动连**，
+     没有 API 能要求它立刻连。而设备热点**没有外网**，手机正连着有外网的路由器。
+   - 首次调用系统会发通知问「是否允许本应用建议网络」；没点允许，
+     `addNetworkSuggestions` 返回 `ERROR_APP_DISALLOWED(2)`。那条通知本身也是系统 UI。
+   - 给它 20 秒，状态码和每一秒的当前 SSID 全部打到页面上。
+3. **`WifiNetworkSpecifier` + `requestNetwork`** —— Android 10+ 上**唯一**能让第三方应用
+   按需连上一个指定的、没有外网的热点的公开 API。代价是系统弹一次入网授权框，关不掉、
+   不能代点。位置见 §1.2：**收在搜索页那颗「连接」按钮上，只出现一次。**
+
+### 退出时必须撤掉建议
+
+`WifiNetworkSuggestion` 是**进程外状态**：不撤，用户退出 App 之后系统还会继续往这条没有
+外网的热点上连。所以 `releaseHotspotRequest()` 里一并 `removeNetworkSuggestions`
+（见 §1.4.1「无论怎么退出，都要把手机的 Wi-Fi 还回去」）。
+
+### 其它
+
 - 已核实：`CHANGE_WIFI_STATE` / `ACCESS_WIFI_STATE` / `ACCESS_FINE_LOCATION` /
-  `NEARBY_WIFI_DEVICES` 清单里**都已声明**，所以失败不会是权限缺失。
-- ⚠️ 我的判断仍是 `WifiManager#connect()` 属 `@SystemApi`（需 `NETWORK_SETTINGS`，
-  signature|privileged），普通应用拿不到。**但这正是要用真机结论说话的事**——
-  `silentConnect()` 失败时会把该类上所有 `connect` 重载列出来，一眼可辨。
+  `NEARBY_WIFI_DEVICES` 清单里**都已声明**，失败不会是权限缺失。
+- 「失败不给兜底、把原因原样打到页面」这条**仍然有效**，而且正是靠它才拿到上面的判定。
+  它约束的是**不要用退路把结论掩盖掉**；现在结论已经有了，两条路的顺序是按证据排的，
+  每一步走没走通都打在页面上。
 
 ## 4.1 配网排障：先看事实，别先猜
 

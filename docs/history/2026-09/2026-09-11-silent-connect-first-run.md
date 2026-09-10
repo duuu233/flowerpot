@@ -56,3 +56,71 @@ Dart 侧 `hotspotJoinDeadline` 是 90 秒，native 最坏 22 秒，够。
 | `ActionListener.onFailure(reason=0 ERROR)` + `addNetwork 返回 -1` | **静默连接这条路死了。** 普通应用没有 `NETWORK_SETTINGS`，涂鸦说的「智能生活用 `WifiManager#connect()`」对第三方 App 不成立。剩下两条路：指望 SDK 自己连热点（要新固件，见 `tuya-ap-mode-android.md:216`），或者接受 `WifiNetworkSpecifier` 的系统框 |
 | 收不到任何 `ActionListener` 回调，12 秒后还在路由器 | 请求被静默丢弃，结论同上，但证据弱一些——`addNetwork` 的返回值是关键 |
 | `onSuccess` + 某一秒 SSID 变成 `SmartLife-xxxx` | **这条路通**，之前只是等得不够久（2.5 秒太短）。那就把配网接在这后面 |
+
+---
+
+## 五、第二次真机：结论出来了，静默连接这条路死了
+
+```
+join: connect(WifiConfiguration,ActionListener) 存在，调用
+join: 已交给系统，开始等关联（当前「ChinaNet-duu」）
+join: 0s  当前「ChinaNet-duu」
+…（逐秒，一行不落）…
+join: 11s 当前「ChinaNet-duu」
+join: 等了 12194ms 还在「ChinaNet-duu」
+join: addNetwork 返回 -1（-1 = 系统拒绝保存网络，本应用没有 NETWORK_SETTINGS 特权）
+```
+
+三条一起看，结论是确定的，不是推断：
+
+1. `WifiManager.connect(WifiConfiguration, ActionListener)` 在这台手机上**存在**，反射
+   调用**不抛异常**；
+2. **`ActionListener` 一个回调都没来**——`onSuccess` 没有，`onFailure` 也没有。请求被系统
+   静默丢掉了（这正是上一版传 `null` 看不出来的那件事）；
+3. `addNetwork()` 返回 **-1**，系统拒绝让本应用保存网络。
+
+⇒ **本应用没有 `NETWORK_SETTINGS`（signature|privileged）特权，涂鸦那句「智能生活用
+`WifiManager#connect()` 静默连接、系统不弹框」对第三方应用不成立。**
+
+`trySilentConnect` / `silentConnect` 两版探针的代码都已删掉（结论已拿到，留着就是死代码，
+要看实现去 `e861aff`、`ec6a7f0`）。
+
+## 六、产品指定用 `WifiNetworkSuggestion`（「我是安卓 10 就用这种」）——已实现
+
+### 它和 `Specifier` 根本不是一回事
+
+| | `WifiNetworkSpecifier` | `WifiNetworkSuggestion` |
+| --- | --- | --- |
+| 语义 | 「**现在**给我连这个网络」 | 「凭据给你，**你觉得合适就连**」 |
+| 系统 UI | 必弹入网授权框，关不掉 | 不弹授权框；但**首次**会发通知问「是否允许本应用建议网络」 |
+| 何时连上 | 用户点「连接」后立刻 | 平台判定它是**当前最优网络**时才自动连，**没有 API 能要求它立刻连** |
+| 能连没外网的热点吗 | 能（`removeCapability(NET_CAPABILITY_INTERNET)`） | 悬——手机正连着有外网的路由器，系统评分里"已验证外网"权重很高 |
+
+所以我的判断是它很可能连不上设备热点。**但这是推断，产品要求就按这个实现，结论交给真机。**
+实现上两条路按顺序走，建议连不上就干净让位给 `Specifier`：
+
+1. `WifiNetworkSuggestion.Builder().setSsid(target).setIsAppInteractionRequired(true)`
+   （设备热点是开放网络，不设 passphrase）；
+2. `addNetworkSuggestions` 的**状态码打到页面上**，并翻成人话：
+   `0 SUCCESS` / `2 ERROR_APP_DISALLOWED（用户没允许本应用建议网络）` / `3 ERROR_ADD_DUPLICATE` …；
+3. 状态码为 0 就等 **20 秒**，`Handler` 轮询不阻塞线程，**每跨一秒打一行当前 SSID**；
+4. 连上 ⇒ 成功，全程没有入网授权框；20 秒没连上 ⇒ 撤掉建议，走 `Specifier`。
+
+### 撤销是必须的
+
+`WifiNetworkSuggestion` 是**进程外状态**。不撤，用户退出 App 之后系统还会继续往这条没有
+外网的热点上连——直接违反 §1.4.1「无论怎么退出，都要把手机的 Wi-Fi 还回去」。所以
+`releaseHotspotRequest()` 里统一 `removeNetworkSuggestions`，并且把当初那个 suggestion
+对象留着精确撤销（`minSdk = 24`，字段声明成 `Any?`，用的时候在 `SDK_INT >= Q` 分支里强转）。
+
+### 下一次截图看这一行
+
+```
+join: addNetworkSuggestions → ? ?
+```
+
+- `→ 0 SUCCESS` 然后某一秒 SSID 变成 `SmartLife-xxxx`：**这条路通，零系统框**，`Specifier`
+  从此只当兜底。
+- `→ 0 SUCCESS` 但 20 秒 SSID 一直是 `ChinaNet-duu`：平台不肯切（就是上面表格里那个"悬"），
+  只能接受 `Specifier` 的一次授权框。
+- `→ 2 ERROR_APP_DISALLOWED`：通知栏里有一条「允许花盆建议 Wi-Fi 网络？」没点允许。点了再试。
