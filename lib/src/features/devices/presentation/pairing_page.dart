@@ -217,24 +217,19 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       ssid: ssidController.text.trim(),
       password: passwordController.text,
     );
-    // 全按涂鸦的**新流程**走（2026-09-10 产品决定：「都按新流程来」）。
-    //
-    // `pairViaDeviceHotspot` 里是官方新流程的完整序列，见它的文档注释：
-    // 手机连设备热点 → `queryDeviceConfigState` 建通道并查设备状态 →
-    // `startActivator` 下发路由器凭据。这也正好是设备方给的流程：
-    //
-    // > 未激活设备开机后自动开启 Wi-Fi 热点 → **手机连接该热点**
-    // > → App 通过热点下发目标路由器 SSID/密码 → 设备自动切换连网并连云激活
+    // 全按涂鸦的**新流程**走，**全程不碰 `WifiNetworkSpecifier`**：连设备热点由 SDK
+    // 内部完成，所以 Android 10+ 那个必弹的系统入网授权框不存在。序列与踩过的坑都写在
+    // `pairViaDeviceHotspot` 的文档注释里，改这里之前先读它。
     //
     // 令牌与设备安全配置由搜索页在**还连着路由器**时预取（`prepareForPairing`）：
-    // 一连上设备热点手机就没有外网，那两件事都要走云端。
+    // 配网一开始 SDK 就把手机切到设备热点，那张网没有外网，而那两件事都要走云端。
     _pairingState = state;
     setState(() => _pairing = true);
     final result = await state.pairViaDeviceHotspot(
       ssid: request.ssid,
       password: request.password,
-      // 搜索页扫到的那台设备的热点名。Android 原生拒绝只给前缀，必须带确切名字；
-      // iOS 拿不到确切名字，那边会退到前缀匹配。
+      // 只进诊断文案，便于对上搜索页扫到的是哪一台。新流程**不需要**我们给热点名，
+      // SDK 自己找。
       hotspotSsid: widget.arguments?.hotspotSsid,
     );
     _pairingState = null;
