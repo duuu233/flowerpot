@@ -72,6 +72,37 @@ void main() {
     expect(find.text('SmartLife-A1B2'), findsOneWidget);
     expect(find.text('发现 1 台设备'), findsOneWidget);
     expect(pairingArguments, 'unset');
+    // 2026-09-10 产品口径：「重新扫描」只在一台都没搜到时才出现。搜到了设备，
+    // 用户要点的是那台设备，不是再扫一遍。
+    expect(find.byKey(const Key('device-search-rescan')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('搜索中不画「重新扫描」，搜完且一台都没有才画', (tester) async {
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(
+        const WifiScan(
+          current: 'TP-LINK_2.4G',
+          currentFrequency: 2437,
+          networks: <WifiNetwork>[
+            WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+          ],
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // 还在搜：不画。点了也只是白烧一次系统配额。
+    expect(find.byKey(const Key('device-search-rescan')), findsNothing);
+
+    await _runOutSearchWindow(tester);
+
+    // 搜完一轮、一台都没有：这时才画。
+    expect(find.text('未发现设备'), findsOneWidget);
+    expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

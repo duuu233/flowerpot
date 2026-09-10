@@ -275,16 +275,19 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                             onSelected: _openPairing,
                           ),
                         ],
-                        const SizedBox(height: 20),
-                        _SearchActions(
-                          scanning: _scanning,
-                          onRescan: _scan,
-                          // iOS 列不出设备，「重新扫描」在那边没有意义，换成
-                          // 直接进下一步。
-                          onContinue: _canListNetworks
-                              ? null
-                              : _continueWithoutList,
-                        ),
+                        // iOS 列不出设备，「下一步」全程都在——那是它唯一的
+                        // 入口，让用户干等一轮窗口没有任何意义。
+                        //
+                        // 能列设备的平台上，「重新扫描」**只在搜完一轮、一台都
+                        // 没搜到时**才出现：搜索中它点了也只是白烧一次系统配额，
+                        // 已经搜到设备时用户要点的是那台设备、不是再扫一遍。
+                        if (!_canListNetworks) ...<Widget>[
+                          const SizedBox(height: 20),
+                          _SearchActions(onContinue: _continueWithoutList),
+                        ] else if (!_scanning && hotspots.isEmpty) ...<Widget>[
+                          const SizedBox(height: 20),
+                          _SearchActions(onRescan: _scan),
+                        ],
                       ],
                     ),
                   ),
@@ -382,54 +385,39 @@ class _SearchOutcome {
   final String message;
 }
 
+/// 页面底部那颗按钮：要么「重新扫描」，要么 iOS 上的「下一步」。
+///
+/// 什么时候画由页面决定（见 `build` 里那段注释），这里只管长什么样。
 class _SearchActions extends StatelessWidget {
-  const _SearchActions({
-    required this.scanning,
-    required this.onRescan,
-    this.onContinue,
-  });
+  const _SearchActions({this.onRescan, this.onContinue})
+    : assert(
+        (onRescan == null) != (onContinue == null),
+        '这颗按钮只会是「重新扫描」或「下一步」其中之一',
+      );
 
-  final bool scanning;
-  final VoidCallback onRescan;
+  final VoidCallback? onRescan;
 
-  /// 列不出设备的平台（iOS）上的下一步；能列的平台传 null。
+  /// 列不出设备的平台（iOS）上的下一步。
   final VoidCallback? onContinue;
 
   @override
   Widget build(BuildContext context) {
     final next = onContinue;
-    if (next != null) {
-      return SizedBox(
-        width: 220,
-        height: 46,
-        child: FilledButton(
-          key: const Key('device-search-continue'),
-          onPressed: next,
-          style: FilledButton.styleFrom(
-            backgroundColor: AppColors.brandPrimary,
-            foregroundColor: AppColors.surface,
-            shape: const StadiumBorder(),
-            textStyle: const TextStyle(fontSize: 17),
-          ),
-          child: const Text('下一步'),
-        ),
-      );
-    }
     return SizedBox(
       width: 220,
       height: 46,
       child: FilledButton(
-        key: const Key('device-search-rescan'),
-        // 搜索中时「重新扫描」只会白白再烧一次系统配额（Android 每 2 分钟 4 次），
-        // 禁用它。
-        onPressed: scanning ? null : onRescan,
+        key: next != null
+            ? const Key('device-search-continue')
+            : const Key('device-search-rescan'),
+        onPressed: next ?? onRescan,
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.brandPrimary,
           foregroundColor: AppColors.surface,
           shape: const StadiumBorder(),
           textStyle: const TextStyle(fontSize: 17),
         ),
-        child: const Text('重新扫描'),
+        child: Text(next != null ? '下一步' : '重新扫描'),
       ),
     );
   }

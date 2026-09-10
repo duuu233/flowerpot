@@ -152,6 +152,20 @@ activator 自己会在配网时解析家庭；而这一步跑在**手机还连�
 需要 `com.apple.developer.networking.HotspotConfiguration` entitlement（Xcode Capabilities 里
 可以自助开，不需要 Apple 审批），签名配置是否已经带上它需要在有 Xcode 的机器上确认。
 
+## 追加（同日）：「重新扫描」只在一台都没搜到时才出现
+
+产品口径：**重新扫描按钮要等搜索不到任何设备、搜索为空的时候再显示。**
+
+改前是「全程都在，搜索中置灰」。现在按状态分：
+
+- **能列设备的平台（Android）**：只有 `!_scanning && hotspots.isEmpty` 才画。搜索中点它只是
+  白烧一次系统配额（每 2 分钟 4 次）；已经搜到设备时用户要点的是那台设备，不是再扫一遍。
+- **iOS**：「下一步」**全程都在**——那是它唯一的入口，列不出设备是平台限制，让用户干等一轮
+  3 分钟的窗口没有任何意义。
+
+`_SearchActions` 收敛成一颗按钮，`onRescan` / `onContinue` 二选一（构造函数里 `assert` 挡住
+两个都给或都不给）。
+
 ## 验证结果
 
 - 本机**没有 Flutter/Dart SDK，也没有 Android SDK**：`flutter analyze`、`flutter test` 与 Kotlin
