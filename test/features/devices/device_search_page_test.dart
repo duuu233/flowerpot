@@ -176,21 +176,25 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('中途出现的设备热点由 2 秒一次的读缓存捡到，不必等下一次真扫', (tester) async {
+  testWidgets('中途出现的设备热点由 1 秒一次的读缓存捡到，不必等下一次真扫', (tester) async {
     // 设备上电到热点广播出来要几十秒。主动扫描受 Android 配额限制（每 2 分钟
-    // 4 次 ⇒ 30 秒一次），中间那 30 秒如果什么都不做，设备在这期间冒出来也要
+    // 4 次 ⇒ 32 秒一次），中间那 32 秒如果什么都不做，设备在这期间冒出来也要
     // 等到下一次真扫才看得见——那就是「搜了一分钟才搜到」。读缓存不受配额限制，
-    // 2 秒一次把这个空档补上。
+    // 1 秒一次把这个空档补上。
+    //
+    // `silentScans: 2` 对应进页面时的两次取数：① 开窗口前那次**免费的读缓存**
+    // （权限框就挡在这一步，见 `_startSearchWindow`）、② 紧接着的第一次真扫。
+    // 两次都只看得到路由器，热点要到第三次取数才出现——也就是由读缓存捡到。
     await _pumpDeviceSearchPage(
       tester,
       const Size(375, 812),
-      repository: _LateHotspotRepository(silentScans: 1),
+      repository: _LateHotspotRepository(silentScans: 2),
     );
     await tester.pump();
     await tester.pump();
     expect(find.byKey(_FoundListKey.key), findsNothing);
 
-    // 第二次读取（≤2 秒后）就该拿到热点，而不是等到 30 秒后的那次真扫。
+    // 紧接着的那次读缓存（≤1 秒后）就该拿到热点，而不是等 32 秒后的下一次真扫。
     await tester.pump(const Duration(seconds: 3));
     await tester.pump();
 

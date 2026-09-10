@@ -35,6 +35,11 @@ import 'pairing_page.dart';
 /// 主动扫描退到 [_forceScanGap]（配额允许的最快节奏，且**均匀铺满**整个窗口，
 /// 不在开头扎堆），中间的空档由
 /// [_cachePollGap] 的读缓存补上——受配额限制的只有 `startScan`，读缓存不受限。
+///
+/// 还有一条同源的规矩：**进页面先免费读一次缓存，等权限落定再开窗口与真扫节奏**，
+/// 见 [_DeviceSearchPageState._startSearchWindow]。首次进入要授权，那个系统框会把
+/// 调用挂起几十秒；让挡在它前面的是「读缓存」而不是「真扫」，一次配额都不会浪费，
+/// 3 分钟窗口也不会被授权时间吃掉。
 class DeviceSearchPage extends StatefulWidget {
   const DeviceSearchPage({super.key, this.request});
 
@@ -191,17 +196,63 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     super.dispose();
   }
 
-  /// 开始一轮搜索：重置 [DeviceSearchPage.searchWindow] 窗口，立刻扫一次。
+  /// 开始一轮搜索。
   void _scan() {
     _autoOpenTimer?.cancel();
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
-    if (!mounted) return;
     _deadlineTimer?.cancel();
+    if (!mounted) return;
     _windowExpired = false;
     _throttled = false;
     _scannedForReal = false;
+    _autoOpened = false;
     _radarController.repeat();
+    setState(() {
+      _scanning = true;
+      _result = null;
+    });
+    unawaited(_startSearchWindow());
+  }
+
+  /// 先免费读一次缓存，**等权限落定、页面也真的就绪了**，再开窗口与真扫节奏。
+  ///
+  /// 这个顺序解决两件事（2026-09-10 产品反馈）：
+  ///
+  /// 1. **首次进入要授权。** `scanWifi` 在原生侧是要权限的（`NEARBY_WIFI_DEVICES` /
+  ///    `ACCESS_FINE_LOCATION`），首次进入会弹系统授权框，而原生把这次调用挂起、
+  ///    等用户答完再执行。所以**让挡在权限框前面的那一次是「读缓存」而不是「真扫」**：
+  ///    读缓存不占扫描配额（受配额限制的只有 `startScan`），用户点「允许」之前一次真扫
+  ///    都不会被浪费；而且 3 分钟窗口与 [_forceScanGap] 的节奏都从授权之后才起算，
+  ///    不再被授权那几十秒吃掉。
+  /// 2. **非首次进入要「马上搜出来」。** 这一次读缓存几乎不耗时，而系统自己、设置页、
+  ///    别的应用一直在扫，缓存里往往**已经**有设备热点了——这时设备会在进页面的瞬间
+  ///    就出现，一次 `startScan` 都不用发。
+  ///
+  /// ⚠️ 不要为了「快一点」在开头塞两次真扫。那是 0/6/46/86s 那版的做法，已经被证明
+  /// 会把配额押在设备还没上电的时刻，反而让「先进页面后开机」要等 86 秒。见
+  /// [_forceScanGap] 的说明。
+  Future<void> _startSearchWindow() async {
+    final state = FlowerpotScope.of(context);
+    // 趁手机还连着路由器，先把要走云端的两步取回来，别等到连上设备热点没外网了
+    // 才去取。只取一次：令牌有效期比一轮搜索窗口长得多，重新扫描不必重取。
+    // 它不在原生的权限门禁名单里，和下面的授权互不影响。
+    _prepared ??= state.prepareForPairing();
+    // ① 免费的一次：读系统扫描缓存。首次进入时的权限框就挡在这一步。
+    _inFlight = true;
+    try {
+      await state.probeWifi(refresh: false);
+    } catch (_) {
+      // 读缓存失败不下结论——紧接着那次真扫会给出权威结果与原因。
+    } finally {
+      _inFlight = false;
+    }
+    if (!mounted || _windowExpired) return;
+    setState(() {});
+    // 缓存里就有设备的话到此为止，一次真扫都不用发。
+    _maybeAutoOpen();
+    if (_autoOpened) return;
+    // ② 权限落定、页面就绪——从这一刻才开始计窗口、起节奏。
     _deadlineTimer = Timer(DeviceSearchPage.searchWindow, () {
       _windowExpired = true;
       _forceScanTimer?.cancel();
@@ -210,11 +261,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       _radarController.stop();
       setState(() => _scanning = false);
     });
-    // 趁手机还连着路由器，先把要走云端的两步取回来，别等到连上设备热点没外网了
-    // 才去取。只取一次：令牌有效期比一轮搜索窗口长得多，重新扫描不必重取。
-    _prepared ??= FlowerpotScope.of(context).prepareForPairing();
     // 两条线并行：32 秒一次真扫（受配额约束），1 秒一次读缓存（不受约束）。
-    _autoOpened = false;
     _pollTimer = Timer.periodic(_cachePollGap, (_) => unawaited(_pollCache()));
     unawaited(_runScan());
   }
