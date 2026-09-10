@@ -133,6 +133,21 @@ abstract class TuyaRepository {
   /// 停掉新流程的配网器并释放它持有的热点连接。
   Future<void> apStopPairing();
 
+  /// 用**扩展 SDK 的 `ThingActivatorCoreKit`** 配网（涂鸦 2026-09-11 回复：Flutter 场景
+  /// 应使用它）。与 [apStartPairing]（`ThingHomeSdk.getActivatorInstance()`）是**两套不同
+  /// 的实现**，连热点的处理可能不一样，所以单独接出来试。
+  ///
+  /// [mode] 取 `ap` 或 `ez`（对应 `ThingDeviceActiveModeEnum`）；[timeout] 单位是**秒**。
+  Future<SmartPlanterDevice> activeStart({
+    required String mode,
+    required String ssid,
+    required String password,
+    Duration timeout,
+  });
+
+  /// 停掉 [activeStart] 起的配网。
+  Future<void> activeStop();
+
   /// 拉起系统的 Wi-Fi 选择界面，让用户自己把手机连到设备热点上。
   ///
   /// AP 配网要求手机**已经**在设备热点上，而 Android 10+ 不允许应用静默连网；
@@ -519,6 +534,29 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> apStopPairing() => _invoke<void>('apStopPairing');
+
+  @override
+  Future<SmartPlanterDevice> activeStart({
+    required String mode,
+    required String ssid,
+    required String password,
+    Duration timeout = const Duration(seconds: 120),
+  }) async {
+    final raw = await _invoke<Map<Object?, Object?>>('activeStart', <String, Object?>{
+      'mode': mode,
+      'ssid': ssid,
+      'password': password,
+      // 这个 builder 的 setTimeOut 单位是**秒**，与 ApActivatorBuilder 的毫秒不同。
+      'timeout': timeout.inSeconds,
+    });
+    if (raw == null) {
+      throw const TuyaException('pair_failed', '配网未返回设备信息');
+    }
+    return _device(raw);
+  }
+
+  @override
+  Future<void> activeStop() => _invoke<void>('activeStop');
 
   @override
   Future<WifiScan> scanWifi({bool refresh = true}) async {

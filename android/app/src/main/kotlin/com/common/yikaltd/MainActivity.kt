@@ -382,6 +382,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 // 再下发凭据。见 apQueryDeviceWifi 的说明。
                 "apQueryDeviceWifi" -> apQueryDeviceWifi(call, result)
                 "apStartPairing" -> apStartPairing(call, result)
+                // 扩展 SDK 的配网入口（涂鸦 2026-09-11 回复：Flutter 场景应使用
+                // ThingActivatorCoreKit）。见 activeStart 的说明。
+                "activeStart" -> activeStart(call, result)
+                "activeStop" -> activeStop(result)
                 // 设备列表是按家庭查的，家庭对不上就是 0 台，而这在 Dart 侧完全
                 // 看不出来——联调页原来显示的「默认家庭」只是个本地常量。
                 "currentHomeId" -> withHome(result) { id ->
@@ -1215,6 +1219,129 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 apStartWithToken(call, result, token)
             }
         }
+    }
+
+    /**
+     * 用**扩展 SDK 的 `ThingActivatorCoreKit`** 配网。
+     *
+     * 2026-09-11 涂鸦回复：「Flutter 场景下必须使用 `ThingActivatorCoreKit`（支持 EZ/AP/
+     * 二维码等模式）」。这条**经核实属实**——从 Maven 拆包确认过：
+     *
+     * - `thingsmart-expansion-sdk` → `thingsmart-activator-core-kit:7.8.0`（**已是现有依赖**）
+     * - `ThingActivatorCoreKit.getActiveManager()` → `IThingActivator`
+     * - `IThingActivator.newThingActiveManager()` → `IThingActiveManager`
+     * - `IThingActiveManager.startActive(builder)` / `stopActive()`
+     * - `ThingDeviceActiveBuilder`：`setActiveModel/setContext/setSsid/setPassword/setToken/`
+     *   `setTimeOut/setSecurityConfig/setListener`
+     * - `ThingDeviceActiveModeEnum` 里 **`AP` 和 `EZ` 都在**
+     *
+     * 这是与 `apStartPairing`（`ThingHomeSdk.getActivatorInstance()`）**完全不同的另一套
+     * 实现**，所以值得单独试：连热点这件事有可能由它内部处理。
+     *
+     * ⚠️ 同一类渠道也给过编造的 API（`ThingSmartHotspotCredentialKit`、
+     * `IThingOptimizedActivator.startAPConfig`、`WifiManager#connectSta`——都经查不存在），
+     * 所以**任何新 API 先拆包核实再写代码**。这一条是核实过的。
+     */
+    private fun activeStart(call: MethodCall, rawResult: MethodChannel.Result) {
+        if (pairingResult != null) releasePairing("pair_cancelled", "被新的配网请求取代")
+        val result = PairingResult(rawResult)
+        pairingResult = result
+        freshActivatorToken()?.let { token ->
+            activeStartWithToken(call, result, token)
+            return
+        }
+        withHome(result) { id ->
+            fetchActivatorToken(id, result) { token ->
+                activeStartWithToken(call, result, token)
+            }
+        }
+    }
+
+    private fun activeStartWithToken(
+        call: MethodCall,
+        result: MethodChannel.Result,
+        token: String,
+    ) {
+        val mode = call.argument<String>("mode")?.uppercase() ?: "AP"
+        trace("active: begin mode=$mode, wifi=${currentSsidForLog()}")
+
+        // ThingActivatorCoreKit 是 Kotlin object：先试 INSTANCE 字段，再退到 getInstance()。
+        val kitClass = firstClass(
+            "com.thingclips.smart.activator.core.kit.ThingActivatorCoreKit",
+        )
+        val kit = runCatching { kitClass.getField("INSTANCE").get(null) }.getOrNull()
+            ?: invokeStatic(kitClass, "getInstance")
+            ?: throw IllegalStateException("拿不到 ThingActivatorCoreKit 实例")
+        val activator = invoke(kit, "getActiveManager")
+            ?: throw IllegalStateException("getActiveManager 返回空")
+        val manager = invoke(activator, "newThingActiveManager")
+            ?: throw IllegalStateException("newThingActiveManager 返回空")
+        trace("active: manager=${manager.javaClass.simpleName}")
+
+        val builderClass = firstClass(
+            "com.thingclips.smart.activator.core.kit.builder.ThingDeviceActiveBuilder",
+        )
+        val builder = builderClass.getDeclaredConstructor()
+            .apply { isAccessible = true }
+            .newInstance()
+        val modeClass = firstClass(
+            "com.thingclips.smart.activator.core.kit.constant.ThingDeviceActiveModeEnum",
+        )
+        @Suppress("UNCHECKED_CAST")
+        val modeValue = java.lang.Enum.valueOf(
+            modeClass as Class<out Enum<*>>,
+            mode,
+        )
+        invoke(builder, "setActiveModel", modeValue)
+        invoke(builder, "setContext", activity)
+        invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
+        invoke(builder, "setPassword", call.argument<String>("password").orEmpty())
+        invoke(builder, "setToken", token)
+        // 这个 builder 的 setTimeOut 单位是**秒**（与 ApActivatorBuilder 的毫秒不同）。
+        invoke(builder, "setTimeOut", (call.argument<Number>("timeout")?.toLong() ?: 120L))
+        deviceSecurityConfig?.let {
+            runCatching { invoke(builder, "setSecurityConfig", it) }
+        }
+        trace("active: builder ready, starting …")
+        val startedAt = SystemClock.elapsedRealtime()
+        invokeWithCallback(
+            builder,
+            "setListener",
+            onSuccess = { value ->
+                trace(
+                    "active: success in ${SystemClock.elapsedRealtime() - startedAt}ms, " +
+                        "wifi now = ${currentSsidForLog()}",
+                )
+                onMain(result) {
+                    activatorToken = null
+                    if (value == null) {
+                        error(result, "pair_failed", "配网未返回设备信息")
+                    } else {
+                        watchDevice(deviceIdOf(value))
+                        success(result, deviceMap(value))
+                    }
+                }
+            },
+            onError = { code, message ->
+                trace(
+                    "active: error $code after ${SystemClock.elapsedRealtime() - startedAt}ms, " +
+                        "msg=$message, wifi now = ${currentSsidForLog()}",
+                )
+                error(result, code, message)
+            },
+        )
+        invoke(manager, "startActive", builder)
+        activeManager = manager
+        trace("active: handed to kit, waiting for callback")
+    }
+
+    /** 上一次 `activeStart` 建的 manager，用来停。 */
+    private var activeManager: Any? = null
+
+    private fun activeStop(result: MethodChannel.Result) {
+        activeManager?.let { runCatching { invoke(it, "stopActive") } }
+        activeManager = null
+        success(result, null)
     }
 
     private fun apStartWithToken(

@@ -756,6 +756,57 @@ class FlowerpotState extends ChangeNotifier {
         }
       });
 
+  /// 用**扩展 SDK 的 `ThingActivatorCoreKit`** 配网。
+  ///
+  /// 2026-09-11 涂鸦回复：「Flutter 场景下必须使用 `ThingActivatorCoreKit`」。这条**已拆包
+  /// 核实属实**——`thingsmart-activator-core-kit:7.8.0` 本来就是我们的传递依赖，
+  /// `ThingActivatorCoreKit` / `ThingDeviceActiveBuilder` / `ThingDeviceActiveModeEnum`
+  /// （含 `AP`、`EZ`）全部存在。详见原生 `activeStart` 的注释。
+  ///
+  /// 与 [pairViaDeviceHotspot]（`ThingHomeSdk.getActivatorInstance()`）是**两套不同实现**，
+  /// 连热点的处理可能不一样，所以单独接出来试。
+  ///
+  /// ⚠️ 同一渠道也给过编造的 API（`ThingSmartHotspotCredentialKit`、
+  /// `IThingOptimizedActivator.startAPConfig`、`WifiManager#connectSta` —— 均经查不存在）。
+  /// **任何新 API 先拆包核实再写代码。**
+  Future<ActionResult> pairViaActivatorKit({
+    required String ssid,
+    required String password,
+    String mode = 'ap',
+    Duration timeout = const Duration(seconds: 120),
+  }) => _guard(() async {
+    final watch = Stopwatch()..start();
+    _startPairingLog();
+    _setPairingStage(PairingStage.connectingDevice);
+    var started = false;
+    try {
+      started = true;
+      final device = await _repository.activeStart(
+        mode: mode,
+        ssid: ssid,
+        password: password,
+        timeout: timeout,
+      );
+      _setPairingStage(PairingStage.activating);
+      _activatorTokenAt = null;
+      _devices = <SmartPlanterDevice>[
+        ..._devices.where((item) => item.id != device.id),
+        device,
+      ];
+      _selectedDeviceId = device.id;
+      return const ActionResult(true, '设备配网成功');
+    } on TuyaException catch (error) {
+      if (started) _activatorTokenAt = null;
+      throw TuyaException(error.code, _connectDiagnostic(error.message, watch));
+    } catch (error) {
+      if (started) _activatorTokenAt = null;
+      throw TuyaException('pair_failed', _connectDiagnostic('$error', watch));
+    } finally {
+      await _stopPairingLog();
+      _setPairingStage(PairingStage.idle);
+    }
+  });
+
   /// 涂鸦「热点配网新流程」。**全程不碰 `WifiNetworkSpecifier`，所以不会有系统入网
   /// 授权框。**
   ///

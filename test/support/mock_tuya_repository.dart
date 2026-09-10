@@ -237,6 +237,17 @@ class MockTuyaRepository implements TuyaRepository {
   @override
   Future<void> apStopPairing() async {}
 
+  @override
+  Future<SmartPlanterDevice> activeStart({
+    required String mode,
+    required String ssid,
+    required String password,
+    Duration timeout = const Duration(seconds: 120),
+  }) => pair(PairingRequest(ssid: ssid, password: password, mode: mode));
+
+  @override
+  Future<void> activeStop() async {}
+
   /// 测试里没有系统界面可拉起。记一笔，供用例断言「有没有引导用户去连热点」。
   int wifiPanelOpens = 0;
 

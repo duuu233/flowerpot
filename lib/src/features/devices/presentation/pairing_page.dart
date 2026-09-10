@@ -321,10 +321,16 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // `state.pairViaHotspot(ssid:, password:, hotspotSsid:)`，并把搜索页的
     // `connectDeviceForPairing()` 换回 `connectDeviceHotspot(hotspotSsid:)`。
     // 两条路径的代码都完整保留，互不干扰。
-    final result = await state.pairViaDeviceHotspot(
+    // 走**扩展 SDK 的 `ThingActivatorCoreKit`**（涂鸦 2026-09-11 回复：Flutter 场景应使用
+    // 它；已拆包核实类与方法都在，依赖也现成）。这是与 `pairViaDeviceHotspot`
+    // （`ThingHomeSdk.getActivatorInstance()`）**完全不同的另一套实现**。
+    //
+    // ⚠️ 要切回上一套只需换成：
+    // `state.pairViaDeviceHotspot(ssid:, password:, hotspotSsid:)`；
+    // 再往前一套是 `state.pairViaHotspot(...)`（git 里最后一版配成过的）。三套都保留着。
+    final result = await state.pairViaActivatorKit(
       ssid: request.ssid,
       password: request.password,
-      hotspotSsid: widget.arguments?.hotspotSsid,
     );
     _pairingState = null;
     if (!mounted) return;
