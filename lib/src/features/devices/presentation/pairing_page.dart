@@ -85,7 +85,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // 强制重扫，不吃 state 里的缓存：那份快照可能是搜索页几分钟前留下的，
     // 用户之后很可能已经把手机切到了别的网络。
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _loadNetworks(force: true),
+      (_) => _loadNetworks(),
     );
   }
 
@@ -110,7 +110,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
     if (lifecycleState != AppLifecycleState.resumed || _pairing) return;
-    unawaited(_loadNetworks(force: true));
+    unawaited(_loadNetworks());
   }
 
   /// Fills the SSID with the network the phone is on, which is the one the
@@ -119,26 +119,43 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// Only a real scan result is used, and only a 2.4 GHz one: handing the SDK a
   /// 5 GHz or hotspot name would make provisioning fail in a way that looks
   /// like a device problem.
-  Future<void> _loadNetworks({bool force = false}) async {
+  /// 把手机当前连着的 Wi-Fi 名带进输入框。
+  ///
+  /// **只读缓存、不发起扫描**：名字来自 `WifiManager.connectionInfo`，根本不需要
+  /// 扫描；而一次真扫要等系统的 `SCAN_RESULTS_AVAILABLE` 广播（最多 5 秒）、被配额
+  /// 挡住时还更久——名字就是这样被拖慢的。附近网络列表留给「切换」那个弹层自己去拉。
+  Future<void> _loadNetworks() async {
     if (!mounted) return;
     final state = FlowerpotScope.of(context);
-    if (force || state.wifiScan == null) await state.probeWifi();
+    await state.probeWifi(refresh: false);
     if (!mounted) return;
-    final scan = state.wifiScan;
-    final current = scan?.current;
-    // 空的、或者还是上次自动填进去的那个名字，都算「用户没动过」，可以更正为
-    // 手机当前真正连着的网络；用户自己输入或选过的名字一律不动。
+    _applyCurrentSsid(state);
+  }
+
+  /// 规则很简单（2026-09-10 产品口径）：
+  ///
+  /// 1. 手机连着 Wi-Fi 就**直接带出来**；
+  /// 2. 没连就**留空**，让用户自己去「切换」里选。
+  ///
+  /// 唯一的例外是手机此刻正挂在设备热点上（上一次配网失败留下的），那个名字填进去
+  /// 等于让设备去连它自己，所以按「没连」处理。频段不再作为过滤条件——连的是 5G 时
+  /// 照样带出来，由页面上那条频段提示去说明，空着一个框反而让人不知道该做什么。
+  void _applyCurrentSsid(FlowerpotState state) {
+    // 用户自己输入或从「切换」里选过的名字一律不动。
     final untouched =
         ssidController.text.isEmpty || ssidController.text == _autoFilledSsid;
-    if (scan != null &&
+    if (!untouched) {
+      setState(() {});
+      return;
+    }
+    final scan = state.wifiScan;
+    final current = scan?.current;
+    final connected =
         current != null &&
         current.isNotEmpty &&
-        untouched &&
-        scan.currentIs24g != false &&
-        !scan.currentIsDeviceHotspot) {
-      ssidController.text = current;
-      _autoFilledSsid = current;
-    }
+        !(scan?.currentIsDeviceHotspot ?? false);
+    ssidController.text = connected ? current : '';
+    _autoFilledSsid = connected ? current : null;
     setState(() {});
   }
 

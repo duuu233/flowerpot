@@ -108,7 +108,13 @@ abstract class TuyaRepository {
 
   /// Nearby access points, used before provisioning to check that the phone is
   /// on 2.4 GHz and — in AP mode — that the device hotspot is up.
-  Future<WifiScan> scanWifi();
+  /// 读一次附近网络。
+  ///
+  /// [refresh] = true 时**主动发起一次系统扫描**再等结果——这条路受 Android 的
+  /// 配额限制（前台每 2 分钟 4 次）。false 时只读系统的扫描缓存，**不受配额限制、
+  /// 也不必等**：系统自己（连接管理、其它应用、设置页）也在扫，缓存会被它们刷新。
+  /// 搜索页据此「30 秒一次真扫 + 2 秒一次读缓存」，比只靠真扫快得多。
+  Future<WifiScan> scanWifi({bool refresh = true});
   Future<void> publishDps(String deviceId, Map<int, Object> dps);
   Future<void> renameDevice(String deviceId, String name);
   Future<void> removeDevice(String deviceId, {required bool resetFactory});
@@ -408,8 +414,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       _invoke<void>('setHomeTag', <String, Object?>{'tag': tag});
 
   @override
-  Future<WifiScan> scanWifi() async {
-    final raw = await _invoke<Map<Object?, Object?>>('scanWifi');
+  Future<WifiScan> scanWifi({bool refresh = true}) async {
+    final raw = await _invoke<Map<Object?, Object?>>('scanWifi', <String, Object?>{
+      'refresh': refresh,
+    });
     if (raw == null) throw const TuyaException('scan_failed', 'Wi-Fi 扫描未返回结果');
     final networks = (raw['networks'] as List<Object?>? ?? <Object?>[])
         .whereType<Map<Object?, Object?>>()

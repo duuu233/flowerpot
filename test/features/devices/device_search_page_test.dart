@@ -186,19 +186,22 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('窗口内会按节奏反复扫描，中途出现的设备热点照样会列出来', (tester) async {
-    // 用户长按设备让它进配网时，第一次扫描往往还看不到热点。窗口没走完就一直
-    // 重扫，热点一出现就列在下面，不用用户自己点「重新扫描」。
+  testWidgets('中途出现的设备热点由 2 秒一次的读缓存捡到，不必等下一次真扫', (tester) async {
+    // 设备上电到热点广播出来要几十秒。主动扫描受 Android 配额限制（每 2 分钟
+    // 4 次 ⇒ 30 秒一次），中间那 30 秒如果什么都不做，设备在这期间冒出来也要
+    // 等到下一次真扫才看得见——那就是「搜了一分钟才搜到」。读缓存不受配额限制，
+    // 2 秒一次把这个空档补上。
     await _pumpDeviceSearchPage(
       tester,
       const Size(375, 812),
-      repository: _LateHotspotRepository(silentScans: 2),
+      repository: _LateHotspotRepository(silentScans: 1),
     );
-    // 头两次是 3 秒一次的快扫，第三次要等 30 秒的慢节奏——这就是系统配额
-    // （Android 每 2 分钟 4 次）逼出来的间隔，扫得更密只会拿回旧缓存。
-    await tester.pump(const Duration(seconds: 6));
+    await tester.pump();
+    await tester.pump();
     expect(find.byKey(_FoundListKey.key), findsNothing);
-    await tester.pump(const Duration(seconds: 31));
+
+    // 第二次读取（≤2 秒后）就该拿到热点，而不是等到 30 秒后的那次真扫。
+    await tester.pump(const Duration(seconds: 3));
     await tester.pump();
 
     expect(find.byKey(_FoundListKey.key), findsOneWidget);
@@ -351,7 +354,7 @@ class _ScanRepository extends MockTuyaRepository {
   final WifiScan scan;
 
   @override
-  Future<WifiScan> scanWifi() async => scan;
+  Future<WifiScan> scanWifi({bool refresh = true}) async => scan;
 }
 
 /// 前 [silentScans] 次扫描只看得到路由器，之后设备热点才出现。
@@ -363,7 +366,7 @@ class _LateHotspotRepository extends MockTuyaRepository {
   int _calls = 0;
 
   @override
-  Future<WifiScan> scanWifi() async {
+  Future<WifiScan> scanWifi({bool refresh = true}) async {
     final seen = _calls++;
     if (seen < silentScans) {
       return const WifiScan(
@@ -389,6 +392,6 @@ class _FailingScanRepository extends MockTuyaRepository {
   _FailingScanRepository() : super(latency: Duration.zero);
 
   @override
-  Future<WifiScan> scanWifi() async =>
+  Future<WifiScan> scanWifi({bool refresh = true}) async =>
       throw const TuyaException('wifi_disabled', '手机 Wi-Fi 未开启，无法扫描');
 }

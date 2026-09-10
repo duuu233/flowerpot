@@ -405,7 +405,7 @@ class _PairingRepository extends MockTuyaRepository {
   }
 
   @override
-  Future<WifiScan> scanWifi() async => scan;
+  Future<WifiScan> scanWifi({bool refresh = true}) async => scan;
 
   @override
   Future<SmartPlanterDevice> pair(PairingRequest request) {

@@ -446,7 +446,12 @@ class FlowerpotState extends ChangeNotifier {
   /// 而 Android 上一次扫描要好几秒。占着锁的话，这期间用户发起的任何操作——
   /// 换页后再扫一次、配网页取令牌——都会被挡成「请等待当前操作完成」，在选择
   /// 设备页上还会被当成扫描失败的原因显示出来。这里只防它自己重入。
-  Future<ActionResult> probeWifi() async {
+  ///
+  /// [refresh] = false 时**只读系统的扫描缓存、不主动发起扫描**：那条路不受
+  /// Android 的扫描配额限制（前台每 2 分钟 4 次 `startScan`），也不必等广播，
+  /// 所以搜索页可以 2 秒读一次；真扫留给 30 秒一次的节奏。系统自己（连接管理、
+  /// 其它应用、设置页）也在扫，缓存会被它们刷新——这正是「读缓存」能提速的原因。
+  Future<ActionResult> probeWifi({bool refresh = true}) async {
     if (_wifiScanning) {
       return const ActionResult(
         false,
@@ -456,15 +461,15 @@ class FlowerpotState extends ChangeNotifier {
     }
     _wifiScanning = true;
     try {
-      return await _run(_probeWifi);
+      return await _run(() => _probeWifi(refresh: refresh));
     } finally {
       _wifiScanning = false;
       notifyListeners();
     }
   }
 
-  Future<ActionResult> _probeWifi() async {
-    final scan = await _repository.scanWifi();
+  Future<ActionResult> _probeWifi({required bool refresh}) async {
+    final scan = await _repository.scanWifi(refresh: refresh);
     _wifiScan = scan;
     final current = scan.current;
     final band = switch (scan.currentIs24g) {

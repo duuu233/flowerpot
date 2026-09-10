@@ -122,6 +122,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('手机没连 Wi-Fi 时输入框留空，让用户自己去切换', (tester) async {
+    // 2026-09-10 产品口径：连着就直接带出来，没连就留空——不猜、也不填一个
+    // 上一次留下的旧名字。
+    await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(const WifiScan(networks: <WifiNetwork>[])),
+    );
+    await tester.pump();
+
+    final ssid = tester.widget<TextField>(
+      find.byKey(const Key('pairing-ssid-field')),
+    );
+    expect(ssid.controller?.text, isEmpty);
+    expect(find.byKey(const Key('switch-wifi-button')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('手机挂在设备热点上时也按「没连」处理', (tester) async {
+    // 上一次配网失败会把手机留在设备热点上。把那个名字填进去等于让设备去连
+    // 它自己。
+    await _pumpPairingPage(
+      tester,
+      const Size(375, 812),
+      repository: _ScanRepository(
+        const WifiScan(current: 'SmartLife-A1B2', networks: <WifiNetwork>[]),
+      ),
+    );
+    await tester.pump();
+
+    final ssid = tester.widget<TextField>(
+      find.byKey(const Key('pairing-ssid-field')),
+    );
+    expect(ssid.controller?.text, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a platform without a network list keeps manual entry', (
     tester,
   ) async {
@@ -501,7 +538,7 @@ class _SwitchingScanRepository extends MockTuyaRepository {
   int scans = 0;
 
   @override
-  Future<WifiScan> scanWifi() async {
+  Future<WifiScan> scanWifi({bool refresh = true}) async {
     scans++;
     final ssid = scans <= 1 ? 'Old_2.4G' : 'New_2.4G';
     return WifiScan(
@@ -520,7 +557,7 @@ class _ScanRepository extends MockTuyaRepository {
   final WifiScan scan;
 
   @override
-  Future<WifiScan> scanWifi() async => scan;
+  Future<WifiScan> scanWifi({bool refresh = true}) async => scan;
 }
 
 /// Counts the two provisioning calls so the AP order can be asserted.
@@ -560,7 +597,7 @@ class _ManualHotspotRepository extends _TokenRepository {
   }
 
   @override
-  Future<WifiScan> scanWifi() async => const WifiScan(
+  Future<WifiScan> scanWifi({bool refresh = true}) async => const WifiScan(
     current: 'TP-LINK_2.4G',
     currentFrequency: 2437,
     networks: <WifiNetwork>[

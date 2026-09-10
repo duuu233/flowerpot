@@ -29,7 +29,8 @@ import 'pairing_page.dart';
 /// 分钟只允许 4 次 `startScan`，超了直接被拒、返回上一次的缓存。2026-09-08 那版
 /// 每 2 秒重扫一次，配额在头 20 秒就烧光，之后整个窗口拿到的都是**用户开机之前**
 /// 的那份旧缓存——「先进搜索页、再给设备上电」于是永远搜不到。现在改成
-/// [_burstScans] 次快扫之后退到 [_pacedGap]，并在被限流时明说正在等配额。
+/// 主动扫描退到 [_forceScanGap]（配额允许的最快节奏），中间的空档由
+/// [_cachePollGap] 的读缓存补上——受配额限制的只有 `startScan`，读缓存不受限。
 class DeviceSearchPage extends StatefulWidget {
   const DeviceSearchPage({super.key, this.request});
 
@@ -61,19 +62,21 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   static bool get _canListNetworks =>
       defaultTargetPlatform != TargetPlatform.iOS;
 
-  /// 开头连扫几次，用来抓「设备早就开着、热点已经在广播」这种常见情形。
+  /// **主动扫描**（`startScan`）的节奏。
   ///
-  /// 只花掉系统配额（每 2 分钟 4 次）里的 2 次，剩下的留给后面慢扫。
-  static const int _burstScans = 2;
+  /// Android 前台每 2 分钟只许 4 次 ⇒ 平均 30 秒一次。比这更密只会被拒、拿回同一份
+  /// 旧缓存，而且看不出来是旧的——那正是 09-08 那版搜不到设备的原因。
+  static const Duration _forceScanGap = Duration(seconds: 30);
 
-  /// 快扫阶段两次之间的间隔。
-  static const Duration _burstGap = Duration(seconds: 3);
-
-  /// 快扫用完之后的节奏。
+  /// **读缓存**的节奏。
   ///
-  /// 配额是每 2 分钟 4 次 ⇒ 平均 30 秒一次。比这更密只会被拒、拿回同一份旧缓存，
-  /// 而且看不出来是旧的——这正是 09-08 那版搜不到设备的原因。
-  static const Duration _pacedGap = Duration(seconds: 30);
+  /// 受配额限制的只有 `startScan`，读系统的扫描结果缓存不受限、也几乎不耗时。而
+  /// 系统自己（连接管理、设置页、别的应用）同样在扫，缓存会被它们刷新。所以这里
+  /// 2 秒读一次：设备热点一旦被**任何一次**扫描看到，最多 2 秒就出现在列表里。
+  ///
+  /// 这一条是「为什么要等一分钟才搜到」的答案：改之前两次主动扫描之间的 30 秒是
+  /// 完全瞎的，设备在那 30 秒里冒出来也要等到下一次真扫才看得见。
+  static const Duration _cachePollGap = Duration(seconds: 2);
 
   late final AnimationController _radarController;
 
@@ -88,10 +91,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 本轮搜索窗口的截止时间，到点之前扫不到就一直重扫。
   Timer? _deadlineTimer;
   bool _windowExpired = false;
-  Timer? _retryTimer;
 
-  /// 本轮已经发起过几次扫描，用来决定还在不在快扫阶段。
-  int _scanCount = 0;
+  /// 下一次**主动扫描**的定时器（30 秒一次，受系统配额约束）。
+  Timer? _forceScanTimer;
+
+  /// **读缓存**的定时器（2 秒一次，不受配额约束）。
+  Timer? _pollTimer;
 
   /// 上一次扫描是不是被系统限流了（拿回的是旧缓存）。界面据此换一句话。
   bool _throttled = false;
@@ -114,7 +119,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   @override
   void dispose() {
-    _retryTimer?.cancel();
+    _forceScanTimer?.cancel();
+    _pollTimer?.cancel();
     _deadlineTimer?.cancel();
     _radarController.dispose();
     super.dispose();
@@ -122,28 +128,46 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   /// 开始一轮搜索：重置 [DeviceSearchPage.searchWindow] 窗口，立刻扫一次。
   void _scan() {
-    _retryTimer?.cancel();
+    _forceScanTimer?.cancel();
+    _pollTimer?.cancel();
     if (!mounted) return;
     _deadlineTimer?.cancel();
     _windowExpired = false;
-    _scanCount = 0;
     _throttled = false;
     _scannedForReal = false;
     _radarController.repeat();
     _deadlineTimer = Timer(DeviceSearchPage.searchWindow, () {
       _windowExpired = true;
-      _retryTimer?.cancel();
+      _forceScanTimer?.cancel();
+      _pollTimer?.cancel();
       if (!mounted) return;
       _radarController.stop();
       setState(() => _scanning = false);
     });
+    // 两条线并行：30 秒一次真扫（受配额约束），2 秒一次读缓存（不受约束）。
+    _pollTimer = Timer.periodic(_cachePollGap, (_) => unawaited(_pollCache()));
     unawaited(_runScan());
+  }
+
+  /// 读一次系统的扫描缓存。不调 `startScan`，不占配额，几乎不耗时。
+  ///
+  /// 真扫在跑时跳过：`probeWifi` 有重入保护，这时调只会拿回一条
+  /// `wifi_scanning` 的失败，白白把界面状态搅乱。
+  Future<void> _pollCache() async {
+    if (!mounted || _inFlight || _windowExpired) return;
+    _inFlight = true;
+    try {
+      await FlowerpotScope.of(context).probeWifi(refresh: false);
+    } finally {
+      _inFlight = false;
+    }
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _runScan() async {
     if (!mounted || _inFlight) return;
     _inFlight = true;
-    _scanCount++;
     setState(() {
       _scanning = true;
       _result = null;
@@ -155,9 +179,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     final scan = state.wifiScan;
     // 被限流 ⇒ 这一轮答的是旧缓存，不能算「扫过了」。有些机型限流时 startScan 照样
     // 返回 true，只是不重扫，所以再看一眼缓存年龄兜底。
+    //
+    // ⚠️ 这个判断只在**主动扫描**之后做。读缓存那条路本来就不刷新缓存，`ageMs`
+    // 偏大是常态，拿它判限流会把每次读缓存都误判成被限流。
     _throttled =
         scan?.throttled == true ||
-        (scan?.ageMs != null && scan!.ageMs! > _pacedGap.inMilliseconds);
+        (scan?.ageMs != null && scan!.ageMs! > _forceScanGap.inMilliseconds);
     if (result.success && !_throttled) _scannedForReal = true;
     // Only a real hotspot advances on its own. Every other outcome keeps the
     // user here with a reason and a way forward.
@@ -168,16 +195,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     final retryable = result.success || result.code == 'wifi_scanning';
     _result = result;
     if (retryable && !_windowExpired) {
-      // 头几次快扫抓「设备早就开着」；之后退到 30 秒一次，让系统配额回补。
-      // 被限流时同样按慢节奏等——立刻重试只会再被拒一次。
-      final gap = (_scanCount < _burstScans && !_throttled)
-          ? _burstGap
-          : _pacedGap;
+      // 主动扫描固定 30 秒一次——那是配额允许的最快节奏，快了只会被拒。中间的
+      // 空档由 2 秒一次的读缓存补上，不必也不该在这里缩短间隔。
       setState(() {});
-      _retryTimer = Timer(gap, _runScan);
+      _forceScanTimer = Timer(_forceScanGap, () => unawaited(_runScan()));
       return;
     }
     _deadlineTimer?.cancel();
+    _pollTimer?.cancel();
     _radarController.stop();
     setState(() {
       _scanning = false;
@@ -251,7 +276,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: AppColors.textPrimary,
-                            fontSize: compact ? 24 : 28,
+                            fontSize: outcome.compactTitle
+                                ? (compact ? 18 : 20)
+                                : (compact ? 24 : 28),
                             fontWeight: FontWeight.w600,
                             height: 1.25,
                           ),
@@ -317,6 +344,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       return _SearchOutcome(
         '发现 ${hotspots.length} 台设备',
         _scanning ? '点击下方设备继续配网，仍在继续搜索…' : '点击下方设备继续配网。',
+        compactTitle: true,
       );
     }
     if (_scanning) {
@@ -379,10 +407,16 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 }
 
 class _SearchOutcome {
-  const _SearchOutcome(this.title, this.message);
+  const _SearchOutcome(this.title, this.message, {this.compactTitle = false});
 
   final String title;
   final String message;
+
+  /// 标题用小一号的字。
+  ///
+  /// 「搜索附近设备…」「未发现设备」是这一屏的主标题，28 撑得住；而「发现 N 台
+  /// 设备」下面紧跟着设备列表，重点在列表上，同样 28 就显得太大了。
+  final bool compactTitle;
 }
 
 /// 页面底部那颗按钮：要么「重新扫描」，要么 iOS 上的「下一步」。

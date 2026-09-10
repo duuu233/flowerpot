@@ -195,7 +195,7 @@ class MockTuyaRepository implements TuyaRepository {
   }
 
   @override
-  Future<WifiScan> scanWifi() async {
+  Future<WifiScan> scanWifi({bool refresh = true}) async {
     await _wait();
     return const WifiScan(
       current: 'TP-LINK_2.4G',

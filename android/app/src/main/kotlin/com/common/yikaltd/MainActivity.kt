@@ -322,7 +322,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
             if (call.method == "scanWifi") {
-                scanWifi(result)
+                scanWifi(call, result)
                 return
             }
             // 释放类调用不依赖 SDK 就绪：SDK 没起来时也可能有残留的热点连接要放。
@@ -472,11 +472,21 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * pre-pairing proof that the device is in provisioning state, and the
      * current network tells you whether the phone sits on 2.4 GHz at all.
      */
-    private fun scanWifi(result: MethodChannel.Result) {
+    private fun scanWifi(call: MethodCall, result: MethodChannel.Result) {
         val context = activity.applicationContext
         val wifi = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
         if (!wifi.isWifiEnabled) {
             error(result, "wifi_disabled", "手机 Wi-Fi 未开启，无法扫描")
+            return
+        }
+        // `refresh = false`：只读系统的扫描缓存，**不调 startScan、也不等广播**。
+        //
+        // 受配额限制的只有 `startScan`（前台每 2 分钟 4 次），读 `scanResults` 不
+        // 受限也不耗时。而系统自己——连接管理、设置页、别的应用——同样在扫，缓存会
+        // 被它们刷新。所以搜索页「30 秒一次真扫 + 2 秒一次读缓存」比只靠真扫快得多：
+        // 设备热点一旦被**任何一次**扫描看到，下一次读缓存（最多 2 秒）就拿到了。
+        if (call.argument<Boolean>("refresh") == false) {
+            success(result, wifiSnapshot(wifi, throttled = false))
             return
         }
         // Android 9-12 refuse to return scan results while the location
