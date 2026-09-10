@@ -515,7 +515,16 @@ Future<bool> showFirmwareUpdateDialog(
         barrierColor: Colors.black.withValues(alpha: .42),
         builder: (dialogContext) => Dialog(
           key: const Key('firmware-update-dialog'),
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          // **贴底，不居中**（产品 2026-09-11：「OTA 升级的弹框底部定位就行不要在
+          // 中间」）。整条升级动线两个弹框一起改，否则点完「立即更新」会从居中跳到
+          // 底部。只改位置：卡片样式、327 的最大宽度都没动。
+          alignment: Alignment.bottomCenter,
+          insetPadding: EdgeInsets.fromLTRB(
+            24,
+            24,
+            24,
+            MediaQuery.viewPaddingOf(dialogContext).bottom + 16,
+          ),
           shape: const RoundedRectangleBorder(borderRadius: AppRadius.dialog),
           clipBehavior: Clip.antiAlias,
           child: ConstrainedBox(

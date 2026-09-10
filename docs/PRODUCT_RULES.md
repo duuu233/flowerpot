@@ -267,6 +267,22 @@ Android 10+ 上第 2 步会弹一次系统入网授权框（`WifiNetworkSpecifie
   用来分辨三种完全不同的故障：**配网器没建起来**、**反射签名对不上**、
   **调出去了但回调永远不来**。
 
+## 4.2 弹框位置：OTA 升级的两个弹框**贴底，不居中**
+
+**（2026-09-11 产品：「OTA 升级的弹框底部定位就行不要在中间」）**
+
+- 「检查更新」（`firmware-update-dialog`）和升级进度（`ota-progress-dialog`）**一起改**——
+  只改一个，点完「立即更新」就会从居中跳到底部。
+- 实现只动**位置**：`alignment: Alignment.bottomCenter` + `insetPadding` 底边留
+  `MediaQuery.viewPaddingOf(context).bottom + 16`（全屏手势机型底部有 home indicator，
+  贴着画会被压住）。卡片样式、圆角、327 的最大宽度都不动。
+- ⚠️ **不要改成 `showModalBottomSheet`**：那会把卡片拉成满宽、顶部切成两个直角，等于重做
+  视觉，不是产品要的"换个位置"。
+- 另外两个弹框暂未改：APP 版本更新（`app_update_dialog.dart`，不是固件 OTA）、设置项选择
+  表单（本来就是底部升起的）。
+
+---
+
 ## 5. 实现底线
 
 - **不要 mock 数据。** 产品路径全部走真实桥接。
