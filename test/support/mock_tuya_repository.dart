@@ -27,6 +27,15 @@ class MockTuyaRepository implements TuyaRepository {
   @override
   Stream<OtaProgress> get otaUpdates => _otaUpdates.stream;
 
+  /// 配网进度。用例可以往 [emitPairingStep] 里推，模拟涂鸦的 `onStep` 回调。
+  final StreamController<String> _pairingSteps =
+      StreamController<String>.broadcast();
+
+  @override
+  Stream<String> get pairingSteps => _pairingSteps.stream;
+
+  void emitPairingStep(String step) => _pairingSteps.add(step);
+
   /// 让测试和演示能驱动升级进度，无需真实设备。
   void pushOtaProgress(OtaProgress progress) => _otaUpdates.add(progress);
 

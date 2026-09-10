@@ -685,13 +685,37 @@ class FlowerpotState extends ChangeNotifier {
       watch.reset();
     }
 
-    String withSteps(String message) =>
-        steps.isEmpty ? message : '$message｜${steps.join(' · ')}';
+    // 涂鸦 activator 自己报的进度（`onStep`）。智能生活 App 在 AP 配网时展示的
+    // 「设备连接建立成功 / Wi-Fi 配置已下发 / 设备连接路由器成功 / 设备激活中 /
+    // 设备即将上线」就是这一串。拿它把进度页从**猜**改成**真**，失败时也把最后到过
+    // 哪一步写进消息——那比失败码更能说明卡在哪。
+    final tuyaSteps = <String>[];
+
+    String withSteps(String message) {
+      final parts = <String>[
+        ...steps,
+        if (tuyaSteps.isNotEmpty) '涂鸦进度「${tuyaSteps.last}」',
+      ];
+      return parts.isEmpty ? message : '$message｜${parts.join(' · ')}';
+    }
 
     // 凭据发出去了令牌就可能已被设备用掉，失败时要作废、下次重新取。
     var pairingStarted = false;
+    StreamSubscription<String>? stepSub;
     _setPairingStage(PairingStage.connectingDevice);
     try {
+      stepSub = _repository.pairingSteps.listen((step) {
+        tuyaSteps.add(step);
+        debugPrint('[pairing] step $step');
+        // 第一条 `onStep` 意味着与设备的通道已经建立；之后的都属于「设备在连路由器、
+        // 连云激活」那一段。步骤常量名文档没列，所以按**到达顺序**判断——顺序是 SDK
+        // 保证的，真机日志确认了名字之后可以改成按名字精确映射。
+        _setPairingStage(
+          tuyaSteps.length <= 1
+              ? PairingStage.sendingWifi
+              : PairingStage.connectingCloud,
+        );
+      });
       // ① SDK 连设备热点并查设备状态。热点名不用我们给——SDK 自己找。
       // `hotspotSsid` 只进诊断文案，便于对上搜索页扫到的是哪一台。
       final label = hotspotSsid == null ? '连设备' : '连设备($hotspotSsid)';
@@ -716,7 +740,11 @@ class FlowerpotState extends ChangeNotifier {
       );
       mark('配网');
       _setPairingStage(PairingStage.connectingCloud);
-      await Future<void>.delayed(_cloudStageDelay());
+      // 涂鸦真报了进度就不用再装：那 1–2 秒随机停留是因为第三步原来**没有任何真实
+      // 信号**（见 [_cloudStageDelay]）。现在有 `onStep` 了，有就用真的。
+      if (tuyaSteps.isEmpty) {
+        await Future<void>.delayed(_cloudStageDelay());
+      }
       _activatorTokenAt = null;
       _devices = <SmartPlanterDevice>[
         ..._devices.where((item) => item.id != device.id),
@@ -733,6 +761,7 @@ class FlowerpotState extends ChangeNotifier {
       await _releaseDeviceHotspotPairing(invalidateToken: pairingStarted);
       rethrow;
     } finally {
+      await stepSub?.cancel();
       _setPairingStage(PairingStage.idle);
     }
   });
@@ -993,12 +1022,14 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '已中止配网，设备热点连接已释放');
   });
 
-  /// 第三步「连接云端」的停留时长。
+  /// 第三步「连接云端」的停留时长。**只在涂鸦一条 `onStep` 都没报时才用。**
   ///
-  /// ⚠️ **这一步目前没有接任何实际业务**：涂鸦的 activator 返回时设备其实已经注册
+  /// ⚠️ **这一步原来没有接任何实际业务**：涂鸦的 activator 返回时设备其实已经注册
   /// 到云端了，所以没有可等的东西。产品口径是先给它一个 1–2 秒的随机停留、然后
   /// 直接按成功处理——否则第三步会一闪而过，用户看到的是「第二步刚亮起就跳走了」。
-  /// 真接上云端回执之后，把这段延时换成真正的等待即可。
+  /// 2026-09-10 起已经接上了真信号：`onStep` 一旦有上报，`pairViaDeviceHotspot` 就按
+  /// 真实进度走，不再用这段延时（智能生活展示的「设备激活中 / 设备即将上线」正是它）。
+  /// 这里只留作**没有任何上报时**的兜底，免得第二步刚亮起就跳走。
   static Duration _cloudStageDelay() =>
       Duration(milliseconds: 1000 + Random().nextInt(1000));
 

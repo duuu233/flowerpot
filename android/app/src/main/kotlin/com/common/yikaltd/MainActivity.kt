@@ -1986,6 +1986,17 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "equals" -> proxy === args?.firstOrNull()
                 "hashCode" -> System.identityHashCode(proxy)
                 "toString" -> "TuyaCallback(${callbackType.simpleName})"
+                // 配网进度回调。涂鸦在 AP 流程里逐步上报「设备连接建立成功 / Wi-Fi
+                // 配置已下发 / 设备连接路由器成功 / 设备激活中 / 设备即将上线」，
+                // 智能生活 App 展示的就是它。原样转给 Dart，**并且打日志**——这些
+                // 步骤常量名官方文档没有列出来，真机跑一次就能从日志里确认，之后再
+                // 在 Dart 侧按名字精确映射。
+                "onStep" -> {
+                    val step = args?.firstOrNull()?.toString().orEmpty()
+                    Log.i(TUYA_LOG_TAG, "pairing step: $step")
+                    emit(mapOf("type" to "pairingStep", "step" to step))
+                    defaultValue(method.returnType)
+                }
                 "onSuccess", "onActiveSuccess" -> {
                     if (delivered.compareAndSet(false, true)) onSuccess(args?.firstOrNull())
                     defaultValue(method.returnType)

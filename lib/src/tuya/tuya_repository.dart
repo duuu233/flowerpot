@@ -161,6 +161,17 @@ abstract class TuyaRepository {
   /// 固件升级进度。和 [deviceUpdates] 走同一条事件通道，同样在没有推送能力的
   /// 平台上保持静默而不是抛错。
   Stream<OtaProgress> get otaUpdates;
+
+  /// 配网进度：涂鸦 activator 的 `onStep` 回调，原样转上来的步骤名。
+  ///
+  /// 智能生活 App 在 AP 配网时展示的「设备连接建立成功 / Wi-Fi 配置已下发 /
+  /// 设备连接路由器成功 / 设备激活中 / 设备即将上线」就是这串回调。我们据此把进度页
+  /// 从**猜**改成**真**——尤其是最后一步：原来那 1–2 秒随机停留纯粹是装的。
+  ///
+  /// ⚠️ 步骤常量名官方文档没列。原生侧每收到一个都打一行
+  /// `pairing step: …` 日志，真机跑一次即可确认，之后再精确映射；在那之前按**到达
+  /// 顺序**推进，顺序是 SDK 保证的。
+  Stream<String> get pairingSteps;
 }
 
 class MethodChannelTuyaRepository implements TuyaRepository {
@@ -199,6 +210,19 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       .map(_otaUpdate)
       .where((update) => update != null)
       .cast<OtaProgress>();
+
+  @override
+  late final Stream<String> pairingSteps = _rawEvents
+      .map(_pairingStep)
+      .where((step) => step != null && step.isNotEmpty)
+      .cast<String>();
+
+  /// 解析原生的配网进度事件：`{type: 'pairingStep', step: '…'}`。
+  String? _pairingStep(Object? event) {
+    if (event is! Map) return null;
+    if ('${event['type'] ?? ''}' != 'pairingStep') return null;
+    return event['step']?.toString();
+  }
 
   /// 解析原生的 OTA 事件：`{deviceId, ota: {status, percent?, message?}}`。
   OtaProgress? _otaUpdate(Object? event) {
