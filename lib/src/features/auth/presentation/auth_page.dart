@@ -10,6 +10,7 @@ import '../login_entry_config.dart';
 import 'password_page.dart';
 import 'verification_code_countdown.dart';
 import 'widgets/auth_asset_icon.dart';
+import 'widgets/auth_field_error.dart';
 
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key, this.initialCodeLogin = true});
@@ -22,24 +23,32 @@ class AuthPage extends StatefulWidget {
 
 class _AuthPageState extends State<AuthPage> {
   final accountController = TextEditingController();
+  final accountFocus = FocusNode();
   final credentialController = TextEditingController();
   final codeCountdown = VerificationCodeCountdown();
   late bool codeLogin;
   bool passwordVisible = false;
   bool accepted = false;
 
+  /// 手机号那一栏是否已经「交互过」：失焦一次、或点过按钮。
+  ///
+  /// 校验提示要等到这之后才画——用户刚输进第一个数字就报「格式不对」，那是噪音不是提示。
+  bool accountTouched = false;
+
   @override
   void initState() {
     super.initState();
     codeLogin = LoginEntryConfig.passwordLogin ? widget.initialCodeLogin : true;
     codeCountdown.addListener(_refreshCountdown);
-    // 手机号变化要重画：「发送验证码」按钮只在号码格式正确时才可点。
+    // 手机号变化要重画：号码改对了，下面那行校验提示要跟着消失。
     accountController.addListener(_refreshCountdown);
+    accountFocus.addListener(_handleAccountFocusChange);
   }
 
   @override
   void dispose() {
     accountController.dispose();
+    accountFocus.dispose();
     credentialController.dispose();
     codeCountdown.dispose();
     super.dispose();
@@ -47,6 +56,43 @@ class _AuthPageState extends State<AuthPage> {
 
   void _refreshCountdown() {
     if (mounted) setState(() {});
+  }
+
+  /// 手机号框失焦时，如果里面已经有内容就允许开始报错。
+  ///
+  /// 空框不报——那是「还没填」，由登录按钮那句「请输入手机号和验证码」负责。
+  void _handleAccountFocusChange() {
+    if (accountFocus.hasFocus) return;
+    if (accountController.text.trim().isEmpty) return;
+    if (!mounted || accountTouched) return;
+    setState(() => accountTouched = true);
+  }
+
+  /// 输入框下面那行提示；null 表示不画。
+  String? get _accountError {
+    if (!accountTouched) return null;
+    final account = accountController.text.trim();
+    if (account.isEmpty) return null;
+    if (AuthValidator.isValidAccount(account, LoginRegion.domestic)) {
+      return null;
+    }
+    return _invalidAccountMessage;
+  }
+
+  static const _invalidAccountMessage = '请输入正确的 11 位手机号';
+
+  /// 号码不合法时给两种反馈：一条 toast（用户刚点了什么，得当场回话）+ 输入框下面
+  /// 那行常驻提示（点完 toast 就没了，提示得留着告诉他到底哪儿不对）。
+  bool _rejectInvalidAccount() {
+    if (AuthValidator.isValidAccount(
+      accountController.text,
+      LoginRegion.domestic,
+    )) {
+      return false;
+    }
+    setState(() => accountTouched = true);
+    showAppMessage(context, _invalidAccountMessage, tone: AppMessageTone.error);
+    return true;
   }
 
   Future<void> _login() async {
@@ -63,6 +109,8 @@ class _AuthPageState extends State<AuthPage> {
       );
       return;
     }
+    // 号码格式不对就别去后端换那句带 `APP-invalid_input` 前缀的红字了，当场说清楚。
+    if (_rejectInvalidAccount()) return;
     final state = FlowerpotScope.of(context);
     final result = await state.login(
       account: accountController.text,
@@ -85,15 +133,9 @@ class _AuthPageState extends State<AuthPage> {
 
   Future<void> _sendCode() async {
     if (codeCountdown.active) return;
-    // 按钮本身已经按格式禁用了，这里是兜底：粘贴、输入法直接提交等路径也可能
-    // 带进一个不合法的号码，而验证码短信是要花钱的，不该发出去再靠后端拦。
-    if (!AuthValidator.isValidAccount(
-      accountController.text,
-      LoginRegion.domestic,
-    )) {
-      showAppMessage(context, '请输入正确的 11 位手机号', tone: AppMessageTone.error);
-      return;
-    }
+    // 2026-09-10 起按钮不再按号码格式置灰：灰按钮点不动、也不说话，用户只会以为页面坏了。
+    // 现在照常可点，号码不合法就在这里挡下来——短信仍然不会发出去，但用户拿得到一句话。
+    if (_rejectInvalidAccount()) return;
     final result = await FlowerpotScope.of(context).sendCode(
       account: accountController.text,
       region: LoginRegion.domestic,
@@ -145,6 +187,8 @@ class _AuthPageState extends State<AuthPage> {
                         ),
                         child: _LoginPanel(
                           accountController: accountController,
+                          accountFocus: accountFocus,
+                          accountError: _accountError,
                           credentialController: credentialController,
                           codeLogin: codeLogin,
                           accepted: accepted,
@@ -202,6 +246,8 @@ class _AuthPageState extends State<AuthPage> {
 class _LoginPanel extends StatelessWidget {
   const _LoginPanel({
     required this.accountController,
+    required this.accountFocus,
+    required this.accountError,
     required this.credentialController,
     required this.codeLogin,
     required this.accepted,
@@ -221,6 +267,8 @@ class _LoginPanel extends StatelessWidget {
   });
 
   final TextEditingController accountController;
+  final FocusNode accountFocus;
+  final String? accountError;
   final TextEditingController credentialController;
   final bool codeLogin;
   final bool accepted;
@@ -259,6 +307,7 @@ class _LoginPanel extends StatelessWidget {
               children: <Widget>[
                 _LoginField(
                   controller: accountController,
+                  focusNode: accountFocus,
                   hintText: '请输入手机号',
                   iconAsset: AppAssets.phoneIcon,
                   keyboardType: TextInputType.phone,
@@ -268,6 +317,7 @@ class _LoginPanel extends StatelessWidget {
                     FilteringTextInputFormatter.digitsOnly,
                     LengthLimitingTextInputFormatter(11),
                   ],
+                  errorText: accountError,
                 ),
                 const SizedBox(height: 22),
                 _LoginField(
@@ -283,13 +333,9 @@ class _LoginPanel extends StatelessWidget {
                   obscureText: !codeLogin && !passwordVisible,
                   suffix: codeLogin
                       ? _SendCodeButton(
-                          busy:
-                              busy ||
-                              codeCountdown.active ||
-                              !AuthValidator.isValidAccount(
-                                accountController.text,
-                                LoginRegion.domestic,
-                              ),
+                          // 只在「正忙」和「倒计时中」置灰。号码格式不对不再置灰：
+                          // 点得动才给得出提示，见 `_rejectInvalidAccount`。
+                          busy: busy || codeCountdown.active,
                           label: codeCountdown.label,
                           onPressed: onSendCode,
                         )
@@ -590,6 +636,8 @@ class _LoginField extends StatelessWidget {
     this.obscureText = false,
     this.suffix,
     this.inputFormatters,
+    this.focusNode,
+    this.errorText,
   });
 
   final TextEditingController controller;
@@ -600,13 +648,29 @@ class _LoginField extends StatelessWidget {
   final bool obscureText;
   final Widget? suffix;
   final List<TextInputFormatter>? inputFormatters;
+  final FocusNode? focusNode;
+  final String? errorText;
 
   @override
   Widget build(BuildContext context) {
+    // 校验提示画在胶囊外面，不用 `InputDecoration.errorText`：那会把提示塞进 56 的固定
+    // 高度里，胶囊本身被压扁。
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _buildField(),
+        AuthFieldError(message: errorText),
+      ],
+    );
+  }
+
+  Widget _buildField() {
     return SizedBox(
       height: 56,
       child: TextField(
         controller: controller,
+        focusNode: focusNode,
         keyboardType: keyboardType,
         inputFormatters: inputFormatters,
         obscureText: obscureText,
