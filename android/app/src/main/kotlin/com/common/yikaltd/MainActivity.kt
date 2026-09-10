@@ -1629,35 +1629,54 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 按我的理解那是 `@SystemApi`、要 `NETWORK_SETTINGS`（signature|privileged）权限，
         // 普通应用拿不到——但这正是要在真机上验证的事，所以**失败就如实报错**，
         // 不再偷偷退回 `WifiNetworkSpecifier`（那会把结论掩盖掉，还会弹出产品不要的框）。
-        val failure = silentConnect(target)
-        if (failure == null) {
-            trace("join: silent connect worked, no dialog")
-            success(result, true)
-            return
-        }
-        error(result, "hotspot_join_failed", failure)
+        silentConnect(target, result)
     }
 
     /**
-     * 用 `WifiManager#connect()` 静默连接设备热点。**成功返回 null，失败返回原因**。
+     * 用 `WifiManager#connect()` 静默连接设备热点。**自己完成 [result]**：连上回
+     * `success(true)`，没连上回 `hotspot_join_failed` + 整条证据链。
      *
-     * 依据是涂鸦 2026-09-11 的回复：智能生活就是用它做到「不弹框」的。按我的理解这个方法
-     * 是 `@SystemApi`、要 `NETWORK_SETTINGS`（signature|privileged）权限，普通应用拿不到，
-     * 反射会抛 `NoSuchMethodException` / `SecurityException` / `IllegalAccessException`。
+     * ## 2026-09-11 真机第一次跑出来的结果
+     *
+     * ```
+     * join: WifiManager.connect() exists, invoking
+     * join: silent connect failed → connect() 调用成功但 2.5 秒内没连上（当前：ChinaNet-duu）
+     * ```
+     *
+     * 也就是说：**方法在这台设备的 `WifiManager` 上确实存在，反射调用也没抛异常，但手机
+     * 就是没有离开路由器。** 这个结果什么都不能证明——当时的实现有两个洞：
+     *
+     * 1. `ActionListener` 传的是 `null`。而它是**唯一**能区分「系统受理了」和「系统把请求
+     *    丢了」的信号（`onFailure(reason)`：`ERROR=0` / `IN_PROGRESS=1` / `BUSY=2`）。
+     * 2. 只等 2.5 秒，而且是在主线程上等（再长就 ANR）。Wi-Fi 关联本身就要三到十秒，
+     *    2.5 秒根本等不到结论。
+     *
+     * 所以现在：**注册真的 `ActionListener`**，用 `Handler` 轮询（不阻塞主线程，可以等到
+     * 12 秒），并在失败后顺手探一下 `addNetwork()`——它对普通应用返回 **-1**，那就是
+     * 「本应用没有 `NETWORK_SETTINGS` 特权」的铁证，比超时有说服力得多。
      *
      * ⚠️ **失败不兜底**（产品口径）：不退回 `WifiNetworkSpecifier`。那条路会弹出产品明确
-     * 不要的系统框，而且会把"这条路到底通不通"的结论掩盖掉。所以这里把失败原因原样交出去，
-     * 由页面打印。返回的字符串就是证据本身。
+     * 不要的系统框，而且会把"这条路到底通不通"的结论掩盖掉。返回的文字就是证据本身。
      */
     @Suppress("DEPRECATION")
-    private fun silentConnect(target: String): String? = runCatching {
+    private fun silentConnect(target: String, result: MethodChannel.Result) {
+        val trail = StringBuilder()
+        val note: (String) -> Unit = { line ->
+            trace("join: $line")
+            if (trail.isNotEmpty()) trail.append("；")
+            trail.append(line)
+        }
         val wifi = activity.applicationContext
             .getSystemService(Context.WIFI_SERVICE) as? WifiManager
-            ?: return@runCatching "拿不到 WifiManager"
-        if (!wifi.isWifiEnabled) {
-            return@runCatching "手机 Wi-Fi 没打开"
+        if (wifi == null) {
+            error(result, "hotspot_join_failed", "拿不到 WifiManager")
+            return
         }
-        // 设备热点是开放网络（涂鸦 AP-cfg 的 smartlife_xxxx 不带密码）。
+        if (!wifi.isWifiEnabled) {
+            error(result, "hotspot_join_failed", "手机 Wi-Fi 没打开")
+            return
+        }
+        // 设备热点是开放网络（涂鸦 AP-cfg 的 SmartLife-xxxx 不带密码）。
         val config = android.net.wifi.WifiConfiguration().apply {
             SSID = "\"" + target + "\""
             allowedKeyManagement.set(
@@ -1677,25 +1696,131 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 .joinToString("; ") { m ->
                     m.parameterTypes.joinToString(",") { it.simpleName }
                 }
-            return@runCatching "WifiManager 上没有 connect(WifiConfiguration, ActionListener)。" +
-                "该类的 connect 重载：${if (overloads.isEmpty()) "（一个都没有）" else overloads}"
+            error(
+                result,
+                "hotspot_join_failed",
+                "WifiManager 上没有 connect(WifiConfiguration, ActionListener)。" +
+                    "该类的 connect 重载：${if (overloads.isEmpty()) "（一个都没有）" else overloads}",
+            )
+            return
         }
-        trace("join: WifiManager.connect() exists, invoking …")
-        method.isAccessible = true
-        method.invoke(wifi, config, null)
-        // 调用没抛不等于连上了：它只是把请求交给系统，要靠当前 SSID 确认。
-        //
-        // ⚠️ 在主线程上等，上限必须远低于 ANR 的 5 秒。取 2.5 秒：正常情况根本走不到这儿
-        // （反射在上面就返回了），只有该方法真的可用时才会等，而那时关联通常一两秒完成。
-        val deadline = SystemClock.elapsedRealtime() + 2_500
-        while (SystemClock.elapsedRealtime() < deadline) {
-            if (currentSsidForLog() == target) return@runCatching null
-            Thread.sleep(250)
+        note("connect(${method.parameterTypes.joinToString(",") { it.simpleName }}) 存在，调用")
+        // 注册真的 ActionListener。系统拒绝这类请求时走的就是 onFailure(reason)，
+        // 以前传 null 等于把这条唯一可信的信号扔了。
+        val listenerType = method.parameterTypes[1]
+        val listener = Proxy.newProxyInstance(
+            listenerType.classLoader ?: activity.classLoader,
+            arrayOf(listenerType),
+        ) { _, callback, args ->
+            when (callback.name) {
+                "onSuccess" -> note("ActionListener.onSuccess（系统受理了）")
+                "onFailure" -> {
+                    val reason = args?.firstOrNull()
+                    note("ActionListener.onFailure(reason=$reason ${reasonName(reason)})")
+                }
+                else -> Unit
+            }
+            defaultValue(callback.returnType)
         }
-        "connect() 调用成功但 2.5 秒内没连上（当前：${currentSsidForLog()}）"
-    }.getOrElse { failure ->
-        "${failure.javaClass.simpleName}: ${failure.message}"
-    }?.also { reason -> trace("join: silent connect failed → $reason") }
+        val invoked = runCatching {
+            method.isAccessible = true
+            method.invoke(wifi, config, listener)
+        }
+        val invokeFailure = invoked.exceptionOrNull()
+        if (invokeFailure != null) {
+            val cause = invokeFailure.cause ?: invokeFailure
+            note("invoke 抛 ${cause.javaClass.simpleName}: ${cause.message}")
+            error(result, "hotspot_join_failed", trail.toString())
+            return
+        }
+        note("已交给系统，开始等关联（当前「${currentSsidForLog()}」）")
+        awaitSsid(target, 12_000, note) { joined ->
+            if (joined) {
+                success(result, true)
+                return@awaitSsid
+            }
+            // connect() 没生效。探一把老接口，把「有没有特权」这件事钉死：
+            // Android 10+ 对普通应用，addNetwork() 固定返回 -1。
+            val netId = runCatching { wifi.addNetwork(config) }.getOrElse { failure ->
+                note("addNetwork 抛 ${failure.javaClass.simpleName}: ${failure.message}")
+                -2
+            }
+            note(
+                "addNetwork 返回 $netId" +
+                    if (netId == -1) {
+                        "（-1 = 系统拒绝保存网络，本应用没有 NETWORK_SETTINGS 特权，" +
+                            "这条静默连接的路在这台手机上走不通）"
+                    } else {
+                        ""
+                    },
+            )
+            if (netId < 0) {
+                error(result, "hotspot_join_failed", trail.toString())
+                return@awaitSsid
+            }
+            val enabled = runCatching { wifi.enableNetwork(netId, true) }.getOrDefault(false)
+            note("enableNetwork($netId) = $enabled")
+            if (!enabled) {
+                runCatching { wifi.removeNetwork(netId) }
+                error(result, "hotspot_join_failed", trail.toString())
+                return@awaitSsid
+            }
+            awaitSsid(target, 10_000, note) { joinedLate ->
+                if (joinedLate) {
+                    success(result, true)
+                } else {
+                    runCatching { wifi.removeNetwork(netId) }
+                    error(result, "hotspot_join_failed", trail.toString())
+                }
+            }
+        }
+    }
+
+    /** `WifiManager.ActionListener` 的 reason 常量，只有三个。 */
+    private fun reasonName(reason: Any?): String = when ((reason as? Number)?.toInt()) {
+        0 -> "ERROR"
+        1 -> "IN_PROGRESS"
+        2 -> "BUSY"
+        else -> "未知"
+    }
+
+    /**
+     * 每 500 ms 读一次当前 SSID，连上 [target] 就回 `true`，到 [timeoutMs] 还没连上回
+     * `false`。**用 `Handler` 排队，不阻塞线程**——所以等多久都不会 ANR，这正是以前只敢
+     * 等 2.5 秒的原因。每跨过一秒打一行当前 SSID，方便从截图上看出"到底有没有动过"。
+     */
+    private fun awaitSsid(
+        target: String,
+        timeoutMs: Long,
+        note: (String) -> Unit,
+        done: (Boolean) -> Unit,
+    ) {
+        val handler = Handler(Looper.getMainLooper())
+        val startedAt = SystemClock.elapsedRealtime()
+        var loggedSecond = -1L
+        handler.post(object : Runnable {
+            override fun run() {
+                val elapsed = SystemClock.elapsedRealtime() - startedAt
+                val now = currentSsidForLog()
+                if (now == target) {
+                    note("已连上「$target」，用时 ${elapsed}ms")
+                    done(true)
+                    return
+                }
+                if (elapsed >= timeoutMs) {
+                    note("等了 ${elapsed}ms 还在「$now」")
+                    done(false)
+                    return
+                }
+                val second = elapsed / 1000
+                if (second != loggedSecond) {
+                    loggedSecond = second
+                    trace("join: ${second}s 当前「$now」")
+                }
+                handler.postDelayed(this, 500)
+            }
+        })
+    }
 
     /** 释放热点请求，系统随即断开这条进程专属连接。 */
     private fun releaseHotspotRequest() {
