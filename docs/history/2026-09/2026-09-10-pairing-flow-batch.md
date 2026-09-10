@@ -243,6 +243,55 @@ activator 自己会在配网时解析家庭；而这一步跑在**手机还连�
 - 间距收紧：顶部留白 88 → **56**（原来的 88 是按「上面还有一段说明」排的）、插图与文案
   之间 27 → 20、几段之间 12 → 10、底部那句提示前 38 → 18、页面底部 24 → 16。
 
+## 追加（同日）：键盘避让改回框架默认；系统入网确认框关不掉
+
+### 键盘避让：上一版的写法是错的，已改回默认
+
+反馈：连接 Wi-Fi 页输入框获焦时仍被键盘挡住。
+
+**根因是本轮早些时候我自己引入的。** 那一版把四页都改成
+`resizeToAvoidBottomInset: false` + 滚动区底部加 `viewInsets.bottom` 的 padding。这套写法在
+**Scaffold 之外**是成立的，放在 Scaffold body 里是错的，而且错两次：
+
+1. 关掉 resize，body 的高度不再按键盘缩掉 ⇒ **滚动视口不变矮** ⇒ Flutter 的光标自动滚动
+   （`RenderEditable.showOnScreen` → `Scrollable.ensureVisible`）认为整屏都可见，**根本不会滚**。
+   底部那段 padding 只是让内容能往上滚，没有任何东西驱动它去滚。
+2. Scaffold 开着 resize 时，body 里读到的 `MediaQuery.viewInsets.bottom` **本来就是 0**
+   （已被 Scaffold 消费）。也就是说那段 padding 在原来的写法下连值都取不到，是个纯噪音。
+
+改回框架默认：四页（登录 / 注册 / 找回密码 / 连接 Wi-Fi）**去掉 `resizeToAvoidBottomInset`
+覆写、去掉手写的 viewInsets padding**。默认行为是——body 高度按键盘缩掉 ⇒ 视口变矮 ⇒
+内容溢出、变得可滚 ⇒ 光标自动滚进这块变矮的视口 ⇒ 输入框停在键盘上方。连接 Wi-Fi 页保留
+`bottom: 92` 那段固定 padding，它让的是浮在滚动区外面的「开始配网」按钮，与键盘无关。
+
+其余带输入框的页面核对过，都用的是默认行为且本身可滚，无需改动：设备信息、纪念日编辑、
+选择植物、个人资料、登录密码、修改密码；`AppDialog` 走 Material 的 `Dialog`，它自己会把
+`viewInsets` 加进 `insetPadding`。
+
+### 配网 1/2/3 步骤里的「要连接至设备吗?」——那是系统的，关不掉
+
+产品要求：这三步里不要任何弹框，「要连接至设备吗?」默认按连接处理。
+
+**做不到，而且不是代码问题。** Android 10（API 29）起，应用不能再自己 `enableNetwork` 任意
+网络；唯一的途径是 `WifiNetworkSpecifier` + `requestNetwork`，而它**必然弹一次系统授权框**，
+没有任何 API 可以抑制它或替用户点确认——那是系统的入网授权提示，能被应用绕过就失去意义了。
+可选的替代都更糟：
+
+| 方案 | 为什么不行 |
+| --- | --- |
+| `WifiManager.enableNetwork` | Android 10 起对第三方应用失效（只有 9 及以下能用） |
+| `WifiNetworkSuggestion` | 首次仍要用户批准，且**由系统决定何时连**，配网这种即时场景用不了 |
+| 引导用户去系统设置连 | 比一个确认框差得多，正是这个功能想省掉的那一步 |
+| Device Owner / 系统签名 | 普通应用拿不到 |
+
+**能做的都做了**：
+
+- App 自己的弹框在这三步里**一个都没有**（本轮早些时候已删掉「正在确认账号与家庭」全屏
+  遮罩与「请先到系统设置连接热点」toast；必要文案改成 `PairingStage.hint` 写在步骤里）。
+- 只用确切 SSID 请求，避开更啰嗦的「查找设备…／没有找到任何设备」那个搜索变体（见前文）。
+- **不重复弹**：`_joinHotspotForPairing` 先用只读缓存看一眼当前 SSID，已经连在目标热点上
+  （上次尝试留下的、或用户自己连的）就直接用，不再 `requestNetwork`，省掉一次框。
+
 ## 验证结果
 
 - 本机**没有 Flutter/Dart SDK，也没有 Android SDK**：`flutter analyze`、`flutter test` 与 Kotlin

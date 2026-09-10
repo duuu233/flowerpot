@@ -128,19 +128,10 @@ class _AuthPageState extends State<AuthPage> {
     return AppPageScaffold(
       useSafeArea: false,
       background: AppPageBackground.account,
-      // 键盘避让：`resizeToAvoidBottomInset: false` 让页面保持整屏高度不被压缩
-      // （压缩会让整页跳一下），改由滚动区自己在底部让出键盘那么高的一段——焦点
-      // 落到输入框时 Flutter 会把光标滚进可视区，于是输入框正好停在键盘上方。
-      // 这是表单页的通行做法；只靠默认的 resize 在「内容本来就放得下一屏」时不会
-      // 产生可滚动区间，输入框照样被键盘盖住。
-      resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
             return SingleChildScrollView(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.viewInsetsOf(context).bottom,
-              ),
               child: ResponsiveContent(
                 padding: EdgeInsets.zero,
                 child: ConstrainedBox(

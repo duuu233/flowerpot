@@ -714,6 +714,20 @@ class FlowerpotState extends ChangeNotifier {
     required String? target,
     required bool joinedManually,
   }) async {
+    // 手机已经连在目标热点上（上一次尝试留下的、或用户自己连的）就直接用。
+    //
+    // Android 10+ 每次 `requestNetwork` 都会弹一次系统确认框，而它**关不掉也
+    // 不能替用户点**——那是系统的入网授权提示。能做的就是别在已经连上的时候再
+    // 申请一次，白弹一个框。读当前 SSID 走只读缓存那条路，不发起扫描。
+    if (target != null && !joinedManually) {
+      try {
+        final scan = await _repository.scanWifi(refresh: false);
+        _wifiScan = scan;
+        if (scan.current == target) return false;
+      } catch (_) {
+        // 读不到就照常往下走，最多是多弹一次框。
+      }
+    }
     try {
       // 有确切热点名就用它；没有就给前缀。**这两条路的可用性按平台分**：
       //

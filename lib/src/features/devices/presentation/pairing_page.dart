@@ -290,20 +290,21 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接Wi-Fi', leading: AppBackButton()),
       background: AppPageBackground.account,
-      // 键盘避让：`resizeToAvoidBottomInset: false` 让页面保持整屏高度不被压缩
-      // （压缩会让整页跳一下），改由滚动区自己在底部让出键盘那么高的一段——焦点
-      // 落到输入框时 Flutter 会把光标滚进可视区，于是输入框正好停在键盘上方。
-      // 这是表单页的通行做法；只靠默认的 resize 在「内容本来就放得下一屏」时不会
-      // 产生可滚动区间，输入框照样被键盘盖住。
-      resizeToAvoidBottomInset: false,
       body: Stack(
         children: <Widget>[
           SingleChildScrollView(
             key: const Key('pairing-scroll-view'),
-            // 键盘避让，见登录页同处注释；92 是底部按钮条的高度。
-            padding: EdgeInsets.only(
-              bottom: 92 + MediaQuery.viewInsetsOf(context).bottom,
-            ),
+            // 92 是底部那颗「开始配网」按钮的高度：它浮在滚动区外面，内容要
+            // 让出这一段才不会被压在按钮下面。
+            //
+            // 键盘避让不在这里做——Scaffold 默认 `resizeToAvoidBottomInset: true`
+            // 会把 body 的高度按键盘缩掉，滚动视口跟着变矮，焦点落到输入框时
+            // Flutter 自己把光标滚进这块变矮的视口，输入框就停在键盘上方。
+            // ⚠️ 那种「关掉 resize、改在底部加 viewInsets 高度的 padding」的写法
+            // 在这里是**错的**：视口不缩，`ensureVisible` 认为整屏都可见，根本
+            // 不会滚；而且 Scaffold 开着 resize 时 body 里的 `viewInsets.bottom`
+            // 本来就是 0，那段 padding 连值都取不到。
+            padding: const EdgeInsets.only(bottom: 92),
             child: ResponsiveContent(
               // 顶部留白由 88 收到 56：这一页的目标是**整屏放得下、不用滚**，
               // 88 是按「上面还有一段说明」排的，那段已经删了。
