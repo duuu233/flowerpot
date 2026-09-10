@@ -638,14 +638,11 @@ class FlowerpotState extends ChangeNotifier {
       notifyListeners();
       return ActionResult(true, '已连接设备，读到 ${networks.length} 个可用网络');
     } on TuyaException catch (error) {
-      final now = _wifiScan?.current;
-      final where = now == null || now.isEmpty
-          ? '手机网络未知'
-          : '手机在「$now」${(_wifiScan?.currentIsDeviceHotspot ?? false) ? '(设备热点)' : '(不是设备热点)'}';
-      final detail =
-          '${error.message}｜用时 ${watch.elapsedMilliseconds}ms · $where';
-      debugPrint('[pairing] connectDeviceForPairing 失败 ${error.code} $detail');
-      throw TuyaException(error.code, detail);
+      throw TuyaException(error.code, _connectDiagnostic(error.message, watch));
+    } catch (error) {
+      // 非涂鸦异常（反射签名对不上、平台没实现之类）同样要把诊断带出去——那类问题
+      // 恰恰最需要看到原文。
+      throw TuyaException('connect_failed', _connectDiagnostic('$error', watch));
     } finally {
       // 成功时把阶段留在 `deviceScanning`：页面正要跳去选网络，这时归零会让进度页
       // 闪一下回到「准备中」。失败才复位。
@@ -654,6 +651,22 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   /// 新流程第二步：把路由器凭据下发给设备。
+  /// 连设备失败时的诊断串：原文 + 用时 + 手机当时连在哪个网络。
+  ///
+  /// 这三样比任何猜测都有用：**用时**看得出是不是跑满了超时（跑满 ⇒ SDK 一直没能和设备
+  /// 说上话）；**手机当时连的网络**看得出 SDK 到底有没有把手机切到设备热点上（还显示路由器
+  /// 名 ⇒ 它根本没切过去）。同时打一行到 logcat。
+  String _connectDiagnostic(String reason, Stopwatch watch) {
+    final now = _wifiScan?.current;
+    final where = now == null || now.isEmpty
+        ? '手机网络未知'
+        : '手机在「$now」'
+              '${(_wifiScan?.currentIsDeviceHotspot ?? false) ? '(设备热点)' : '(不是设备热点)'}';
+    final detail = '$reason｜用时 ${watch.elapsedMilliseconds}ms · $where';
+    debugPrint('[pairing] connectDeviceForPairing 失败：$detail');
+    return detail;
+  }
+
   /// 放掉设备热点连接，把手机的 Wi-Fi **还原回原来那个网络**。
   ///
   /// 我们用 `WifiNetworkSpecifier` 连设备热点期间，手机是真的离开了路由器、**没有外网**。

@@ -1094,7 +1094,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * （设备返回不能识别的状态）或超时失败。
      */
     private fun apQueryDeviceWifi(call: MethodCall, result: MethodChannel.Result) {
+        // ⚠️ **每一步都打日志。** 这个调用失败时 SDK 只给一个笼统的超时，光看结果分不清
+        // 是「配网器没建起来」「反射签名对不上」还是「调出去了但回调永远不来」。
+        // 三种的修法完全不同，所以宁可日志啰嗦一点。用 `adb logcat -s $TUYA_LOG_TAG` 看。
+        Log.i(TUYA_LOG_TAG, "ap query: begin")
         val activator = newOptimizedActivator()
+        Log.i(TUYA_LOG_TAG, "ap query: activator=${activator.javaClass.name}")
 
         // ApQueryBuilder.Builder().setContext(ctx).setTimeout(ms).build()
         val timeout = (call.argument<Number>("timeout")?.toLong() ?: 0L)
@@ -1108,18 +1113,44 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         invoke(queryBuilder, "setTimeout", timeout)
         val query = invoke(queryBuilder, "build")
             ?: throw IllegalStateException("ApQueryBuilder.build 返回空")
+        Log.i(TUYA_LOG_TAG, "ap query: builder ok, timeout=${timeout}ms")
 
-        Log.i(TUYA_LOG_TAG, "ap query device wifi, timeout=$timeout")
+        // 手机此刻连在哪个网络上——这一行是判断"SDK 到底有没有把手机切到设备热点"的关键。
+        // 调用前打一次、回调里再打一次，两相对照就知道它动没动过。
+        Log.i(TUYA_LOG_TAG, "ap query: wifi before = ${currentSsidForLog()}")
+        val startedAt = SystemClock.elapsedRealtime()
         invokeWithCallback(
             activator,
             "queryDeviceConfigState",
             query,
             onSuccess = { value ->
+                val count = (value as? Collection<*>)?.size ?: -1
+                Log.i(
+                    TUYA_LOG_TAG,
+                    "ap query: success in ${SystemClock.elapsedRealtime() - startedAt}ms, " +
+                        "networks=$count, wifi now = ${currentSsidForLog()}",
+                )
                 onMain(result) { success(result, wifiInfoList(value)) }
             },
-            onError = { code, message -> error(result, code, message) },
+            onError = { code, message ->
+                Log.i(
+                    TUYA_LOG_TAG,
+                    "ap query: error $code after ${SystemClock.elapsedRealtime() - startedAt}ms, " +
+                        "msg=$message, wifi now = ${currentSsidForLog()}",
+                )
+                error(result, code, message)
+            },
         )
+        Log.i(TUYA_LOG_TAG, "ap query: handed to SDK, waiting for callback")
     }
+
+    /** 当前连着的 Wi-Fi 名，只给日志用；读不到就说读不到，不猜。 */
+    private fun currentSsidForLog(): String = runCatching {
+        val wifi = activity.applicationContext
+            .getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val ssid = wifi?.connectionInfo?.ssid?.trim('"')
+        if (ssid.isNullOrEmpty() || ssid == "<unknown ssid>") "(读不到)" else ssid
+    }.getOrElse { "(读失败:${it.message})" }
 
     /**
      * 建一个「热点配网新流程」的配网器（`IThingOptimizedActivator`）。

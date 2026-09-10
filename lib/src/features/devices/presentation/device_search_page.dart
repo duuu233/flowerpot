@@ -530,16 +530,16 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 2. **手机的扫描配额被占满**。`startScan` 的配额按 UID 算，SDK 和我们共用；虽然已经
   ///    给它留了 [_quotaReservedForSdk] 次，但如果刚刚反复搜索过，系统那边可能仍在限流，
   ///    等一会儿再试就好。
+  /// 连设备失败时画在页面上的话。
+  ///
+  /// ⚠️ **事实在前，猜测在后。** 2026-09-11 第一版把两条"最常见原因"排在最上面，结果
+  /// 用户看到的全是猜测、真正的诊断被挤到看不见的地方——而产品的反馈正是「感觉不是这个
+  /// 问题」。现在原始码与原文顶在第一行，建议缩成一行放最后。
   String _connectFailureHint(String? code, String reason) {
     final tag = code == null || code.isEmpty ? '' : '【$code】';
-    // ⚠️ **原文原样打出来，不要加工。** 这一步只会给一个笼统的超时码，页面上若只留
-    // 一句"time out"就什么都定位不了。`connectDeviceForPairing` 已经把用时和手机当时
-    // 连的网络拼进 message 里了，这里连同原始码一起如实呈现。
-    return '没能连上设备。最常见的两个原因：\n'
-        '① 设备静置后退出了配网状态——给它断电重启，然后再点「连接」；\n'
-        '② 刚才搜索得太频繁，系统限制了 Wi-Fi 扫描——等十几秒再点一次。\n'
+    return '$tag$reason\n'
         '\n'
-        '$tag$reason';
+        '可以先试：给设备断电重启后再点「连接」；或等十几秒让系统的 Wi-Fi 扫描限制缓过来。';
   }
 
   /// 进度页上的「取消」：中止正在跑的连接，回到列表。
