@@ -32,6 +32,7 @@
 
 ## 索引
 
+- [`2026-09/2026-09-10-tuya-ap-new-flow-found.md`](2026-09/2026-09-10-tuya-ap-new-flow-found.md)：**找到官方「热点配网新流程」——SDK 自己会连热点**，不必再用 `WifiNetworkSpecifier`、也就没有系统授权框；`ThingApActivatorBuilder` / `IThingOptimizedActivator` / `queryDeviceConfigState` 等接口在 7.5.1 里已实测存在，无需升级 SDK。前置条件：设备固件 TuyaOS ≥ 3.6.1（待设备开发确认）。官方文档已存档到 `docs/reference/`。
 - [`2026-09/2026-09-10-ap-only-and-system-consent-checklist.md`](2026-09/2026-09-10-ap-only-and-system-consent-checklist.md)：设备开发确认**只支持 AP（AP-cfg）、不支持 EZ/SmartConfig**，桥接里的 EZ 分支就此确认为死代码；并给出「昨天的包不需要授权」的排查清单——EZ 假设已排除，剩下「点按钮那一刻手机是不是已经连在设备热点上」与「系统记住了授权」两个待核实解释。仅文档，无代码改动。
 - [`2026-09/2026-09-10-login-toast-only-and-toast-width.md`](2026-09/2026-09-10-login-toast-only-and-toast-width.md)：登录页去掉输入框下面那行校验提示（只留 toast，校验本身没松）；toast 宽度由写死 300 改成跟屏宽走，「请先阅读并同意用户协议与隐私政策」不再折行（原来留给文字只有 236，这句要 224，只差 12px）。
 - [`2026-09/2026-09-10-pairing-flow-batch.md`](2026-09/2026-09-10-pairing-flow-batch.md)：配网动线七项——表单页键盘避让、配网期弹框收敛（含不再用通配前缀触发系统「查找设备」框）、第三步「连接云端」给 1–2 秒随机停留、失败页版式重排（小提示重叠 + 多余滚动条）、搜索页改内联列表并删除「选择设备」页、去掉「设备已在配网状态，继续」、启动页先只留背景图；另把 09-09 加的 `home_unresolved` 门禁降级为诊断（疑似「配网又不行了」的成因）。
