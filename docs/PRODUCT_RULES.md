@@ -232,6 +232,37 @@ Android 10+ 上第 2 步会弹一次系统入网授权框（`WifiNetworkSpecifie
   已核查 `lib/` 对 mock/fake/demo 的引用为 0。）（2026-09-10）
 - 凭据、密码、token、AppSecret 一律不记录、不提交、不接收。
 
+### 5.1 外部给的 SDK API，**先拆包核实再写代码**
+
+外部渠道（含"涂鸦回复"）给的调用示例里，已经出现过 **4 次**不存在的 API。所以规矩是：
+**任何没在 `docs/reference/` 的官方文档里出现过的类名或方法名，先从 Maven 拉 AAR 拆包
+核实，再动代码。**
+
+核实办法（本机可做，不需要工具链）：
+
+```bash
+B=https://maven-other.tuya.com/repository/maven-commercial-releases/com/thingclips/smart/<artifact>/<ver>
+curl -sfLO $B/<artifact>-<ver>.aar
+unzip -q -o <artifact>-<ver>.aar && unzip -q -o classes.jar -d cls
+strings -a -n 2 cls/path/To/Class.class | grep -E '^(on|get|set|is)?[A-Z_]'
+```
+
+⚠️ `strings` 默认只打印 **≥4 个字符**的串，`AP` / `EZ` 这种两字母枚举值会被漏掉，
+**必须加 `-n 2`**（2026-09-11 差点因此误判 `ThingDeviceActiveModeEnum` 没有 `AP`）。
+
+历史台账：
+
+| 外部说法 | 核实结果 |
+| --- | --- |
+| `ThingSmartHotspotCredentialKit` | ❌ 不存在 |
+| `WifiManager#connect()` 可静默连任意热点 | ❌ 是 `@SystemApi`，要 `NETWORK_SETTINGS` |
+| `IThingOptimizedActivator.startAPConfig(ApHandlerBean, …)` | ❌ 官方文档里该接口没有此方法；`ApHandlerBean` 是 `resumeAPConfigWifi` 的参数 |
+| `WifiManager#connectSta()` | ❌ Android 没有这个 API |
+| 「`IThingOptimizedActivator` 本身不存在」 | ❌ **这条说法才是错的**——`docs/reference/tuya-ap-mode-android.md:129` 就是官方示例；同一条回复又承认 `queryDeviceConfigState` 是真接口，而它正是这个接口的方法，自相矛盾 |
+| 「Flutter 场景下必须用 `ThingActivatorCoreKit`」 | ✅ **真的**，已拆包核对全部类名与方法签名，依赖现成 |
+
+---
+
 ---
 
 ## 6. 协作方式

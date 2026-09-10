@@ -1304,9 +1304,21 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
         trace("active: builder ready, starting …")
         val startedAt = SystemClock.elapsedRealtime()
-        invokeWithCallback(
-            builder,
-            "setListener",
+        // `setListener` 只接 `IThingDeviceActiveListener`，但热点设备的「暂停」状态
+        // 走的是它的子接口 `IThingDeviceStatePauseActiveListener`（涂鸦文档里写的，
+        // SDK 内部应当是 `is` 判断）。所以代理同时实现这两个接口，两种回调都能收到。
+        val listenerType = firstClass(
+            "com.thingclips.smart.activator.core.kit.listener.IThingDeviceActiveListener",
+        )
+        val pauseType = runCatching {
+            Class.forName(
+                "com.thingclips.smart.activator.core.kit.listener." +
+                    "IThingDeviceStatePauseActiveListener",
+            )
+        }.getOrNull()
+        val listener = callbackProxy(
+            listenerType,
+            extraTypes = listOfNotNull(pauseType),
             onSuccess = { value ->
                 trace(
                     "active: success in ${SystemClock.elapsedRealtime() - startedAt}ms, " +
@@ -1330,6 +1342,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 error(result, code, message)
             },
         )
+        invoke(builder, "setListener", listener)
         invoke(manager, "startActive", builder)
         activeManager = manager
         trace("active: handed to kit, waiting for callback")
@@ -2183,10 +2196,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         callbackType: Class<*>,
         onSuccess: (Any?) -> Unit,
         onError: (String, String) -> Unit,
+        extraTypes: List<Class<*>> = emptyList(),
     ): Any {
         val delivered = AtomicBoolean(false)
         val loader = callbackType.classLoader ?: activity.classLoader
-        return Proxy.newProxyInstance(loader, arrayOf(callbackType)) { proxy, method, args ->
+        val types = (listOf(callbackType) + extraTypes).distinct().toTypedArray()
+        return Proxy.newProxyInstance(loader, types) { proxy, method, args ->
             when (method.name) {
                 "equals" -> proxy === args?.firstOrNull()
                 "hashCode" -> System.identityHashCode(proxy)
@@ -2206,6 +2221,42 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     if (delivered.compareAndSet(false, true)) onSuccess(args?.firstOrNull())
                     defaultValue(method.returnType)
                 }
+                // 扩展 SDK（`ThingActivatorCoreKit`）的 `IThingDeviceActiveListener`
+                // 在配网过程中先回 `onFind(devId)`、再回 `onBind(devId)`，最后才是
+                // `onActiveSuccess` / `onActiveError`。前两个不是终态，只上报进度。
+                // 方法名是从 `thingsmart-activator-core-kit-7.8.0.aar` 拆包核对过的。
+                "onFind", "onBind" -> {
+                    trace("active: ${method.name} ${args?.firstOrNull()}")
+                    emit(mapOf("type" to "pairingStep", "step" to method.name))
+                    defaultValue(method.returnType)
+                }
+                // `onActiveError` 的参数是 `ThingDeviceActiveErrorBean`（`errCode` /
+                // `errMsg` / `isCanRetry`），`onActiveLimited` 的是
+                // `ThingDeviceActiveLimitBean`（`errorCode` / `errorMsg`）——都是一个
+                // bean，不是 `(code, msg)` 两个字符串，所以不能走下面按 String 取参
+                // 的分支（那会把错误吞掉，只剩 Dart 侧超时）。
+                "onActiveError", "onActiveLimited" -> {
+                    val bean = args?.firstOrNull()
+                    trace("active: ${method.name} $bean")
+                    if (delivered.compareAndSet(false, true)) {
+                        val failure = beanError(bean)
+                        onError(failure.first, failure.second)
+                    }
+                    defaultValue(method.returnType)
+                }
+                // 热点设备会用「暂停」回调告诉我们：Wi-Fi 密码错了，或者设备连不上
+                // 路由器。不兜底、不重试，原文报出来打到页面上。
+                "onActivatorStatePauseCallback" -> {
+                    val state = args?.firstOrNull()
+                    trace("active: paused $state")
+                    if (delivered.compareAndSet(false, true)) {
+                        onError(
+                            "active_paused",
+                            "设备报告配网暂停（常见原因：Wi-Fi 密码错误或设备连不上路由器）：$state",
+                        )
+                    }
+                    defaultValue(method.returnType)
+                }
                 // Signatures differ per interface (onError(code, msg),
                 // onFailure(otaType, code, msg), ...), so the human-readable
                 // pair is picked from the String arguments.
@@ -2223,6 +2274,23 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             }
         }
     }
+
+    /**
+     * 从涂鸦回调的错误 bean 里取 `(code, message)`。扩展 SDK 的
+     * `ThingDeviceActiveErrorBean` 用 `errCode` / `errMsg`，
+     * `ThingDeviceActiveLimitBean` 用 `errorCode` / `errorMsg`，两套名字都试一遍；
+     * 取不到就把 bean 的 `toString()` 原样报出去（它本身就带全部字段），不编兜底文案。
+     */
+    private fun beanError(bean: Any?): Pair<String, String> {
+        if (bean == null) return "sdk_error" to "SDK 回调没带错误信息"
+        val code = textOf(bean, "getErrCode") ?: textOf(bean, "getErrorCode")
+        val message = textOf(bean, "getErrMsg") ?: textOf(bean, "getErrorMsg")
+        return (code ?: "sdk_error") to (message ?: bean.toString())
+    }
+
+    private fun textOf(target: Any, getter: String): String? =
+        runCatching { invoke(target, getter)?.toString() }.getOrNull()
+            ?.takeIf { it.isNotBlank() && it != "null" }
 
     private fun getter(target: Any, name: String): Any =
         invoke(target, name) ?: throw IllegalStateException("$name returned null")

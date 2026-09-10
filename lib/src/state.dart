@@ -779,7 +779,20 @@ class FlowerpotState extends ChangeNotifier {
     _startPairingLog();
     _setPairingStage(PairingStage.connectingDevice);
     var started = false;
+    StreamSubscription<String>? stepSub;
     try {
+      // 这一套的进度回调名字是**确定的**（从 AAR 拆包读出来的
+      // `IThingDeviceActiveListener`）：`onFind(devId)` → `onBind(devId)` →
+      // `onActiveSuccess`。所以这里按名字精确映射，不像 [pairViaDeviceHotspot] 那样
+      // 靠到达顺序猜。
+      stepSub = _repository.pairingSteps.listen((step) {
+        debugPrint('[pairing] active step $step');
+        if (step == 'onFind') {
+          _setPairingStage(PairingStage.connectingRouter);
+        } else if (step == 'onBind') {
+          _setPairingStage(PairingStage.goingOnline);
+        }
+      });
       started = true;
       final device = await _repository.activeStart(
         mode: mode,
@@ -802,6 +815,7 @@ class FlowerpotState extends ChangeNotifier {
       if (started) _activatorTokenAt = null;
       throw TuyaException('pair_failed', _connectDiagnostic('$error', watch));
     } finally {
+      await stepSub?.cancel();
       await _stopPairingLog();
       _setPairingStage(PairingStage.idle);
     }
