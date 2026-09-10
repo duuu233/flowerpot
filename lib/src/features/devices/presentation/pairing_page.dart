@@ -217,20 +217,24 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       ssid: ssidController.text.trim(),
       password: passwordController.text,
     );
-    // 「热点配网新流程」：连设备热点由 **SDK** 在配网过程中自己完成（官方文档：
-    // 「在配网过程中，SDK 会在指定时间内自动去连接 AP 热点」），App 这边只负责把
-    // 路由器凭据交出去。所以不再需要 `WifiNetworkSpecifier`——那个每次都弹的系统
-    // 入网授权框就此消失。
+    // 按设备方给的流程走：**手机连接设备热点 → 通过热点下发路由器 SSID/密码**。
+    // 这两步都在 `pairViaDeviceHotspot` 里，见它的文档注释。
     //
-    // ⚠️ 2026-09-10 起**上一页不再预先连一次热点**。原先搜索页会先调
-    // `connectDeviceForPairing()` 读回设备扫到的 Wi-Fi 列表，实测卡在「正在连接
-    // 「smartlife_xxx」…」直到超时，走不到这一页；而那份列表产品也不要了。令牌仍由
-    // 搜索页在**还连着路由器**时预取好（`prepareForPairing`），这里直接复用。
+    // ⚠️ 连热点这一步 2026-09-10 白天曾被整个去掉（赌 `startActivator` 自己会连），
+    // 结果配网以 `out of time` 失败且**没有任何 207xxx**——通道压根没建起来。现在
+    // 显式连回来，Android 10+ 上会弹一次系统入网授权框，但只在用户点了「开始配网」
+    // 之后出现，是流程里预期的一步。
+    //
+    // 令牌与设备安全配置由搜索页在**还连着路由器**时预取（`prepareForPairing`）：
+    // 一连上设备热点手机就没有外网，那两件事都要走云端。
     _pairingState = state;
     setState(() => _pairing = true);
     final result = await state.pairViaDeviceHotspot(
       ssid: request.ssid,
       password: request.password,
+      // 搜索页扫到的那台设备的热点名。Android 原生拒绝只给前缀，必须带确切名字；
+      // iOS 拿不到确切名字，那边会退到前缀匹配。
+      hotspotSsid: widget.arguments?.hotspotSsid,
     );
     _pairingState = null;
     if (!mounted) return;

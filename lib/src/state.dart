@@ -631,13 +631,49 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   /// 新流程第二步：把路由器凭据下发给设备。
+  /// 新流程第二步：**先把手机连上设备热点**，再把路由器凭据下发给设备。
+  ///
+  /// 顺序照设备方给的流程走（2026-09-10 设备开发口径）：
+  ///
+  /// > 未激活设备开机后自动开启 Wi-Fi 热点（`smartlife_xxx` / `tuya_mdev_xxx`）
+  /// > → **手机连接该热点** → App 通过热点下发目标路由器 SSID/密码
+  /// > → 设备自动切换连网并连云激活。
+  ///
+  /// ⚠️ **「手机连接该热点」这一步不能省。** 2026-09-10 白天曾经整个去掉它，依据是
+  /// 官方文档那句「在配网过程中，SDK 会在指定时间内自动去连接 AP 热点」——赌
+  /// `startActivator` 自己会连。实测赌输了：配网以 `out of time` 失败，而且**没有任何
+  /// 207xxx 失败码**。那批码全部来自「设备收到配网信息之后」，一个都没出现就意味着
+  /// **通道压根没建起来**、设备从没收到过东西，不是密码错也不是连不上路由器。
+  ///
+  /// 所以这里显式连一次。Android 10+ 上这会弹一次系统入网授权框——那是系统的，
+  /// 关不掉也不能替用户点，但它只在用户已经点了「开始配网」之后出现，是流程里预期的
+  /// 一步，不再像以前那样在搜索页上莫名弹出。已经连在目标热点上时
+  /// [_joinHotspotForPairing] 会直接跳过，不白弹。
+  ///
+  /// 连热点**放在这里而不是搜索页**：一连上设备热点手机就没有外网，而取令牌和取安全
+  /// 配置都要走云端。那两件事由搜索页的 `prepareForPairing` 在还连着路由器时预取完，
+  /// 到这里只剩纯本地的通信。
   Future<ActionResult> pairViaDeviceHotspot({
     required String ssid,
     required String password,
+    String? hotspotSsid,
     Duration timeout = const Duration(seconds: 120),
   }) => _guard(() async {
-    _setPairingStage(PairingStage.sendingWifi);
+    // 连上了就要负责释放；凭据发出去了令牌就可能已被设备用掉，失败时要作废。
+    var hotspotRequested = false;
+    var pairingStarted = false;
+    _setPairingStage(PairingStage.connectingDevice);
     try {
+      // 确切热点名优先用搜索页带过来的那个；退到扫描里认出来的第一个。
+      // Android 原生拒绝只给前缀（`hotspot_ssid_required`），iOS 只能给前缀。
+      final target =
+          hotspotSsid ??
+          _wifiScan?.deviceHotspots.map((item) => item.ssid).firstOrNull;
+      hotspotRequested = true;
+      await _joinHotspotForPairing(target: target, joinedManually: false);
+
+      pairingStarted = true;
+      _setPairingStage(PairingStage.sendingWifi);
       final device = await _repository.apStartPairing(
         ssid: ssid,
         password: password,
@@ -652,6 +688,21 @@ class FlowerpotState extends ChangeNotifier {
       ];
       _selectedDeviceId = device.id;
       return const ActionResult(true, '设备配网成功');
+    } on TuyaException catch (error) {
+      // 手动引导不是失败：热点还没连、令牌也没用过，什么都不用放。
+      if (error.code != _manualHotspotCode) {
+        await _abandonPairingAttempt(
+          releaseHotspot: hotspotRequested,
+          invalidateToken: pairingStarted,
+        );
+      }
+      rethrow;
+    } catch (_) {
+      await _abandonPairingAttempt(
+        releaseHotspot: hotspotRequested,
+        invalidateToken: pairingStarted,
+      );
+      rethrow;
     } finally {
       _setPairingStage(PairingStage.idle);
     }

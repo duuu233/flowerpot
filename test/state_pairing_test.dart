@@ -426,9 +426,12 @@ class _PairingRepository extends MockTuyaRepository {
     return super.getDevices();
   }
 
-  test('热点配网新流程：连设备 → 读设备扫到的 Wi-Fi → 下发凭据', () async {
-    // 新流程里「把手机连上设备热点」由 SDK 完成（`apQueryDeviceWifi` 内部），
-    // App 不再用 WifiNetworkSpecifier，也就没有系统入网授权框。
+  test('热点配网新流程：读设备扫到的 Wi-Fi → 连热点 → 下发凭据', () async {
+    // ⚠️ 注释按 2026-09-10 晚的结论更新：`pairViaDeviceHotspot` **会自己先连一次
+    // 设备热点**（`_joinHotspotForPairing`），因为「SDK 在配网过程中自动连 AP」
+    // 那条路实测不成立——配网以 `out of time` 失败且没有任何 207xxx，说明通道压根
+    // 没建起来。`connectDeviceForPairing`（读设备扫到的 Wi-Fi 列表）代码保留，
+    // 但已不在产品动线上：产品只用手机当前连着的那个网络。
     final state = FlowerpotState(repository: MockTuyaRepository(latency: Duration.zero));
     addTearDown(state.dispose);
 
