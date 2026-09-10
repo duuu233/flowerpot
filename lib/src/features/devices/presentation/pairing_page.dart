@@ -174,30 +174,19 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: .42),
-      // 列的是**设备自己扫到的**网络，不是手机扫到的：设备能看见的才是它连得上的。
-      // 这份列表由上一页的 `connectDeviceForPairing` 读回来（新流程第一步）。
+      // 列的是**手机扫到的**网络。
+      //
+      // ⚠️ 2026-09-10 从「设备自己扫到的列表」改回来。那份列表要先调
+      // `connectDeviceForPairing()`（`queryDeviceConfigState`）连上设备热点才拿得到，
+      // 而那一步实测会卡死到超时；产品口径也已经定为**配网就用手机当前连着的那个
+      // 网络，不关心设备能看见哪些网络**。所以这个弹层只是「手机没连 Wi-Fi 时让用户
+      // 自己挑一个」的兜底，数据源回到 `probeWifi`。
       builder: (_) => _WifiSelectionSheet(
         current: ssidController.text,
-        networks: state.deviceWifiNetworks
-            .map(
-              (item) => WifiNetwork(
-                ssid: item.ssid,
-                level: item.rssi ?? -100,
-                frequency: 2412,
-              ),
-            )
-            .toList(growable: false),
+        networks: state.wifiScan?.networks ?? const <WifiNetwork>[],
         onRefresh: () async {
-          await state.connectDeviceForPairing();
-          return state.deviceWifiNetworks
-              .map(
-                (item) => WifiNetwork(
-                  ssid: item.ssid,
-                  level: item.rssi ?? -100,
-                  frequency: 2412,
-                ),
-              )
-              .toList(growable: false);
+          await state.probeWifi();
+          return state.wifiScan?.networks ?? const <WifiNetwork>[];
         },
       ),
     );
@@ -217,11 +206,15 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       ssid: ssidController.text.trim(),
       password: passwordController.text,
     );
-    // 「热点配网新流程」：手机连设备热点这一步已经由 **SDK** 在上一页完成
-    // （`connectDeviceForPairing`），这里只剩把路由器凭据下发给设备。
+    // 「热点配网新流程」：连设备热点由 **SDK** 在配网过程中自己完成（官方文档：
+    // 「在配网过程中，SDK 会在指定时间内自动去连接 AP 热点」），App 这边只负责把
+    // 路由器凭据交出去。所以不再需要 `WifiNetworkSpecifier`——那个每次都弹的系统
+    // 入网授权框就此消失。
     //
-    // 所以不再有「取令牌 → App 连热点 → 下发凭据」那串顺序约束，也不再需要
-    // `WifiNetworkSpecifier`——那个每次都弹的系统入网授权框就此消失。
+    // ⚠️ 2026-09-10 起**上一页不再预先连一次热点**。原先搜索页会先调
+    // `connectDeviceForPairing()` 读回设备扫到的 Wi-Fi 列表，实测卡在「正在连接
+    // 「smartlife_xxx」…」直到超时，走不到这一页；而那份列表产品也不要了。令牌仍由
+    // 搜索页在**还连着路由器**时预取好（`prepareForPairing`），这里直接复用。
     _pairingState = state;
     setState(() => _pairing = true);
     final result = await state.pairViaDeviceHotspot(

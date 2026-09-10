@@ -138,20 +138,21 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 自动跳转的定时器。
   Timer? _autoOpenTimer;
 
-  /// 正在让 SDK 连设备热点（新流程第一步）。
+  /// 正在等云端预取落地（取令牌 + 确认家庭），随后就进「连接 Wi-Fi」。
+  ///
+  /// 曾经是「正在让 SDK 连设备热点」。那一步已经去掉，见 [_openPairingWhenReady]。
   bool _connecting = false;
 
   /// 「取令牌 + 确认家庭」这两步云端请求的预取。
   ///
   /// ⚠️ **必须在手机还连着路由器的时候跑完。** 涂鸦文档原文：「开始配网之前，
-  /// SDK 需要在**联网状态下**从云端获取配网 Token」。而新流程一旦走到
-  /// [_connectAndOpen]，SDK 就把手机连到设备热点上了，那张网没有外网——之后
-  /// `apStartPairing` 内部再去取令牌，只能指望系统回落到蜂窝，慢且不一定成。
+  /// SDK 需要在**联网状态下**从云端获取配网 Token」。配网一开始，SDK 就会把手机
+  /// 连到设备热点上，那张网没有外网——那时再去取令牌，只能指望系统回落到蜂窝，
+  /// 慢且不一定成。
   ///
   /// 改新流程时把这一步漏了：原流程是 `pairViaHotspot` 内部先取令牌再连热点，
-  /// 顺序天然是对的；新流程把连热点提前到了本页，取令牌却还留在下一页的
-  /// `apStartPairing` 里，于是变成「先断网、再取令牌」。这里补回来——进本页就
-  /// 预取，等真要连热点时它早就好了，`apStartPairing` 直接复用缓存的令牌。
+  /// 顺序天然是对的；新流程把取令牌留在了 `apStartPairing` 里，而那时热点已经连上。
+  /// 这里补回来——进本页就预取，`apStartPairing` 直接复用缓存的令牌。
   ///
   /// 尽力而为：失败不拦路，`apStartPairing` 仍会自己再取一次，和改之前一样。
   Future<ActionResult>? _prepared;
@@ -252,7 +253,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _autoOpenTimer = Timer(_autoOpenDelay, () {
       if (!mounted) return;
       _radarController.stop();
-      unawaited(_connectAndOpen(hotspots.first));
+      unawaited(_openPairingWhenReady(hotspots.first));
     });
   }
 
@@ -303,33 +304,27 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     });
   }
 
-  /// 先让 SDK 连上设备热点、读回设备扫到的 Wi-Fi 列表，再进「连接 Wi-Fi」。
+  /// 扫到设备 ⇒ 等云端预取落地 ⇒ 直接进「连接 Wi-Fi」。
   ///
-  /// 这一步就是「热点配网新流程」的入口：连热点由 **SDK** 完成，App 不再用
-  /// `WifiNetworkSpecifier`，因此**不会有系统入网授权框**。读回来的 Wi-Fi 列表是
-  /// **设备视角**的，比手机扫到的准——设备能看见的才是它连得上的。
+  /// ⚠️ **这里不再让 SDK 去连设备热点。** 2026-09-10 之前这一步会先调
+  /// `connectDeviceForPairing()`（`queryDeviceConfigState`）连上热点、读回**设备
+  /// 自己扫到的** Wi-Fi 列表，再进下一页。实测它会卡住：页面停在「正在连接
+  /// 「smartlife_xxx」…」直到超时，整条动线走不到输密码那一步——那一步只对
+  /// TuyaOS ≥ 3.6.1 的固件有效，而固件版本从未被确认过。
   ///
-  /// 连不上（老固件、设备已离开配网态、超时）就退回让用户点列表重试，并把原因说出来。
-  Future<void> _connectAndOpen(WifiNetwork hotspot) async {
+  /// 产品口径（2026-09-10）：**配网用的就是手机当前连着的那个网络，不需要知道设备
+  /// 能看见哪些网络。** 既然列表本身不要了，连热点这件事就交给 `startActivator`
+  /// 在配网时自己做（官方文档：「在配网过程中，SDK 会在指定时间内自动去连接 AP
+  /// 热点」），本页不必替它先连一次，也就没有这个会卡死的前置步骤了。
+  ///
+  /// 留下的只有 [_prepared]：令牌必须在手机**还连着路由器**时取到。
+  Future<void> _openPairingWhenReady(WifiNetwork hotspot) async {
     if (!mounted) return;
     setState(() => _connecting = true);
-    final state = FlowerpotScope.of(context);
-    // 先等预取落地：一是令牌必须在还有外网时取到（见 [_prepared]），二是这两个
-    // 调用共用同一把单操作锁，不等的话 connectDeviceForPairing 会直接被挡成 busy。
     // 失败不拦路——真缺令牌时 apStartPairing 自己还会再取一次。
     await _prepared;
     if (!mounted) return;
-    final result = await state.connectDeviceForPairing();
-    if (!mounted) return;
     setState(() => _connecting = false);
-    if (!result.success) {
-      setState(() {
-        _autoOpened = false;
-        _scanning = false;
-      });
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
-      return;
-    }
     _openPairing(hotspot);
   }
 
@@ -471,9 +466,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (hotspots.isNotEmpty) {
       return _SearchOutcome(
         '发现 ${hotspots.length} 台设备',
-        _connecting
-            ? '正在连接「${hotspots.first.ssid}」并读取它能看到的网络…'
-            : _autoOpened
+        _connecting || _autoOpened
             ? '正在连接「${hotspots.first.ssid}」…'
             : '点击下方设备继续配网。',
         compactTitle: true,

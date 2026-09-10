@@ -24,84 +24,92 @@ class PairingProgressView extends StatelessWidget {
     return ColoredBox(
       color: AppColors.canvas,
       child: SafeArea(
-        child: SingleChildScrollView(
-          key: const Key('pairing-progress-view'),
-          child: ResponsiveContent(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.pageMargin,
-              40,
-              AppSpacing.pageMargin,
-              32,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                SizedBox(
-                  height: 220,
-                  child: Image.asset(
-                    AppAssets.pairingWifiSetupIllustration,
-                    fit: BoxFit.contain,
-                    filterQuality: FilterQuality.high,
-                    excludeFromSemantics: true,
-                  ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // 这一页的内容是固定的三步，不该要用户滚动才看得到第三步——正在配网时
+            // 滚走的正是他要盯的进度。插图上下的留白是唯一能让的地方：矮屏再收一档，
+            // 插图本身也跟着缩，整页就能进首屏。
+            final compact = constraints.maxHeight < 700;
+            return SingleChildScrollView(
+              key: const Key('pairing-progress-view'),
+              child: ResponsiveContent(
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.pageMargin,
+                  compact ? 12 : 20,
+                  AppSpacing.pageMargin,
+                  compact ? 20 : 24,
                 ),
-                const SizedBox(height: 24),
-                const Text(
-                  '正在为设备配置网络...',
-                  key: Key('pairing-progress-title'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  '预计需要10-30秒，请勿关闭页面',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                AppSurfaceCard(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                  child: Column(
-                    children: <Widget>[
-                      for (
-                        var index = 0;
-                        index < PairingStage.steps.length;
-                        index++
-                      )
-                        _StepRow(
-                          index: index,
-                          label: PairingStage.steps[index].label,
-                          hint: PairingStage.steps[index].hint,
-                          // stage 还是 idle 时 current 为 -1：那是刚点下按钮、
-                          // 状态层还没推第一步，按「第一步进行中」画。
-                          state: _stateFor(index, current < 0 ? 0 : current),
-                          isLast: index == PairingStage.steps.length - 1,
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 28),
-                TextButton(
-                  key: const Key('pairing-progress-cancel'),
-                  onPressed: onCancel,
-                  child: const Text(
-                    '取消配网',
-                    style: TextStyle(
-                      color: AppColors.brandPrimary,
-                      fontSize: 17,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    SizedBox(
+                      height: compact ? 150 : 190,
+                      child: Image.asset(
+                        AppAssets.pairingWifiSetupIllustration,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                        excludeFromSemantics: true,
+                      ),
                     ),
-                  ),
+                    SizedBox(height: compact ? 12 : 16),
+                    const Text(
+                      '正在为设备配置网络...',
+                      key: Key('pairing-progress-title'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '预计需要10-30秒，请勿关闭页面',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                    SizedBox(height: compact ? 16 : 20),
+                    AppSurfaceCard(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+                      child: Column(
+                        children: <Widget>[
+                          for (
+                            var index = 0;
+                            index < PairingStage.steps.length;
+                            index++
+                          )
+                            _StepRow(
+                              index: index,
+                              label: PairingStage.steps[index].label,
+                              hint: PairingStage.steps[index].hint,
+                              // stage 还是 idle 时 current 为 -1：那是刚点下按钮、
+                              // 状态层还没推第一步，按「第一步进行中」画。
+                              state: _stateFor(index, current < 0 ? 0 : current),
+                              isLast: index == PairingStage.steps.length - 1,
+                            ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: compact ? 16 : 20),
+                    TextButton(
+                      key: const Key('pairing-progress-cancel'),
+                      onPressed: onCancel,
+                      child: const Text(
+                        '取消配网',
+                        style: TextStyle(
+                          color: AppColors.brandPrimary,
+                          fontSize: 17,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );

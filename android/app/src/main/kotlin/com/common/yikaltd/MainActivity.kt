@@ -989,20 +989,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * （设备返回不能识别的状态）或超时失败。
      */
     private fun apQueryDeviceWifi(call: MethodCall, result: MethodChannel.Result) {
-        val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
-            ?: throw IllegalStateException("无法获取配网实例")
-        // ThingApActivatorBuilder().setContext(activity)
-        val builderClass = firstClass(
-            "com.thingclips.smart.home.sdk.builder.ThingApActivatorBuilder",
-        )
-        val builder = builderClass.getDeclaredConstructor()
-            .apply { isAccessible = true }
-            .newInstance()
-        invoke(builder, "setContext", activity)
-        releaseOptimizedActivator()
-        val activator = invoke(activatorApi, "newOptimizedActivator", builder)
-            ?: throw IllegalStateException("newOptimizedActivator 未返回配网实例")
-        optimizedActivator = activator
+        val activator = newOptimizedActivator()
 
         // ApQueryBuilder.Builder().setContext(ctx).setTimeout(ms).build()
         val timeout = (call.argument<Number>("timeout")?.toLong() ?: 0L)
@@ -1027,6 +1014,34 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             },
             onError = { code, message -> error(result, code, message) },
         )
+    }
+
+    /**
+     * 建一个「热点配网新流程」的配网器（`IThingOptimizedActivator`）。
+     *
+     * `apQueryDeviceWifi` 和 `apStartPairing` 都要它，而**两者互不依赖**：
+     * 2026-09-10 起查设备 Wi-Fi 列表这一步被产品去掉了（只用手机当前连着的网络），
+     * 所以配网可以在从没查过列表的情况下直接开始。文档说的「SDK 会在指定时间内
+     * 自动去连接 AP 热点」就发生在 `startActivator` 里面，不是查询那一步的副作用。
+     *
+     * 旧的先释放：一个配网器身上挂着一条热点连接，留着会互相抢。
+     */
+    private fun newOptimizedActivator(): Any {
+        val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
+            ?: throw IllegalStateException("无法获取配网实例")
+        // ThingApActivatorBuilder().setContext(activity)
+        val builderClass = firstClass(
+            "com.thingclips.smart.home.sdk.builder.ThingApActivatorBuilder",
+        )
+        val builder = builderClass.getDeclaredConstructor()
+            .apply { isAccessible = true }
+            .newInstance()
+        invoke(builder, "setContext", activity)
+        releaseOptimizedActivator()
+        val created = invoke(activatorApi, "newOptimizedActivator", builder)
+            ?: throw IllegalStateException("newOptimizedActivator 未返回配网实例")
+        optimizedActivator = created
+        return created
     }
 
     /** `List<WifiInfoBean>` → Dart 端的 `[{ssid, rssi, sec}]`。 */
@@ -1074,8 +1089,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         result: MethodChannel.Result,
         token: String,
     ) {
-        val activator = optimizedActivator
-            ?: throw IllegalStateException("请先调用 apQueryDeviceWifi 连上设备热点")
+        // 没查过设备 Wi-Fi 列表也能直接配网：现在的动线就是不查（只用手机当前连着
+        // 的网络），配网器在这里按需新建，连热点由 startActivator 自己完成。
+        val activator = optimizedActivator ?: newOptimizedActivator()
         // ApActivatorBuilder.Builder()…build()
         val builderClass = firstClass(
             "com.thingclips.smart.sdk.bean.ApActivatorBuilder\$Builder",
