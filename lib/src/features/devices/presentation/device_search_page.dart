@@ -130,6 +130,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 自动跳转的定时器。
   Timer? _autoOpenTimer;
 
+  /// 正在让 SDK 连设备热点（新流程第一步）。
+  bool _connecting = false;
+
   /// 本轮是否已经自动跳过一次。
   ///
   /// 只自动一次：用户从「连接 Wi-Fi」返回本页时不该被再弹走一次，那样就退不出来了。
@@ -227,7 +230,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _autoOpenTimer = Timer(_autoOpenDelay, () {
       if (!mounted) return;
       _radarController.stop();
-      _openPairing(hotspots.first);
+      unawaited(_connectAndOpen(hotspots.first));
     });
   }
 
@@ -280,6 +283,31 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       _scanning = false;
       _result = result;
     });
+  }
+
+  /// 先让 SDK 连上设备热点、读回设备扫到的 Wi-Fi 列表，再进「连接 Wi-Fi」。
+  ///
+  /// 这一步就是「热点配网新流程」的入口：连热点由 **SDK** 完成，App 不再用
+  /// `WifiNetworkSpecifier`，因此**不会有系统入网授权框**。读回来的 Wi-Fi 列表是
+  /// **设备视角**的，比手机扫到的准——设备能看见的才是它连得上的。
+  ///
+  /// 连不上（老固件、设备已离开配网态、超时）就退回让用户点列表重试，并把原因说出来。
+  Future<void> _connectAndOpen(WifiNetwork hotspot) async {
+    if (!mounted) return;
+    setState(() => _connecting = true);
+    final state = FlowerpotScope.of(context);
+    final result = await state.connectDeviceForPairing();
+    if (!mounted) return;
+    setState(() => _connecting = false);
+    if (!result.success) {
+      setState(() {
+        _autoOpened = false;
+        _scanning = false;
+      });
+      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      return;
+    }
+    _openPairing(hotspot);
   }
 
   /// 带着这台设备进「连接 Wi-Fi」。
@@ -420,7 +448,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (hotspots.isNotEmpty) {
       return _SearchOutcome(
         '发现 ${hotspots.length} 台设备',
-        _autoOpened
+        _connecting
+            ? '正在连接「${hotspots.first.ssid}」并读取它能看到的网络…'
+            : _autoOpened
             ? '正在连接「${hotspots.first.ssid}」…'
             : '点击下方设备继续配网。',
         compactTitle: true,

@@ -115,6 +115,23 @@ abstract class TuyaRepository {
   /// 也不必等**：系统自己（连接管理、其它应用、设置页）也在扫，缓存会被它们刷新。
   /// 搜索页据此「30 秒一次真扫 + 2 秒一次读缓存」，比只靠真扫快得多。
   Future<WifiScan> scanWifi({bool refresh = true});
+
+  /// 「热点配网新流程」第一步：让 SDK 自己连上设备热点，读回**设备扫到的** Wi-Fi 列表。
+  ///
+  /// 官方文档：「在配网过程中，SDK 会在指定时间内自动去连接 AP 热点」。所以这条路上
+  /// App **不需要**再用 `WifiNetworkSpecifier` 去连热点，那个系统授权框也就不出现。
+  /// ⚠️ 只对新固件有效（TuyaOS ≥ 3.6.1）。
+  Future<List<DeviceWifiNetwork>> apQueryDeviceWifi({Duration? timeout});
+
+  /// 新流程第二步：把路由器凭据下发给设备。必须先调用 [apQueryDeviceWifi]。
+  Future<SmartPlanterDevice> apStartPairing({
+    required String ssid,
+    required String password,
+    Duration timeout,
+  });
+
+  /// 停掉新流程的配网器并释放它持有的热点连接。
+  Future<void> apStopPairing();
   Future<void> publishDps(String deviceId, Map<int, Object> dps);
   Future<void> renameDevice(String deviceId, String name);
   Future<void> removeDevice(String deviceId, {required bool resetFactory});
@@ -412,6 +429,42 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<void> useHomeTag(String tag) =>
       _invoke<void>('setHomeTag', <String, Object?>{'tag': tag});
+
+  @override
+  Future<List<DeviceWifiNetwork>> apQueryDeviceWifi({Duration? timeout}) async {
+    final raw = await _invoke<List<Object?>>('apQueryDeviceWifi', <String, Object?>{
+      'timeout': timeout?.inMilliseconds ?? 0,
+    });
+    return (raw ?? const <Object?>[])
+        .whereType<Map<Object?, Object?>>()
+        .map(DeviceWifiNetwork.fromMap)
+        .where((item) => item.ssid.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<SmartPlanterDevice> apStartPairing({
+    required String ssid,
+    required String password,
+    Duration timeout = const Duration(seconds: 120),
+  }) async {
+    final raw = await _invoke<Map<Object?, Object?>>(
+      'apStartPairing',
+      <String, Object?>{
+        'ssid': ssid,
+        'password': password,
+        // 新流程的超时单位是毫秒（原流程 setTimeOut 是秒），别搞混。
+        'timeout': timeout.inMilliseconds,
+      },
+    );
+    if (raw == null) {
+      throw const TuyaException('pair_failed', '配网未返回设备信息');
+    }
+    return _device(raw);
+  }
+
+  @override
+  Future<void> apStopPairing() => _invoke<void>('apStopPairing');
 
   @override
   Future<WifiScan> scanWifi({bool refresh = true}) async {

@@ -60,7 +60,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// 平台不让 App 自己连热点（iOS、Android 9 及以下）时切到手动路径：页面改为
   /// 引导用户去系统设置连热点，按钮变成「已连接热点，开始配网」，下一次点击
   /// 告诉状态层热点已经由用户连好，直接配网。
-  bool _manualHotspot = false;
 
   /// 正在跑的那次配网所属的状态对象。用户在配网期间退出本页时据此中止：
   /// 否则 activator 会继续跑满两分钟，手机也一直挂在设备热点上。dispose 里
@@ -85,10 +84,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // 强制重扫，不吃 state 里的缓存：那份快照可能是搜索页几分钟前留下的，
     // 用户之后很可能已经把手机切到了别的网络。
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) {
-        unawaited(_loadNetworks());
-        unawaited(_warmUpPairing());
-      },
+      (_) => unawaited(_loadNetworks()),
     );
   }
 
@@ -122,25 +118,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// Only a real scan result is used, and only a 2.4 GHz one: handing the SDK a
   /// 5 GHz or hotspot name would make provisioning fail in a way that looks
   /// like a device problem.
-  /// 进页面就把「确认家庭 + 取令牌」在后台跑掉。
-  ///
-  /// 这两步都是云端往返，原来是点了「开始配网」之后才跑，用户干等在那儿。而用户
-  /// 进到这一页之后必然要输密码——那几秒正好拿来跑它。跑完令牌缓存在
-  /// `FlowerpotState` 里（`activatorTokenReady`），点按钮时直接复用，省掉一次往返。
-  ///
-  /// **失败一声不响**：这只是预热，用户还没表达配网意图。真失败了点按钮时会再跑
-  /// 一次，那时的报错才该弹给用户看。
-  Future<void> _warmUpPairing() async {
-    if (!mounted) return;
-    final state = FlowerpotScope.of(context);
-    if (state.busy || state.activatorTokenReady) return;
-    try {
-      await state.prepareForPairing();
-    } catch (_) {
-      // 预热失败不打扰用户，点按钮时会再来一次。
-    }
-  }
-
   /// 把手机当前连着的 Wi-Fi 名带进输入框。
   ///
   /// **只读缓存、不发起扫描**：名字来自 `WifiManager.connectionInfo`，根本不需要
@@ -197,12 +174,30 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: .42),
+      // 列的是**设备自己扫到的**网络，不是手机扫到的：设备能看见的才是它连得上的。
+      // 这份列表由上一页的 `connectDeviceForPairing` 读回来（新流程第一步）。
       builder: (_) => _WifiSelectionSheet(
         current: ssidController.text,
-        networks: state.wifiScan?.routerNetworks ?? const <WifiNetwork>[],
+        networks: state.deviceWifiNetworks
+            .map(
+              (item) => WifiNetwork(
+                ssid: item.ssid,
+                level: item.rssi ?? -100,
+                frequency: 2412,
+              ),
+            )
+            .toList(growable: false),
         onRefresh: () async {
-          await state.probeWifi();
-          return state.wifiScan?.routerNetworks ?? const <WifiNetwork>[];
+          await state.connectDeviceForPairing();
+          return state.deviceWifiNetworks
+              .map(
+                (item) => WifiNetwork(
+                  ssid: item.ssid,
+                  level: item.rssi ?? -100,
+                  frequency: 2412,
+                ),
+              )
+              .toList(growable: false);
         },
       ),
     );
@@ -218,45 +213,24 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     }
 
     final state = FlowerpotScope.of(context);
-    // 先把家庭确认下来、把令牌取到，全程手机还在路由器上。连上设备热点之后这
-    // 两步都做不了：查家庭可能拿到空列表被当成「账号还没有家庭」而新建一个，
-    // 之后登录就可能读到那个空家庭、一台设备都没有。
-    //
-    // 2026-09-10 起这一步**并进进度页的第一步**，不再单独盖一层 AppLoading 遮罩：
-    // 配网期间已经有一个系统的热点确认框（Android 10+ 必弹、App 关不掉），再叠
-    // 自己的全屏遮罩和 toast，用户分不清哪个才是要他操作的。
-    _pairingState = state;
-    setState(() => _pairing = true);
-    final ready = await state.prepareForPairing();
-    if (!mounted) return;
-    if (!ready.success) {
-      _pairingState = null;
-      setState(() => _pairing = false);
-      showAppMessage(context, ready.message, tone: AppMessageTone.error);
-      return;
-    }
     final request = PairingRequest(
       ssid: ssidController.text.trim(),
       password: passwordController.text,
     );
-    // 取令牌 → 连热点 → 下发凭据串成一次操作。这三步有顺序约束（令牌只能在还有
-    // 外网时取，连上热点后就取不到了），交给用户按顺序点三个按钮，错一次就是两
-    // 分钟超时，而失败原因从 `1006` 里看不出来。
-    final result = await state.pairViaHotspot(
+    // 「热点配网新流程」：手机连设备热点这一步已经由 **SDK** 在上一页完成
+    // （`connectDeviceForPairing`），这里只剩把路由器凭据下发给设备。
+    //
+    // 所以不再有「取令牌 → App 连热点 → 下发凭据」那串顺序约束，也不再需要
+    // `WifiNetworkSpecifier`——那个每次都弹的系统入网授权框就此消失。
+    _pairingState = state;
+    setState(() => _pairing = true);
+    final result = await state.pairViaDeviceHotspot(
       ssid: request.ssid,
       password: request.password,
-      hotspotSsid: widget.arguments?.hotspotSsid,
-      hotspotJoinedManually: _manualHotspot,
     );
     _pairingState = null;
     if (!mounted) return;
     setState(() => _pairing = false);
-    if (result.code == 'hotspot_manual_required') {
-      // 不是失败：令牌已取好，等用户去系统设置把热点连上再点一次。页面上那段
-      // 引导文案已经把该做什么说清楚了，不再叠一个 toast。
-      setState(() => _manualHotspot = true);
-      return;
-    }
     if (!result.success) {
       Navigator.pushReplacementNamed(
         context,
@@ -289,16 +263,9 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     );
   }
 
-  /// Used when the selection step carried no hotspot name. Naming one family
-  /// only would send the user looking for a network that is not there: the
-  /// suffix is random and the prefix varies between firmware builds.
-  static const String _hotspotDescription =
-      '设备自己放出的热点（多为 SmartLife-… / SmartLift-… 这类带随机后缀的名字）';
-
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
-    final hotspot = widget.arguments?.hotspotSsid;
     if (_pairing) {
       return AppPageScaffold(
         appBar: const AppPageHeader(title: '设备配网', leading: AppBackButton()),
@@ -392,21 +359,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                   // 不必到系统设置里手动连」那一整段删掉。系统弹框来了用户自然看得见，
                   // 提前解释一遍只是占掉半屏。
                   //
-                  // 手动路径那张卡**保留**：它不是解释，是一步用户必须照做的操作
-                  // （平台不让 App 连热点时，不说清楚就走不下去），而且只在
-                  // `_manualHotspot` 为真时才出现。
-                  if (_manualHotspot) ...<Widget>[
-                    const SizedBox(height: 10),
-                    _PairingHintCard(
-                      key: const Key('pairing-hotspot-manual'),
-                      tone: AppColors.warning,
-                      text:
-                          '当前系统不允许 App 直接连接热点。请到系统设置连接'
-                          '${hotspot == null ? _hotspotDescription : '「$hotspot」'}'
-                          '，若系统提示该网络无法上网请选择保持连接，然后回到本页点'
-                          '「已连接热点，开始配网」。',
-                    ),
-                  ],
                   const SizedBox(height: 18),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -458,7 +410,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                         strokeWidth: 2,
                       ),
                     )
-                  : Text(_manualHotspot ? '已连接热点，开始配网' : '开始配网'),
+                  : const Text('开始配网'),
             ),
           ),
         ],

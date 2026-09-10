@@ -836,6 +836,35 @@ class FirmwareUpdate {
   final String? currentVersion;
 }
 
+/// 「设备自己扫到的」一个 Wi-Fi，来自热点配网新流程的 `queryDeviceConfigState`。
+///
+/// 和 [WifiNetwork]（手机扫到的）不是一回事：这一份是**设备视角**——设备能看见的
+/// 才是它连得上的，比手机侧扫描准。[sec] 还给出加密方式，可以据此提前校验密码。
+class DeviceWifiNetwork {
+  const DeviceWifiNetwork({required this.ssid, this.rssi, this.sec});
+
+  factory DeviceWifiNetwork.fromMap(Map<Object?, Object?> raw) =>
+      DeviceWifiNetwork(
+        ssid: '${raw['ssid'] ?? ''}',
+        rssi: (raw['rssi'] as num?)?.toInt(),
+        sec: (raw['sec'] as num?)?.toInt(),
+      );
+
+  final String ssid;
+
+  /// 设备侧测到的信号强度，越大越好；平台不报时为 null。
+  final int? rssi;
+
+  /// 加密方式：0 开放、1 WEP、2 WPA-PSK、3 WPA2-PSK、4 WPA/WPA2、5 WPA/WPA3、6 未知。
+  final int? sec;
+
+  /// 需要密码吗。0（开放）之外都要；取不到时按「要」处理，问一次总比配不上强。
+  bool get needsPassword => sec != 0;
+
+  /// 这一档加密下密码的最短长度。2≦sec≦5 时是 8 位（文档口径）。
+  int get minimumPasswordLength => (sec != null && sec! >= 2 && sec! <= 5) ? 8 : 0;
+}
+
 class WifiScan {
   const WifiScan({
     required this.networks,

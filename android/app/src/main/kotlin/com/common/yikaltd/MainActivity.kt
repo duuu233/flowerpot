@@ -104,7 +104,8 @@ class MainActivity : FlutterActivity() {
             // Wrapped up front so the permission-retry path is covered too.
             val result = SingleResult(rawResult)
             val needsWifiPermissions =
-                call.method == "pairWifiDevice" || call.method == "scanWifi"
+                call.method == "pairWifiDevice" || call.method == "scanWifi" ||
+                    call.method == "apQueryDeviceWifi" || call.method == "apStartPairing"
             if (needsWifiPermissions && requestPairingPermissions(call, result)) {
                 return@setMethodCallHandler
             }
@@ -326,6 +327,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 return
             }
             // 释放类调用不依赖 SDK 就绪：SDK 没起来时也可能有残留的热点连接要放。
+            // 停配网属于释放类调用：SDK 没就绪时也可能有残留的配网器要放掉。
+            if (call.method == "apStopPairing") {
+                releaseOptimizedActivator()
+                success(result, null)
+                return
+            }
             if (call.method == "cancelPairing" || call.method == "leaveDeviceHotspot") {
                 releasePairing("pair_cancelled", "配网已被中止")
                 success(result, null)
@@ -346,6 +353,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "getDevices" -> withHome(result) { home -> loadHomeDevices(home, result) }
                 "prepareActivatorToken" -> prepareActivatorToken(result)
                 "pairWifiDevice" -> pairWifi(call, result)
+                // 「热点配网新流程」：SDK 自己连热点、读回设备扫到的 Wi-Fi 列表，
+                // 再下发凭据。见 apQueryDeviceWifi 的说明。
+                "apQueryDeviceWifi" -> apQueryDeviceWifi(call, result)
+                "apStartPairing" -> apStartPairing(call, result)
                 // 设备列表是按家庭查的，家庭对不上就是 0 台，而这在 Dart 侧完全
                 // 看不出来——联调页原来显示的「默认家庭」只是个本地常量。
                 "currentHomeId" -> withHome(result) { id ->
@@ -956,6 +967,162 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 startActivator(call, result, token)
             }
         }
+    }
+
+    /**
+     * 「热点配网新流程」的配网器。查 Wi-Fi 列表与开始配网必须是**同一个实例**：
+     * 连热点这一步发生在 [apQueryDeviceWifi] 里，实例换了连接也就没了。
+     */
+    private var optimizedActivator: Any? = null
+
+    /**
+     * 新流程第一步：让 SDK 自己连上设备热点，并读回**设备扫到的 Wi-Fi 列表**。
+     *
+     * 这是整条新流程的关键——官方文档原话：「在配网过程中，SDK 会在指定时间内自动去
+     * 连接 AP 热点」。也就是说 App 不必再用 `WifiNetworkSpecifier` 去连，那个每次都弹
+     * 的系统入网授权框也就不存在了。
+     *
+     * 返回的列表来自**设备的视角**（设备自己扫到的），比手机侧扫描准得多：设备能看见
+     * 的才是它连得上的。`sec` 还给出加密方式，可以据此提前校验密码长度。
+     *
+     * ⚠️ 只对新固件有效（TuyaOS ≥ 3.6.1）。老固件上这一步会以 `207206`
+     * （设备返回不能识别的状态）或超时失败。
+     */
+    private fun apQueryDeviceWifi(call: MethodCall, result: MethodChannel.Result) {
+        val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
+            ?: throw IllegalStateException("无法获取配网实例")
+        // ThingApActivatorBuilder().setContext(activity)
+        val builderClass = firstClass(
+            "com.thingclips.smart.home.sdk.builder.ThingApActivatorBuilder",
+        )
+        val builder = builderClass.getDeclaredConstructor()
+            .apply { isAccessible = true }
+            .newInstance()
+        invoke(builder, "setContext", activity)
+        releaseOptimizedActivator()
+        val activator = invoke(activatorApi, "newOptimizedActivator", builder)
+            ?: throw IllegalStateException("newOptimizedActivator 未返回配网实例")
+        optimizedActivator = activator
+
+        // ApQueryBuilder.Builder().setContext(ctx).setTimeout(ms).build()
+        val timeout = (call.argument<Number>("timeout")?.toLong() ?: 0L)
+        val queryBuilderClass = firstClass(
+            "com.thingclips.smart.sdk.bean.ApQueryBuilder\$Builder",
+        )
+        val queryBuilder = queryBuilderClass.getDeclaredConstructor()
+            .apply { isAccessible = true }
+            .newInstance()
+        invoke(queryBuilder, "setContext", activity)
+        invoke(queryBuilder, "setTimeout", timeout)
+        val query = invoke(queryBuilder, "build")
+            ?: throw IllegalStateException("ApQueryBuilder.build 返回空")
+
+        Log.i(TUYA_LOG_TAG, "ap query device wifi, timeout=$timeout")
+        invokeWithCallback(
+            activator,
+            "queryDeviceConfigState",
+            query,
+            onSuccess = { value ->
+                onMain(result) { success(result, wifiInfoList(value)) }
+            },
+            onError = { code, message -> error(result, code, message) },
+        )
+    }
+
+    /** `List<WifiInfoBean>` → Dart 端的 `[{ssid, rssi, sec}]`。 */
+    private fun wifiInfoList(value: Any?): List<Map<String, Any?>> {
+        val items = value as? Collection<*> ?: return emptyList()
+        return items.mapNotNull { bean ->
+            if (bean == null) return@mapNotNull null
+            val ssid = readAny(bean, "getSsid", "getSSID")?.toString().orEmpty()
+            if (ssid.isEmpty()) return@mapNotNull null
+            mapOf(
+                "ssid" to ssid,
+                "rssi" to (readAny(bean, "getRssi", "getRSSI") as? Number)?.toInt(),
+                "sec" to (readAny(bean, "getSec", "getSecurity") as? Number)?.toInt(),
+            )
+        }
+    }
+
+    /** 依次试几个取值方法名，都没有就返回 null——SDK 在 7.x 里改过命名。 */
+    private fun readAny(target: Any, vararg names: String): Any? = names.firstNotNullOfOrNull {
+        runCatching { invoke(target, it) }.getOrNull()
+    }
+
+    /**
+     * 新流程第二步：把路由器凭据下发给设备。
+     *
+     * 必须复用 [apQueryDeviceWifi] 建好的那个配网器——热点连接挂在它上面。
+     */
+    private fun apStartPairing(call: MethodCall, rawResult: MethodChannel.Result) {
+        if (pairingResult != null) releasePairing("pair_cancelled", "被新的配网请求取代")
+        val result = PairingResult(rawResult)
+        pairingResult = result
+        freshActivatorToken()?.let { token ->
+            apStartWithToken(call, result, token)
+            return
+        }
+        withHome(result) { id ->
+            fetchActivatorToken(id, result) { token ->
+                apStartWithToken(call, result, token)
+            }
+        }
+    }
+
+    private fun apStartWithToken(
+        call: MethodCall,
+        result: MethodChannel.Result,
+        token: String,
+    ) {
+        val activator = optimizedActivator
+            ?: throw IllegalStateException("请先调用 apQueryDeviceWifi 连上设备热点")
+        // ApActivatorBuilder.Builder()…build()
+        val builderClass = firstClass(
+            "com.thingclips.smart.sdk.bean.ApActivatorBuilder\$Builder",
+        )
+        val builder = builderClass.getDeclaredConstructor()
+            .apply { isAccessible = true }
+            .newInstance()
+        invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
+        invoke(builder, "setPwd", call.argument<String>("password").orEmpty())
+        // 新流程的超时单位是**毫秒**（原流程的 setTimeOut 是秒），别搞混。
+        invoke(builder, "setTimeout", call.argument<Number>("timeout")?.toLong() ?: 120_000L)
+        invoke(builder, "setToken", token)
+        call.argument<String>("securityConfig")?.takeIf { it.isNotBlank() }?.let {
+            runCatching { invoke(builder, "setSecurityConfig", it) }
+        }
+        invokeWithCallback(
+            builder,
+            "setListener",
+            onSuccess = { value ->
+                onMain(result) {
+                    releaseOptimizedActivator()
+                    activatorToken = null
+                    if (value == null) {
+                        error(result, "pair_failed", "配网未返回设备信息")
+                    } else {
+                        watchDevice(deviceIdOf(value))
+                        success(result, deviceMap(value))
+                    }
+                }
+            },
+            onError = { code, message ->
+                releaseOptimizedActivator()
+                error(result, code, message)
+            },
+        )
+        val request = invoke(builder, "build")
+            ?: throw IllegalStateException("ApActivatorBuilder.build 返回空")
+        Log.i(TUYA_LOG_TAG, "ap start activator (new flow)")
+        invoke(activator, "startActivator", request)
+    }
+
+    /** 停掉新流程的配网器并释放它持有的热点连接。 */
+    private fun releaseOptimizedActivator() {
+        val activator = optimizedActivator ?: return
+        optimizedActivator = null
+        runCatching { invoke(activator, "stopActivator") }
+        runCatching { invoke(activator, "onDestroy") }
     }
 
     private fun startActivator(call: MethodCall, result: MethodChannel.Result, token: String) {

@@ -425,4 +425,31 @@ class _PairingRepository extends MockTuyaRepository {
     deviceListCalls++;
     return super.getDevices();
   }
+
+  test('热点配网新流程：连设备 → 读设备扫到的 Wi-Fi → 下发凭据', () async {
+    // 新流程里「把手机连上设备热点」由 SDK 完成（`apQueryDeviceWifi` 内部），
+    // App 不再用 WifiNetworkSpecifier，也就没有系统入网授权框。
+    final state = FlowerpotState(repository: MockTuyaRepository(latency: Duration.zero));
+    addTearDown(state.dispose);
+
+    final connected = await state.connectDeviceForPairing();
+    expect(connected.success, isTrue);
+    // 读回来的是**设备视角**的列表。
+    expect(state.deviceWifiNetworks, isNotEmpty);
+    expect(state.deviceWifiNetworks.first.ssid, 'Home_2.4G');
+    // sec = 3（WPA2-PSK）⇒ 需要密码且至少 8 位。
+    expect(state.deviceWifiNetworks.first.needsPassword, isTrue);
+    expect(state.deviceWifiNetworks.first.minimumPasswordLength, 8);
+
+    final paired = await state.pairViaDeviceHotspot(
+      ssid: 'Home_2.4G',
+      password: '12345678',
+    );
+    expect(paired.success, isTrue);
+    expect(state.selectedDevice, isNotNull);
+    expect(state.pairingStage, PairingStage.idle);
+
+    await state.stopDevicePairing();
+    expect(state.deviceWifiNetworks, isEmpty);
+  });
 }

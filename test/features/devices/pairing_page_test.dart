@@ -312,10 +312,10 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
-    // 令牌只能在还连着路由器时取，所以它和配网必须在同一次操作里按序完成。
-    expect(repository.tokenCalls, 1);
+    // 新流程下令牌由原生侧在 `apStartPairing` 内部取，Dart 不再单独调
+    // `prepareActivatorToken`；配网本身照常发生一次。
+    expect(repository.tokenCalls, 0);
     expect(repository.pairCalls, 1);
-    expect(repository.lastRequest?.mode, 'ap');
     expect(find.text('pairing-success-target'), findsOneWidget);
     expect(successArguments, 'vdevo17235508413621');
     // The token is single use; the bridge drops its cached copy on success.
@@ -323,50 +323,19 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a platform that cannot join the hotspot switches to manual', (
-    tester,
-  ) async {
-    Object? successArguments;
-    final repository = _ManualHotspotRepository();
-    final state = await _pumpPairingPage(
+  testWidgets('新流程：不再走「手动连热点」那条路', (tester) async {
+    // 2026-09-10 改用涂鸦「热点配网新流程」之后，连热点由 SDK 完成，
+    // `hotspot_manual_required` 那条引导路径整体下线。
+    await _pumpPairingPage(
       tester,
       const Size(375, 812),
-      repository: repository,
       arguments: const PairingArguments(hotspotSsid: 'SmartLife-A1B2'),
-      onSuccessArguments: (value) => successArguments = value,
     );
-
-    await _enterPassword(tester);
-    await tester.tap(find.byKey(const Key('start-pairing-button')));
     await tester.pump();
-    await tester.pumpAndSettle();
 
-    // Not a failure: the page stays, names the hotspot to join in Settings and
-    // relabels the button. The token was fetched while the router was still
-    // reachable and is kept for the second tap.
-    expect(find.text('pairing-failure-target'), findsNothing);
-    // 手动路径那张卡保留：它不是解释，是用户必须照做的一步。
-    expect(find.byKey(const Key('pairing-hotspot-manual')), findsOneWidget);
-    expect(find.textContaining('「SmartLife-A1B2」'), findsOneWidget);
-    expect(find.text('已连接热点，开始配网'), findsOneWidget);
-    expect(repository.tokenCalls, 1);
-    expect(repository.pairCalls, 0);
-    expect(state.activatorTokenReady, isTrue);
-    // Expire the guidance toast.
-    await tester.pump(const Duration(seconds: 7));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('start-pairing-button')));
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pumpAndSettle();
-
-    // The phone is on the hotspot now, so no second token fetch is possible;
-    // the cached one is reused and pairing runs straight away.
-    expect(repository.tokenCalls, 1);
-    expect(repository.pairCalls, 1);
-    expect(find.text('pairing-success-target'), findsOneWidget);
-    expect(successArguments, 'vdevo17235508413621');
+    expect(find.byKey(const Key('pairing-hotspot-manual')), findsNothing);
+    expect(find.text('已连接热点，开始配网'), findsNothing);
+    expect(find.text('开始配网'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -592,23 +561,6 @@ class _FailingRepository extends MockTuyaRepository {
 
 /// The iOS / Android 9 shape: the app cannot join the hotspot itself, and the
 /// phone is still on the router when the first attempt is made.
-class _ManualHotspotRepository extends _TokenRepository {
-  @override
-  Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {
-    throw const TuyaException('hotspot_join_unsupported', '不支持');
-  }
-
-  @override
-  Future<WifiScan> scanWifi({bool refresh = true}) async => const WifiScan(
-    current: 'TP-LINK_2.4G',
-    currentFrequency: 2437,
-    networks: <WifiNetwork>[
-      WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
-    ],
-  );
-}
-
-/// The system dialog was dismissed, or no matching hotspot was in range.
 class _RefusedHotspotRepository extends _TokenRepository {
   int leaveCalls = 0;
 

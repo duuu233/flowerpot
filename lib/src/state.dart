@@ -605,6 +605,69 @@ class FlowerpotState extends ChangeNotifier {
     );
   });
 
+  /// 「热点配网新流程」查到的、**设备自己扫到的** Wi-Fi 列表。
+  List<DeviceWifiNetwork> get deviceWifiNetworks => _deviceWifiNetworks;
+  List<DeviceWifiNetwork> _deviceWifiNetworks = const <DeviceWifiNetwork>[];
+
+  /// 新流程第一步：让 SDK 连上设备热点并读回设备扫到的 Wi-Fi 列表。
+  ///
+  /// 成功即意味着**设备已经连上了**——这一步替代了原来「手机扫热点 + App 用
+  /// `WifiNetworkSpecifier` 去连」的一整套，也就没有那个系统入网授权框了。
+  ///
+  /// ⚠️ 只对新固件有效（TuyaOS ≥ 3.6.1）。老固件上会以 `207206`（设备状态无法识别）
+  /// 或超时失败，那时才需要退回原流程。
+  Future<ActionResult> connectDeviceForPairing({
+    Duration timeout = const Duration(seconds: 60),
+  }) => _guard(() async {
+    _setPairingStage(PairingStage.connectingDevice);
+    try {
+      final networks = await _repository.apQueryDeviceWifi(timeout: timeout);
+      _deviceWifiNetworks = networks;
+      notifyListeners();
+      return ActionResult(true, '已连接设备，读到 ${networks.length} 个可用网络');
+    } finally {
+      _setPairingStage(PairingStage.idle);
+    }
+  });
+
+  /// 新流程第二步：把路由器凭据下发给设备。
+  Future<ActionResult> pairViaDeviceHotspot({
+    required String ssid,
+    required String password,
+    Duration timeout = const Duration(seconds: 120),
+  }) => _guard(() async {
+    _setPairingStage(PairingStage.sendingWifi);
+    try {
+      final device = await _repository.apStartPairing(
+        ssid: ssid,
+        password: password,
+        timeout: timeout,
+      );
+      _setPairingStage(PairingStage.connectingCloud);
+      await Future<void>.delayed(_cloudStageDelay());
+      _activatorTokenAt = null;
+      _devices = <SmartPlanterDevice>[
+        ..._devices.where((item) => item.id != device.id),
+        device,
+      ];
+      _selectedDeviceId = device.id;
+      return const ActionResult(true, '设备配网成功');
+    } finally {
+      _setPairingStage(PairingStage.idle);
+    }
+  });
+
+  /// 放掉新流程的配网器与它持有的热点连接。退出配网动线时调用。
+  Future<void> stopDevicePairing() async {
+    _deviceWifiNetworks = const <DeviceWifiNetwork>[];
+    try {
+      await _repository.apStopPairing();
+    } catch (_) {
+      // 没有在跑的配网器，或平台没实现，都不影响。
+    }
+    _setPairingStage(PairingStage.idle);
+  }
+
   Future<ActionResult> pairViaHotspot({
     required String ssid,
     required String password,

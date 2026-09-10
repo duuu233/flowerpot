@@ -195,6 +195,28 @@ class MockTuyaRepository implements TuyaRepository {
   }
 
   @override
+  Future<List<DeviceWifiNetwork>> apQueryDeviceWifi({Duration? timeout}) async {
+    await _wait();
+    return const <DeviceWifiNetwork>[
+      DeviceWifiNetwork(ssid: 'Home_2.4G', rssi: -46, sec: 3),
+      DeviceWifiNetwork(ssid: 'Office_2.4G', rssi: -66, sec: 3),
+    ];
+  }
+
+  @override
+  Future<SmartPlanterDevice> apStartPairing({
+    required String ssid,
+    required String password,
+    Duration timeout = const Duration(seconds: 120),
+  }) async {
+    await _wait();
+    return pair(PairingRequest(ssid: ssid, password: password));
+  }
+
+  @override
+  Future<void> apStopPairing() async {}
+
+  @override
   Future<WifiScan> scanWifi({bool refresh = true}) async {
     await _wait();
     return const WifiScan(
