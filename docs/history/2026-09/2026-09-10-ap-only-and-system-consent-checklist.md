@@ -106,7 +106,33 @@ targetSdk 下限对国内商店不适用。
 `targetSdk = flutter.targetSdkVersion`），是现代版本 ⇒ 落在「always fail」那一侧 ⇒
 只能用 `WifiNetworkSpecifier`，于是必然弹框。**这就是两边行为不同的根源，不是权限差异。**
 
-### 怎么一条命令验证
+### 怎么查别人 App 的 targetSdk（三选一）
+
+**① 有电脑 + 手机开 USB 调试（最省事，不用拿到 APK）**
+
+```bash
+adb shell pm list packages | grep -iE 'tuya|thing|smartlife'   # 先找包名
+adb shell dumpsys package <包名> | grep -i targetSdk           # 直接打印 targetSdk=NN
+```
+
+**② 手机上装个「应用信息」类工具**（App Info / Package Viewer / MyAndroidTools 之类），
+应用详情里通常直接列出 target SDK。不用电脑。
+
+**③ 拿到 APK，用本仓库的离线脚本**（不需要 Android SDK / aapt）
+
+```bash
+adb shell pm path <包名>          # 打印 /data/app/.../base.apk
+adb pull <上一步的路径> ./smartlife.apk
+python3 tool/apk_target_sdk.py ./smartlife.apk
+```
+
+脚本 `tool/apk_target_sdk.py` 纯标准库解析二进制 `AndroidManifest.xml`，打印
+`minSdkVersion` / `targetSdkVersion` 与 Wi-Fi 相关权限，并直接给出结论。
+**只读 APK，不解包不改写。**
+
+### 判读
+
+
 
 ```bash
 adb shell dumpsys package com.tuya.smartlife | grep -i targetSdk
