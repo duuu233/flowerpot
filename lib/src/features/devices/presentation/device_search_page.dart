@@ -180,11 +180,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 连到设备热点上，那张网没有外网——那时再去取令牌，只能指望系统回落到蜂窝，
   /// 慢且不一定成。
   ///
-  /// 改新流程时把这一步漏了：原流程是 `pairViaHotspot` 内部先取令牌再连热点，
-  /// 顺序天然是对的；新流程把取令牌留在了 `apStartPairing` 里，而那时热点已经连上。
-  /// 这里补回来——进本页就预取，`apStartPairing` 直接复用缓存的令牌。
+  /// 现在的动线是「搜索页先连热点 → 下一页输密码 → `pairViaHotspot` 下发凭据」，连热点
+  /// 发生在取令牌**之前**，所以令牌必须在进本页时就预取好。
   ///
-  /// 尽力而为：失败不拦路，`apStartPairing` 仍会自己再取一次，和改之前一样。
+  /// 尽力而为：失败不拦路，`pairViaHotspot` 第①步仍会自己再取一次。
   Future<ActionResult>? _prepared;
 
   /// 本轮是否已经自动跳过一次。
@@ -527,21 +526,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       });
       return;
     }
-    // ③ 取 Token 与安全配置已经在 `_prepared` 里做完了（涂鸦的步骤表把它排在连接热点
-    //    之后，但那样是走不通的——连上热点手机就没有外网，取不到云端的东西）。
-    // ④ 让设备扫 Wi-Fi：`queryDeviceConfigState`。回来的列表存在
-    //    `state.deviceWifiNetworks`，下一页给用户选（对应 `docs/配网2.jpg` 的「可用Wi-Fi」）。
-    final result = await state.connectDeviceForPairing();
-    // 只要发起过就留引用：即便失败也可能留下半条连接，离开本页时要放掉。
+    // ③ 令牌已经在 `_prepared` 里取好了（涂鸦的步骤表把它排在连热点之后，但那样走不通
+    //    ——连上热点手机就没有外网，取不到云端的东西）。
+    //
+    // 连上了就进「连接 Wi-Fi」页，把**连热点之前**读到的路由器名带过去：用户到那一页
+    // 只需输密码。剩下的交给 `pairViaHotspot`（内部会发现手机已在热点上而跳过连接，
+    // 所以不会再弹第二个系统框）。
     _hotspotState = state;
-    if (!mounted) return;
     setState(() {
       _connectingIndex = null;
-      _connectError = result.success
-          ? null
-          : _connectFailureHint(result.code, result.message);
+      _connectError = null;
     });
-    if (!result.success) return;
     _openPairing(hotspot, routerSsid: routerSsid);
   }
 

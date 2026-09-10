@@ -17,7 +17,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.provider.Settings
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -31,28 +30,16 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * 配网模式常量，新拼写在前。
+//**
+ * AP 热点配网的模式常量，新拼写在前。
  *
- * 两种都支持：EZ 让手机全程连在路由器上直接广播凭据，省掉切热点那一步，是默认
- * 路径；AP 要手机先连设备热点，步骤繁琐但不受路由器组播策略影响，作为 EZ 失败
- * 后的兜底。
+ * 涂鸦在 7.x 把 `ActivatorModelEnum` 的常量从 `TY_*` 改成了 `THING_*`——7.5.1 只提供
+ * `THING_AP / THING_EZ / THING_4G_GATEWAY / THING_STATIC_IP / THING_QR`，没有任何
+ * `TY_*`。旧名留着做兜底，这样桥接对更老的 SDK 包也能用。
  *
- * Tuya renamed `ActivatorModelEnum`'s constants from `TY_*` to `THING_*` during
- * 7.x — 7.5.1 offers `THING_AP, THING_EZ, THING_4G_GATEWAY, THING_STATIC_IP,
- * THING_QR` and no `TY_*` at all. The old names stay as a fallback so the
- * bridge also works against an older SDK drop.
+ * **只有 AP。** EZ 真机实测设备不支持，双模是为 EZ 准备的，2026-09-11 一起删了。
  */
-private val EZ_MODE_NAMES = listOf("THING_EZ", "TY_EZ")
 private val AP_MODE_NAMES = listOf("THING_AP", "TY_AP")
-
-/**
- * EZ+AP 双模。SDK 里叫什么没有公开保证，所以按候选列表逐个试；一个都没有时
- * [activatorMode] 会把该枚举实际提供的常量名列进异常，据此再补名字。
- */
-private val DUAL_MODE_NAMES = listOf(
-    "THING_EZ_AP", "TY_EZ_AP", "THING_AP_EZ", "TY_AP_EZ", "THING_EZ_AND_AP",
-)
 
 /**
  * How long a cached provisioning token may be reused.
@@ -105,8 +92,7 @@ class MainActivity : FlutterActivity() {
             // Wrapped up front so the permission-retry path is covered too.
             val result = SingleResult(rawResult)
             val needsWifiPermissions =
-                call.method == "pairWifiDevice" || call.method == "scanWifi" ||
-                    call.method == "apQueryDeviceWifi" || call.method == "apStartPairing"
+                call.method == "pairWifiDevice" || call.method == "scanWifi"
             if (needsWifiPermissions && requestPairingPermissions(call, result)) {
                 return@setMethodCallHandler
             }
@@ -266,19 +252,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private var activatorToken: String? = null
     private var activatorTokenAt: Long = 0L
 
-    /**
-     * 「热点配网新流程」的设备安全配置（`getDeviceSecurityConfigs` 的返回）。
-     *
-     * 官方新流程的**第一步**就是取它，再通过 `ApActivatorBuilder.setSecurityConfig`
-     * 交给配网器——「主要是给设备配网对应安全等级信息」。文档标它可选，但新固件
-     * （TuyaOS ≥ 3.6.1，已由设备团队确认）走的正是这条路，该带上就带上。
-     *
-     * ⚠️ 和取令牌一样是**云端请求，必须在手机还连着路由器时完成**：配网一开始 SDK
-     * 就会把手机连到没有外网的设备热点上。所以它跟着 `prepareActivatorToken` 一起
-     * 预取（搜索页进页面时），失败不拦路——这一项本来就是可选的。
-     */
-    private var deviceSecurityConfig: String? = null
-
     /** AP 配网期间进程被绑定到的那个 Wi-Fi，用于识别热点何时消失。 */
     private var boundNetwork: Network? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -350,13 +323,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 scanWifi(call, result)
                 return
             }
-            // 释放类调用不依赖 SDK 就绪：SDK 没起来时也可能有残留的热点连接要放。
-            // 停配网属于释放类调用：SDK 没就绪时也可能有残留的配网器要放掉。
-            if (call.method == "apStopPairing") {
-                releaseOptimizedActivator()
-                success(result, null)
-                return
-            }
+             // 释放类调用不依赖 SDK 就绪：SDK 没起来时也可能有残留的热点连接要放。
             if (call.method == "cancelPairing" || call.method == "leaveDeviceHotspot") {
                 releasePairing("pair_cancelled", "配网已被中止")
                 success(result, null)
@@ -376,18 +343,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "cancelAccount" -> userAction("cancelAccount", result)
                 "getDevices" -> withHome(result) { home -> loadHomeDevices(home, result) }
                 "prepareActivatorToken" -> prepareActivatorToken(result)
-                // 让用户在系统 Wi-Fi 列表里自己连设备热点。见 openWifiPanel 的说明。
-                "openWifiPanel" -> openWifiPanel(result)
-                "pairWifiDevice" -> pairWifi(call, result)
-                // 「热点配网新流程」：SDK 自己连热点、读回设备扫到的 Wi-Fi 列表，
-                // 再下发凭据。见 apQueryDeviceWifi 的说明。
-                "apQueryDeviceWifi" -> apQueryDeviceWifi(call, result)
-                "apStartPairing" -> apStartPairing(call, result)
-                // 扩展 SDK 的配网入口（涂鸦 2026-09-11 回复：Flutter 场景应使用
-                // ThingActivatorCoreKit）。见 activeStart 的说明。
-                "activeStart" -> activeStart(call, result)
-                "activeStop" -> activeStop(result)
-                // 设备列表是按家庭查的，家庭对不上就是 0 台，而这在 Dart 侧完全
+                 "pairWifiDevice" -> pairWifi(call, result)
+                 // 设备列表是按家庭查的，家庭对不上就是 0 台，而这在 Dart 侧完全
                 // 看不出来——联调页原来显示的「默认家庭」只是个本地常量。
                 "currentHomeId" -> withHome(result) { id ->
                     success(result, id.toString())
@@ -926,98 +883,19 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * again` — the token has to be obtained while the phone is still on the
      * router.
      */
-    /**
-     * 拉起系统的 Wi-Fi 选择界面，让**用户自己**把手机连到设备热点上。
-     *
-     * ## 为什么要有这个
-     *
-     * 涂鸦的 AP 配网（新旧流程都一样）要求**手机已经连在设备热点上**才能开始：
-     * 官方文档开篇原话「将手机连接到配网设备 Wi-Fi 热点后，App 与设备直接通过 Wi-Fi
-     * 进行通信配网……**但用户需要手动切换手机的 Wi-Fi 设置**」。
-     *
-     * 2026-09-10 实测确认 SDK **不会**替我们完成这一步：完整官方序列下
-     * `queryDeviceConfigState` 跑满 45 秒报 `207220`（配网任务整体超时），全程没有弹出
-     * 任何系统框，手机始终在路由器上。涂鸦 SDK 只是跑在本进程里的库、没有额外特权，
-     * Android 10+ 上连指定热点只有两条路：`WifiNetworkSpecifier`（**必弹**系统入网
-     * 授权框）或用户自己去系统设置连。产品选了后者——不要弹框。
-     *
-     * ## 为什么用 Panel 而不是设置页
-     *
-     * `Settings.Panel.ACTION_INTERNET_CONNECTIVITY`（Android 10 / API 29 起）是**浮在
-     * 当前应用之上的底部面板**：用户点一下热点就连上，不用离开 App，回来即可继续。
-     * 低版本退回 `ACTION_WIFI_SETTINGS`（整页设置，要手动返回）。
-     *
-     * 顺带的好处：这样连上的网络会被**系统保存**，同一台设备下次开机时系统可能自动
-     * 重连，于是第二次配网可能完全无感——这是 `WifiNetworkSpecifier` 做不到的
-     * （它建立的是进程专属的一次性连接，不进「已保存的网络」，所以每次都要弹框）。
-     *
-     * 不在这里等结果：连上与否由 Dart 侧轮询 `scanWifi(refresh = false)` 的
-     * `currentIsDeviceHotspot` 判断——读缓存不占扫描配额。
-     */
-    private fun openWifiPanel(result: MethodChannel.Result) {
-        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
-        } else {
-            Intent(Settings.ACTION_WIFI_SETTINGS)
-        }
-        try {
-            // 不加 FLAG_ACTIVITY_NEW_TASK：从 Activity 启动才会以面板形式叠在
-            // 当前应用上；开新任务会把它变成独立页面，用户得手动返回。
-            activity.startActivity(intent)
-            success(result, null)
-        } catch (failure: Throwable) {
-            Log.i(TUYA_LOG_TAG, "open wifi panel failed: ${failure.message}")
-            error(
-                result,
-                "wifi_panel_unavailable",
-                "无法打开系统 Wi-Fi 列表，请手动到「设置 - WLAN」连接设备热点",
-            )
-        }
-    }
-
-    private fun prepareActivatorToken(result: MethodChannel.Result) {
+     private fun prepareActivatorToken(result: MethodChannel.Result) {
         // 取令牌要走云端。没有配网在跑却还绑着网络，只能是上一次失败留下的——
         // 绑着的那个热点早就没了，不解开这次取令牌必然无网失败。
         if (activator == null && boundNetwork != null) {
             Log.i(TUYA_LOG_TAG, "token fetch: dropping stale network binding")
             unbindProcessNetwork()
         }
-        prefetchDeviceSecurityConfig()
         withHome(result) { id ->
             fetchActivatorToken(id, result) { success(result, null) }
         }
     }
 
-    /**
-     * 顺手把 [deviceSecurityConfig] 取回来。
-     *
-     * 不挂在 `result` 上、不报错：这一项是可选的，取不到也照样能配网，没有理由让它
-     * 把「配网前准备」整件事拖失败。老 SDK 上没有这个方法，`runCatching` 直接吞掉。
-     */
-    private fun prefetchDeviceSecurityConfig() {
-        runCatching {
-            val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance") ?: return
-            invokeWithCallback(
-                activatorApi,
-                "getDeviceSecurityConfigs",
-                onSuccess = { value ->
-                    val config = value?.toString()?.takeIf { it.isNotBlank() }
-                    deviceSecurityConfig = config
-                    Log.i(
-                        TUYA_LOG_TAG,
-                        "device security configs: ${if (config == null) "empty" else "${config.length} chars"}",
-                    )
-                },
-                onError = { code, message ->
-                    Log.i(TUYA_LOG_TAG, "device security configs failed: $code $message")
-                },
-            )
-        }.onFailure {
-            Log.i(TUYA_LOG_TAG, "device security configs unavailable: ${it.message}")
-        }
-    }
-
-    /** Calls [onReady] on the main thread with a freshly cached token. */
+ 
     private fun fetchActivatorToken(
         homeId: Long,
         result: MethodChannel.Result,
@@ -1078,349 +956,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
     }
 
-    /**
-     * 「热点配网新流程」的配网器。查 Wi-Fi 列表与开始配网必须是**同一个实例**：
-     * 连热点这一步发生在 [apQueryDeviceWifi] 里，实例换了连接也就没了。
-     */
-    private var optimizedActivator: Any? = null
-
-    /**
-     * 新流程第一步：让 SDK 自己连上设备热点，并读回**设备扫到的 Wi-Fi 列表**。
-     *
-     * 这是整条新流程的关键——官方文档原话：「在配网过程中，SDK 会在指定时间内自动去
-     * 连接 AP 热点」。也就是说 App 不必再用 `WifiNetworkSpecifier` 去连，那个每次都弹
-     * 的系统入网授权框也就不存在了。
-     *
-     * 返回的列表来自**设备的视角**（设备自己扫到的），比手机侧扫描准得多：设备能看见
-     * 的才是它连得上的。`sec` 还给出加密方式，可以据此提前校验密码长度。
-     *
-     * ⚠️ 只对新固件有效（TuyaOS ≥ 3.6.1）。老固件上这一步会以 `207206`
-     * （设备返回不能识别的状态）或超时失败。
-     */
-    private fun apQueryDeviceWifi(call: MethodCall, result: MethodChannel.Result) {
-        // ⚠️ **每一步都打日志。** 这个调用失败时 SDK 只给一个笼统的超时，光看结果分不清
-        // 是「配网器没建起来」「反射签名对不上」还是「调出去了但回调永远不来」。
-        // 三种的修法完全不同，所以宁可日志啰嗦一点。用 `adb logcat -s $TUYA_LOG_TAG` 看。
-        trace("ap query: begin")
-        val activator = newOptimizedActivator()
-        trace("ap query: activator=${activator.javaClass.simpleName}")
-
-        // ApQueryBuilder.Builder().setContext(ctx).setTimeout(ms).build()
-        val timeout = (call.argument<Number>("timeout")?.toLong() ?: 0L)
-        val queryBuilderClass = firstClass(
-            "com.thingclips.smart.sdk.bean.ApQueryBuilder\$Builder",
-        )
-        val queryBuilder = queryBuilderClass.getDeclaredConstructor()
-            .apply { isAccessible = true }
-            .newInstance()
-        invoke(queryBuilder, "setContext", activity)
-        invoke(queryBuilder, "setTimeout", timeout)
-        val query = invoke(queryBuilder, "build")
-            ?: throw IllegalStateException("ApQueryBuilder.build 返回空")
-        trace("ap query: builder ok, timeout=${timeout}ms")
-
-        // 手机此刻连在哪个网络上——这一行是判断"SDK 到底有没有把手机切到设备热点"的关键。
-        // 调用前打一次、回调里再打一次，两相对照就知道它动没动过。
-        trace("ap query: wifi before = ${currentSsidForLog()}")
-        val startedAt = SystemClock.elapsedRealtime()
-        invokeWithCallback(
-            activator,
-            "queryDeviceConfigState",
-            query,
-            onSuccess = { value ->
-                val count = (value as? Collection<*>)?.size ?: -1
-                trace(
-                    "ap query: success in ${SystemClock.elapsedRealtime() - startedAt}ms, " +
-                        "networks=$count, wifi now = ${currentSsidForLog()}",
-                )
-                onMain(result) { success(result, wifiInfoList(value)) }
-            },
-            onError = { code, message ->
-                trace(
-                    "ap query: error $code after ${SystemClock.elapsedRealtime() - startedAt}ms, " +
-                        "msg=$message, wifi now = ${currentSsidForLog()}",
-                )
-                error(result, code, message)
-            },
-        )
-        trace("ap query: handed to SDK, waiting for callback")
-    }
-
-    /** 当前连着的 Wi-Fi 名，只给日志用；读不到就说读不到，不猜。 */
-    private fun currentSsidForLog(): String = runCatching {
-        val wifi = activity.applicationContext
-            .getSystemService(Context.WIFI_SERVICE) as? WifiManager
-        val ssid = wifi?.connectionInfo?.ssid?.trim('"')
-        if (ssid.isNullOrEmpty() || ssid == "<unknown ssid>") "(读不到)" else ssid
-    }.getOrElse { "(读失败:${it.message})" }
-
-    /**
-     * 建一个「热点配网新流程」的配网器（`IThingOptimizedActivator`）。
-     *
-     * `apQueryDeviceWifi` 和 `apStartPairing` 都要它，而**两者互不依赖**：
-     * 2026-09-10 起查设备 Wi-Fi 列表这一步被产品去掉了（只用手机当前连着的网络），
-     * 所以配网可以在从没查过列表的情况下直接开始。文档说的「SDK 会在指定时间内
-     * 自动去连接 AP 热点」就发生在 `startActivator` 里面，不是查询那一步的副作用。
-     *
-     * 旧的先释放：一个配网器身上挂着一条热点连接，留着会互相抢。
-     */
-    private fun newOptimizedActivator(): Any {
-        val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
-            ?: throw IllegalStateException("无法获取配网实例")
-        // ThingApActivatorBuilder().setContext(activity)
-        val builderClass = firstClass(
-            "com.thingclips.smart.home.sdk.builder.ThingApActivatorBuilder",
-        )
-        val builder = builderClass.getDeclaredConstructor()
-            .apply { isAccessible = true }
-            .newInstance()
-        invoke(builder, "setContext", activity)
-        releaseOptimizedActivator()
-        val created = invoke(activatorApi, "newOptimizedActivator", builder)
-            ?: throw IllegalStateException("newOptimizedActivator 未返回配网实例")
-        optimizedActivator = created
-        return created
-    }
-
-    /** `List<WifiInfoBean>` → Dart 端的 `[{ssid, rssi, sec}]`。 */
-    private fun wifiInfoList(value: Any?): List<Map<String, Any?>> {
-        val items = value as? Collection<*> ?: return emptyList()
-        return items.mapNotNull { bean ->
-            if (bean == null) return@mapNotNull null
-            val ssid = readAny(bean, "getSsid", "getSSID")?.toString().orEmpty()
-            if (ssid.isEmpty()) return@mapNotNull null
-            mapOf(
-                "ssid" to ssid,
-                "rssi" to (readAny(bean, "getRssi", "getRSSI") as? Number)?.toInt(),
-                "sec" to (readAny(bean, "getSec", "getSecurity") as? Number)?.toInt(),
-            )
-        }
-    }
-
-    /** 依次试几个取值方法名，都没有就返回 null——SDK 在 7.x 里改过命名。 */
-    private fun readAny(target: Any, vararg names: String): Any? = names.firstNotNullOfOrNull {
-        runCatching { invoke(target, it) }.getOrNull()
-    }
-
-    /**
-     * 新流程第二步：把路由器凭据下发给设备。
-     *
-     * 必须复用 [apQueryDeviceWifi] 建好的那个配网器——热点连接挂在它上面。
-     */
-    private fun apStartPairing(call: MethodCall, rawResult: MethodChannel.Result) {
-        if (pairingResult != null) releasePairing("pair_cancelled", "被新的配网请求取代")
-        val result = PairingResult(rawResult)
-        pairingResult = result
-        freshActivatorToken()?.let { token ->
-            apStartWithToken(call, result, token)
-            return
-        }
-        withHome(result) { id ->
-            fetchActivatorToken(id, result) { token ->
-                apStartWithToken(call, result, token)
-            }
-        }
-    }
-
-    /**
-     * 用**扩展 SDK 的 `ThingActivatorCoreKit`** 配网。
-     *
-     * 2026-09-11 涂鸦回复：「Flutter 场景下必须使用 `ThingActivatorCoreKit`（支持 EZ/AP/
-     * 二维码等模式）」。这条**经核实属实**——从 Maven 拆包确认过：
-     *
-     * - `thingsmart-expansion-sdk` → `thingsmart-activator-core-kit:7.8.0`（**已是现有依赖**）
-     * - `ThingActivatorCoreKit.getActiveManager()` → `IThingActivator`
-     * - `IThingActivator.newThingActiveManager()` → `IThingActiveManager`
-     * - `IThingActiveManager.startActive(builder)` / `stopActive()`
-     * - `ThingDeviceActiveBuilder`：`setActiveModel/setContext/setSsid/setPassword/setToken/`
-     *   `setTimeOut/setSecurityConfig/setListener`
-     * - `ThingDeviceActiveModeEnum` 里 **`AP` 和 `EZ` 都在**
-     *
-     * 这是与 `apStartPairing`（`ThingHomeSdk.getActivatorInstance()`）**完全不同的另一套
-     * 实现**，所以值得单独试：连热点这件事有可能由它内部处理。
-     *
-     * ⚠️ 同一类渠道也给过编造的 API（`ThingSmartHotspotCredentialKit`、
-     * `IThingOptimizedActivator.startAPConfig`、`WifiManager#connectSta`——都经查不存在），
-     * 所以**任何新 API 先拆包核实再写代码**。这一条是核实过的。
-     */
-    private fun activeStart(call: MethodCall, rawResult: MethodChannel.Result) {
-        if (pairingResult != null) releasePairing("pair_cancelled", "被新的配网请求取代")
-        val result = PairingResult(rawResult)
-        pairingResult = result
-        freshActivatorToken()?.let { token ->
-            activeStartWithToken(call, result, token)
-            return
-        }
-        withHome(result) { id ->
-            fetchActivatorToken(id, result) { token ->
-                activeStartWithToken(call, result, token)
-            }
-        }
-    }
-
-    private fun activeStartWithToken(
-        call: MethodCall,
-        result: MethodChannel.Result,
-        token: String,
-    ) {
-        val mode = call.argument<String>("mode")?.uppercase() ?: "AP"
-        trace("active: begin mode=$mode, wifi=${currentSsidForLog()}")
-
-        // ThingActivatorCoreKit 是 Kotlin object：先试 INSTANCE 字段，再退到 getInstance()。
-        val kitClass = firstClass(
-            "com.thingclips.smart.activator.core.kit.ThingActivatorCoreKit",
-        )
-        val kit = runCatching { kitClass.getField("INSTANCE").get(null) }.getOrNull()
-            ?: invokeStatic(kitClass, "getInstance")
-            ?: throw IllegalStateException("拿不到 ThingActivatorCoreKit 实例")
-        val activator = invoke(kit, "getActiveManager")
-            ?: throw IllegalStateException("getActiveManager 返回空")
-        val manager = invoke(activator, "newThingActiveManager")
-            ?: throw IllegalStateException("newThingActiveManager 返回空")
-        trace("active: manager=${manager.javaClass.simpleName}")
-
-        val builderClass = firstClass(
-            "com.thingclips.smart.activator.core.kit.builder.ThingDeviceActiveBuilder",
-        )
-        val builder = builderClass.getDeclaredConstructor()
-            .apply { isAccessible = true }
-            .newInstance()
-        val modeClass = firstClass(
-            "com.thingclips.smart.activator.core.kit.constant.ThingDeviceActiveModeEnum",
-        )
-        @Suppress("UNCHECKED_CAST")
-        val modeValue = java.lang.Enum.valueOf(
-            modeClass as Class<out Enum<*>>,
-            mode,
-        )
-        invoke(builder, "setActiveModel", modeValue)
-        invoke(builder, "setContext", activity)
-        invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
-        invoke(builder, "setPassword", call.argument<String>("password").orEmpty())
-        invoke(builder, "setToken", token)
-        // 这个 builder 的 setTimeOut 单位是**秒**（与 ApActivatorBuilder 的毫秒不同）。
-        invoke(builder, "setTimeOut", (call.argument<Number>("timeout")?.toLong() ?: 120L))
-        deviceSecurityConfig?.let {
-            runCatching { invoke(builder, "setSecurityConfig", it) }
-        }
-        trace("active: builder ready, starting …")
-        val startedAt = SystemClock.elapsedRealtime()
-        // `setListener` 只接 `IThingDeviceActiveListener`，但热点设备的「暂停」状态
-        // 走的是它的子接口 `IThingDeviceStatePauseActiveListener`（涂鸦文档里写的，
-        // SDK 内部应当是 `is` 判断）。所以代理同时实现这两个接口，两种回调都能收到。
-        val listenerType = firstClass(
-            "com.thingclips.smart.activator.core.kit.listener.IThingDeviceActiveListener",
-        )
-        val pauseType = runCatching {
-            Class.forName(
-                "com.thingclips.smart.activator.core.kit.listener." +
-                    "IThingDeviceStatePauseActiveListener",
-            )
-        }.getOrNull()
-        val listener = callbackProxy(
-            listenerType,
-            extraTypes = listOfNotNull(pauseType),
-            onSuccess = { value ->
-                trace(
-                    "active: success in ${SystemClock.elapsedRealtime() - startedAt}ms, " +
-                        "wifi now = ${currentSsidForLog()}",
-                )
-                onMain(result) {
-                    activatorToken = null
-                    if (value == null) {
-                        error(result, "pair_failed", "配网未返回设备信息")
-                    } else {
-                        watchDevice(deviceIdOf(value))
-                        success(result, deviceMap(value))
-                    }
-                }
-            },
-            onError = { code, message ->
-                trace(
-                    "active: error $code after ${SystemClock.elapsedRealtime() - startedAt}ms, " +
-                        "msg=$message, wifi now = ${currentSsidForLog()}",
-                )
-                error(result, code, message)
-            },
-        )
-        invoke(builder, "setListener", listener)
-        invoke(manager, "startActive", builder)
-        activeManager = manager
-        trace("active: handed to kit, waiting for callback")
-    }
-
-    /** 上一次 `activeStart` 建的 manager，用来停。 */
-    private var activeManager: Any? = null
-
-    private fun activeStop(result: MethodChannel.Result) {
-        activeManager?.let { runCatching { invoke(it, "stopActive") } }
-        activeManager = null
-        success(result, null)
-    }
-
-    private fun apStartWithToken(
-        call: MethodCall,
-        result: MethodChannel.Result,
-        token: String,
-    ) {
-        // 没查过设备 Wi-Fi 列表也能直接配网：现在的动线就是不查（只用手机当前连着
-        // 的网络），配网器在这里按需新建，连热点由 startActivator 自己完成。
-        val activator = optimizedActivator ?: newOptimizedActivator()
-        // ApActivatorBuilder.Builder()…build()
-        val builderClass = firstClass(
-            "com.thingclips.smart.sdk.bean.ApActivatorBuilder\$Builder",
-        )
-        val builder = builderClass.getDeclaredConstructor()
-            .apply { isAccessible = true }
-            .newInstance()
-        invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
-        invoke(builder, "setPwd", call.argument<String>("password").orEmpty())
-        // 新流程的超时单位是**毫秒**（原流程的 setTimeOut 是秒），别搞混。
-        invoke(builder, "setTimeout", call.argument<Number>("timeout")?.toLong() ?: 120_000L)
-        invoke(builder, "setToken", token)
-        // Dart 侧可以显式传，没传就用预取到的那份（见 [deviceSecurityConfig]）。
-        val securityConfig = call.argument<String>("securityConfig")
-            ?.takeIf { it.isNotBlank() }
-            ?: deviceSecurityConfig
-        if (securityConfig != null) {
-            runCatching { invoke(builder, "setSecurityConfig", securityConfig) }
-                .onFailure { Log.i(TUYA_LOG_TAG, "setSecurityConfig skipped: ${it.message}") }
-        }
-        invokeWithCallback(
-            builder,
-            "setListener",
-            onSuccess = { value ->
-                onMain(result) {
-                    releaseOptimizedActivator()
-                    activatorToken = null
-                    if (value == null) {
-                        error(result, "pair_failed", "配网未返回设备信息")
-                    } else {
-                        watchDevice(deviceIdOf(value))
-                        success(result, deviceMap(value))
-                    }
-                }
-            },
-            onError = { code, message ->
-                releaseOptimizedActivator()
-                error(result, code, message)
-            },
-        )
-        val request = invoke(builder, "build")
-            ?: throw IllegalStateException("ApActivatorBuilder.build 返回空")
-        Log.i(TUYA_LOG_TAG, "ap start activator (new flow)")
-        invoke(activator, "startActivator", request)
-    }
-
-    /** 停掉新流程的配网器并释放它持有的热点连接。 */
-    private fun releaseOptimizedActivator() {
-        val activator = optimizedActivator ?: return
-        optimizedActivator = null
-        runCatching { invoke(activator, "stopActivator") }
-        runCatching { invoke(activator, "onDestroy") }
-    }
-
-    private fun startActivator(call: MethodCall, result: MethodChannel.Result, token: String) {
+     private fun startActivator(call: MethodCall, result: MethodChannel.Result, token: String) {
         val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
             ?: throw IllegalStateException("无法获取配网实例")
         // The builder's fully-qualified name is not hard-coded: Tuya has moved
@@ -1429,18 +965,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // factory method takes the builder as its only argument, so the type is
         // read off that signature instead — the same trick invokeWithCallback
         // already uses for callback interfaces.
-        val requested = call.argument<String>("mode").orEmpty()
-        val modeNames = when (requested) {
-            "ez" -> EZ_MODE_NAMES
-            "dual" -> DUAL_MODE_NAMES
-            else -> AP_MODE_NAMES
-        }
-        val factory = activatorFactory(activatorApi, requested)
+        val factory = activatorFactory(activatorApi)
         val builderClass = factory.parameterTypes.single()
         val builder = builderClass.getDeclaredConstructor()
             .apply { isAccessible = true }
             .newInstance()
-        val mode = activatorMode(builder, modeNames)
+        val mode = activatorMode(builder, AP_MODE_NAMES)
         invoke(builder, "setContext", activity)
         invoke(builder, "setSsid", call.argument<String>("ssid").orEmpty())
         invoke(builder, "setPassword", call.argument<String>("password").orEmpty())
@@ -1506,12 +1036,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * 工厂只接受 Builder 一个参数，[startActivator] 正是据此拿到 Builder 的类型，
      * 不必写死包名。
      */
-    private fun activatorFactory(activatorApi: Any, mode: String): Method {
-        val preference = if (mode == "ez") {
-            listOf("newEZWifiConfigDevActivator", "newActivator")
-        } else {
-            listOf("newActivator")
-        }
+    private fun activatorFactory(activatorApi: Any): Method {
+        val preference = listOf("newActivator")
         val factories = candidates(activatorApi.javaClass).filter { method ->
             method.name in preference &&
                 method.parameterTypes.size == 1 &&
@@ -2237,58 +1763,17 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "equals" -> proxy === args?.firstOrNull()
                 "hashCode" -> System.identityHashCode(proxy)
                 "toString" -> "TuyaCallback(${callbackType.simpleName})"
-                // 配网进度回调。涂鸦在 AP 流程里逐步上报「设备连接建立成功 / Wi-Fi
-                // 配置已下发 / 设备连接路由器成功 / 设备激活中 / 设备即将上线」，
-                // 智能生活 App 展示的就是它。原样转给 Dart，**并且打日志**——这些
-                // 步骤常量名官方文档没有列出来，真机跑一次就能从日志里确认，之后再
-                // 在 Dart 侧按名字精确映射。
+                // 配网进度回调。只打日志（会进页面上那个日志框），不再往 Dart 推：
+                // 进度页是固定三步，靠 `PairingStage` 推进，不需要这串名字。
                 "onStep" -> {
-                    val step = args?.firstOrNull()?.toString().orEmpty()
-                    trace("pairing step: $step")
-                    emit(mapOf("type" to "pairingStep", "step" to step))
+                    trace("pairing step: ${args?.firstOrNull()}")
                     defaultValue(method.returnType)
                 }
-                "onSuccess", "onActiveSuccess" -> {
+                "onSuccess" -> {
                     if (delivered.compareAndSet(false, true)) onSuccess(args?.firstOrNull())
                     defaultValue(method.returnType)
                 }
-                // 扩展 SDK（`ThingActivatorCoreKit`）的 `IThingDeviceActiveListener`
-                // 在配网过程中先回 `onFind(devId)`、再回 `onBind(devId)`，最后才是
-                // `onActiveSuccess` / `onActiveError`。前两个不是终态，只上报进度。
-                // 方法名是从 `thingsmart-activator-core-kit-7.8.0.aar` 拆包核对过的。
-                "onFind", "onBind" -> {
-                    trace("active: ${method.name} ${args?.firstOrNull()}")
-                    emit(mapOf("type" to "pairingStep", "step" to method.name))
-                    defaultValue(method.returnType)
-                }
-                // `onActiveError` 的参数是 `ThingDeviceActiveErrorBean`（`errCode` /
-                // `errMsg` / `isCanRetry`），`onActiveLimited` 的是
-                // `ThingDeviceActiveLimitBean`（`errorCode` / `errorMsg`）——都是一个
-                // bean，不是 `(code, msg)` 两个字符串，所以不能走下面按 String 取参
-                // 的分支（那会把错误吞掉，只剩 Dart 侧超时）。
-                "onActiveError", "onActiveLimited" -> {
-                    val bean = args?.firstOrNull()
-                    trace("active: ${method.name} $bean")
-                    if (delivered.compareAndSet(false, true)) {
-                        val failure = beanError(bean)
-                        onError(failure.first, failure.second)
-                    }
-                    defaultValue(method.returnType)
-                }
-                // 热点设备会用「暂停」回调告诉我们：Wi-Fi 密码错了，或者设备连不上
-                // 路由器。不兜底、不重试，原文报出来打到页面上。
-                "onActivatorStatePauseCallback" -> {
-                    val state = args?.firstOrNull()
-                    trace("active: paused $state")
-                    if (delivered.compareAndSet(false, true)) {
-                        onError(
-                            "active_paused",
-                            "设备报告配网暂停（常见原因：Wi-Fi 密码错误或设备连不上路由器）：$state",
-                        )
-                    }
-                    defaultValue(method.returnType)
-                }
-                // Signatures differ per interface (onError(code, msg),
+                 // Signatures differ per interface (onError(code, msg),
                 // onFailure(otaType, code, msg), ...), so the human-readable
                 // pair is picked from the String arguments.
                 "onError", "onFailure" -> {
@@ -2306,24 +1791,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
     }
 
-    /**
-     * 从涂鸦回调的错误 bean 里取 `(code, message)`。扩展 SDK 的
-     * `ThingDeviceActiveErrorBean` 用 `errCode` / `errMsg`，
-     * `ThingDeviceActiveLimitBean` 用 `errorCode` / `errorMsg`，两套名字都试一遍；
-     * 取不到就把 bean 的 `toString()` 原样报出去（它本身就带全部字段），不编兜底文案。
-     */
-    private fun beanError(bean: Any?): Pair<String, String> {
-        if (bean == null) return "sdk_error" to "SDK 回调没带错误信息"
-        val code = textOf(bean, "getErrCode") ?: textOf(bean, "getErrorCode")
-        val message = textOf(bean, "getErrMsg") ?: textOf(bean, "getErrorMsg")
-        return (code ?: "sdk_error") to (message ?: bean.toString())
-    }
-
-    private fun textOf(target: Any, getter: String): String? =
-        runCatching { invoke(target, getter)?.toString() }.getOrNull()
-            ?.takeIf { it.isNotBlank() && it != "null" }
-
-    private fun getter(target: Any, name: String): Any =
+     private fun getter(target: Any, name: String): Any =
         invoke(target, name) ?: throw IllegalStateException("$name returned null")
 
     private fun optionalGetter(target: Any, name: String): Any? =

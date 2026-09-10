@@ -426,33 +426,31 @@ class _PairingRepository extends MockTuyaRepository {
     return super.getDevices();
   }
 
-  test('热点配网新流程：读设备扫到的 Wi-Fi → 连热点 → 下发凭据', () async {
-    // ⚠️ 注释按 2026-09-10 晚的结论更新：`pairViaDeviceHotspot` **会自己先连一次
-    // 设备热点**（`_joinHotspotForPairing`），因为「SDK 在配网过程中自动连 AP」
-    // 那条路实测不成立——配网以 `out of time` 失败且没有任何 207xxx，说明通道压根
-    // 没建起来。`connectDeviceForPairing`（读设备扫到的 Wi-Fi 列表）代码保留，
-    // 但已不在产品动线上：产品只用手机当前连着的那个网络。
-    final state = FlowerpotState(repository: MockTuyaRepository(latency: Duration.zero));
+  test('AP 热点配网：连热点 → 取令牌 → 下发凭据 → 退出时还原网络', () async {
+    // 这是**唯一**一条配网路径（2026-09-11 定稿）。EZ、涂鸦「新流程」、扩展 SDK
+    // 三条都已删掉，原因见 `FlowerpotState.pairViaHotspot` 的说明。
+    final state = FlowerpotState(
+      repository: MockTuyaRepository(latency: Duration.zero),
+    );
     addTearDown(state.dispose);
 
-    final connected = await state.connectDeviceForPairing();
+    // ① 搜索页那颗「连接」：只连热点，不配网。
+    final connected = await state.connectDeviceHotspot(hotspotSsid: 'SmartLife-1234');
     expect(connected.success, isTrue);
-    // 读回来的是**设备视角**的列表。
-    expect(state.deviceWifiNetworks, isNotEmpty);
-    expect(state.deviceWifiNetworks.first.ssid, 'Home_2.4G');
-    // sec = 3（WPA2-PSK）⇒ 需要密码且至少 8 位。
-    expect(state.deviceWifiNetworks.first.needsPassword, isTrue);
-    expect(state.deviceWifiNetworks.first.minimumPasswordLength, 8);
 
-    final paired = await state.pairViaDeviceHotspot(
+    // ② 下一页输完密码才真配网。
+    final paired = await state.pairViaHotspot(
       ssid: 'Home_2.4G',
       password: '12345678',
+      hotspotSsid: 'SmartLife-1234',
     );
     expect(paired.success, isTrue);
     expect(state.selectedDevice, isNotNull);
     expect(state.pairingStage, PairingStage.idle);
 
+    // ③ 退出动线必须把手机的 Wi-Fi 还回去（`PRODUCT_RULES` §1.4.1）。
     await state.stopDevicePairing();
-    expect(state.deviceWifiNetworks, isEmpty);
+    expect(state.pairingStage, PairingStage.idle);
   });
+
 }

@@ -27,12 +27,6 @@ class MockTuyaRepository implements TuyaRepository {
   @override
   Stream<OtaProgress> get otaUpdates => _otaUpdates.stream;
 
-  /// 配网进度。用例可以往 [emitPairingStep] 里推，模拟涂鸦的 `onStep` 回调。
-  final StreamController<String> _pairingSteps =
-      StreamController<String>.broadcast();
-
-  @override
-  Stream<String> get pairingSteps => _pairingSteps.stream;
 
   final StreamController<String> _pairingLogs =
       StreamController<String>.broadcast();
@@ -41,8 +35,6 @@ class MockTuyaRepository implements TuyaRepository {
   Stream<String> get pairingLogs => _pairingLogs.stream;
 
   void emitPairingLog(String line) => _pairingLogs.add(line);
-
-  void emitPairingStep(String step) => _pairingSteps.add(step);
 
   /// 让测试和演示能驱动升级进度，无需真实设备。
   void pushOtaProgress(OtaProgress progress) => _otaUpdates.add(progress);
@@ -215,46 +207,6 @@ class MockTuyaRepository implements TuyaRepository {
     return 'mock-home';
   }
 
-  @override
-  Future<List<DeviceWifiNetwork>> apQueryDeviceWifi({Duration? timeout}) async {
-    await _wait();
-    return const <DeviceWifiNetwork>[
-      DeviceWifiNetwork(ssid: 'Home_2.4G', rssi: -46, sec: 3),
-      DeviceWifiNetwork(ssid: 'Office_2.4G', rssi: -66, sec: 3),
-    ];
-  }
-
-  @override
-  Future<SmartPlanterDevice> apStartPairing({
-    required String ssid,
-    required String password,
-    Duration timeout = const Duration(seconds: 120),
-  }) async {
-    await _wait();
-    return pair(PairingRequest(ssid: ssid, password: password));
-  }
-
-  @override
-  Future<void> apStopPairing() async {}
-
-  @override
-  Future<SmartPlanterDevice> activeStart({
-    required String mode,
-    required String ssid,
-    required String password,
-    Duration timeout = const Duration(seconds: 120),
-  }) => pair(PairingRequest(ssid: ssid, password: password, mode: mode));
-
-  @override
-  Future<void> activeStop() async {}
-
-  /// 测试里没有系统界面可拉起。记一笔，供用例断言「有没有引导用户去连热点」。
-  int wifiPanelOpens = 0;
-
-  @override
-  Future<void> openWifiPanel() async {
-    wifiPanelOpens++;
-  }
 
   /// 手机此刻连着的网络名。
   ///

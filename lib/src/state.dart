@@ -633,54 +633,7 @@ class FlowerpotState extends ChangeNotifier {
     _pairingLogSub = null;
   }
 
-  /// 「热点配网新流程」查到的、**设备自己扫到的** Wi-Fi 列表。
-  List<DeviceWifiNetwork> get deviceWifiNetworks => _deviceWifiNetworks;
-  List<DeviceWifiNetwork> _deviceWifiNetworks = const <DeviceWifiNetwork>[];
 
-  /// 新流程第一步：让 SDK 连上设备热点并读回设备扫到的 Wi-Fi 列表。
-  ///
-  /// 成功即意味着**设备已经连上了**——这一步替代了原来「手机扫热点 + App 用
-  /// `WifiNetworkSpecifier` 去连」的一整套，也就没有那个系统入网授权框了。
-  ///
-  /// ⚠️ 只对新固件有效（TuyaOS ≥ 3.6.1）。老固件上会以 `207206`（设备状态无法识别）
-  /// 或超时失败，那时才需要退回原流程。
-  Future<ActionResult> connectDeviceForPairing({
-    // 35 秒：SDK 找热点 + 连上 + 握手，正常情况远用不到；给太久只是让用户干等。
-    // 失败要快，原因要清楚。
-    Duration timeout = const Duration(seconds: 35),
-  }) => _guard(() async {
-    // 这一步覆盖进度页的前两步：先和设备建立通道（`connectingDevice`），通道通了设备
-    // 才能去扫 Wi-Fi。列表拿回来就意味着「设备找网络」也做完了，所以成功后把阶段推到
-    // `deviceScanning` 再收尾——这样进度页上那两行的状态是真的，不是排出来的。
-    _setPairingStage(PairingStage.connectingDevice);
-    _startPairingLog();
-    var scanned = false;
-    // 失败时把**能拿到的一切**都带出去：原始码、原文、用时、手机当时连的网络。
-    // 这一步只会给一个笼统的超时码，不把这些附上，页面上就只剩一句 time out，
-    // 定位不了任何东西。
-    final watch = Stopwatch()..start();
-    try {
-      final networks = await _repository.apQueryDeviceWifi(timeout: timeout);
-      _deviceWifiNetworks = networks;
-      scanned = true;
-      _setPairingStage(PairingStage.deviceScanning);
-      notifyListeners();
-      return ActionResult(true, '已连接设备，读到 ${networks.length} 个可用网络');
-    } on TuyaException catch (error) {
-      throw TuyaException(error.code, _connectDiagnostic(error.message, watch));
-    } catch (error) {
-      // 非涂鸦异常（反射签名对不上、平台没实现之类）同样要把诊断带出去——那类问题
-      // 恰恰最需要看到原文。
-      throw TuyaException('connect_failed', _connectDiagnostic('$error', watch));
-    } finally {
-      await _stopPairingLog();
-      // 成功时把阶段留在 `deviceScanning`：页面正要跳去选网络，这时归零会让进度页
-      // 闪一下回到「准备中」。失败才复位。
-      if (!scanned) _setPairingStage(PairingStage.idle);
-    }
-  });
-
-  /// 新流程第二步：把路由器凭据下发给设备。
   /// 连设备失败时的诊断串：原文 + 用时 + 手机当时连在哪个网络。
   ///
   /// 这三样比任何猜测都有用：**用时**看得出是不是跑满了超时（跑满 ⇒ SDK 一直没能和设备
@@ -693,7 +646,7 @@ class FlowerpotState extends ChangeNotifier {
         : '手机在「$now」'
               '${(_wifiScan?.currentIsDeviceHotspot ?? false) ? '(设备热点)' : '(不是设备热点)'}';
     final detail = '$reason｜用时 ${watch.elapsedMilliseconds}ms · $where';
-    debugPrint('[pairing] connectDeviceForPairing 失败：$detail');
+    debugPrint('[pairing] 连设备热点失败：$detail');
     return detail;
   }
 
@@ -730,8 +683,8 @@ class FlowerpotState extends ChangeNotifier {
   /// 都要走云端，而这一步一执行手机就没有外网了。
   ///
   /// ⚠️ 连上之后**不要以为它一定还在**：`WifiNetworkSpecifier` 建的是进程专属的一次性
-  /// 连接，系统可能在用户选 Wi-Fi、输密码那段时间里把它掉掉。所以
-  /// [pairViaDeviceHotspot] 的第①步照常保留——已连就跳过，掉了就重连。
+  /// 连接，系统可能在用户选 Wi-Fi、输密码那段时间里把它掉掉。所以 [pairViaHotspot] 第②步
+  /// 照常保留——已连就原地跳过（不会再弹框），掉了就重连。
   Future<ActionResult> connectDeviceHotspot({String? hotspotSsid}) =>
       _guard(() async {
         // 连热点这一步的原生日志也要留在页面上：失败原因（比如
@@ -741,6 +694,7 @@ class FlowerpotState extends ChangeNotifier {
             hotspotSsid ??
             _wifiScan?.deviceHotspots.map((item) => item.ssid).firstOrNull;
         _setPairingStage(PairingStage.connectingDevice);
+        final watch = Stopwatch()..start();
         try {
           final joinedByApp = await _joinHotspotForPairing(
             target: target,
@@ -750,388 +704,50 @@ class FlowerpotState extends ChangeNotifier {
             true,
             joinedByApp ? '已连接设备热点' : '手机已经在设备热点上',
           );
+        } on TuyaException catch (error) {
+          // 事实在前、建议在后（`PRODUCT_RULES` §4.1）：原文 + 用时 + 手机当时连在哪。
+          throw TuyaException(
+            error.code,
+            _connectDiagnostic(error.message, watch),
+          );
         } finally {
           await _stopPairingLog();
           _setPairingStage(PairingStage.idle);
         }
       });
 
-  /// 用**扩展 SDK 的 `ThingActivatorCoreKit`** 配网。
-  ///
-  /// 2026-09-11 涂鸦回复：「Flutter 场景下必须使用 `ThingActivatorCoreKit`」。这条**已拆包
-  /// 核实属实**——`thingsmart-activator-core-kit:7.8.0` 本来就是我们的传递依赖，
-  /// `ThingActivatorCoreKit` / `ThingDeviceActiveBuilder` / `ThingDeviceActiveModeEnum`
-  /// （含 `AP`、`EZ`）全部存在。详见原生 `activeStart` 的注释。
-  ///
-  /// 与 [pairViaDeviceHotspot]（`ThingHomeSdk.getActivatorInstance()`）是**两套不同实现**，
-  /// 连热点的处理可能不一样，所以单独接出来试。
-  ///
-  /// ⚠️ 同一渠道也给过编造的 API（`ThingSmartHotspotCredentialKit`、
-  /// `IThingOptimizedActivator.startAPConfig`、`WifiManager#connectSta` —— 均经查不存在）。
-  /// **任何新 API 先拆包核实再写代码。**
-  Future<ActionResult> pairViaActivatorKit({
-    required String ssid,
-    required String password,
-    String mode = 'ap',
-    Duration timeout = const Duration(seconds: 120),
-  }) => _guard(() async {
-    final watch = Stopwatch()..start();
-    _startPairingLog();
-    _setPairingStage(PairingStage.connectingDevice);
-    var started = false;
-    StreamSubscription<String>? stepSub;
-    try {
-      // 这一套的进度回调名字是**确定的**（从 AAR 拆包读出来的
-      // `IThingDeviceActiveListener`）：`onFind(devId)` → `onBind(devId)` →
-      // `onActiveSuccess`。所以这里按名字精确映射，不像 [pairViaDeviceHotspot] 那样
-      // 靠到达顺序猜。
-      stepSub = _repository.pairingSteps.listen((step) {
-        debugPrint('[pairing] active step $step');
-        if (step == 'onFind') {
-          _setPairingStage(PairingStage.connectingRouter);
-        } else if (step == 'onBind') {
-          _setPairingStage(PairingStage.goingOnline);
-        }
-      });
-      started = true;
-      final device = await _repository.activeStart(
-        mode: mode,
-        ssid: ssid,
-        password: password,
-        timeout: timeout,
-      );
-      _setPairingStage(PairingStage.activating);
-      _activatorTokenAt = null;
-      _devices = <SmartPlanterDevice>[
-        ..._devices.where((item) => item.id != device.id),
-        device,
-      ];
-      _selectedDeviceId = device.id;
-      return const ActionResult(true, '设备配网成功');
-    } on TuyaException catch (error) {
-      if (started) _activatorTokenAt = null;
-      throw TuyaException(error.code, _connectDiagnostic(error.message, watch));
-    } catch (error) {
-      if (started) _activatorTokenAt = null;
-      throw TuyaException('pair_failed', _connectDiagnostic('$error', watch));
-    } finally {
-      await stepSub?.cancel();
-      await _stopPairingLog();
-      _setPairingStage(PairingStage.idle);
-    }
-  });
 
-  /// 涂鸦「热点配网新流程」。**全程不碰 `WifiNetworkSpecifier`，所以不会有系统入网
-  /// 授权框。**
-  ///
-  /// ## 这是产品的硬性要求，不是取舍
-  ///
-  /// 配网全程不得出现「要与智能花盆搭配使用的设备 / 取消 / 连接」那个框
-  /// （见 `docs/PRODUCT_RULES.md` 1.2）。而 Android 10+ 上只要用了
-  /// `WifiNetworkSpecifier` + `requestNetwork` 就**必弹、关不掉、不能代点**。
-  /// ⇒ **App 侧一次都不能调它。** 连设备热点交给 SDK 在内部完成，官方文档原话：
-  /// 「在配网过程中，SDK 会在指定时间内自动去连接 AP 热点」。
-  ///
-  /// ## 两步
-  ///
-  /// | 步骤 | 做什么 | 对应 |
-  /// | --- | --- | --- |
-  /// | ① | 建立与设备的通道并查它的状态（**SDK 在这里连热点**） | `apQueryDeviceWifi` = `queryDeviceConfigState` |
-  /// | ② | 下发路由器 SSID/密码 | `apStartPairing` = `startActivator` |
-  ///
-  /// 取令牌、取安全配置、确认家庭这三件**走云端**的事由搜索页的 `prepareForPairing`
-  /// 在**手机还连着路由器时**做完——①一执行手机就切到设备热点、没有外网了。
-  ///
-  /// ## ⚠️ 不要再凭一次超时把 `_joinHotspotForPairing` 加回来
-  ///
-  /// 2026-09-10 曾因为一次 `207220 / 失败 45073ms`（配网任务整体超时，全程无框、手机
-  /// 始终在路由器上）判定「SDK 不会自己连热点」，据此把它加了回来（`39d29d6`）。
-  /// **那个判定是错的**：当时还不知道**设备静置一段时间会退出配网模式**（产品 09-10 晚
-  /// 才告知），那 45 秒里设备很可能早就不广播热点了——超时与「SDK 会不会连」无关。
-  ///
-  /// **复测必须用刚断电重启过的设备**，否则同样的超时会把同样的错误结论再推一遍。
-  ///
-  /// ## ①那份 Wi-Fi 列表不展示
-  ///
-  /// 产品口径是「配网就用用户自己选的那个网络」，所以①回来的**设备视角 Wi-Fi 列表
-  /// 收下不展示**；调它要的是**建通道 + 查设备状态**这个前置效果。唯一容忍的失败是
-  /// `207207`（设备不支持读 Wi-Fi 列表）——文档明说不影响配网。
-  ///
-  /// 每步耗时 + 涂鸦 `onStep` 报的最后一步都写进失败消息：失败码只说「哪一类」，
-  /// 这两样才说「死在哪一步」。
-  Future<ActionResult> pairViaDeviceHotspot({
-    required String ssid,
-    required String password,
-    String? hotspotSsid,
-    Duration timeout = const Duration(seconds: 120),
-    Duration queryTimeout = const Duration(seconds: 45),
-  }) => _guard(() async {
-    final steps = <String>[];
-    final watch = Stopwatch()..start();
-    void mark(String name) {
-      steps.add('$name ${watch.elapsedMilliseconds}ms');
-      watch.reset();
-    }
 
-    // 涂鸦 activator 自己报的进度（`onStep`）。智能生活 App 在 AP 配网时展示的
-    // 「设备连接建立成功 / Wi-Fi 配置已下发 / 设备连接路由器成功 / 设备激活中 /
-    // 设备即将上线」就是这一串。拿它把进度页从**猜**改成**真**，失败时也把最后到过
-    // 哪一步写进消息——那比失败码更能说明卡在哪。
-    final tuyaSteps = <String>[];
 
-    String withSteps(String message) {
-      // 手机当时连在哪个网络上——这一项比失败码更能定位问题：AP 配网要求手机在**设备
-      // 热点**上，如果这里显示的是路由器名，那就说明它从头到尾没连过去，再看别的都白搭。
-      final now = _wifiScan?.current;
-      final where = now == null || now.isEmpty
-          ? '手机网络未知'
-          : '手机在「$now」${(_wifiScan?.currentIsDeviceHotspot ?? false) ? '(设备热点)' : '(不是设备热点)'}';
-      final parts = <String>[
-        ...steps,
-        if (tuyaSteps.isNotEmpty) '涂鸦进度「${tuyaSteps.last}」',
-        where,
-      ];
-      return parts.isEmpty ? message : '$message｜${parts.join(' · ')}';
-    }
-
-    // 凭据发出去了令牌就可能已被设备用掉，失败时要作废、下次重新取。
-    var pairingStarted = false;
-    StreamSubscription<String>? stepSub;
-    _setPairingStage(PairingStage.connectingDevice);
-    _startPairingLog();
-    try {
-      // 只读一次「当前连的是哪个网络」，**纯诊断，不拦路**。
-      //
-      // 走到这里时，手机应该已经被 **SDK**（`queryDeviceConfigState`）连到设备热点上了。
-      // 但这一判断依赖 `connectionInfo.ssid`，而它在没有定位权限时会读成
-      // `<unknown ssid>`——据它拦下配网会**误伤新流程**。所以只把结果写进失败诊断
-      // （`withSteps` 末尾的「手机在「xxx」」），让它去回答"到底连没连上"，
-      // 而不是替 SDK 下结论。
-      //
-      // ⚠️ 这里曾经是一道硬门禁（不在热点上就抛 `not_on_device_hotspot`）。那是为
-      // 「没有任何东西连热点」的旧形态写的；新流程由 SDK 负责连，硬拦会把它拦死。
-      await _refreshOnDeviceHotspot();
-      stepSub = _repository.pairingSteps.listen((step) {
-        tuyaSteps.add(step);
-        debugPrint('[pairing] step $step');
-        // 按**到达顺序**推进后三步（连路由器 → 激活中 → 即将上线）。顺序由 SDK 保证；
-        // 步骤常量名官方文档没列，原生每收到一条都打 `pairing step: …`，真机日志确认
-        // 名字之后可以改成按名字精确映射。多出来的上报一律停在最后一步。
-        const tail = <PairingStage>[
-          PairingStage.connectingRouter,
-          PairingStage.activating,
-          PairingStage.goingOnline,
-        ];
-        final index = tuyaSteps.length - 1;
-        _setPairingStage(tail[index < tail.length ? index : tail.length - 1]);
-      });
-      // ⚠️ **这里不连热点，整条配网动线都不碰 `WifiNetworkSpecifier`。**
-      //
-      // 产品硬性要求：配网全程不得出现「要与智能花盆搭配使用的设备 / 取消 / 连接」那个
-      // 系统入网授权框。而 Android 10+ 上只要用了 `WifiNetworkSpecifier` +
-      // `requestNetwork` 就必弹、关不掉。连热点交给 SDK 在内部完成（官方文档：
-      // 「在配网过程中，SDK 会在指定时间内自动去连接 AP 热点」）。
-      //
-      // ⚠️ 2026-09-10 曾因为一次 `207220 / 失败 45073ms` 的超时，判定「SDK 不会自己连」
-      // 并把 `_joinHotspotForPairing` 加了回来（`39d29d6`）。**那个判定是错的**：当时还
-      // 不知道**设备静置一段时间会退出配网模式**，那 45 秒里设备很可能早就不广播热点了
-      // ——超时与「SDK 会不会连」无关。**复测必须用刚断电重启过的设备**，否则结论照样
-      // 不成立。不要再凭一次超时把这个 API 加回来。
-      final label = hotspotSsid == null ? '连设备' : '连设备($hotspotSsid)';
-      try {
-        _deviceWifiNetworks = await _repository.apQueryDeviceWifi(
-          timeout: queryTimeout,
-        );
-        mark('$label ${_deviceWifiNetworks.length}网络');
-      } on TuyaException catch (error) {
-        // 207207 = 设备不支持获取 Wi-Fi 列表。文档明说不影响配网，继续。
-        if (error.code != '207207') rethrow;
-        mark('$label 不支持列表');
-      }
-
-      // ② 下发路由器凭据。凭据一发出去，设备就去连路由器了。
-      pairingStarted = true;
-      _setPairingStage(PairingStage.connectingRouter);
-      final device = await _repository.apStartPairing(
-        ssid: ssid,
-        password: password,
-        timeout: timeout,
-      );
-      mark('配网');
-      // ⚠️ 凭据已经交给设备，它随即关掉热点去连路由器。**这里必须马上把手机的 Wi-Fi
-      // 还回去**：下面要读设备列表、要连云端，而进程这时还绑在那个已经消失的网络上。
-      // 少了这一句，表现就是「配网成功但读不到设备信息」。
-      await releaseDeviceHotspot();
-      _setPairingStage(PairingStage.activating);
-      // 涂鸦真报了进度就不用再装：那 1–2 秒随机停留是因为第三步原来**没有任何真实
-      // 信号**（见 [_cloudStageDelay]）。现在有 `onStep` 了，有就用真的。
-      if (tuyaSteps.isEmpty) {
-        await Future<void>.delayed(_cloudStageDelay());
-      }
-      _activatorTokenAt = null;
-      _devices = <SmartPlanterDevice>[
-        ..._devices.where((item) => item.id != device.id),
-        device,
-      ];
-      _selectedDeviceId = device.id;
-      return const ActionResult(true, '设备配网成功');
-    } on TuyaException catch (error) {
-      mark('失败');
-      await _releaseDeviceHotspotPairing(invalidateToken: pairingStarted);
-      throw TuyaException(error.code, withSteps(error.message));
-    } catch (_) {
-      mark('失败');
-      await _releaseDeviceHotspotPairing(invalidateToken: pairingStarted);
-      rethrow;
-    } finally {
-      await stepSub?.cancel();
-      await _stopPairingLog();
-      _setPairingStage(PairingStage.idle);
-    }
-  });
-
-  /// 新流程失败后的收尾。
+  /// 取消配网动线：把手机的 Wi-Fi 还回去，进度卡收起来。
   ///
-  /// **两样都要放**：我们自己用 `WifiNetworkSpecifier` 建的热点连接（进程网络绑定，
-  /// 走 `leaveDeviceHotspot`），以及 SDK 的配网器（走 `apStopPairing`）。少放哪一样都会
-  /// 让下一次配网起不来——绑着一个没有外网的网络，取令牌必然失败。
-  Future<void> _releaseDeviceHotspotPairing({
-    required bool invalidateToken,
-  }) async {
-    if (invalidateToken) _activatorTokenAt = null;
-    _deviceWifiNetworks = const <DeviceWifiNetwork>[];
-    try {
-      await _repository.apStopPairing();
-    } catch (_) {
-      // 没有在跑的配网器，或平台没实现，都不影响上报原始错误。
-    }
-    // 本流程自己没有建过 `WifiNetworkSpecifier` 连接，但照样解一次进程网络绑定：
-    // SDK 连热点之后进程可能绑在一个没有外网的网络上，不解开的话后面读设备列表、
-    // 连云端都会失败。
-    try {
-      await _repository.leaveDeviceHotspot();
-    } catch (_) {
-      // 原生没有连接可放，或平台没实现，同样不影响。
-    }
-  }
-
-  /// 手机此刻是不是已经连在设备热点上。
-  ///
-  /// AP 配网的前置条件。读的是扫描缓存里的当前 SSID，不发起扫描、不占配额。
-  bool get onDeviceHotspot => _wifiScan?.currentIsDeviceHotspot ?? false;
-
-  /// 刷新一次「当前连的是哪个网络」。只读缓存，不占扫描配额。
-  ///
-  /// 等用户在系统 Wi-Fi 面板里连设备热点时就靠它轮询。
-  Future<bool> refreshOnDeviceHotspot() async {
-    await probeWifi(refresh: false);
-    return onDeviceHotspot;
-  }
-
-  /// 拉起系统 Wi-Fi 选择界面，让用户自己连设备热点。
-  ///
-  /// 为什么是「用户自己连」而不是 App 发起：见原生 `openWifiPanel` 的说明——
-  /// Android 10+ 上 App 发起必弹系统入网授权框，产品要求不要那个框。
-  Future<ActionResult> openWifiPanel() =>
-      _run(() async {
-        await _repository.openWifiPanel();
-        return const ActionResult(true, '已打开系统 Wi-Fi 列表');
-      });
-
-  /// 放掉新流程的配网器与它持有的热点连接。退出配网动线时调用。
+  /// 「无论怎么退出都要把网络还回去」是硬性要求（`PRODUCT_RULES` §1.4.1）：用户点了
+  /// 「取消」、退出页面、甚至杀掉 App，手机都不能被留在那条没有外网的设备热点上。
   Future<void> stopDevicePairing() async {
-    _deviceWifiNetworks = const <DeviceWifiNetwork>[];
-    try {
-      await _repository.apStopPairing();
-    } catch (_) {
-      // 没有在跑的配网器，或平台没实现，都不影响。
-    }
+    await releaseDeviceHotspot();
     _setPairingStage(PairingStage.idle);
   }
 
-  /// **EZ / 快连配网**——⛔ **实测不支持，已从动线上屏蔽，不要接回去。**
-  ///
-  /// 2026-09-11 按产品要求做了 EZ 并在真机上测过：**设备不支持 EZ/SmartConfig**，配不上。
-  /// 设备开发原先的说法（「采用 AP-cfg，**没使用** EZ」）就此坐实成"不能用"。
-  /// 同一天产品提供的智能生活截图也印证了方向：**它走的是涂鸦「新流程」AP**
-  /// （连上设备 → 让设备扫 Wi-Fi → 把设备扫到的列表给用户选），不是 EZ 广播。
-  /// 详见 `docs/history/2026-09/2026-09-11-smartlife-screenshots.md`。
-  ///
-  /// 方法体保留是为了留证据与备查（万一以后固件开了 EZ，接回去只需换调用点）。
-  /// **`PairingModeSwitch` / `_PairingModeSelector` / `pairing_mode.dart` 已全部删除**，
-  /// 现在没有任何入口能走到这里。
-  ///
-  /// ---
-  ///
-  /// 原理：手机留在当前路由器上，把凭据广播给设备。
-  ///
-  /// 和 [pairViaHotspot] 的区别只有一个，但很关键：**全程不连设备热点**，所以
-  /// **不会出现任何系统 UI**（Android 10+ 的入网授权框只由 `WifiNetworkSpecifier` 触发，
-  /// 而这条路一次都不用它）。2026-09-11 产品要求先测这条，AP 那条完整保留备用。
-  ///
-  /// ## 前置条件（失败时先查这两条）
-  ///
-  /// 1. **手机必须连在要配给设备的那个 Wi-Fi 上**，而且必须是 **2.4GHz**。EZ 是在那张网上
-  ///    广播，手机不在上面、或在 5GHz 上，设备收不到。
-  /// 2. 设备固件要开启了 EZ。设备开发口径是「采用 AP-cfg，**没使用** EZ/SmartConfig」——
-  ///    「没使用」不等于「不能用」，这一条正是这次要测的。若固件确实没开，这里会以超时
-  ///    （涂鸦常见 `1006 out of time`）失败。
-  ///
-  /// 令牌在这里现取即可——EZ 全程有外网，不像 AP 那样一连热点就断网。
-  Future<ActionResult> pairViaEz({
-    required String ssid,
-    required String password,
-  }) => _guard(() async {
-    final steps = <String>[];
-    final watch = Stopwatch()..start();
-    void mark(String name) {
-      steps.add('$name ${watch.elapsedMilliseconds}ms');
-      watch.reset();
-    }
 
-    String withSteps(String message) {
-      // 手机当时连在哪个网络上——EZ 失败时这一项最要紧：不在目标网络上就一定收不到。
-      final now = _wifiScan?.current;
-      final where = now == null || now.isEmpty ? '手机网络未知' : '手机在「$now」';
-      final parts = <String>[...steps, where];
-      return parts.isEmpty ? message : '$message｜${parts.join(' · ')}';
-    }
-
-    var pairingStarted = false;
-    _setPairingStage(PairingStage.connectingDevice);
-    try {
-      if (activatorTokenReady) {
-        mark('令牌(复用)');
-      } else {
-        await _repository.prepareActivatorToken();
-        _activatorTokenAt = DateTime.now();
-        mark('令牌');
-      }
-      pairingStarted = true;
-      _setPairingStage(PairingStage.connectingRouter);
-      final result = await _pairInternal(
-        PairingRequest(ssid: ssid, password: password, mode: 'ez'),
-      );
-      mark('广播配网');
-      return ActionResult(
-        result.success,
-        withSteps(result.message),
-        code: result.code,
-      );
-    } on TuyaException catch (error) {
-      mark('失败');
-      // 凭据广播出去后令牌就可能已被设备用掉，失败要作废、下次重新取。
-      if (pairingStarted) _activatorTokenAt = null;
-      throw TuyaException(error.code, withSteps(error.message));
-    } catch (_) {
-      mark('失败');
-      if (pairingStarted) _activatorTokenAt = null;
-      rethrow;
-    } finally {
-      _setPairingStage(PairingStage.idle);
-    }
-  });
-
+  /// **AP 热点配网——全项目唯一的一条配网路径。**
+  ///
+  /// 2026-09-11 定稿。此前试过、已经删掉的三条：
+  ///
+  /// | 删掉的 | 为什么 |
+  /// | --- | --- |
+  /// | EZ / SmartConfig | 真机实测设备不支持 |
+  /// | 涂鸦「热点配网新流程」（`queryDeviceConfigState` + `startActivator`） | 指望 SDK 自己连热点；涂鸦书面确认那句话**说的是设备端**，手机侧不会连 |
+  /// | 扩展 SDK `ThingActivatorCoreKit` | 同上，也要手机先连热点，没有额外好处 |
+  ///
+  /// 实现要找回去看 git（`docs/history/2026-09/` 有索引）。**不要再接回来。**
+  ///
+  /// ## 三步
+  ///
+  /// 1. 取配网令牌（走云端，所以必须在手机还连着路由器时做）；
+  /// 2. 把手机连到设备热点上——Android 10+ 这里**必弹一次系统入网授权框**，关不掉、
+  ///    不能代点（涂鸦 2026-09-11 书面确认无绕过方案，见 `PRODUCT_RULES` §4.0）。
+  ///    正常动线下搜索页那颗「连接」按钮已经连好了，这一步原地跳过、不会再弹；
+  /// 3. 下发路由器 SSID/密码，等设备连上路由器并注册到云端。
   Future<ActionResult> pairViaHotspot({
     required String ssid,
     required String password,
@@ -1185,7 +801,7 @@ class FlowerpotState extends ChangeNotifier {
       );
 
       pairingStarted = true;
-      _setPairingStage(PairingStage.connectingRouter);
+      _setPairingStage(PairingStage.sendingWifi);
       final result = await _pairInternal(
         PairingRequest(ssid: ssid, password: password, mode: 'ap'),
       );
@@ -1232,16 +848,6 @@ class FlowerpotState extends ChangeNotifier {
 
   static const String _manualHotspotCode = 'hotspot_manual_required';
 
-  /// 只读一次扫描缓存来更新「当前连的是哪个网络」。不发起扫描、不占配额。
-  ///
-  /// 不走 [_guard]：`pairViaDeviceHotspot` 正占着那把锁。
-  Future<void> _refreshOnDeviceHotspot() async {
-    try {
-      _wifiScan = await _repository.scanWifi(refresh: false);
-    } catch (_) {
-      // 读不到就按已知信息判断，不因为一次读缓存失败把配网拦下来。
-    }
-  }
 
   /// 让手机连上设备热点。返回 true 表示由 App 发起的连接（配网后由原生释放），
   /// false 表示走的是手动路径（用户自己在系统设置里连的）。
@@ -1354,16 +960,14 @@ class FlowerpotState extends ChangeNotifier {
   /// ⚠️ **这一步原来没有接任何实际业务**：涂鸦的 activator 返回时设备其实已经注册
   /// 到云端了，所以没有可等的东西。产品口径是先给它一个 1–2 秒的随机停留、然后
   /// 直接按成功处理——否则第三步会一闪而过，用户看到的是「第二步刚亮起就跳走了」。
-  /// 2026-09-10 起已经接上了真信号：`onStep` 一旦有上报，`pairViaDeviceHotspot` 就按
-  /// 真实进度走，不再用这段延时（智能生活展示的「设备激活中 / 设备即将上线」正是它）。
-  /// 这里只留作**没有任何上报时**的兜底，免得第二步刚亮起就跳走。
+  /// 这里留作兜底，免得第二步刚亮起就跳走。
   static Duration _cloudStageDelay() =>
       Duration(milliseconds: 1000 + Random().nextInt(1000));
 
   Future<ActionResult> _pairInternal(PairingRequest request) async {
     final device = await _pairOrRecover(request);
     // 凭据已经被设备收下，接下来是它自己连路由器、注册到云端。
-    _setPairingStage(PairingStage.activating);
+    _setPairingStage(PairingStage.connectingCloud);
     await Future<void>.delayed(_cloudStageDelay());
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.

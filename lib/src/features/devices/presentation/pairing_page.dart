@@ -146,7 +146,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // 切到后台：**把手机的 Wi-Fi 还回去**，别把用户撂在一个没网的设备热点上。
     // 用户可能只是去别处看一眼 Wi-Fi 密码，也可能就此不回来了——后者若不还原，
     // 手机会一直没网直到进程被杀。回到本页时 `resumed` 会重新读一次网络；真要配网时
-    // `pairViaDeviceHotspot` 的第①步会重新连热点（已连则跳过）。
+    // `pairViaHotspot` 的第②步会重新连热点（已连则跳过）。
     //
     // ⚠️ 配网跑起来之后不能放：那会把正在用的通道掐断。
     if (lifecycleState == AppLifecycleState.paused) {
@@ -176,24 +176,8 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     await state.probeWifi(refresh: false);
     if (!mounted) return;
     _applyCurrentSsid(state);
-    _maybeOpenPicker(state);
   }
 
-  /// 进页面时若还没选网络，直接把「可用Wi-Fi」列表弹出来（照智能生活 `配网2.jpg`）。
-  ///
-  /// 走到这一页时手机已经挂在**设备热点**上，所以「带出当前 Wi-Fi 名」必然留空；既然一定
-  /// 要用户自己选，就别让他先盯着一个空输入框。只弹一次，用户关掉后不再骚扰。
-  bool _pickerOffered = false;
-
-  void _maybeOpenPicker(FlowerpotState state) {
-    if (_pickerOffered || !mounted) return;
-    if (ssidController.text.trim().isNotEmpty) return;
-    if (state.deviceWifiNetworks.isEmpty) return;
-    _pickerOffered = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_switchWifi());
-    });
-  }
 
   /// 规则很简单（2026-09-10 产品口径）：
   ///
@@ -235,25 +219,14 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     await state.cancelPairing();
   }
 
-  /// 设备扫到的 Wi-Fi 列表，转成弹层用的模型；设备没给就退回手机扫到的。
+
+  /// 「切换」弹层里列的网络：**手机扫到的那份**。
   ///
-  /// `rssi` 直接当信号强度用（弹层按它画格数），`sec != 0` 表示要密码。
-  List<WifiNetwork> _deviceNetworks(FlowerpotState state) {
-    final device = state.deviceWifiNetworks;
-    if (device.isEmpty) {
-      return state.wifiScan?.networks ?? const <WifiNetwork>[];
-    }
-    return device
-        .map(
-          (item) => WifiNetwork(
-            ssid: item.ssid,
-            level: item.rssi ?? -100,
-            // 设备扫到的都是它连得上的，一律按 2.4G 记——设备本来就只支持 2.4G。
-            frequency: 2412,
-          ),
-        )
-        .toList(growable: false);
-  }
+  /// 这里曾经列「设备自己扫到的」（`queryDeviceConfigState` 的返回）。那一套随新流程
+  /// 一起删了——见 [FlowerpotState.pairViaHotspot] 的说明。手机这时虽然挂在设备热点上，
+  /// 但 `getScanResults()` 列的是**附近所有** AP，与连在哪个网络无关，照样可用。
+  List<WifiNetwork> _routerNetworks(FlowerpotState state) =>
+      state.wifiScan?.routerNetworks ?? const <WifiNetwork>[];
 
   Future<void> _switchWifi() async {
     final state = FlowerpotScope.of(context);
@@ -262,22 +235,15 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: .42),
-      // 列的是**设备自己扫到的** Wi-Fi（`queryDeviceConfigState` 的返回）。
-      //
-      // 2026-09-11 按智能生活的做法定下来（`docs/配网2.jpg`）：那一页标题「选择Wi-Fi」、
-      // 副标题「选择**设备工作**Wi-Fi并输入密码」、列表标题「可用Wi-Fi」，每行带锁图标和
-      // 信号格数——正是 `WifiInfoBean{ssid, rssi, sec}`。**设备能看见的才是它连得上的**，
-      // 比手机扫到的准；而且这时手机已经挂在设备热点上，手机自己也扫不出什么有用的。
-      //
-      // 设备列表为空时（老固件不支持 `207207`，或还没连上）退回手机扫到的网络。
       builder: (_) => _WifiSelectionSheet(
         current: ssidController.text,
-        networks: _deviceNetworks(state),
+        networks: _routerNetworks(state),
         onRefresh: () async {
-          // 「刷新」= 让设备重扫一遍（截图右上角那颗）。
-          await state.connectDeviceForPairing();
+          // 「刷新」= 手机重扫一遍。受 Android 配额限制（2 分钟 4 次），所以只在
+          // 用户主动点的时候发起。
+          await state.probeWifi(refresh: true);
           if (!context.mounted) return const <WifiNetwork>[];
-          return _deviceNetworks(state);
+          return _routerNetworks(state);
         },
       ),
     );
@@ -297,40 +263,19 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       ssid: ssidController.text.trim(),
       password: passwordController.text,
     );
-    // 走 `pairViaHotspot`——**这是最后一版能配网成功的路径**（取令牌 → 连热点 →
-    // `pairWifiDevice`，涂鸦「原流程」TY_AP）。
+    // **唯一一条配网路径**：`pairViaHotspot`（取令牌 → 连热点 → `pairWifiDevice`，
+    // 涂鸦标准 AP）。2026-09-11 定稿，另外三条（EZ、涂鸦「新流程」、扩展 SDK
+    // `ThingActivatorCoreKit`）都已删掉，原因见 [FlowerpotState.pairViaHotspot]。
     //
-    // ⚠️ 2026-09-11 查 git 定论：`git show 223bdae^` 那版就是用它配成功的；提交
-    // `223bdae`「配网切到涂鸦热点配网新流程，SDK 自己连热点」把"App 自己连热点"换成
-    // "指望 SDK 自己连"，**从那以后全是 `207220`（配网任务整体超时）**——SDK 实测并不连。
-    // 所以回到这条。新流程的代码（`pairViaDeviceHotspot` / `apStartPairing` / 安全配置
-    // 预取）全部保留，将来要再试只需换这一处调用点。
+    // 手机这时已经在设备热点上了（搜索页那颗「连接」干的），所以它内部的连热点一步会
+    // 检测到"已在目标热点上"而原地跳过——**这一页不会再弹系统框**。
     //
-    // 手机已经在设备热点上了（搜索页那颗「连接」干的），所以 `pairViaHotspot` 内部的
-    // 连热点一步会检测到"已在目标热点上"而跳过——**这一页不会再弹系统框**。
-    //
-    // 令牌与设备安全配置由搜索页在**还连着路由器**时预取（`prepareForPairing`）：
-    // 手机一挂到设备热点上就没有外网，而那两件事都要走云端。
-    _pairingState = state;
-    setState(() => _pairing = true);
-    // 走涂鸦**新流程**（照智能生活的做法，见 `docs/配网1.jpg` / `配网2.jpg`）：
-    // 搜索页那一步已经由 `queryDeviceConfigState` 连上设备并拿到它扫到的 Wi-Fi 列表，
-    // 这里只剩 `startActivator` 下发凭据，后三步进度由 `onStep` 真实驱动。
-    //
-    // ⚠️ 要切回 AP 原流程（`223bdae^` 那版能配成的路径）：把这里换成
-    // `state.pairViaHotspot(ssid:, password:, hotspotSsid:)`，并把搜索页的
-    // `connectDeviceForPairing()` 换回 `connectDeviceHotspot(hotspotSsid:)`。
-    // 两条路径的代码都完整保留，互不干扰。
-    // 走**扩展 SDK 的 `ThingActivatorCoreKit`**（涂鸦 2026-09-11 回复：Flutter 场景应使用
-    // 它；已拆包核实类与方法都在，依赖也现成）。这是与 `pairViaDeviceHotspot`
-    // （`ThingHomeSdk.getActivatorInstance()`）**完全不同的另一套实现**。
-    //
-    // ⚠️ 要切回上一套只需换成：
-    // `state.pairViaDeviceHotspot(ssid:, password:, hotspotSsid:)`；
-    // 再往前一套是 `state.pairViaHotspot(...)`（git 里最后一版配成过的）。三套都保留着。
-    final result = await state.pairViaActivatorKit(
+    // 令牌由搜索页在**还连着路由器**时预取（`prepareForPairing`）：手机一挂到设备热点上
+    // 就没有外网，而取令牌要走云端。
+    final result = await state.pairViaHotspot(
       ssid: request.ssid,
       password: request.password,
+      hotspotSsid: widget.arguments?.hotspotSsid,
     );
     _pairingState = null;
     if (!mounted) return;

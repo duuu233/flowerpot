@@ -116,43 +116,7 @@ abstract class TuyaRepository {
   /// 搜索页据此「30 秒一次真扫 + 2 秒一次读缓存」，比只靠真扫快得多。
   Future<WifiScan> scanWifi({bool refresh = true});
 
-  /// 「热点配网新流程」第一步：让 SDK 自己连上设备热点，读回**设备扫到的** Wi-Fi 列表。
-  ///
-  /// 官方文档：「在配网过程中，SDK 会在指定时间内自动去连接 AP 热点」。所以这条路上
-  /// App **不需要**再用 `WifiNetworkSpecifier` 去连热点，那个系统授权框也就不出现。
-  /// ⚠️ 只对新固件有效（TuyaOS ≥ 3.6.1）。
-  Future<List<DeviceWifiNetwork>> apQueryDeviceWifi({Duration? timeout});
 
-  /// 新流程第二步：把路由器凭据下发给设备。必须先调用 [apQueryDeviceWifi]。
-  Future<SmartPlanterDevice> apStartPairing({
-    required String ssid,
-    required String password,
-    Duration timeout,
-  });
-
-  /// 停掉新流程的配网器并释放它持有的热点连接。
-  Future<void> apStopPairing();
-
-  /// 用**扩展 SDK 的 `ThingActivatorCoreKit`** 配网（涂鸦 2026-09-11 回复：Flutter 场景
-  /// 应使用它）。与 [apStartPairing]（`ThingHomeSdk.getActivatorInstance()`）是**两套不同
-  /// 的实现**，连热点的处理可能不一样，所以单独接出来试。
-  ///
-  /// [mode] 取 `ap` 或 `ez`（对应 `ThingDeviceActiveModeEnum`）；[timeout] 单位是**秒**。
-  Future<SmartPlanterDevice> activeStart({
-    required String mode,
-    required String ssid,
-    required String password,
-    Duration timeout,
-  });
-
-  /// 停掉 [activeStart] 起的配网。
-  Future<void> activeStop();
-
-  /// 拉起系统的 Wi-Fi 选择界面，让用户自己把手机连到设备热点上。
-  ///
-  /// AP 配网要求手机**已经**在设备热点上，而 Android 10+ 不允许应用静默连网；
-  /// 产品选了「用户自己连」而不是系统入网授权框。见原生 `openWifiPanel` 的说明。
-  Future<void> openWifiPanel();
   Future<void> publishDps(String deviceId, Map<int, Object> dps);
   Future<void> renameDevice(String deviceId, String name);
   Future<void> removeDevice(String deviceId, {required bool resetFactory});
@@ -185,16 +149,7 @@ abstract class TuyaRepository {
   /// `pairing step: …`。
   Stream<String> get pairingLogs;
 
-  /// 配网进度：涂鸦 activator 的 `onStep` 回调，原样转上来的步骤名。
-  ///
-  /// 智能生活 App 在 AP 配网时展示的「设备连接建立成功 / Wi-Fi 配置已下发 /
-  /// 设备连接路由器成功 / 设备激活中 / 设备即将上线」就是这串回调。我们据此把进度页
-  /// 从**猜**改成**真**——尤其是最后一步：原来那 1–2 秒随机停留纯粹是装的。
-  ///
-  /// ⚠️ 步骤常量名官方文档没列。原生侧每收到一个都打一行
-  /// `pairing step: …` 日志，真机跑一次即可确认，之后再精确映射；在那之前按**到达
-  /// 顺序**推进，顺序是 SDK 保证的。
-  Stream<String> get pairingSteps;
+
 }
 
 class MethodChannelTuyaRepository implements TuyaRepository {
@@ -247,18 +202,6 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     return event[field]?.toString();
   }
 
-  @override
-  late final Stream<String> pairingSteps = _rawEvents
-      .map(_pairingStep)
-      .where((step) => step != null && step.isNotEmpty)
-      .cast<String>();
-
-  /// 解析原生的配网进度事件：`{type: 'pairingStep', step: '…'}`。
-  String? _pairingStep(Object? event) {
-    if (event is! Map) return null;
-    if ('${event['type'] ?? ''}' != 'pairingStep') return null;
-    return event['step']?.toString();
-  }
 
   /// 解析原生的 OTA 事件：`{deviceId, ota: {status, percent?, message?}}`。
   OtaProgress? _otaUpdate(Object? event) {
@@ -496,67 +439,6 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   Future<void> useHomeTag(String tag) =>
       _invoke<void>('setHomeTag', <String, Object?>{'tag': tag});
 
-  @override
-  Future<List<DeviceWifiNetwork>> apQueryDeviceWifi({Duration? timeout}) async {
-    final raw = await _invoke<List<Object?>>('apQueryDeviceWifi', <String, Object?>{
-      'timeout': timeout?.inMilliseconds ?? 0,
-    });
-    return (raw ?? const <Object?>[])
-        .whereType<Map<Object?, Object?>>()
-        .map(DeviceWifiNetwork.fromMap)
-        .where((item) => item.ssid.isNotEmpty)
-        .toList(growable: false);
-  }
-
-  @override
-  Future<SmartPlanterDevice> apStartPairing({
-    required String ssid,
-    required String password,
-    Duration timeout = const Duration(seconds: 120),
-  }) async {
-    final raw = await _invoke<Map<Object?, Object?>>(
-      'apStartPairing',
-      <String, Object?>{
-        'ssid': ssid,
-        'password': password,
-        // 新流程的超时单位是毫秒（原流程 setTimeOut 是秒），别搞混。
-        'timeout': timeout.inMilliseconds,
-      },
-    );
-    if (raw == null) {
-      throw const TuyaException('pair_failed', '配网未返回设备信息');
-    }
-    return _device(raw);
-  }
-
-  @override
-  Future<void> openWifiPanel() => _invoke<void>('openWifiPanel');
-
-  @override
-  Future<void> apStopPairing() => _invoke<void>('apStopPairing');
-
-  @override
-  Future<SmartPlanterDevice> activeStart({
-    required String mode,
-    required String ssid,
-    required String password,
-    Duration timeout = const Duration(seconds: 120),
-  }) async {
-    final raw = await _invoke<Map<Object?, Object?>>('activeStart', <String, Object?>{
-      'mode': mode,
-      'ssid': ssid,
-      'password': password,
-      // 这个 builder 的 setTimeOut 单位是**秒**，与 ApActivatorBuilder 的毫秒不同。
-      'timeout': timeout.inSeconds,
-    });
-    if (raw == null) {
-      throw const TuyaException('pair_failed', '配网未返回设备信息');
-    }
-    return _device(raw);
-  }
-
-  @override
-  Future<void> activeStop() => _invoke<void>('activeStop');
 
   @override
   Future<WifiScan> scanWifi({bool refresh = true}) async {

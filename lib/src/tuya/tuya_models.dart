@@ -781,77 +781,50 @@ class WifiNetwork {
 
 /// 配网进度，对应 `设备配网-配网中的步骤` 那三步。
 ///
-/// 一次 AP 配网内部是「取令牌 → 连热点 → 下发凭据 → 等云端」，用户能理解的是
-/// 前端画的这三步，所以取令牌和连热点合成「连接设备」一步。
-/// 配网进度的五步，**按智能生活的配网页照搬**（2026-09-11 产品提供截图
-/// `docs/配网1.jpg`）。
+/// 一次 AP 配网内部是「取令牌 → 连热点 → 下发凭据 → 等云端」，用户能理解的是前端画的
+/// 这三步，所以取令牌和连热点合成「连接设备」一步。
 ///
-/// 截图里那张卡片列的就是这五行，只有当前那一行带转圈、其余是待办：
-///
-/// ```
-/// 正在尝试建立连接…
-/// 设备寻找可用Wi-Fi
-/// 设备正在连接路由器…
-/// 设备激活中
-/// 设备即将上线
-/// ```
-///
-/// 前两步发生在 `queryDeviceConfigState`（SDK 连上设备、设备扫 Wi-Fi）；用户选完网络输完
-/// 密码之后，后三步由 `startActivator` 的 `onStep` 回调驱动——**不是猜的**，见
-/// `FlowerpotState.pairViaDeviceHotspot` 里对 `pairingSteps` 的订阅。
+/// 2026-09-11 从五步**改回三步**：五步那一版是照智能生活截图（`docs/配网1.jpg`）做的，
+/// 后两步依赖涂鸦「新流程」的 `queryDeviceConfigState` + `onStep` 回调；那条路已经整条
+/// 删掉（见 `FlowerpotState.pairViaHotspot`），步数也就跟着回到原来的三步。
 enum PairingStage {
   /// 没有配网在跑。
   idle,
 
-  /// 正在和设备建立通道（`queryDeviceConfigState` 的前半段）。
+  /// 取配网令牌、把手机连到设备热点上。
   connectingDevice,
 
-  /// 通道已建立，设备正在扫描它能看到的 Wi-Fi。
-  deviceScanning,
+  /// 已经连上热点，正在把 Wi-Fi 凭据下发给设备。
+  sendingWifi,
 
-  /// 凭据已下发，设备正在连路由器。
-  connectingRouter,
-
-  /// 设备已连上路由器，正在云端激活。
-  activating,
-
-  /// 激活完成，设备即将上线。
-  goingOnline;
+  /// 凭据已下发，设备正在连路由器并注册到云端。
+  connectingCloud;
 
   /// 这一步在界面上的名字。
-  ///
-  /// **步骤内容按新流程改成五步，但用词沿用本项目原有的短标签风格**
-  /// （2026-09-11 产品：「UI 风格不用改，只是改步骤」）。智能生活那边的原文是
-  /// 「正在尝试建立连接… / 设备寻找可用Wi-Fi / 设备正在连接路由器… / 设备激活中 /
-  /// 设备即将上线」，一一对应，只是我们的行更短、细节放在 [hint] 里。
   String get label => switch (this) {
     PairingStage.idle => '准备中',
     PairingStage.connectingDevice => '连接设备',
-    PairingStage.deviceScanning => '设备找网络',
-    PairingStage.connectingRouter => '设备连路由器',
-    PairingStage.activating => '云端激活',
-    PairingStage.goingOnline => '设备上线',
+    PairingStage.sendingWifi => '发送Wi-Fi信息',
+    PairingStage.connectingCloud => '连接云端',
   };
 
-  /// 每一步的补充说明；只在「进行中」那一步画出来。
+  /// 每一步在进度页上那句说明。
   ///
-  /// 配网期间 App 自己不弹任何框，必要的话都写在这几行里。
+  /// 必要的话都写在这三行里，不再另外弹框：配网期间已经有一个系统的热点连接确认框
+  /// （Android 10+ 的 `WifiNetworkSpecifier` 必弹，App 关不掉，涂鸦 2026-09-11 书面
+  /// 确认无绕过方案），再叠自己的 toast 和遮罩，用户根本分不清哪个是要他操作的。
   String get hint => switch (this) {
     PairingStage.idle => '',
-    PairingStage.connectingDevice => '手机尽量靠近要添加的设备',
-    PairingStage.deviceScanning => '设备正在列出它能看到的 Wi-Fi，稍候就能选',
-    PairingStage.connectingRouter => '设备已经收到 Wi-Fi 信息，正在连接路由器',
-    PairingStage.activating => '设备正在云端激活，请勿离开本页',
-    PairingStage.goingOnline => '就快好了',
+    PairingStage.connectingDevice => '系统若弹出连接热点的确认框，请点「连接」',
+    PairingStage.sendingWifi => '正在把 Wi-Fi 名称和密码发给设备，请勿离开本页',
+    PairingStage.connectingCloud => '设备正在连接路由器并注册到云端',
   };
 
-  /// 界面上按顺序画出来的五步。
+  /// 界面上按顺序画出来的三步。
   static const List<PairingStage> steps = <PairingStage>[
     PairingStage.connectingDevice,
-    PairingStage.deviceScanning,
-    PairingStage.connectingRouter,
-    PairingStage.activating,
-    PairingStage.goingOnline,
+    PairingStage.sendingWifi,
+    PairingStage.connectingCloud,
   ];
 }
 
@@ -874,35 +847,6 @@ class FirmwareUpdate {
 
   /// 涂鸦在同一条 OTA 记录里报的「该组件当前版本」，SDK 没给时为 null。
   final String? currentVersion;
-}
-
-/// 「设备自己扫到的」一个 Wi-Fi，来自热点配网新流程的 `queryDeviceConfigState`。
-///
-/// 和 [WifiNetwork]（手机扫到的）不是一回事：这一份是**设备视角**——设备能看见的
-/// 才是它连得上的，比手机侧扫描准。[sec] 还给出加密方式，可以据此提前校验密码。
-class DeviceWifiNetwork {
-  const DeviceWifiNetwork({required this.ssid, this.rssi, this.sec});
-
-  factory DeviceWifiNetwork.fromMap(Map<Object?, Object?> raw) =>
-      DeviceWifiNetwork(
-        ssid: '${raw['ssid'] ?? ''}',
-        rssi: (raw['rssi'] as num?)?.toInt(),
-        sec: (raw['sec'] as num?)?.toInt(),
-      );
-
-  final String ssid;
-
-  /// 设备侧测到的信号强度，越大越好；平台不报时为 null。
-  final int? rssi;
-
-  /// 加密方式：0 开放、1 WEP、2 WPA-PSK、3 WPA2-PSK、4 WPA/WPA2、5 WPA/WPA3、6 未知。
-  final int? sec;
-
-  /// 需要密码吗。0（开放）之外都要；取不到时按「要」处理，问一次总比配不上强。
-  bool get needsPassword => sec != 0;
-
-  /// 这一档加密下密码的最短长度。2≦sec≦5 时是 8 位（文档口径）。
-  int get minimumPasswordLength => (sec != null && sec! >= 2 && sec! <= 5) ? 8 : 0;
 }
 
 class WifiScan {

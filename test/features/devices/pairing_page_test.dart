@@ -318,9 +318,9 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
-    // 新流程下令牌由原生侧在 `apStartPairing` 内部取，Dart 不再单独调
-    // `prepareActivatorToken`；配网本身照常发生一次。
-    expect(repository.tokenCalls, 0);
+    // `pairViaHotspot` 第①步自己取令牌（搜索页的预取在这个只挂配网页的用例里没跑），
+    // 所以这里应当恰好一次；配网本身照常一次。
+    expect(repository.tokenCalls, 1);
     expect(repository.pairCalls, 1);
     expect(find.text('pairing-success-target'), findsOneWidget);
     expect(successArguments, 'vdevo17235508413621');
@@ -329,8 +329,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('新流程：不再走「手动连热点」那条路', (tester) async {
-    // 2026-09-10 改用涂鸦「热点配网新流程」之后，连热点由 SDK 完成，
+  testWidgets('不走「手动连热点」那条路', (tester) async {
+    // 连热点由搜索页那颗「连接」按钮完成（一次系统授权框），
     // `hotspot_manual_required` 那条引导路径整体下线。
     await _pumpPairingPage(
       tester,
