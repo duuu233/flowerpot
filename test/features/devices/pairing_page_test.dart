@@ -299,10 +299,12 @@ void main() {
       onSuccessArguments: (value) => successArguments = value,
     );
 
-    // 一次点击走完三步，所以按钮直接就是「开始配网」，页面上只说明系统会弹框。
+    // 一次点击走完三步，所以按钮直接就是「开始配网」。
     expect(find.text('开始配网'), findsOneWidget);
-    expect(find.byKey(const Key('pairing-hotspot-step')), findsOneWidget);
-    expect(find.textContaining('「SmartLife-A1B2」'), findsOneWidget);
+    // 2026-09-10 起「系统会弹框询问是否连接…」那一整段已删：系统弹框来了用户
+    // 自然看得见，提前解释一遍只是占掉半屏。
+    expect(find.byKey(const Key('pairing-hotspot-step')), findsNothing);
+    expect(find.textContaining('不必到系统设置里手动连'), findsNothing);
 
     await _enterPassword(tester);
     await tester.tap(find.byKey(const Key('start-pairing-button')));
@@ -343,8 +345,8 @@ void main() {
     // relabels the button. The token was fetched while the router was still
     // reachable and is kept for the second tap.
     expect(find.text('pairing-failure-target'), findsNothing);
+    // 手动路径那张卡保留：它不是解释，是用户必须照做的一步。
     expect(find.byKey(const Key('pairing-hotspot-manual')), findsOneWidget);
-    expect(find.byKey(const Key('pairing-hotspot-step')), findsNothing);
     expect(find.textContaining('「SmartLife-A1B2」'), findsOneWidget);
     expect(find.text('已连接热点，开始配网'), findsOneWidget);
     expect(repository.tokenCalls, 1);

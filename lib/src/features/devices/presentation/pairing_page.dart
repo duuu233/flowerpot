@@ -305,17 +305,19 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
               bottom: 92 + MediaQuery.viewInsetsOf(context).bottom,
             ),
             child: ResponsiveContent(
+              // 顶部留白由 88 收到 56：这一页的目标是**整屏放得下、不用滚**，
+              // 88 是按「上面还有一段说明」排的，那段已经删了。
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
-                88,
+                56,
                 AppSpacing.pageMargin,
-                24,
+                16,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   const _WifiConnectionIllustration(),
-                  const SizedBox(height: 27),
+                  const SizedBox(height: 20),
                   if (widget.arguments?.deviceName case final String name) ...[
                     Text(
                       '已连接 $name',
@@ -338,16 +340,23 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                       height: 1.45,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   const _WifiNoticeCard(),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   _WifiCredentialsCard(
                     ssidController: ssidController,
                     passwordController: passwordController,
                     onSwitchWifi: _switchWifi,
                   ),
-                  const SizedBox(height: 12),
-                  if (_manualHotspot)
+                  // 2026-09-10 产品要求：「点『开始配网』后，系统会弹框询问是否连接…
+                  // 不必到系统设置里手动连」那一整段删掉。系统弹框来了用户自然看得见，
+                  // 提前解释一遍只是占掉半屏。
+                  //
+                  // 手动路径那张卡**保留**：它不是解释，是一步用户必须照做的操作
+                  // （平台不让 App 连热点时，不说清楚就走不下去），而且只在
+                  // `_manualHotspot` 为真时才出现。
+                  if (_manualHotspot) ...<Widget>[
+                    const SizedBox(height: 10),
                     _PairingHintCard(
                       key: const Key('pairing-hotspot-manual'),
                       tone: AppColors.warning,
@@ -356,17 +365,9 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                           '${hotspot == null ? _hotspotDescription : '「$hotspot」'}'
                           '，若系统提示该网络无法上网请选择保持连接，然后回到本页点'
                           '「已连接热点，开始配网」。',
-                    )
-                  else
-                    _PairingHintCard(
-                      key: const Key('pairing-hotspot-step'),
-                      tone: AppColors.brandPrimary,
-                      text:
-                          '点「开始配网」后，系统会弹框询问是否连接'
-                          '${hotspot == null ? '设备热点' : '「$hotspot」'}，确认即可，'
-                          '不必到系统设置里手动连。',
                     ),
-                  const SizedBox(height: 38),
+                  ],
+                  const SizedBox(height: 18),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[

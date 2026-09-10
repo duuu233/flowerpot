@@ -62,11 +62,31 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   static bool get _canListNetworks =>
       defaultTargetPlatform != TargetPlatform.iOS;
 
-  /// **主动扫描**（`startScan`）的节奏。
+  /// 主动扫描的**配额**：Android 9（API 28）起，前台应用每 2 分钟只许 4 次
+  /// `startScan`（后台每 30 分钟 1 次）。超额时 `startScan` 直接返回 false、不再
+  /// 广播，`scanResults` 返回上一次的缓存。
   ///
-  /// Android 前台每 2 分钟只许 4 次 ⇒ 平均 30 秒一次。比这更密只会被拒、拿回同一份
-  /// 旧缓存，而且看不出来是旧的——那正是 09-08 那版搜不到设备的原因。
-  static const Duration _forceScanGap = Duration(seconds: 30);
+  /// 见 Android 官方文档「Wi-Fi scanning restrictions」。用户可以在开发者选项里
+  /// 关掉「Wi-Fi 扫描节流」（Android 10 起有这个开关），所以开发机上常常测不出来。
+  /// iOS 不适用——它根本不提供扫描接口。
+  /// 配额本身（4 次 / 2 分钟）只作记录：下面那张时间表就是按它排的，改配额就要
+  /// 重排 0s / 6s / 46s / 86s。
+  static const int quotaScans = 4;
+  static const Duration quotaWindow = Duration(minutes: 2);
+
+  /// **开头那两次**主动扫描的间隔。
+  ///
+  /// 「用户打开页面时设备早就开着」是最常见的情形，第一次就该扫到；6 秒后再补一次
+  /// 兜住「刚好差一点」。配额是 4 次/2 分钟，前置两次不会把后面饿死。
+  static const Duration _earlyForceScanGap = Duration(seconds: 6);
+  static const int _earlyForceScans = 2;
+
+  /// 前两次之后的节奏。
+  ///
+  /// 排下来是 0s / 6s / 46s / 86s / 126s…… 任意 2 分钟窗口里都不超过 4 次，
+  /// 符合配额；而**开头 6 秒就有两次真扫**，比原来「均匀 30 秒一次」快得多。
+  /// 中间的空档由 [_cachePollGap] 的读缓存补上，那条路不占配额。
+  static const Duration _forceScanGap = Duration(seconds: 40);
 
   /// **读缓存**的节奏。
   ///
@@ -97,6 +117,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   /// **读缓存**的定时器（2 秒一次，不受配额约束）。
   Timer? _pollTimer;
+
+  /// 本轮已经发起过几次**主动扫描**，用来决定下一次隔多久。
+  int _forceScanCount = 0;
 
   /// 上一次扫描是不是被系统限流了（拿回的是旧缓存）。界面据此换一句话。
   bool _throttled = false;
@@ -133,6 +156,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (!mounted) return;
     _deadlineTimer?.cancel();
     _windowExpired = false;
+    _forceScanCount = 0;
     _throttled = false;
     _scannedForReal = false;
     _radarController.repeat();
@@ -168,6 +192,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   Future<void> _runScan() async {
     if (!mounted || _inFlight) return;
     _inFlight = true;
+    _forceScanCount++;
     setState(() {
       _scanning = true;
       _result = null;
@@ -195,10 +220,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     final retryable = result.success || result.code == 'wifi_scanning';
     _result = result;
     if (retryable && !_windowExpired) {
-      // 主动扫描固定 30 秒一次——那是配额允许的最快节奏，快了只会被拒。中间的
-      // 空档由 2 秒一次的读缓存补上，不必也不该在这里缩短间隔。
+      // 开头两次靠得近（6 秒），之后 40 秒一次——排下来 0/6/46/86/126s，任意
+      // 2 分钟窗口里都不超过配额的 4 次。中间的空档由读缓存补上，那条不占配额。
+      final gap = _forceScanCount < _earlyForceScans
+          ? _earlyForceScanGap
+          : _forceScanGap;
       setState(() {});
-      _forceScanTimer = Timer(_forceScanGap, () => unawaited(_runScan()));
+      _forceScanTimer = Timer(gap, () => unawaited(_runScan()));
       return;
     }
     _deadlineTimer?.cancel();
