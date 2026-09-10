@@ -7,9 +7,6 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
-// `FlowerpotState`：dispose / paused 里要还原网络，那时已经不能查 InheritedWidget，
-// 所以得按类型持有引用。
-import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import 'pairing_page.dart';
 
@@ -27,9 +24,10 @@ import 'pairing_page.dart';
 /// 操作**，但它上电后要过一会儿热点才广播出来。所以这一页在 [DeviceSearchPage.searchWindow] 的窗口里反复扫描，
 /// **扫到就把设备列在下面，并自动带着它进下一步**——2026-09-10 产品口径：整个
 /// 配网流程只留一步要用户操作（输 Wi-Fi 密码），选设备这一步不该让用户自己点。
-/// 设备仍然画出来（[_DeviceSearchPageState._autoOpenDelay] 那一小段停留就是给
-/// 用户看清楚扫到了什么），之后自动跳「连接 Wi-Fi」。多台时取信号最强的那台，
-/// 用户返回本页可以改点别的。
+/// **设备由用户手动选**：列表里每行一颗「连接」按钮，点了才进「连接 Wi-Fi」。
+/// 2026-09-10 短暂试过「扫到就自动连热点并带走」，产品明确要求改回手动——那个连接会弹
+/// 系统入网授权框，自己冒出来时用户完全不知道发生了什么；由用户点触发，框出现在他刚
+/// 表达意图的那一刻，体验完全不同。
 ///
 /// ⚠️ **扫描节奏受系统配额约束，不能想扫多密就多密。** Android 9 起前台应用每 2
 /// 分钟只允许 4 次 `startScan`，超了直接被拒、返回上一次的缓存。2026-09-08 那版
@@ -60,7 +58,7 @@ class DeviceSearchPage extends StatefulWidget {
 }
 
 class _DeviceSearchPageState extends State<DeviceSearchPage>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with SingleTickerProviderStateMixin {
   /// 当前平台能不能列出附近的 Wi-Fi。
   ///
   /// **iOS 不能，而且没有替代方案**：系统没有任何公开 API 可以枚举附近热点
@@ -137,34 +135,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// **读缓存**的定时器（[_cachePollGap] 一次，不受配额约束）。
   Timer? _pollTimer;
 
-  /// 扫到设备之后、自动进下一步之前停留的时间。
-  ///
-  /// 不是零：这一停留就是让用户看清楚「扫到了哪台」。但也只到这个程度——产品要求
-  /// 中间环节尽量不让用户等，600ms 刚够眼睛认出那一行，再长就是干等。
-  static const Duration _autoOpenDelay = Duration(milliseconds: 600);
-
-  /// 自动跳转的定时器。
-  Timer? _autoOpenTimer;
-
-  /// 正在等云端预取落地、并把手机连到设备热点上。
-  bool _connecting = false;
-
-  /// 已经连上设备热点，等用户点「连接」进下一步。
-  ///
-  /// 2026-09-10 产品定的动线：**扫到设备 → 自动连上它的热点 → 用户点「连接」→ 选路由器
-  /// Wi-Fi、输密码 → 配网**。热点先连上，是为了解掉「手机挂在设备热点上时带不出正确
-  /// 的当前 Wi-Fi 名」那个矛盾——反正接下来就是让用户自己选。
-  bool _hotspotReady = false;
-
-  /// 连热点失败时的原因，画在页面上让用户能照着做。
-  String? _hotspotError;
-
-  /// 连过热点的那个状态对象。
-  ///
-  /// [dispose] 里已经不能查 InheritedWidget，所以连上的那一刻就把引用留下——离开本页
-  /// 时要靠它把手机的 Wi-Fi 还回去。
-  FlowerpotState? _hotspotState;
-
   /// 「取令牌 + 确认家庭」这两步云端请求的预取。
   ///
   /// ⚠️ **必须在手机还连着路由器的时候跑完。** 涂鸦文档原文：「开始配网之前，
@@ -200,43 +170,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       vsync: this,
       duration: const Duration(seconds: 4),
     )..repeat();
-    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scan());
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
-    // 切到后台就把手机的 Wi-Fi 还回去——热点已经连上时，用户手机是没有外网的。
-    //
-    // ⚠️ 正在连的那一刻不能放：系统的入网确认框会把本页 pause，这时放等于自己把刚
-    // 发出去的请求撤回。`_connecting` 正好覆盖那一段。
-    if (lifecycleState != AppLifecycleState.paused) return;
-    if (_connecting) return;
-    final state = _hotspotState;
-    if (state == null) return;
-    unawaited(state.releaseDeviceHotspot());
-    if (!mounted) return;
-    // 连接已经不在了，界面要如实反映：回到「点连接」之前的状态，让用户重来一次。
-    setState(() {
-      _hotspotReady = false;
-      _autoOpened = false;
-    });
-  }
-
-  @override
   void dispose() {
-    // ⚠️ **离开本页一定要把手机的 Wi-Fi 还回去。** 扫到设备就自动连了它的热点，那条
-    // 连接期间手机是真的离开了路由器、没有外网；用户如果在这里返回、或者一路配完网
-    // 退回来，不还原就等于把他的手机撂在一个没网的热点上。
-    //
-    // 无条件调、不判断"是不是已经交接给下一页"：这一步幂等，而漏放的代价（用户莫名
-    // 断网）远大于多调一次。本页在配网期间不会被 dispose——下一页是 push 上去的，
-    // 本页一直在栈里，只有整条动线退出时才轮到这里。
-    final state = _hotspotState;
-    _hotspotState = null;
-    if (state != null) unawaited(state.releaseDeviceHotspot());
-    WidgetsBinding.instance.removeObserver(this);
-    _autoOpenTimer?.cancel();
+    // 本页不再持有任何热点连接（设备由用户手动点「连接」、热点在配网那一步才连），
+    // 所以这里没有网络要还原——那件事由「连接 Wi-Fi」页负责。
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
     _deadlineTimer?.cancel();
@@ -246,7 +186,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   /// 开始一轮搜索。
   void _scan() {
-    _autoOpenTimer?.cancel();
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
     _deadlineTimer?.cancel();
@@ -255,9 +194,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _throttled = false;
     _scannedForReal = false;
     _autoOpened = false;
-    _hotspotReady = false;
-    _hotspotError = null;
-    _connecting = false;
     _radarController.repeat();
     setState(() {
       _scanning = true;
@@ -334,11 +270,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _maybeAutoOpen();
   }
 
-  /// 扫到设备就自动去连它的热点。
+  /// 扫到设备就把扫描停下来，等用户在列表里点「连接」。
   ///
-  /// 设备先画出来、停 [_autoOpenDelay] 再动手：用户要看得见连的是哪台。动手之前把两条
-  /// 扫描线都停掉——已经选定目标了，再扫只是白烧配额。连上之后**不自动跳页**，页面上
-  /// 出现一句说明和「连接」按钮，由用户点了才进下一步（2026-09-10 产品动线）。
+  /// ⚠️ **这里不做任何自动连接。** 2026-09-10 产品口径：**设备由用户手动选**——列表里
+  /// 每行一颗「连接」按钮，点了才往下走。短暂试过「扫到就自动连热点」，产品明确要求改回
+  /// 手动：那个连接会弹系统入网授权框，自己冒出来的时候用户完全不知道发生了什么；
+  /// 由用户点按钮触发，框出现在他刚表达意图的那一刻，体验完全不同。
+  ///
+  /// 扫到之后扫描线全部停掉——目标已经在眼前了，再扫只是白烧系统配额。
   void _maybeAutoOpen() {
     if (_autoOpened || !mounted) return;
     final hotspots =
@@ -348,11 +287,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
     _deadlineTimer?.cancel();
-    setState(() => _autoOpened = true);
-    _autoOpenTimer = Timer(_autoOpenDelay, () {
-      if (!mounted) return;
-      _radarController.stop();
-      unawaited(_connectHotspotThenOffer(hotspots.first));
+    _radarController.stop();
+    setState(() {
+      _autoOpened = true;
+      _scanning = false;
     });
   }
 
@@ -403,37 +341,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     });
   }
 
-  /// 扫到设备 ⇒ 等云端预取落地 ⇒ 把手机连到它的热点上 ⇒ 亮出「连接」按钮。
-  ///
-  /// 顺序不能换：[_prepared]（取令牌 + 取安全配置 + 确认家庭）**全部要走云端**，
-  /// 而连上设备热点之后手机就没有外网了。
-  ///
-  /// 连热点会弹一次系统确认框——那是 Android 10+ 的硬限制，`WifiNetworkSpecifier`
-  /// 必弹、关不掉也不能代点。能做到的是**自动选中**：交给系统的是搜索页扫到的确切
-  /// 热点名，框里只有这一台、已经选好；手机已经在该热点上时直接跳过、零点击。
-  Future<void> _connectHotspotThenOffer(WifiNetwork hotspot) async {
-    if (!mounted) return;
-    setState(() {
-      _connecting = true;
-      _hotspotError = null;
-    });
-    final state = FlowerpotScope.of(context);
-    // 失败不拦路——真缺令牌时 apStartPairing 自己还会再取一次。
-    await _prepared;
-    if (!mounted) return;
-    final result = await state.connectDeviceHotspot(hotspotSsid: hotspot.ssid);
-    // 只要发起过连接就记下引用：即便结果是失败，也可能已经留下半条连接要放。
-    _hotspotState = state;
-    if (!mounted) return;
-    setState(() {
-      _connecting = false;
-      _hotspotReady = result.success;
-      _hotspotError = result.success ? null : result.message;
-      // 没连上就放开自动标记，让用户能重试。
-      if (!result.success) _autoOpened = false;
-    });
-  }
-
   /// 带着这台设备进「连接 Wi-Fi」。
   /// 带着这台设备进「连接 Wi-Fi」。
   ///
@@ -448,8 +355,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         request: widget.request,
         hotspotSsid: hotspot.ssid,
         deviceName: hotspot.ssid,
-        // 热点已经在本页连好了，下一页据此直接弹 Wi-Fi 列表。
-        hotspotConnected: _hotspotReady,
       ),
     );
   }
@@ -540,28 +445,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         // 能列设备的平台上，「重新扫描」**只在搜完一轮、一台都
                         // 没搜到时**才出现：搜索中它点了也只是白烧一次系统配额，
                         // 已经搜到设备时用户要点的是那台设备、不是再扫一遍。
-                        if (_hotspotReady && hotspots.isNotEmpty) ...<Widget>[
-                          const SizedBox(height: 20),
-                          // 热点已经连上，剩下的是选路由器 Wi-Fi + 输密码。
-                          _SearchActions(
-                            onConnect: () => _openPairing(hotspots.first),
-                          ),
-                        ] else if (!_canListNetworks) ...<Widget>[
+                        if (!_canListNetworks) ...<Widget>[
                           const SizedBox(height: 20),
                           _SearchActions(onContinue: _continueWithoutList),
                         ] else if (!_scanning && hotspots.isEmpty) ...<Widget>[
                           const SizedBox(height: 20),
                           _SearchActions(onRescan: _scan),
-                        ] else if (_hotspotError != null &&
-                            hotspots.isNotEmpty) ...<Widget>[
-                          const SizedBox(height: 20),
-                          // 连热点没成（多半是用户点了「取消」）：给一颗重试。
-                          _SearchActions(
-                            onConnect: () => unawaited(
-                              _connectHotspotThenOffer(hotspots.first),
-                            ),
-                            connectLabel: '重试连接',
-                          ),
                         ],
                       ],
                     ),
@@ -589,26 +478,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   _SearchOutcome _outcome(WifiScan? scan, List<WifiNetwork> hotspots) {
     // 已经找到设备时，标题就该讲这件事，而不是继续报「搜索中」。
     if (hotspots.isNotEmpty) {
-      final target = hotspots.first.ssid;
-      final String subtitle;
-      if (_hotspotError != null) {
-        subtitle = _hotspotError!;
-      } else if (_hotspotReady) {
-        // 连上之后这一句取代「点设备」：接下来要用户做的是点「连接」，
-        // 而设备本身已经不需要他再挑了。
-        subtitle =
-            '已连接「$target」。设备本身不联网，需要给它配置一个 Wi-Fi 网络——'
-            '点「连接」选择网络并输入密码。';
-      } else if (_connecting || _autoOpened) {
-        // `_autoOpened` 一置起就算已经认定这台、马上要去连它了，文案跟着走，
-        // 别在 600ms 的停留里回到「点击下方设备」。
-        subtitle = '正在连接「$target」…系统若弹出确认框请点「连接」。';
-      } else {
-        subtitle = '点击下方设备继续配网。';
-      }
       return _SearchOutcome(
         '发现 ${hotspots.length} 台设备',
-        subtitle,
+        // 设备本身不联网，所以下一步是给它配一个 Wi-Fi；这里先说清要点哪个按钮。
+        '点设备右侧的「连接」，然后选择要让它加入的 Wi-Fi 并输入密码。',
         compactTitle: true,
       );
     }
@@ -688,17 +561,10 @@ class _SearchOutcome {
 ///
 /// 什么时候画由页面决定（见 `build` 里那段注释），这里只管长什么样。
 class _SearchActions extends StatelessWidget {
-  const _SearchActions({
-    this.onRescan,
-    this.onContinue,
-    this.onConnect,
-    this.connectLabel,
-  }) : assert(
-        (onRescan == null ? 0 : 1) +
-                (onContinue == null ? 0 : 1) +
-                (onConnect == null ? 0 : 1) ==
-            1,
-        '这颗按钮只会是「重新扫描」「下一步」「连接」三者之一',
+  const _SearchActions({this.onRescan, this.onContinue})
+    : assert(
+        (onRescan == null) != (onContinue == null),
+        '这颗按钮只会是「重新扫描」或「下一步」其中之一',
       );
 
   final VoidCallback? onRescan;
@@ -706,40 +572,24 @@ class _SearchActions extends StatelessWidget {
   /// 列不出设备的平台（iOS）上的下一步。
   final VoidCallback? onContinue;
 
-  /// 热点已连上之后的「连接」——点了去选路由器 Wi-Fi、输密码。
-  final VoidCallback? onConnect;
-
-  /// 「连接」这颗的文案；重试时换成「重试连接」。
-  final String? connectLabel;
-
   @override
   Widget build(BuildContext context) {
-    // 刻意用最笨的写法：三种形态互斥，if 链一眼能看懂，也不会和 `Widget.key` 撞名。
-    var buttonKey = const Key('device-search-rescan');
-    var action = onRescan;
-    var label = '重新扫描';
-    if (onConnect != null) {
-      buttonKey = const Key('device-search-connect');
-      action = onConnect;
-      label = connectLabel ?? '连接';
-    } else if (onContinue != null) {
-      buttonKey = const Key('device-search-continue');
-      action = onContinue;
-      label = '下一步';
-    }
+    final next = onContinue;
     return SizedBox(
       width: 220,
       height: 46,
       child: FilledButton(
-        key: buttonKey,
-        onPressed: action,
+        key: next != null
+            ? const Key('device-search-continue')
+            : const Key('device-search-rescan'),
+        onPressed: next ?? onRescan,
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.brandPrimary,
           foregroundColor: AppColors.surface,
           shape: const StadiumBorder(),
           textStyle: const TextStyle(fontSize: 17),
         ),
-        child: Text(label),
+        child: Text(next != null ? '下一步' : '重新扫描'),
       ),
     );
   }
@@ -819,10 +669,21 @@ class _FoundDeviceTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(
-                Icons.chevron_right,
-                size: 20,
-                color: AppColors.textTertiary,
+              // 一颗明确的「连接」，而不是一个箭头：这一步是**用户手动选设备**
+              // （2026-09-10 产品口径），按钮比箭头更说明"点了会发生什么"。
+              // 整行也照旧可点，两者同一个动作。
+              FilledButton(
+                key: Key('device-search-connect-$index'),
+                onPressed: onTap,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(68, 34),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  backgroundColor: AppColors.brandPrimary,
+                  foregroundColor: AppColors.surface,
+                  shape: const StadiumBorder(),
+                  textStyle: const TextStyle(fontSize: 14),
+                ),
+                child: const Text('连接'),
               ),
             ],
           ),

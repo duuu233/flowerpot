@@ -285,7 +285,8 @@ void main() {
       find.byKey(const Key('pairing-ssid-field')),
     );
     expect(ssid.controller?.text, 'TP-LINK_2.4G');
-    // `hotspotConnected` 没给 ⇒ 不自动弹 Wi-Fi 列表（那条只走搜索页连好热点那条路）。
+    // 进页面不会自己弹 Wi-Fi 列表：手机这时还连着路由器，SSID 正常带出来，
+    // 要换网络点「切换」即可。
     expect(find.byKey(const Key('pairing-wifi-sheet')), findsNothing);
     expect(tester.takeException(), isNull);
   });

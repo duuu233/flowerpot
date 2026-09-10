@@ -27,15 +27,7 @@ class PairingArguments {
     this.deviceName,
     this.hotspotSsid,
     this.request,
-    this.hotspotConnected = false,
   });
-
-  /// 搜索页是不是**已经**把手机连到设备热点上了。
-  ///
-  /// 2026-09-10 动线：搜到设备就先连热点，用户在搜索页点「连接」才进这一页。为真时
-  /// 手机已经挂在设备热点上 ⇒「带出当前 Wi-Fi 名」必然留空（填热点名等于让设备去连
-  /// 它自己），所以这一页进来就直接把 Wi-Fi 列表弹出来，别让用户盯着空输入框猜。
-  final bool hotspotConnected;
 
   /// Planter picked on the selection page, shown above the credentials.
   final String? deviceName;
@@ -176,26 +168,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     await state.probeWifi(refresh: false);
     if (!mounted) return;
     _applyCurrentSsid(state);
-    _maybeOpenPicker();
-  }
-
-  /// 进页面时若一个网络名都没有，直接把 Wi-Fi 列表弹出来。
-  ///
-  /// 2026-09-10 动线：到这一页时手机已经挂在**设备热点**上，所以「带出当前 Wi-Fi 名」
-  /// 那条规则必然留空（填热点名等于让设备去连它自己）。既然一定要用户自己选，就别让他
-  /// 先盯着一个空输入框猜要干什么——直接把列表递到面前。只弹一次。
-  bool _pickerOffered = false;
-
-  void _maybeOpenPicker() {
-    if (_pickerOffered || !mounted) return;
-    // 只在「搜索页已经连好热点」这条路上弹。别的入口（重试、iOS 的无条件下一步）
-    // 进来时手机还在路由器上，SSID 会被正常带出来，不该冒出一个弹层。
-    if (widget.arguments?.hotspotConnected != true) return;
-    if (ssidController.text.trim().isNotEmpty) return;
-    _pickerOffered = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_switchWifi());
-    });
   }
 
   /// 规则很简单（2026-09-10 产品口径）：
