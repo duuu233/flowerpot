@@ -54,9 +54,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('扫到的设备先画出来，随后自动带着它进下一步', (tester) async {
-    // 2026-09-10 产品口径：整个配网只留一步要用户操作（输 Wi-Fi 密码）。选设备
-    // 不该让用户自己点，但设备本身还是要看得见——所以先画出来、停一下再跳。
+  testWidgets('扫到的设备先画出来，自动连上它的热点，再由用户点「连接」进下一步', (tester) async {
+    // 2026-09-10 动线（产品参照智能生活后定的）：搜到设备 → **自动连上它的热点** →
+    // 用户点「连接」→ 选路由器 Wi-Fi、输密码 → 配网。设备不让用户挑（搜到就认定），
+    // 但要看得见；热点先连上是为了解掉「手机挂在设备热点上时带不出正确当前 Wi-Fi 名」
+    // 那个矛盾——反正下一页就是让用户自己选网络。
     Object? pairingArguments = 'unset';
     const request = PairingRequest(ssid: 'Home_2.4G', password: '12345678');
     final state = await _pumpDeviceSearchPage(
@@ -77,8 +79,16 @@ void main() {
     // 搜到设备了就不该再画「重新扫描」。
     expect(find.byKey(const Key('device-search-rescan')), findsNothing);
 
-    // 停留结束后自动跳，并把热点名带过去。
+    // 停留结束后去连热点，连上之后**不自动跳页**：出现「连接」按钮，等用户点。
     await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('device-search-connect')), findsOneWidget);
+    expect(find.textContaining('已连接「SmartLife-A1B2」'), findsOneWidget);
+    expect(pairingArguments, 'unset');
+
+    // 点了才进下一步，并把热点名带过去。
+    await tester.tap(find.byKey(const Key('device-search-connect')));
     await tester.pumpAndSettle();
 
     expect(find.text('pairing-wifi-target'), findsOneWidget);

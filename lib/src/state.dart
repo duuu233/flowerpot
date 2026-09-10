@@ -631,6 +631,41 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   /// 新流程第二步：把路由器凭据下发给设备。
+  /// 单独把手机连到设备热点上，不配网。
+  ///
+  /// 2026-09-10 产品定的动线：**搜索页扫到设备就先把热点连上**，之后才让用户选路由器
+  /// Wi-Fi、输密码。这样排有两个好处：
+  ///
+  /// 1. 解掉一个矛盾——手机一旦挂在设备热点上，「带出当前 Wi-Fi 名」这条规则只能留空
+  ///    （填热点名等于让设备去连它自己）。先连热点、再让用户自己选，本来就不需要带出。
+  /// 2. 把那次系统确认框挪到用户刚点完设备、注意力还在这件事上的时候。
+  ///
+  /// ⚠️ **调用方必须先等 `prepareForPairing()` 跑完。** 取令牌、取安全配置、确认家庭
+  /// 都要走云端，而这一步一执行手机就没有外网了。
+  ///
+  /// ⚠️ 连上之后**不要以为它一定还在**：`WifiNetworkSpecifier` 建的是进程专属的一次性
+  /// 连接，系统可能在用户选 Wi-Fi、输密码那段时间里把它掉掉。所以
+  /// [pairViaDeviceHotspot] 的第①步照常保留——已连就跳过，掉了就重连。
+  Future<ActionResult> connectDeviceHotspot({String? hotspotSsid}) =>
+      _guard(() async {
+        final target =
+            hotspotSsid ??
+            _wifiScan?.deviceHotspots.map((item) => item.ssid).firstOrNull;
+        _setPairingStage(PairingStage.connectingDevice);
+        try {
+          final joinedByApp = await _joinHotspotForPairing(
+            target: target,
+            joinedManually: false,
+          );
+          return ActionResult(
+            true,
+            joinedByApp ? '已连接设备热点' : '手机已经在设备热点上',
+          );
+        } finally {
+          _setPairingStage(PairingStage.idle);
+        }
+      });
+
   /// 涂鸦「热点配网新流程」的完整序列。
   ///
   /// ## 三步，顺序不能动

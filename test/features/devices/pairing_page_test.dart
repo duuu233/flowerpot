@@ -264,9 +264,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the connected device from the selection step is shown', (
-    tester,
-  ) async {
+  testWidgets('这一页不再重复显示设备，只管选网络和输密码', (tester) async {
+    // 2026-09-10 动线调整：设备是在**搜索页**上点「连接」确认的，热点那时也已经连上。
+    // 这一页的任务只剩「选一个要让设备加入的 Wi-Fi 并输密码」，再画一遍
+    // 「已选择设备 xxx」只是占地方。（原用例断言的就是那一行，随之作废。）
     await _pumpPairingPage(
       tester,
       const Size(375, 812),
@@ -277,12 +278,15 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const Key('pairing-connected-device')), findsOneWidget);
-    expect(find.text('已选择设备 SmartLife-A1B2'), findsOneWidget);
+    expect(find.byKey(const Key('pairing-connected-device')), findsNothing);
+    expect(find.textContaining('已选择设备'), findsNothing);
+    // 重试带回来的凭据照常填好。
     final ssid = tester.widget<TextField>(
       find.byKey(const Key('pairing-ssid-field')),
     );
     expect(ssid.controller?.text, 'TP-LINK_2.4G');
+    // `hotspotConnected` 没给 ⇒ 不自动弹 Wi-Fi 列表（那条只走搜索页连好热点那条路）。
+    expect(find.byKey(const Key('pairing-wifi-sheet')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

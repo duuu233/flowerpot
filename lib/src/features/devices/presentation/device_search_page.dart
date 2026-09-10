@@ -143,10 +143,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 自动跳转的定时器。
   Timer? _autoOpenTimer;
 
-  /// 正在等云端预取落地（取令牌 + 确认家庭），随后就进「连接 Wi-Fi」。
-  ///
-  /// 曾经是「正在让 SDK 连设备热点」。那一步已经去掉，见 [_openPairingWhenReady]。
+  /// 正在等云端预取落地、并把手机连到设备热点上。
   bool _connecting = false;
+
+  /// 已经连上设备热点，等用户点「连接」进下一步。
+  ///
+  /// 2026-09-10 产品定的动线：**扫到设备 → 自动连上它的热点 → 用户点「连接」→ 选路由器
+  /// Wi-Fi、输密码 → 配网**。热点先连上，是为了解掉「手机挂在设备热点上时带不出正确
+  /// 的当前 Wi-Fi 名」那个矛盾——反正接下来就是让用户自己选。
+  bool _hotspotReady = false;
+
+  /// 连热点失败时的原因，画在页面上让用户能照着做。
+  String? _hotspotError;
 
   /// 「取令牌 + 确认家庭」这两步云端请求的预取。
   ///
@@ -207,6 +215,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _throttled = false;
     _scannedForReal = false;
     _autoOpened = false;
+    _hotspotReady = false;
+    _hotspotError = null;
+    _connecting = false;
     _radarController.repeat();
     setState(() {
       _scanning = true;
@@ -283,10 +294,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _maybeAutoOpen();
   }
 
-  /// 扫到设备就自动带着它进下一步。
+  /// 扫到设备就自动去连它的热点。
   ///
-  /// 设备先画出来、停 [_autoOpenDelay] 再跳：用户要看得见自己连的是哪台。跳之前
-  /// 把两条扫描线都停掉——已经选定目标了，再扫只是白烧配额。
+  /// 设备先画出来、停 [_autoOpenDelay] 再动手：用户要看得见连的是哪台。动手之前把两条
+  /// 扫描线都停掉——已经选定目标了，再扫只是白烧配额。连上之后**不自动跳页**，页面上
+  /// 出现一句说明和「连接」按钮，由用户点了才进下一步（2026-09-10 产品动线）。
   void _maybeAutoOpen() {
     if (_autoOpened || !mounted) return;
     final hotspots =
@@ -300,7 +312,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _autoOpenTimer = Timer(_autoOpenDelay, () {
       if (!mounted) return;
       _radarController.stop();
-      unawaited(_openPairingWhenReady(hotspots.first));
+      unawaited(_connectHotspotThenOffer(hotspots.first));
     });
   }
 
@@ -351,30 +363,36 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     });
   }
 
-  /// 扫到设备 ⇒ 等云端预取落地 ⇒ 直接进「连接 Wi-Fi」。
+  /// 扫到设备 ⇒ 等云端预取落地 ⇒ 把手机连到它的热点上 ⇒ 亮出「连接」按钮。
   ///
-  /// ⚠️ **这里不再让 SDK 去连设备热点。** 2026-09-10 之前这一步会先调
-  /// `connectDeviceForPairing()`（`queryDeviceConfigState`）连上热点、读回**设备
-  /// 自己扫到的** Wi-Fi 列表，再进下一页。实测它会卡住：页面停在「正在连接
-  /// 「smartlife_xxx」…」直到超时，整条动线走不到输密码那一步——那一步只对
-  /// TuyaOS ≥ 3.6.1 的固件有效，而固件版本从未被确认过。
+  /// 顺序不能换：[_prepared]（取令牌 + 取安全配置 + 确认家庭）**全部要走云端**，
+  /// 而连上设备热点之后手机就没有外网了。
   ///
-  /// 产品口径（2026-09-10）：**配网用的就是手机当前连着的那个网络，不需要知道设备
-  /// 能看见哪些网络。** 既然列表本身不要了，连热点这件事就交给 `startActivator`
-  /// 在配网时自己做（官方文档：「在配网过程中，SDK 会在指定时间内自动去连接 AP
-  /// 热点」），本页不必替它先连一次，也就没有这个会卡死的前置步骤了。
-  ///
-  /// 留下的只有 [_prepared]：令牌必须在手机**还连着路由器**时取到。
-  Future<void> _openPairingWhenReady(WifiNetwork hotspot) async {
+  /// 连热点会弹一次系统确认框——那是 Android 10+ 的硬限制，`WifiNetworkSpecifier`
+  /// 必弹、关不掉也不能代点。能做到的是**自动选中**：交给系统的是搜索页扫到的确切
+  /// 热点名，框里只有这一台、已经选好；手机已经在该热点上时直接跳过、零点击。
+  Future<void> _connectHotspotThenOffer(WifiNetwork hotspot) async {
     if (!mounted) return;
-    setState(() => _connecting = true);
+    setState(() {
+      _connecting = true;
+      _hotspotError = null;
+    });
+    final state = FlowerpotScope.of(context);
     // 失败不拦路——真缺令牌时 apStartPairing 自己还会再取一次。
     await _prepared;
     if (!mounted) return;
-    setState(() => _connecting = false);
-    _openPairing(hotspot);
+    final result = await state.connectDeviceHotspot(hotspotSsid: hotspot.ssid);
+    if (!mounted) return;
+    setState(() {
+      _connecting = false;
+      _hotspotReady = result.success;
+      _hotspotError = result.success ? null : result.message;
+      // 没连上就放开自动标记，让用户能重试。
+      if (!result.success) _autoOpened = false;
+    });
   }
 
+  /// 带着这台设备进「连接 Wi-Fi」。
   /// 带着这台设备进「连接 Wi-Fi」。
   ///
   /// `deviceName` 也一起带过去：用户没有点过「确认连接这台」，那么连接的是哪台
@@ -388,6 +406,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         request: widget.request,
         hotspotSsid: hotspot.ssid,
         deviceName: hotspot.ssid,
+        // 热点已经在本页连好了，下一页据此直接弹 Wi-Fi 列表。
+        hotspotConnected: _hotspotReady,
       ),
     );
   }
@@ -478,12 +498,28 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         // 能列设备的平台上，「重新扫描」**只在搜完一轮、一台都
                         // 没搜到时**才出现：搜索中它点了也只是白烧一次系统配额，
                         // 已经搜到设备时用户要点的是那台设备、不是再扫一遍。
-                        if (!_canListNetworks) ...<Widget>[
+                        if (_hotspotReady && hotspots.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 20),
+                          // 热点已经连上，剩下的是选路由器 Wi-Fi + 输密码。
+                          _SearchActions(
+                            onConnect: () => _openPairing(hotspots.first),
+                          ),
+                        ] else if (!_canListNetworks) ...<Widget>[
                           const SizedBox(height: 20),
                           _SearchActions(onContinue: _continueWithoutList),
                         ] else if (!_scanning && hotspots.isEmpty) ...<Widget>[
                           const SizedBox(height: 20),
                           _SearchActions(onRescan: _scan),
+                        ] else if (_hotspotError != null &&
+                            hotspots.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 20),
+                          // 连热点没成（多半是用户点了「取消」）：给一颗重试。
+                          _SearchActions(
+                            onConnect: () => unawaited(
+                              _connectHotspotThenOffer(hotspots.first),
+                            ),
+                            connectLabel: '重试连接',
+                          ),
                         ],
                       ],
                     ),
@@ -511,11 +547,22 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   _SearchOutcome _outcome(WifiScan? scan, List<WifiNetwork> hotspots) {
     // 已经找到设备时，标题就该讲这件事，而不是继续报「搜索中」。
     if (hotspots.isNotEmpty) {
+      final target = hotspots.first.ssid;
       return _SearchOutcome(
         '发现 ${hotspots.length} 台设备',
-        _connecting || _autoOpened
-            ? '正在连接「${hotspots.first.ssid}」…'
-            : '点击下方设备继续配网。',
+        switch (true) {
+          _ when _hotspotError != null => _hotspotError!,
+          // 连上之后这一句取代「点设备」：接下来要用户做的是点「连接」，
+          // 而设备本身已经不需要他再挑了。
+          _ when _hotspotReady =>
+            '已连接「$target」。设备本身不联网，需要给它配置一个 Wi-Fi 网络——'
+                '点「连接」选择网络并输入密码。',
+          // `_autoOpened` 一置起就算已经认定这台、马上要去连它了，文案跟着走，
+          // 别在 600ms 的停留里回到「点击下方设备」。
+          _ when _connecting || _autoOpened =>
+            '正在连接「$target」…系统若弹出确认框请点「连接」。',
+          _ => '点击下方设备继续配网。',
+        },
         compactTitle: true,
       );
     }
@@ -595,10 +642,13 @@ class _SearchOutcome {
 ///
 /// 什么时候画由页面决定（见 `build` 里那段注释），这里只管长什么样。
 class _SearchActions extends StatelessWidget {
-  const _SearchActions({this.onRescan, this.onContinue})
+  const _SearchActions({this.onRescan, this.onContinue, this.onConnect, this.connectLabel})
     : assert(
-        (onRescan == null) != (onContinue == null),
-        '这颗按钮只会是「重新扫描」或「下一步」其中之一',
+        (onRescan == null ? 0 : 1) +
+                (onContinue == null ? 0 : 1) +
+                (onConnect == null ? 0 : 1) ==
+            1,
+        '这颗按钮只会是「重新扫描」「下一步」「连接」三者之一',
       );
 
   final VoidCallback? onRescan;
@@ -606,24 +656,40 @@ class _SearchActions extends StatelessWidget {
   /// 列不出设备的平台（iOS）上的下一步。
   final VoidCallback? onContinue;
 
+  /// 热点已连上之后的「连接」——点了去选路由器 Wi-Fi、输密码。
+  final VoidCallback? onConnect;
+
+  /// 「连接」这颗的文案；重试时换成「重试连接」。
+  final String? connectLabel;
+
   @override
   Widget build(BuildContext context) {
-    final next = onContinue;
+    final (Key key, VoidCallback? action, String label) = switch (this) {
+      _ when onConnect != null => (
+        const Key('device-search-connect'),
+        onConnect,
+        connectLabel ?? '连接',
+      ),
+      _ when onContinue != null => (
+        const Key('device-search-continue'),
+        onContinue,
+        '下一步',
+      ),
+      _ => (const Key('device-search-rescan'), onRescan, '重新扫描'),
+    };
     return SizedBox(
       width: 220,
       height: 46,
       child: FilledButton(
-        key: next != null
-            ? const Key('device-search-continue')
-            : const Key('device-search-rescan'),
-        onPressed: next ?? onRescan,
+        key: key,
+        onPressed: action,
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.brandPrimary,
           foregroundColor: AppColors.surface,
           shape: const StadiumBorder(),
           textStyle: const TextStyle(fontSize: 17),
         ),
-        child: Text(next != null ? '下一步' : '重新扫描'),
+        child: Text(label),
       ),
     );
   }

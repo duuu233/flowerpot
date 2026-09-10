@@ -23,7 +23,19 @@ import 'widgets/pairing_progress_view.dart';
 const double _startButtonInset = 92;
 
 class PairingArguments {
-  const PairingArguments({this.deviceName, this.hotspotSsid, this.request});
+  const PairingArguments({
+    this.deviceName,
+    this.hotspotSsid,
+    this.request,
+    this.hotspotConnected = false,
+  });
+
+  /// 搜索页是不是**已经**把手机连到设备热点上了。
+  ///
+  /// 2026-09-10 动线：搜到设备就先连热点，用户在搜索页点「连接」才进这一页。为真时
+  /// 手机已经挂在设备热点上 ⇒「带出当前 Wi-Fi 名」必然留空（填热点名等于让设备去连
+  /// 它自己），所以这一页进来就直接把 Wi-Fi 列表弹出来，别让用户盯着空输入框猜。
+  final bool hotspotConnected;
 
   /// Planter picked on the selection page, shown above the credentials.
   final String? deviceName;
@@ -141,6 +153,26 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     await state.probeWifi(refresh: false);
     if (!mounted) return;
     _applyCurrentSsid(state);
+    _maybeOpenPicker();
+  }
+
+  /// 进页面时若一个网络名都没有，直接把 Wi-Fi 列表弹出来。
+  ///
+  /// 2026-09-10 动线：到这一页时手机已经挂在**设备热点**上，所以「带出当前 Wi-Fi 名」
+  /// 那条规则必然留空（填热点名等于让设备去连它自己）。既然一定要用户自己选，就别让他
+  /// 先盯着一个空输入框猜要干什么——直接把列表递到面前。只弹一次。
+  bool _pickerOffered = false;
+
+  void _maybeOpenPicker() {
+    if (_pickerOffered || !mounted) return;
+    // 只在「搜索页已经连好热点」这条路上弹。别的入口（重试、iOS 的无条件下一步）
+    // 进来时手机还在路由器上，SSID 会被正常带出来，不该冒出一个弹层。
+    if (widget.arguments?.hotspotConnected != true) return;
+    if (ssidController.text.trim().isNotEmpty) return;
+    _pickerOffered = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_switchWifi());
+    });
   }
 
   /// 规则很简单（2026-09-10 产品口径）：
@@ -316,36 +348,9 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                 children: <Widget>[
                   const _WifiConnectionIllustration(),
                   const SizedBox(height: 20),
-                  // 用户没有点过「就连这台」——设备是搜到后自动带过来的，所以
-                  // 连的是哪台必须在这里写清楚，否则整条流程就成了黑箱。
-                  if (widget.arguments?.deviceName case final String name) ...[
-                    Row(
-                      key: const Key('pairing-connected-device'),
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: <Widget>[
-                        const Icon(
-                          Icons.check_circle,
-                          size: 18,
-                          color: AppColors.brandPrimary,
-                        ),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            '已选择设备 $name',
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                  ],
+                  // 2026-09-10 动线调整后这里不再画「已选择设备 xxx」：设备是在
+                  // **搜索页**上点「连接」确认的，热点那时也已经连上，这一页的任务只剩
+                  // 「选一个要让设备加入的 Wi-Fi 并输密码」，再重复一遍设备名只是占地方。
                   const Text(
                     '请将设备连接到2.4GHz Wi-Fi网络',
                     textAlign: TextAlign.center,
@@ -810,6 +815,8 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
   @override
   Widget build(BuildContext context) {
     return Material(
+      // 用例据此断言「弹层有没有被自动弹出来」。
+      key: const Key('pairing-wifi-sheet'),
       color: AppColors.surface,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       clipBehavior: Clip.antiAlias,
