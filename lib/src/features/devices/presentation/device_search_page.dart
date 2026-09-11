@@ -672,11 +672,24 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     final elapsed = startedAt == null
         ? '未开始'
         : '${DateTime.now().difference(startedAt).inSeconds}s';
+    // 每一道门单独一行：扫不到时要能一眼看出卡在哪一层，而不是笼统一句「不可用」。
+    final blocked = availability.usable
+        ? '可用'
+        : (availability.reason.isEmpty ? '不可用' : availability.reason);
+    final raw = state.rawBleDevices;
     final where = <String>[
       '搜索方式：蓝牙（AP 已屏蔽）',
-      '蓝牙：${availability.usable ? '可用' : (availability.reason.isEmpty ? '不可用' : availability.reason)}',
+      '蓝牙：$blocked',
+      '蓝牙开关：${availability.enabled ? '开' : '关'}'
+          ' · 定位服务：${availability.locationOn ? '开' : '关（BLE 扫描必需）'}',
+      '权限：扫描 ${availability.scanPermission ? '已授予' : '未授予'}'
+          ' · 定位 ${availability.locationPermission ? '已授予' : '未授予'}',
       '扫描：${state.bleScanning ? '进行中 $elapsed' : '未在扫描'}',
-      '扫到 ${ble.length} 台${bound == 0 ? '' : '（其中 $bound 台已被绑定）'}',
+      '涂鸦 SDK 扫到 ${ble.length} 台${bound == 0 ? '' : '（其中 $bound 台已被绑定）'}',
+      // **这一行是这轮的关键证据**：系统原生扫描不带任何过滤，附近有广播就收。
+      // 它比涂鸦那条多出来的部分，就是「在广播、但不是涂鸦协议格式」的设备。
+      '系统原生扫到 ${raw.length} 条广播（无过滤，仅对照）',
+      if (raw.isNotEmpty) '　最强：${raw.first.label} ${raw.first.rssi}dBm',
       '过滤：无（扫到什么列什么）',
     ];
     return where.join('\n');
@@ -1225,10 +1238,39 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         '当前版本只走蓝牙配网（热点方式已屏蔽）。打开手机蓝牙后点「重新扫描」。',
       );
     }
+    if (!availability.scanPermission || !availability.locationPermission) {
+      return const _SearchOutcome(
+        '缺少搜索所需的权限',
+        'BLE 扫描需要「附近的设备」与「定位」权限。\n'
+            '请在系统设置里授予本应用这两项权限后，再点「重新扫描」。',
+      );
+    }
+    if (!availability.locationOn) {
+      // ⚠️ 这一条最容易被当成"设备有问题"：定位服务关着时 BLE 扫描**静默返回空**，
+      // 不报错、不回调，页面上和"附近没有设备"一模一样。必须单独说出来。
+      return const _SearchOutcome(
+        '请打开系统定位服务',
+        '定位权限已经给了，但**系统的定位开关是关着的**——Android 上 BLE 扫描要求它打开，\n'
+            '关着时扫描不会报错、只会一台都扫不到。请在下拉菜单或系统设置里打开定位，\n'
+            '再点「重新扫描」。',
+      );
+    }
     if (_stalled) {
+      // 涂鸦扫不到时，**系统原生扫描的数目就是分水岭**——把结论直接写出来，
+      // 别让人对着「未发现设备」去猜（`PRODUCT_RULES` §4.1 事实在前）。
+      final rawCount = state.rawBleDevices.length;
+      if (rawCount > 0) {
+        return _SearchOutcome(
+          '附近有蓝牙广播，但没有涂鸦设备',
+          '系统原生扫描收到 $rawCount 条广播，而涂鸦 SDK 一台都没认出来。\n'
+              '这说明手机这边的扫描是通的：要么这些广播里没有花盆，'
+              '要么花盆广播的格式不是涂鸦配网要的那种（属于固件侧）。\n'
+              '请确认设备已上电并处于配网状态；仍然如此的话，把本页截图给设备方。',
+        );
+      }
       return const _SearchOutcome(
         '蓝牙没有扫到任何设备',
-        '已经扫了一段时间，**一台蓝牙设备都没有出现**（当前不做任何过滤，扫到什么都会列出来）。\n'
+        '已经扫了一段时间，**连系统原生扫描也一条广播都没收到**（当前不做任何过滤）。\n'
             '可能是：设备没有在广播 BLE（固件未支持）、设备已退出配网状态、或距离太远。\n'
             '请给设备断电重启后靠近手机，再点「重新扫描」。',
       );

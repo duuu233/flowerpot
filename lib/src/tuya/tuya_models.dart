@@ -794,6 +794,9 @@ class BleAvailability {
     required this.available,
     required this.supported,
     required this.enabled,
+    this.locationOn = true,
+    this.scanPermission = true,
+    this.locationPermission = true,
     this.reason = '',
   });
 
@@ -801,6 +804,10 @@ class BleAvailability {
     available: raw['available'] == true,
     supported: raw['supported'] == true,
     enabled: raw['enabled'] == true,
+    // 缺省按 true：老桥接不回这三项时，别凭空报一个「定位没开」把人带偏。
+    locationOn: raw['locationOn'] != false,
+    scanPermission: raw['scanPermission'] != false,
+    locationPermission: raw['locationPermission'] != false,
     reason: raw['reason']?.toString() ?? '',
   );
 
@@ -813,11 +820,34 @@ class BleAvailability {
   /// 蓝牙开关开着。
   final bool enabled;
 
+  /// **系统的「定位服务」开关**是否打开。
+  ///
+  /// ⚠️ 这是 BLE 扫描最容易被忽略的一道门：Android 6～11 强制要求它，而我们在 12+ 又
+  /// 刻意没用 `neverForLocation`（那个标志会让系统把 iBeacon 类广播从结果里过滤掉），
+  /// 所以同样受它影响。**关着的时候扫描静默返回空**——不报错、不回调，和「附近没有设备」
+  /// 完全分不开。它不是权限、申请不来，只能检测出来让用户自己去开。
+  final bool locationOn;
+
+  /// Android 12+ 的「附近的设备」权限（`BLUETOOTH_SCAN`）。
+  final bool scanPermission;
+
+  /// 定位权限（`ACCESS_FINE_LOCATION`）。BLE 扫描需要，理由同 [locationOn]。
+  final bool locationPermission;
+
   /// 不可用时的原文，直接画到页面上。
   final String reason;
 
-  /// 三项都成立才谈得上扫。
-  bool get usable => available && supported && enabled;
+  /// **每一道门都开着**才谈得上扫得到东西。
+  ///
+  /// 少判任何一条的后果都一样：扫描静默为空，而页面上显示的是「附近没有设备」——
+  /// 把"我们这边没配好"说成了"设备有问题"，正好把排查方向带反。
+  bool get usable =>
+      available &&
+      supported &&
+      enabled &&
+      locationOn &&
+      scanPermission &&
+      locationPermission;
 
   static const BleAvailability unknown = BleAvailability(
     available: false,
@@ -908,6 +938,47 @@ class BleDevice {
     >= -75 => 2,
     _ => 1,
   };
+}
+
+/// **系统原生 BLE 扫描**看到的一条广播（不带任何过滤）。
+///
+/// 只做对照，不参与配网。涂鸦的扫描只回报**它认得的涂鸦协议广播**，扫不到时有两种
+/// 完全不同的可能而页面上看起来一模一样：设备根本没在广播，还是在广播但格式不对
+/// （后者是固件的事）。两边的数目一对比就分得开。
+class RawBleDevice {
+  const RawBleDevice({
+    required this.mac,
+    required this.name,
+    required this.rssi,
+    this.manufacturerIds = const <int>[],
+    this.serviceUuids = const <String>[],
+  });
+
+  factory RawBleDevice.fromMap(Map<Object?, Object?> raw) => RawBleDevice(
+    mac: raw['mac']?.toString() ?? '',
+    name: raw['name']?.toString() ?? '',
+    rssi: (raw['rssi'] as num?)?.toInt() ?? 0,
+    manufacturerIds: (raw['manufacturerIds'] as List<Object?>? ?? <Object?>[])
+        .map((item) => (item as num?)?.toInt() ?? 0)
+        .toList(growable: false),
+    serviceUuids: (raw['serviceUuids'] as List<Object?>? ?? <Object?>[])
+        .map((item) => item.toString())
+        .toList(growable: false),
+  );
+
+  final String mac;
+
+  /// 广播里的名字。**读不到是常态**（要权限、也未必广播），空着不代表这条无效——
+  /// 「有广播但没名字」本身就是有效信息。
+  final String name;
+  final int rssi;
+
+  /// 厂商 id 与 service uuid：判断「这是不是涂鸦设备」的线索，真机上一眼能看出
+  /// 广播长什么样。
+  final List<int> manufacturerIds;
+  final List<String> serviceUuids;
+
+  String get label => name.trim().isNotEmpty ? name.trim() : mac;
 }
 
 /// 设备**自己扫到的**一个 Wi-Fi（走 BLE 问它要的那份列表）。

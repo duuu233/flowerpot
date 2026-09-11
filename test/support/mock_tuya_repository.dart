@@ -45,6 +45,22 @@ class MockTuyaRepository implements TuyaRepository {
   /// 让用例像真机那样逐台推 BLE 设备上来，不需要蓝牙硬件。
   void pushBleDevice(BleDevice device) => _bleDevices.add(device);
 
+  final StreamController<RawBleDevice> _rawBleDevices =
+      StreamController<RawBleDevice>.broadcast();
+
+  @override
+  Stream<RawBleDevice> get rawBleDevices => _rawBleDevices.stream;
+
+  void pushRawBleDevice(RawBleDevice device) => _rawBleDevices.add(device);
+
+  int rawBleScanStarts = 0;
+
+  @override
+  Future<void> startRawBleScan() async {
+    await _wait();
+    rawBleScanStarts++;
+  }
+
   /// 这一台 mock「手机」的 BLE 情况，用例按需改。默认可用——搜索页的主路径要能跑。
   BleAvailability bleAvailability = const BleAvailability(
     available: true,

@@ -512,10 +512,25 @@ class FlowerpotState extends ChangeNotifier {
   StreamSubscription<BleDevice>? _bleSub;
   bool _bleScanning = false;
 
+  /// **原生扫描**看到的广播，按 mac 去重。只做对照，不参与配网。
+  final Map<String, RawBleDevice> _rawBleDevices = <String, RawBleDevice>{};
+  StreamSubscription<RawBleDevice>? _rawBleSub;
+
   /// 最近一次 [loadDeviceWifiList] 拿回来的、**设备自己扫到的** Wi-Fi 列表。
   List<DeviceWifiNetwork> _deviceWifiNetworks = <DeviceWifiNetwork>[];
 
   BleAvailability get bleAvailability => _bleAvailability;
+
+  /// 原生 BLE 扫描看到的广播，信号强的在前。
+  ///
+  /// 它和 [bleDevices] 的**数目差**就是这一轮要的结论：
+  /// 两边都是 0 ⇒ 设备根本没在广播；原生有、涂鸦没有 ⇒ 设备在广播，但**不是涂鸦协议的
+  /// 格式**，那是固件的事。
+  List<RawBleDevice> get rawBleDevices {
+    final items = _rawBleDevices.values.toList()
+      ..sort((a, b) => b.rssi.compareTo(a.rssi));
+    return List<RawBleDevice>.unmodifiable(items);
+  }
 
   bool get bleScanning => _bleScanning;
 
@@ -576,6 +591,14 @@ class FlowerpotState extends ChangeNotifier {
       _bleDevices[device.uuid] = device;
       notifyListeners();
     });
+    // **对照用的原生扫描**：与涂鸦那条同时开。失败不拦路——它只是证据，不是路径。
+    _rawBleSub ??= _repository.rawBleDevices.listen((device) {
+      _rawBleDevices[device.mac] = device;
+      notifyListeners();
+    });
+    unawaited(
+      _repository.startRawBleScan().catchError((Object _) {}),
+    );
     try {
       await _repository.startBleScan(timeout: timeout);
     } catch (error) {
@@ -600,6 +623,8 @@ class FlowerpotState extends ChangeNotifier {
   Future<void> stopBleDiscovery() async {
     await _bleSub?.cancel();
     _bleSub = null;
+    await _rawBleSub?.cancel();
+    _rawBleSub = null;
     if (!_bleScanning) return;
     _bleScanning = false;
     try {
@@ -2286,6 +2311,8 @@ class FlowerpotState extends ChangeNotifier {
     // disposed」。所以拆开手写，只做释放、不通知——已经没人在听了。
     unawaited(_bleSub?.cancel() ?? Future<void>.value());
     _bleSub = null;
+    unawaited(_rawBleSub?.cancel() ?? Future<void>.value());
+    _rawBleSub = null;
     if (_bleScanning) {
       _bleScanning = false;
       unawaited(_repository.stopBleScan().catchError((Object _) {}));
