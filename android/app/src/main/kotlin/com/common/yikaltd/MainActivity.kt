@@ -978,7 +978,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         invoke(builder, "setToken", token)
         // 这台机器上 adb 未必连得上，所以诊断信息不能只进 logcat——失败时一并
         // 回给 Dart，联调页的日志区才看得到实际用了哪个工厂、哪个枚举常量。
-        val used = "$requested/${factory.name}/${(mode as Enum<*>).name}"
+        val used = "ap/${factory.name}/${(mode as Enum<*>).name}"
         Log.i(TUYA_LOG_TAG, "pairing $used")
         invokeWithCallback(
             builder,
@@ -1004,19 +1004,22 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         )
         activator = factory.invoke(activatorApi, builder)
             ?: throw IllegalStateException("${factory.name} 未返回配网实例")
-        // 绑定只对 AP 做。EZ 是往手机所在网络广播凭据，把进程绑死在某个 Network
-        // 上会挡住那些广播——这正是 EZ 加了绑定之后开始报 1006 的原因。AP 则相反：
-        // 手机连的设备热点没有互联网，不绑定的话流量会被系统留在移动数据上。
+        // AP 要把进程绑到 Wi-Fi 上：手机连的设备热点没有互联网，不绑定的话流量会被
+        // 系统留在移动数据上，凭据就发不到设备。
+        //
+        // 这里**不再按 mode 判断**：AP 已是唯一的配网模式（EZ 实测不支持、已删），
+        // 原来那句 `if (requested == "ap")` 在只剩 AP 之后恒真，而且万一 Dart 侧漏传
+        // mode，它会静默跳过绑定——留着是个陷阱。
+        // （历史背景：EZ 是往手机所在网络广播凭据，绑死 Network 会挡住广播，这正是当年
+        // EZ 加了绑定之后开始报 1006 的原因，所以当时才要按模式区分。）
         //
         // joinDeviceHotspot 已经绑好时不要重绑：那条绑定指向的正是设备热点，而这里
         // 是从 allNetworks 里挑第一个 Wi-Fi，很可能挑中路由器，反而把凭据发错地方。
-        if (requested == "ap") {
-            if (boundNetwork == null) {
-                val bound = bindProcessToWifi()
-                Log.i(TUYA_LOG_TAG, "AP pairing: process bound to Wi-Fi = $bound")
-            } else {
-                Log.i(TUYA_LOG_TAG, "AP pairing: reusing hotspot binding")
-            }
+        if (boundNetwork == null) {
+            val bound = bindProcessToWifi()
+            Log.i(TUYA_LOG_TAG, "AP pairing: process bound to Wi-Fi = $bound")
+        } else {
+            Log.i(TUYA_LOG_TAG, "AP pairing: reusing hotspot binding")
         }
         invoke(activator!!, "start")
     }
@@ -1101,6 +1104,20 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      *
      * Android 9 及以下没有这个 API，仍然只能引导用户手动连，Dart 侧据此回落。
      */
+    /**
+     * 当前连着的 Wi-Fi 名，**只用于日志与失败诊断**，不参与任何判断。
+     *
+     * `connectionInfo.ssid` 在没有定位权限时会返回 `<unknown ssid>`，所以这里把读不到和
+     * 读失败都折成一句人话——诊断串里出现「(读不到)」本身就是一条线索（缺权限），比
+     * 一个空字符串有用。**不要拿它的返回值做门禁**：读不到不等于没连上。
+     */
+    private fun currentSsidForLog(): String = runCatching {
+        val wifi = activity.applicationContext
+            .getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val ssid = wifi?.connectionInfo?.ssid?.trim('"')
+        if (ssid.isNullOrEmpty() || ssid == "<unknown ssid>") "(读不到)" else ssid
+    }.getOrElse { "(读失败:${it.message})" }
+
     private fun joinDeviceHotspot(call: MethodCall, result: MethodChannel.Result) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             error(
