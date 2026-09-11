@@ -1208,10 +1208,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     final state = FlowerpotScope.of(context);
     final availability = state.bleAvailability;
     if (!availability.available || !availability.supported) {
+      // 原因先落成局部变量再拼：插值里再套一层同种引号虽然合法，但可读性差——
+      // 2026-09-11 把 `\n` 写成真换行、源码被截断成两行的就是这一处。
+      final reason = availability.reason.isEmpty
+          ? '这台手机或这个包不支持 BLE'
+          : availability.reason;
       return _SearchOutcome(
         '本机用不了蓝牙配网',
-        '${availability.reason.isEmpty ? '这台手机或这个包不支持 BLE' : availability.reason}。
-'
+        '$reason。\n'
             '当前版本已屏蔽热点（AP）配网，只走蓝牙，所以这里没有可用的替代路径。',
       );
     }
@@ -1224,10 +1228,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (_stalled) {
       return const _SearchOutcome(
         '蓝牙没有扫到任何设备',
-        '已经扫了一段时间，**一台蓝牙设备都没有出现**（当前不做任何过滤，扫到什么都会列出来）。
-'
-            '可能是：设备没有在广播 BLE（固件未支持）、设备已退出配网状态、或距离太远。
-'
+        '已经扫了一段时间，**一台蓝牙设备都没有出现**（当前不做任何过滤，扫到什么都会列出来）。\n'
+            '可能是：设备没有在广播 BLE（固件未支持）、设备已退出配网状态、或距离太远。\n'
             '请给设备断电重启后靠近手机，再点「重新扫描」。',
       );
     }
