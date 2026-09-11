@@ -115,12 +115,20 @@ abstract final class TuyaConfig {
     // 2026-09-09 起两态、且只由设备上报：0 = 不弹窗，1 = 弹「发现新植物」引导窗。
     // App 不再写这条——下发 116 之后固件自己改回 0 并立即上报；116 为 -1 或用户
     // 关掉自动检测时固件同样报 0。
+    // ⚠️ **平台 2026-09-12 把它改名了**：`plant_confirm`（植物确认）→ `plant_present`
+    // （弹窗提醒）。**DP 号与数据类型都没变**（162 / bool），改的只是标识符与显示名，
+    // 所以行为不受影响；这里跟着平台导出走，两个名字都留着，免得别处按旧名查不到。
+    'plant_present': 162,
     'plant_confirm': 162,
 
     // TODO(固件/平台): 自动检测植物的开关。产品要求设备设置页有这个纯开关，但
     // 09-07 的导出里还没有这条功能点，163 与标识符都是本地占位。平台补完导出后
     // 只需要改这一行——App 侧统一走 `TuyaConfig.setting['plantDetection']`。
-    'plant_detect_switch': 163, // bool, rw
+    // ⚠️ **2026-09-12 平台已正式导出**（此前是本地占位）。平台上的标识符是
+    // `plant_confirm_switch`，不是我们当初猜的 `plant_detect_switch`——DP 号 163、
+    // 类型 bool 都对得上。两个名字都留着：下发按 DP 号走，改名不影响行为。
+    'plant_confirm_switch': 163, // bool, rw
+    'plant_detect_switch': 163, // bool, rw（本地旧名，平台已改用上面那个）
   };
 
   /// DPs the device transmits as an integer scaled by a power of ten (涂鸦
