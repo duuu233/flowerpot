@@ -489,8 +489,13 @@ class _PlantCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (selected)
-              const Positioned(top: 11, right: 11, child: _SelectedBadge()),
+            // 选中 / 未选中都画，位置一致——只画选中态的话，卡片右上角会在选中那一刻
+            // 凭空多出一个圆，看着像跳了一下。
+            Positioned(
+              top: 11,
+              right: 11,
+              child: _SelectedBadge(selected: selected),
+            ),
           ],
         ),
       ),
@@ -528,8 +533,15 @@ class _PlantArtwork extends StatelessWidget {
   }
 }
 
+/// 卡片右上角那个圆：选中是实心打勾，未选中是**主题色描边的空心圈**。
+///
+/// ⚠️ 未选中那一支是 2026-09-12 补的：改之前**未选中根本不画**，卡片底色又是白的，
+/// 于是看上去"有个白色的圈、看不见"——产品反馈的就是这个。空心圈给主题色描边、
+/// 中间留白，白底上也看得清。
 class _SelectedBadge extends StatelessWidget {
-  const _SelectedBadge();
+  const _SelectedBadge({this.selected = true});
+
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -537,25 +549,30 @@ class _SelectedBadge extends StatelessWidget {
     // such asset, so the disc is a plain coloured circle carrying the existing
     // tick artwork rather than a redrawn icon.
     return Semantics(
-      label: '已选择',
+      label: selected ? '已选择' : '未选择',
       child: DecoratedBox(
-        decoration: const BoxDecoration(
-          color: AppColors.brandPrimary,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.brandPrimary : AppColors.surface,
           shape: BoxShape.circle,
+          border: selected
+              ? null
+              : Border.all(color: AppColors.brandPrimary, width: 1.5),
         ),
         child: SizedBox.square(
           dimension: 23,
-          child: Center(
-            child: Image.asset(
-              AppAssets.checkmarkIcon,
-              width: 13,
-              height: 13,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.high,
-              color: AppColors.surface,
-              excludeFromSemantics: true,
-            ),
-          ),
+          child: selected
+              ? Center(
+                  child: Image.asset(
+                    AppAssets.checkmarkIcon,
+                    width: 13,
+                    height: 13,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                    color: AppColors.surface,
+                    excludeFromSemantics: true,
+                  ),
+                )
+              : null,
         ),
       ),
     );

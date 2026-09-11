@@ -902,6 +902,54 @@ class FlowerpotState extends ChangeNotifier {
     );
   });
 
+  // ══════════════ 联调日志（临时，流程验通后去掉） ══════════════
+  //
+  // 2026-09-12 产品要求：「和涂鸦、和设备有数据交互的，都在页面最下面打印一下每次
+  // 操作的数据」，用于和涂鸦 / 固件联调。**这是临时设施**，跑通后连同页面上的日志框
+  // 一起去掉（`PairingGate` 那种开关式收口同理）。
+  //
+  // 只记两类：**下发**（App → 设备的 DP 写）与**上报**（设备 → App 的 DP 变化）。
+  // 两者就是"和设备的数据交互"的全部；云端接口另有 `ApiClient` 的日志，不混进来。
+
+  /// 最近若干条交互日志，新的在最后。
+  List<String> get interactionLog => List<String>.unmodifiable(_interactionLog);
+  final List<String> _interactionLog = <String>[];
+
+  /// 只留最近这些条：页面上放不下更多，而联调看的就是最后几条。
+  static const int _interactionLogLimit = 60;
+
+  /// 记一条交互日志。带时分秒——联调时要对着设备那边的时间看。
+  void _logInteraction(String line) {
+    final now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    _interactionLog.add(
+      '${two(now.hour)}:${two(now.minute)}:${two(now.second)} $line',
+    );
+    if (_interactionLog.length > _interactionLogLimit) {
+      _interactionLog.removeAt(0);
+    }
+    notifyListeners();
+  }
+
+  /// 清空日志框。
+  void clearInteractionLog() {
+    _interactionLog.clear();
+    notifyListeners();
+  }
+
+  /// 统一的 DP 下发入口：**所有写 DP 的地方都走它**，这样日志不会漏。
+  ///
+  /// 直接调 `_repository.publishDps` 的话，新增一处下发就少记一条，日志就不可信了。
+  Future<void> _publishDps(String deviceId, Map<int, Object> dps) async {
+    _logInteraction('下发 → $dps');
+    try {
+      await _publishDps(deviceId, dps);
+    } catch (error) {
+      _logInteraction('下发失败 ✗ $error');
+      rethrow;
+    }
+  }
+
   /// 配网过程中的原生日志，**给页面直接显示用**。
   ///
   /// 产品不看 logcat（「你把日志直接打印到页面上，我截图给你」），所以这些行要能画在
@@ -1571,7 +1619,7 @@ class FlowerpotState extends ChangeNotifier {
     if (dps == null) {
       throw TuyaException('unsupported_dp', '当前产品未提供该功能点：$key');
     }
-    await _repository.publishDps(id, dps);
+    await _publishDps(id, dps);
     _replaceDevice(id, (device) {
       final current = device.settings;
       final next = switch (key) {
@@ -1840,7 +1888,7 @@ class FlowerpotState extends ChangeNotifier {
         if (dpId == null) {
           throw const TuyaException('unsupported_dp', '当前产品未提供清空照片功能点');
         }
-        await _repository.publishDps(deviceId, <int, Object>{dpId: true});
+        await _publishDps(deviceId, <int, Object>{dpId: true});
         return const ActionResult(true, '已通知设备清空照片');
       });
 
@@ -1877,7 +1925,7 @@ class FlowerpotState extends ChangeNotifier {
     if (dpId == null) {
       throw TuyaException('unsupported_dp', '当前产品未提供该功能点：$identifier');
     }
-    await _repository.publishDps(deviceId, <int, Object>{
+    await _publishDps(deviceId, <int, Object>{
       dpId: TuyaMemorialCodec.encodeRaw(bytes),
     });
   }
@@ -2076,7 +2124,7 @@ class FlowerpotState extends ChangeNotifier {
     final dpId = TuyaConfig.dp['factory_reset'];
     if (dpId == null) return;
     try {
-      await _repository.publishDps(id, <int, Object>{dpId: true});
+      await _publishDps(id, <int, Object>{dpId: true});
     } on TuyaException {
       // Unreachable device: unbinding locally is still what was asked for.
     }
@@ -2087,7 +2135,7 @@ class FlowerpotState extends ChangeNotifier {
     if (dpId == null) {
       throw const TuyaException('unsupported_dp', '当前产品未提供水位校准功能点');
     }
-    await _repository.publishDps(id, <int, Object>{dpId: step});
+    await _publishDps(id, <int, Object>{dpId: step});
   }
 
   /// 下发植物：116 植物品种和 161 植物分类走同一条指令。
@@ -2110,7 +2158,7 @@ class FlowerpotState extends ChangeNotifier {
     final typeDp = TuyaConfig.dp['plant_type'];
     final typeValue = TuyaConfig.plantTypeValue(category);
     if (typeDp != null && typeValue != null) dps[typeDp] = typeValue;
-    await _repository.publishDps(id, dps);
+    await _publishDps(id, dps);
     return dps.length > 1;
   }
 
@@ -2362,7 +2410,19 @@ class FlowerpotState extends ChangeNotifier {
 
   void _listenForDeviceUpdates() {
     _deviceUpdates?.cancel();
-    _deviceUpdates = _repository.deviceUpdates.listen(_applyDeviceUpdate);
+    _deviceUpdates = _repository.deviceUpdates.listen((update) {
+      final device = update.device;
+      if (device != null) {
+        _logInteraction(
+          '上报 ← 116=${device.plantVariety.isEmpty ? '-' : device.plantVariety}'
+          ' 162=${device.plantConfirmRaw.isEmpty ? '-' : device.plantConfirmRaw}'
+          ' 电量=${device.battery}%',
+        );
+      } else if (update.removedId != null) {
+        _logInteraction('上报 ← 设备被解绑 ${update.removedId}');
+      }
+      _applyDeviceUpdate(update);
+    });
     _otaUpdates?.cancel();
     _otaUpdates = _repository.otaUpdates.listen(_applyOtaProgress);
   }
