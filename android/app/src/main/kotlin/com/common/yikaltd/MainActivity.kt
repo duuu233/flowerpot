@@ -1187,6 +1187,35 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         if (readField(activatorBean, "uuid").isNullOrEmpty()) {
             setField(activatorBean, "uuid", uuid)
         }
+        // ⚠️ **真机实测（2026-09-11）：这台设备 `mac=''`，真正的蓝牙地址在 `address` 上**
+        // （`ScanDeviceBean{... mac='', address='D8:FC:92:F4:89:88' ...}`）。
+        // 涂鸦不少代码路径拿的是 `mac`，空着就可能一路走到 NPE。两边互相补齐，谁有就用谁。
+        val scannedAddress = readField(activatorBean, "address").orEmpty()
+            .ifEmpty { readField(bean, "address").orEmpty() }
+        val scannedMac = readField(activatorBean, "mac").orEmpty()
+            .ifEmpty { readField(bean, "mac").orEmpty() }
+        val resolved = scannedMac.ifEmpty { scannedAddress }
+        if (resolved.isNotEmpty()) {
+            if (scannedMac.isEmpty()) setField(activatorBean, "mac", resolved)
+            if (scannedAddress.isEmpty()) setField(activatorBean, "address", resolved)
+        }
+        // 同理把扫到的这几项补齐：构造函数没抄到时它们会是 null/0，而 SDK 会用它们
+        // 决定走哪条协议分支。
+        for (name in listOf("productId", "deviceType", "flag")) {
+            if (readField(activatorBean, name).isNullOrEmpty()) {
+                runCatching {
+                    val field = bean.javaClass.getField(name)
+                    field.isAccessible = true
+                    setField(activatorBean, name, field.get(bean))
+                }
+            }
+        }
+        // **String 字段不留 null**：裸 null 的 String 是最典型的 NPE 来源，空串至少不炸。
+        for (name in listOf("countryISOCode", "devId", "ip", "dns", "gateway", "subnetMask")) {
+            if (readField(activatorBean, name) == null) {
+                runCatching { setField(activatorBean, name, "") }
+            }
+        }
         // **把真正交给 SDK 的那几项打出来**：再出 NPE 时，一眼能看出是哪一项空着，
         // 而不是对着一个光秃秃的 NullPointerException 猜（`PRODUCT_RULES` §4.1）。
         // ⚠️ 别在插值里再套同种引号（`"…${f(x, "y")}…"`）——那会骗过我们自己的静态
@@ -1202,6 +1231,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             "ble pair: startActivator(home=" + home + ", " + probed +
                 ", ssid=" + ssidArg + ", token=" + tokenState + ")",
         )
+        // **把真正交给 SDK 的那个 bean 整个打出来。** 上面那串 probed 只挑了几项，
+        // 再出 NPE 时想知道的往往是"还有哪一项是 null"——原样的 toString 才答得上。
+        trace("ble pair: bean=" + runCatching { activatorBean.toString() }.getOrElse { "(toString 失败)" })
         val listenerClass = firstClass("com.thingclips.smart.sdk.api.IMultiModeActivatorListener")
         val loader = listenerClass.classLoader ?: activity.classLoader
         val delivered = AtomicBoolean(false)
@@ -1246,7 +1278,34 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 else -> defaultValue(method.returnType)
             }
         }
-        invoke(multiModeActivator(), "startActivator", activatorBean, listener)
+        // 单独包一层：这样能分清 NPE 是**我们组 bean** 炸的、还是 **SDK 内部** 炸的——
+        // 上一轮真机只回了一个光秃秃的 NullPointerException，这两种完全不同的原因
+        // 在页面上根本分不开。
+        runCatching {
+            invoke(multiModeActivator(), "startActivator", activatorBean, listener)
+        }.onFailure { cause ->
+            val real = TuyaSdkInitializer.unwrap(cause)
+            val frame = real.stackTrace.firstOrNull { item ->
+                item.className.startsWith("com.thingclips") ||
+                    item.className.startsWith("com.common")
+            }
+            val where = if (frame == null) {
+                ""
+            } else {
+                " @ " + frame.className.substringAfterLast('.') +
+                    "." + frame.methodName + ":" + frame.lineNumber
+            }
+            trace("ble pair: startActivator 抛异常 " + real.javaClass.simpleName + where)
+            stopMultiModeActivator(uuid)
+            error(
+                result,
+                "ble_start_failed",
+                "调用 SDK 的 startActivator 失败：" +
+                    real.javaClass.simpleName +
+                    (real.message?.let { ": " + it } ?: "") +
+                    where,
+            )
+        }
     }
 
     /** 停掉双模配网。没在跑时调用也安全。*/
