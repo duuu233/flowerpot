@@ -12,6 +12,7 @@ import '../../devices/models/water_status_page_model.dart';
 import '../../devices/presentation/plant_picker_page.dart';
 import '../models/home_dashboard_model.dart';
 import 'widgets/home_care_banner.dart';
+import 'widgets/interaction_log_panel.dart';
 import 'widgets/home_empty_device_content.dart';
 import 'widgets/home_header.dart';
 import 'widgets/home_help_card.dart';
@@ -64,6 +65,9 @@ class _HomePageState extends State<HomePage> {
     super.didChangeDependencies();
     if (_entryChecked) return;
     _entryChecked = true;
+    // 进页面那一次由 `_runEntryChecks` 负责；把基线置上，免得首帧的跳变判定
+    // 和它撞车、弹两次。
+    _lastGuidePending = true;
     // 首帧之后再跑：这一步要 showDialog，build 过程中推路由是非法的。
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => unawaited(_runEntryChecks()),
@@ -91,6 +95,10 @@ class _HomePageState extends State<HomePage> {
 
   /// 引导窗正在显示。防止 DP 连续上报时叠出好几个。
   bool _guideShowing = false;
+
+  /// 上一次 build 时 162 是不是「要弹」。**按跳变触发**的依据，见 build 里的说明：
+  /// 162 在用户处置之前一直是 true，不记住上一次就会每次重建都重弹。
+  bool _lastGuidePending = false;
 
   /// **设备在页面打开期间把 162 改成「要弹」时，也要弹。**
   ///
@@ -160,8 +168,13 @@ class _HomePageState extends State<HomePage> {
     if (!mounted || picked == null) return;
     // 通用植物那一支只有一个按钮，点它就是去选植物。
     if (picked && !generic) {
-      final result = await state.confirmDetectedPlant(deviceId);
-      if (!mounted) return;
+      // ⚠️ **下发要走云端往返，这段必须挡住**（2026-09-12 产品要求"给个 loading，
+      // 防止重复点击"）。状态层的 `_guard` 已经拦得住并发调用，但用户看不到反馈：
+      // 弹窗一关、页面又能点，容易以为没生效而反复触发。
+      final result = await _withBlockingProgress(
+        () => state.confirmDetectedPlant(deviceId),
+      );
+      if (!mounted || result == null) return;
       showAppMessage(
         context,
         result.message,
@@ -172,20 +185,57 @@ class _HomePageState extends State<HomePage> {
     _openAddPlant(context, deviceId);
   }
 
+  /// 跑一件要等的事，期间盖一层不可点穿的进度圈。
+  ///
+  /// 只服务本页这类「点完要等云端往返」的操作。返回 null 表示页面已经不在了。
+  Future<T?> _withBlockingProgress<T>(Future<T> Function() action) async {
+    if (!mounted) return null;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    unawaited(
+      showDialog<void>(
+        context: context,
+        // 不可关闭：这段时间点什么都不该生效。
+        barrierDismissible: false,
+        barrierColor: Colors.black.withValues(alpha: .18),
+        builder: (_) => const PopScope(
+          canPop: false,
+          child: Center(
+            child: SizedBox.square(
+              dimension: 44,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+          ),
+        ),
+      ),
+    );
+    try {
+      return await action();
+    } finally {
+      // 用拿到的 navigator，不再查 context——这一刻页面可能已经被弹走了。
+      if (navigator.canPop()) navigator.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
     final device = widget.deviceId == null
         ? state.selectedDevice
         : state.deviceById(widget.deviceId!);
-    // **设备在页面打开期间把 162 改成「要弹」时补上引导窗**（见 [_maybeShowPlantGuide]）。
-    // 放在 build 之后跑：showDialog 不能在 build 过程中调。
+    // **只在 162 由「不弹」翻成「要弹」的那一刻补引导窗**（见 [_maybeShowPlantGuide]）。
+    //
+    // ⚠️ 2026-09-12 修回归：上一版写成「只要 pending 就弹」，而 162 在用户处置之前
+    // **一直是 true**，于是本页每重建一次就重弹一次——点任何一个下发指令的按钮
+    // （那些都会 `notifyListeners` 触发重建）都会冒出这个弹窗。
+    // 现在按**跳变**触发：记住上一次看到的值，false → true 才弹。
     final watchedId = widget.deviceId ?? device?.id;
-    if (watchedId != null && state.plantGuidePending(watchedId)) {
+    final pending = watchedId != null && state.plantGuidePending(watchedId);
+    if (pending && !_lastGuidePending && watchedId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_maybeShowPlantGuide(state, watchedId));
       });
     }
+    _lastGuidePending = pending;
     final model =
         widget.dashboard ??
         HomeDashboardModel.fromDevice(
@@ -296,6 +346,10 @@ class _HomePageState extends State<HomePage> {
                                   AppRoutes.help,
                                 ),
                               ),
+                              // **联调日志框（临时）**：和涂鸦 / 设备每次数据交互都打在
+                              // 这里，方便和固件对。页面最下面、可折叠。
+                              // ⚠️ 流程验通后连同 `FlowerpotState.interactionLog` 一起去掉。
+                              const InteractionLogPanel(),
                             ],
                           ),
                         ),
