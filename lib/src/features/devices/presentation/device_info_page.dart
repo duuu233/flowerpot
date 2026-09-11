@@ -49,7 +49,7 @@ class DeviceInfoPage extends StatelessWidget {
         content: Text(
           '上报原值：${raw.isEmpty ? '（未上报过）' : raw}\n'
           'App 解析：${device.plantConfirm.name}'
-          '（${device.plantConfirm.dpValue}，1 才弹引导窗）\n'
+          '（${device.plantConfirm.dpValue}，true 才弹引导窗）\n'
           '\n'
           'DP 116 plant_variety：'
           '${device.plantVariety.isEmpty ? '（未上报过）' : device.plantVariety}\n'

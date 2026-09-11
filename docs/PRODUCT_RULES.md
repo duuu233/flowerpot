@@ -346,6 +346,13 @@ strings -a -n 2 cls/path/To/Class.class | grep -E '^(on|get|set|is)?[A-Z_]'
 - 本机（dev box）没有 Flutter / Dart / Kotlin 工具链，所以 flowerpot 的改动**一律未经
   编译与测试**。报告时必须说明这一点，不得宣称通过。
 - 既然编译不了，就**把编译器会替你抓的事自己抓一遍**（2026-09-10 被一次打包失败教训到）：
+  - ⚠️ **块注释的开闭也要数**（2026-09-11 打包失败教训）：改完数一遍 `/**` 与 `*/` 数量
+    是否相等、`//**` 是否为 0。一个 `/**` 被写成 `//**` 会让整个 KDoc 块降级成行注释，
+    块里每一行都变成顶层裸文本，从那一行起刷几十条 `Expecting a top level declaration`
+    ——而括号配平、符号残留这些检查**全都会通过**。
+  - ⚠️ **用脚本删代码时，匹配串一律以 `\n` 开头**。那轮脚本保留 `s[:index+1]` 是为了在
+    marker 以换行开头时留住上一行的换行；marker 不以 `\n` 开头时，这个 `+1` 会留下
+    marker 的第一个字符，于是就有了上面那个 `//**`。
   1. **新引用的类型必须确认 import。** `FlowerpotState` 在 `lib/src/state.dart`，
      `FlowerpotScope` 在 `lib/src/app/flowerpot_app.dart`——两者是**不同文件**，
      只 import 后者拿不到前者（那次报错就是这个）。照已有页面（如 `device_list_page.dart`）

@@ -30,7 +30,7 @@ import java.lang.reflect.Proxy
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
-//**
+/**
  * AP 热点配网的模式常量，新拼写在前。
  *
  * 涂鸦在 7.x 把 `ActivatorModelEnum` 的常量从 `TY_*` 改成了 `THING_*`——7.5.1 只提供
@@ -883,7 +883,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * again` — the token has to be obtained while the phone is still on the
      * router.
      */
-     private fun prepareActivatorToken(result: MethodChannel.Result) {
+    private fun prepareActivatorToken(result: MethodChannel.Result) {
         // 取令牌要走云端。没有配网在跑却还绑着网络，只能是上一次失败留下的——
         // 绑着的那个热点早就没了，不解开这次取令牌必然无网失败。
         if (activator == null && boundNetwork != null) {
@@ -895,7 +895,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
     }
 
- 
     private fun fetchActivatorToken(
         homeId: Long,
         result: MethodChannel.Result,
@@ -956,7 +955,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
     }
 
-     private fun startActivator(call: MethodCall, result: MethodChannel.Result, token: String) {
+    private fun startActivator(call: MethodCall, result: MethodChannel.Result, token: String) {
         val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
             ?: throw IllegalStateException("无法获取配网实例")
         // The builder's fully-qualified name is not hard-coded: Tuya has moved
@@ -1791,7 +1790,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
     }
 
-     private fun getter(target: Any, name: String): Any =
+    private fun getter(target: Any, name: String): Any =
         invoke(target, name) ?: throw IllegalStateException("$name returned null")
 
     private fun optionalGetter(target: Any, name: String): Any? =

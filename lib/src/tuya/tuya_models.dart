@@ -32,26 +32,45 @@ enum ComfortLevel { low, suitable, high }
 
 /// DP 162 `plant_confirm`：设备告诉 App 要不要弹引导窗。
 ///
-/// 2026-09-09 起改成两态，且**只上报、App 不下发**：设备识别到新植物时报 1，
-/// App 下发植物 DPID 之后固件自己改回 0 并立即上报；植物 DPID 为 -1（没插植物）
-/// 或用户关掉自动检测时，固件同样报 0。
+/// 两态，且**只上报、App 不下发**：设备识别到新植物时报"要弹"，App 下发植物 DPID 之后
+/// 固件自己改回"不弹"并立即上报；植物 DPID 为 -1（没插植物）或用户关掉自动检测时，
+/// 固件同样报"不弹"。
+///
+/// ## 2026-09-11：DP 类型由数值改成布尔
+///
+/// 产品口径：`pdid162=0` → `false`（不弹），`pdid162=1` → `true`（弹）。也就是这一项在
+/// 涂鸦后台已从 value 型改成 **bool 型**，桥接收到的是 Dart `bool` 而不是数字。
+///
+/// [fromDp] 同时认布尔和旧的数值/字符串：真机上两种固件可能并存（没升级的还在报 0/1），
+/// 只认一种会让其中一批设备永远不弹窗。新老两套都映射到同一个结论。
 enum PlantConfirmState {
-  /// 0：不弹窗。
-  hidden(0),
+  /// `false` / `0`：不弹窗。
+  hidden(false),
 
-  /// 1：弹引导窗，让用户确认盆里这一株。
-  prompt(1);
+  /// `true` / `1`：弹引导窗，让用户确认盆里这一株。
+  prompt(true);
 
   const PlantConfirmState(this.dpValue);
 
-  /// 上报用的数值。
-  final int dpValue;
+  /// 上报用的值。2026-09-11 起是布尔（此前是 0 / 1）。
+  final bool dpValue;
 
-  /// 只有明确的 1 才弹窗：没上报过、报了别的值都按不弹处理，免得老固件的设备
-  /// 每次进详情页都被问一次。
+  /// 解析设备上报的 DP 162。
+  ///
+  /// 认三种形态，按可能性排序：
+  ///
+  /// 1. **`bool`** —— 2026-09-11 起的口径，`true` 弹、`false` 不弹；
+  /// 2. **数值** —— 旧固件的 `1` / `0`；
+  /// 3. **字符串** —— 某些桥接路径会把 DP 值字符串化（`'true'` / `'1'`）。
+  ///
+  /// 其余一切（没上报过、`null`、认不出的值）都按**不弹**处理：宁可少弹一次，也不要让
+  /// 老固件的设备每次进详情页都被问一遍。
   static PlantConfirmState fromDp(Object? raw) {
-    final value = raw is num ? raw.toInt() : int.tryParse('${raw ?? ''}');
-    return value == 1 ? prompt : hidden;
+    if (raw is bool) return raw ? prompt : hidden;
+    if (raw is num) return raw.toInt() == 1 ? prompt : hidden;
+    final text = '${raw ?? ''}'.trim().toLowerCase();
+    if (text == 'true' || text == '1') return prompt;
+    return hidden;
   }
 }
 
@@ -582,7 +601,7 @@ class SmartPlanterDevice {
 
   /// DP 162 **上报上来的原始值**，原样保留，供联调核对用。
   ///
-  /// [plantConfirm] 会把一切非 1 的东西都归成 `hidden`，排查时就看不出设备到底报了
+  /// [plantConfirm] 会把一切认不出的东西都归成 `hidden`，排查时就看不出设备到底报了
   /// 什么（没上报过？报了 0？报了别的？）。这里留一份原文：没上报过是空串。
   final String plantConfirmRaw;
 
