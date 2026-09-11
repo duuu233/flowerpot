@@ -439,54 +439,54 @@ class _PlantCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Expanded(
-                  child: Padding(
-                    // The artwork ranges from 146x172 to 388x368, so it is
-                    // contained rather than cropped to keep the grid even.
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    child: _PlantArtwork(
-                      plant: plant,
-                      key: Key('plant-image-${plant.id}'),
+                  // **整张图片就是「查看详情」的点击区**（2026-09-11 产品要求）。
+                  //
+                  // 改之前详情入口是选中后才出现的一条「查看详情」横条，它**顶掉了植物
+                  // 名那一行**——选中之后名字就没了，这正是「植物选择没有正确带出植物
+                  // 名称」的来源。现在名字**常驻**，详情改由点图片进入。
+                  //
+                  // 内层手势优先于外层 InkWell 命中：点图片 → 详情，点名字那一行或卡片
+                  // 其余位置 → 选中这一株。
+                  child: GestureDetector(
+                    key: Key('plant-details-${plant.id}'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onDetails,
+                    child: Padding(
+                      // The artwork ranges from 146x172 to 388x368, so it is
+                      // contained rather than cropped to keep the grid even.
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: _PlantArtwork(
+                        plant: plant,
+                        key: Key('plant-image-${plant.id}'),
+                      ),
                     ),
                   ),
                 ),
-                if (selected)
-                  Material(
-                    color: AppColors.brandPrimary,
-                    child: InkWell(
-                      key: Key('plant-details-${plant.id}'),
-                      onTap: onDetails,
-                      child: const SizedBox(
-                        height: 28,
-                        child: Center(
-                          child: Text(
-                            '查看详情',
-                            style: TextStyle(
-                              color: AppColors.surface,
-                              fontSize: 15,
-                              height: 1,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  SizedBox(
-                    height: 35,
-                    child: Center(
+                // 名字常驻：选中与否都画，避免选中时整行换成别的内容、页面跳一下。
+                SizedBox(
+                  height: 35,
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: Text(
                         plant.name,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: selected
+                              ? AppColors.brandPrimary
+                              : AppColors.textPrimary,
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                   ),
+                ),
               ],
             ),
             if (selected)
