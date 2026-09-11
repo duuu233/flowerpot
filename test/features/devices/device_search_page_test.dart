@@ -70,6 +70,12 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    // ⚠️ **先等过蓝牙的抢答窗口**（`_bleGrace`，4 秒）。双模是主路径，而 Wi-Fi 那条
+    // 会先答（读缓存不占配额、几乎不耗时），所以窗口期内热点行是被压着不画的——
+    // 否则用户会在 BLE 答出来之前就点走更差的那条路。
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+
     // 先看得见：列表画出来了，页面还没被带走。
     expect(state.wifiScan?.deviceHotspots, hasLength(1));
     expect(find.byKey(_FoundListKey.key), findsOneWidget);
@@ -92,7 +98,10 @@ void main() {
     expect(find.text('pairing-wifi-target'), findsOneWidget);
     final arguments = pairingArguments! as PairingArguments;
     expect(arguments.hotspotSsid, 'SmartLife-A1B2');
-    expect(arguments.deviceName, 'SmartLife-A1B2');
+    // 2026-09-11：`deviceName` 字段已删（传了没人读）。这条是 AP 回落路径，
+    // 所以没有 BLE uuid、也没有设备自己扫到的网络。
+    expect(arguments.bleUuid, isNull);
+    expect(arguments.deviceNetworks, isEmpty);
     // 连热点**之前**抓到的路由器名要带过去：连上之后手机离开路由器，下一页就读不到
     // 当前网络了，没有这一项用户得自己再挑一遍 Wi-Fi。
     expect(arguments.routerSsid, 'TP-LINK_2.4G');
@@ -207,7 +216,7 @@ void main() {
     // `silentScans: 2` 对应进页面时的两次取数：① 开窗口前那次**免费的读缓存**
     // （权限框就挡在这一步，见 `_startSearchWindow`）、② 紧接着的第一次真扫。
     // 两次都只看得到路由器，热点要到第三次取数才出现——也就是由读缓存捡到。
-    await _pumpDeviceSearchPage(
+    final state = await _pumpDeviceSearchPage(
       tester,
       const Size(375, 812),
       repository: _LateHotspotRepository(silentScans: 2),
@@ -216,8 +225,15 @@ void main() {
     await tester.pump();
     expect(find.byKey(_FoundListKey.key), findsNothing);
 
-    // 紧接着的那次读缓存（≤1 秒后）就该拿到热点，而不是等 32 秒后的下一次真扫。
+    // 紧接着的那次读缓存（≤1 秒后）就该**拿到**热点，而不是等 32 秒后的下一次真扫。
+    // 这一条才是本用例要守的东西，所以断言读的是扫描结果本身。
     await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(state.wifiScan?.deviceHotspots, hasLength(1));
+
+    // **画出来**还要再等过蓝牙的抢答窗口（`_bleGrace`，4 秒）：双模是主路径，那几秒
+    // 先不画热点，免得用户抢在 BLE 答出来之前点走更差的那条路。拿到 ≠ 立刻画出来。
+    await tester.pump(const Duration(seconds: 2));
     await tester.pump();
 
     expect(find.byKey(_FoundListKey.key), findsOneWidget);
@@ -326,6 +342,86 @@ void main() {
 Future<void> _runOutSearchWindow(WidgetTester tester) async {
   await tester.pump(DeviceSearchPage.searchWindow + const Duration(seconds: 1));
   await tester.pumpAndSettle();
+
+  testWidgets('蓝牙抢答窗口：BLE 还在扫的头几秒不画 Wi-Fi 热点', (tester) async {
+    final repository = MockTuyaRepository(latency: Duration.zero);
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // 缓存里本来就有设备热点（系统自己一直在扫），但这几秒先不画——
+    // 双模是主路径，得给 BLE 答出来的机会。
+    expect(find.byKey(_FoundListKey.key), findsNothing);
+    expect(find.text('SmartLife-A1B2'), findsNothing);
+
+    // 窗口到点、BLE 一台都没扫到 ⇒ 回落到热点列表。
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(find.byKey(_FoundListKey.key), findsOneWidget);
+    expect(find.text('SmartLife-A1B2'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('BLE 扫到设备时走蓝牙那条：只列 BLE、不预告系统框、带上设备扫到的 Wi-Fi', (
+    tester,
+  ) async {
+    Object? pairingArguments = 'unset';
+    final repository = MockTuyaRepository(latency: Duration.zero);
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+      onPairingArguments: (value) => pairingArguments = value,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // 设备开始广播 BLE。
+    repository.pushBleDevice(
+      const BleDevice(
+        uuid: 'uuid-pot',
+        name: '花盆',
+        mac: 'AA:BB:CC:DD:11:22',
+        productId: 'pid1',
+        rssi: -44,
+        bound: false,
+        supportWifiList: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // **只列 BLE 那台**：同一台设备同时在广播 BLE 和拉热点，两条都列就是同一台
+    // 花盆出现两行，而两边没有可靠的共同标识、去重做不干净。
+    expect(find.text('花盆'), findsOneWidget);
+    expect(find.text('SmartLife-A1B2'), findsNothing);
+    // 走蓝牙没有系统入网授权框，别预告一件不会发生的事。
+    expect(find.byKey(const Key('device-search-consent-hint')), findsNothing);
+    expect(find.textContaining('系统会弹一次确认框'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('device-search-connect-0')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('pairing-wifi-target'), findsOneWidget);
+    final arguments = pairingArguments! as PairingArguments;
+    // 走的是双模：带 uuid、不带热点名。
+    expect(arguments.bleUuid, 'uuid-pot');
+    expect(arguments.hotspotSsid, isNull);
+    // `supportWifiList` 为真 ⇒ 上一步已经问设备要过它自己扫到的 Wi-Fi 列表，
+    // 下一页的「切换」直接列这份，不再依赖手机的 Wi-Fi 扫描。
+    expect(
+      arguments.deviceNetworks.map((item) => item.ssid),
+      <String>['TP-LINK_2.4G', 'Xiaomi_2.4G'],
+    );
+    // 双模全程不离开路由器，所以当前网络就是用户要让设备加入的那个。
+    expect(arguments.routerSsid, 'TP-LINK_2.4G');
+    // 连之前要停扫：一边扫一边连是在抢同一个射频。
+    expect(repository.bleScanStops, greaterThanOrEqualTo(1));
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<FlowerpotState> _pumpDeviceSearchPage(

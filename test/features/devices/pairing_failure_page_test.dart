@@ -1,4 +1,5 @@
 import 'package:flowerpot/src/design_system/design_system.dart';
+import 'package:flowerpot/src/features/devices/presentation/device_search_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_failure_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
@@ -69,6 +70,55 @@ void main() {
     final request = (pairingArguments! as PairingArguments).request;
     expect(request?.ssid, 'Home_2.4G');
     expect(request?.password, '12345678');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('蓝牙失败：重试照原样走蓝牙，另给一条「改用热点方式」的退路', (tester) async {
+    Object? pairingArguments;
+    Object? searchArguments;
+    await _pumpFailurePage(
+      tester,
+      const Size(375, 812),
+      withRoutes: true,
+      onPairingArguments: (value) => pairingArguments = value,
+      onSelectionArguments: (value) => searchArguments = value,
+      bleUuid: 'uuid-pot',
+      deviceNetworks: const <DeviceWifiNetwork>[
+        DeviceWifiNetwork(ssid: 'TP-LINK_2.4G', rssi: -48, sec: 3),
+      ],
+    );
+
+    // 「重新配网」照原样再走一遍蓝牙那条。改之前只带 request，重试会掉进 AP 分支、
+    // 又没有热点名，用户得到的是**另一个**失败。
+    await tester.tap(find.byKey(const Key('retry-pairing-button')));
+    await tester.pumpAndSettle();
+    final retry = pairingArguments! as PairingArguments;
+    expect(retry.bleUuid, 'uuid-pot');
+    expect(retry.request?.password, '12345678');
+    // 上一次问设备要到的列表带回去，不必再问一遍。
+    expect(retry.deviceNetworks, hasLength(1));
+
+    // 退路：回搜索页，并且**这一轮不再优选到蓝牙**（刚试过、没成）。
+    await _pumpFailurePage(
+      tester,
+      const Size(375, 812),
+      withRoutes: true,
+      onSelectionArguments: (value) => searchArguments = value,
+      bleUuid: 'uuid-pot',
+    );
+    expect(find.byKey(const Key('retry-over-hotspot-button')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('retry-over-hotspot-button')));
+    await tester.pumpAndSettle();
+    final search = searchArguments! as DeviceSearchArguments;
+    expect(search.preferHotspot, isTrue);
+    expect(search.request?.ssid, 'Home_2.4G');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('走 AP 失败时不画「改用热点方式」——本来就是热点那条', (tester) async {
+    await _pumpFailurePage(tester, const Size(375, 812));
+
+    expect(find.byKey(const Key('retry-over-hotspot-button')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -182,14 +232,21 @@ Future<void> _pumpFailurePage(
   bool withRoutes = false,
   ValueChanged<Object?>? onSelectionArguments,
   ValueChanged<Object?>? onPairingArguments,
+  String? bleUuid,
+  List<DeviceWifiNetwork> deviceNetworks = const <DeviceWifiNetwork>[],
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
     MaterialApp(
       theme: buildAppTheme(),
-      home: const PairingFailurePage(
-        request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
+      home: PairingFailurePage(
+        request: const PairingRequest(
+          ssid: 'Home_2.4G',
+          password: '12345678',
+        ),
+        bleUuid: bleUuid,
+        deviceNetworks: deviceNetworks,
       ),
       onGenerateRoute: withRoutes
           ? (settings) {

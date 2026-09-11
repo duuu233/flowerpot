@@ -358,6 +358,9 @@ class _PairingRepository extends MockTuyaRepository {
   String? homeTag;
   int homeCalls = 0;
   TuyaException? pairError;
+
+  /// 双模配网要报的错误码（涂鸦那边是 int）；null 表示照常成功。
+  int? blePairError;
   bool pairHangs = false;
   WifiScan scan = const WifiScan(networks: <WifiNetwork>[]);
 
@@ -365,6 +368,25 @@ class _PairingRepository extends MockTuyaRepository {
 
   @override
   Future<void> prepareActivatorToken() async => tokenCalls++;
+
+  @override
+  Future<SmartPlanterDevice> pairBleDevice({
+    required String uuid,
+    required String ssid,
+    required String password,
+    Duration timeout = const Duration(seconds: 120),
+  }) async {
+    final code = blePairError;
+    if (code != null) {
+      throw TuyaException('$code', '双模配网失败');
+    }
+    return super.pairBleDevice(
+      uuid: uuid,
+      ssid: ssid,
+      password: password,
+      timeout: timeout,
+    );
+  }
 
   @override
   Future<String> currentHomeId() async {
@@ -555,5 +577,53 @@ class _PairingRepository extends MockTuyaRepository {
       <String>['TP-LINK_2.4G', 'Xiaomi_2.4G'],
     );
     expect(state.deviceWifiNetworks.first.needsPassword, isTrue);
+  });
+
+  testWidgets('双模配网：凭据经蓝牙下发，全程不碰设备热点', (tester) async {
+    final repository = _PairingRepository();
+    final state = await _stateFor(tester, repository);
+
+    final result = await state.pairViaBle(
+      uuid: 'uuid-modern',
+      ssid: 'Home_2.4G',
+      password: '12345678',
+    );
+
+    expect(result.success, isTrue);
+    expect(repository.blePairCalls, <(String, String)>[
+      ('uuid-modern', 'Home_2.4G'),
+    ]);
+    // **一次热点都没连过。** 这正是双模那条的意义：没有 `WifiNetworkSpecifier`
+    // ⇒ 没有系统入网授权框，手机也从没离开路由器。
+    expect(repository.joinCalls, 0);
+    expect(repository.leaveCalls, 0);
+    // 令牌照旧要取——它走云端，和走哪条配网路径无关。
+    expect(repository.tokenCalls, 1);
+    // 耗时分步仍写进文案，卡在哪一步看得出来。
+    expect(result.message, contains('令牌'));
+    expect(result.message, contains('配网'));
+    expect(state.selectedDevice, isNotNull);
+    expect(state.pairingStage, PairingStage.idle);
+    // 涂鸦的令牌是一次性的，成功后必须作废。
+    expect(state.activatorTokenReady, isFalse);
+  });
+
+  testWidgets('双模配网失败：只作废令牌，不去放根本没连过的热点', (tester) async {
+    final repository = _PairingRepository()..blePairError = 2;
+    final state = await _stateFor(tester, repository);
+
+    final pending = state.pairViaBle(
+      uuid: 'uuid-modern',
+      ssid: 'Home_2.4G',
+      password: '12345678',
+    );
+    // 失败后有三轮云端回查，各等两秒。
+    await tester.pump(const Duration(seconds: 7));
+    final result = await pending;
+
+    expect(result.success, isFalse);
+    expect(repository.leaveCalls, 0);
+    expect(state.activatorTokenReady, isFalse);
+    expect(state.pairingStage, PairingStage.idle);
   });
 }

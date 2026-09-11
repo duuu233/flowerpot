@@ -128,9 +128,7 @@ abstract final class AppRoutes {
       pairingSuccess => PairingSuccessPage(
         deviceId: settings.arguments! as String,
       ),
-      deviceSearch => DeviceSearchPage(
-        request: settings.arguments as PairingRequest?,
-      ),
+      deviceSearch => _deviceSearchPage(settings.arguments),
       deviceList => const DeviceListPage(),
       deviceHome => _deviceHomePage(settings.arguments),
       deviceInfo => DeviceInfoPage(deviceId: settings.arguments! as String),
@@ -203,9 +201,25 @@ abstract final class AppRoutes {
         request: arguments.request,
         code: arguments.code,
         message: arguments.message,
+        // 走的是哪条路要带进失败页：重试要照原样再来一遍，蓝牙失败时还要能
+        // 给出「改用热点方式」那条退路。
+        bleUuid: arguments.bleUuid,
+        hotspotSsid: arguments.hotspotSsid,
+        deviceNetworks: arguments.deviceNetworks,
       );
     }
     return PairingFailurePage(request: arguments as PairingRequest?);
+  }
+
+  /// 搜索页：收 [DeviceSearchArguments]，也仍然收老调用点传的裸 [PairingRequest]。
+  static Widget _deviceSearchPage(Object? arguments) {
+    if (arguments is DeviceSearchArguments) {
+      return DeviceSearchPage(
+        request: arguments.request,
+        preferHotspot: arguments.preferHotspot,
+      );
+    }
+    return DeviceSearchPage(request: arguments as PairingRequest?);
   }
 
   static Widget _deviceHomePage(Object? arguments) {

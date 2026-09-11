@@ -861,7 +861,9 @@ class BleDevice {
     flag: (raw['flag'] as num?)?.toInt() ?? 0,
   );
 
-  /// 设备的 BLE uuid，**查 Wi-Fi 列表就靠它**（`queryWifiListForDeviceScan`）。
+  /// 设备的 BLE uuid。**查 Wi-Fi 列表与双模配网都靠它**：原生按它取回自己缓存的
+  /// `ScanDeviceBean`（那个对象过不了方法通道），再喂给 `queryDeviceConfigState`
+  /// 与 `IMultiModeActivator.startActivator`。
   final String uuid;
   final String name;
   final String mac;

@@ -166,13 +166,31 @@ abstract class TuyaRepository {
   /// **每条离开搜索页的路径都要调**：扫描回调握着 Activity，而且在真的耗电。
   Future<void> stopBleScan();
 
-  /// 问设备要**它自己扫到的** Wi-Fi 列表，走 BLE 本地连接。
+  /// 双模第②步：问设备要**它自己扫到的** Wi-Fi 列表。
   ///
-  /// [uuid] 来自 [BleDevice.uuid]。⚠️ **先看 [BleDevice.supportWifiList]**：老固件
-  /// （TuyaOS < 3.6.1）不认这条命令，调下去只会让用户干等一次超时。
+  /// 原生走 `IMultiModeActivator.queryDeviceConfigState(MultiModeQueryBuilder, …)`——
+  /// builder 直接吃 BLE 扫到的那个 `ScanDeviceBean`，SDK 据此建立**本地蓝牙连接**再问
+  /// 设备要列表，**不走系统 Wi-Fi scan**，因此与那条 4 次/2 分钟的配额彻底无关。
+  ///
+  /// [uuid] 来自 [BleDevice.uuid]，原生按它取回自己缓存的 `ScanDeviceBean`。
+  /// ⚠️ **先看 [BleDevice.supportWifiList]**：老固件（TuyaOS < 3.6.1）不认这条命令，
+  /// 调下去只会让用户干等一次超时。
   Future<List<DeviceWifiNetwork>> queryDeviceWifiList(
     String uuid, {
-    int size,
+    Duration timeout,
+  });
+
+  /// 双模第③步：**把路由器凭据经蓝牙交给设备**，全程不碰设备的 Wi-Fi 热点。
+  ///
+  /// 原生走 `IMultiModeActivator.startActivator(MultiModeActivatorBean, …)`。相对 AP
+  /// 那条的收益：不用 `WifiNetworkSpecifier` ⇒ **没有系统入网授权框**；不用把手机切到
+  /// 一个没有外网的热点上 ⇒ 不用绑进程网络、不用事后还原。
+  ///
+  /// 令牌照旧要在**还连着路由器**时取好（[prepareActivatorToken]）：它走云端。
+  Future<SmartPlanterDevice> pairBleDevice({
+    required String uuid,
+    required String ssid,
+    required String password,
     Duration timeout,
   });
 
@@ -535,16 +553,11 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<List<DeviceWifiNetwork>> queryDeviceWifiList(
     String uuid, {
-    int size = 20,
     Duration timeout = const Duration(seconds: 30),
   }) async {
     final raw = await _invoke<List<Object?>>(
-      'queryDeviceWifiOverBle',
-      <String, Object?>{
-        'uuid': uuid,
-        'size': size,
-        'timeoutMs': timeout.inMilliseconds,
-      },
+      'queryDeviceConfigState',
+      <String, Object?>{'uuid': uuid, 'timeoutMs': timeout.inMilliseconds},
     );
     return (raw ?? <Object?>[])
         .whereType<Map<Object?, Object?>>()
@@ -552,6 +565,26 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         // 空 SSID 是隐藏网络或解析没对上，画出来用户也选不了。
         .where((item) => item.ssid.isNotEmpty)
         .toList(growable: false);
+  }
+
+  @override
+  Future<SmartPlanterDevice> pairBleDevice({
+    required String uuid,
+    required String ssid,
+    required String password,
+    Duration timeout = const Duration(seconds: 120),
+  }) async {
+    final raw = await _invoke<Map<Object?, Object?>>(
+      'pairBleDevice',
+      <String, Object?>{
+        'uuid': uuid,
+        'ssid': ssid,
+        'password': password,
+        'timeoutMs': timeout.inMilliseconds,
+      },
+    );
+    if (raw == null) throw const TuyaException('pair_failed', '配网未返回设备信息');
+    return _device(raw);
   }
 
   @override

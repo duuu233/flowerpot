@@ -915,7 +915,9 @@ class FlowerpotState extends ChangeNotifier {
       pairingStarted = true;
       _setPairingStage(PairingStage.sendingWifi);
       final result = await _pairInternal(
-        PairingRequest(ssid: ssid, password: password),
+        () => _repository.pair(
+          PairingRequest(ssid: ssid, password: password),
+        ),
       );
       mark('配网');
       return ActionResult(
@@ -954,6 +956,91 @@ class FlowerpotState extends ChangeNotifier {
     } finally {
       // 成功、失败、等手动连热点，出口都在这里；不清掉的话进度卡会一直停在
       // 最后一步上，看起来像还在配。
+      _setPairingStage(PairingStage.idle);
+    }
+  });
+
+  /// **双模配网：凭据经蓝牙交给设备，全程不碰 Wi-Fi 热点。**
+  ///
+  /// 这是 BLE 发现那条路的终点，也是它真正的收益所在——和 [pairViaHotspot] 比，少掉的
+  /// 不只是几步：
+  ///
+  /// | | AP（[pairViaHotspot]） | 双模（这条） |
+  /// | --- | --- | --- |
+  /// | 系统入网授权框 | **必弹一次**（`WifiNetworkSpecifier` 唯一的公开路） | **没有** |
+  /// | 要先知道热点确切 SSID | 要（Android 不接受前缀） | 不要 |
+  /// | 手机要不要离开路由器 | 要（那段没有外网） | 不要 |
+  /// | 发现速度 | 受 Wi-Fi 扫描配额（2 分钟 4 次） | 只受 BLE 广播 |
+  ///
+  /// 两步：
+  ///
+  /// 1. 取配网令牌——**照旧要在还连着路由器时取**，它走云端。双模下手机本来就没离开
+  ///    路由器，所以这一步比 AP 那条更稳；
+  /// 2. `pairBleDevice`：原生 `IMultiModeActivator.startActivator`，蓝牙段把 SSID/密码/
+  ///    令牌交给设备，之后设备自己连路由器并注册到云端。
+  ///
+  /// 失败时**不释放热点**（压根没连过），只作废令牌：它可能已经被设备用掉了。
+  Future<ActionResult> pairViaBle({
+    required String uuid,
+    required String ssid,
+    required String password,
+  }) => _guard(() async {
+    final steps = <String>[];
+    final watch = Stopwatch()..start();
+    void mark(String name) {
+      steps.add('$name ${watch.elapsedMilliseconds}ms');
+      watch.reset();
+    }
+
+    String withSteps(String message) => '$message｜${steps.join(' · ')}';
+
+    var pairingStarted = false;
+    _setPairingStage(PairingStage.connectingDevice);
+    try {
+      if (activatorTokenReady) {
+        mark('令牌(复用)');
+      } else {
+        await _repository.prepareActivatorToken();
+        _activatorTokenAt = DateTime.now();
+        mark('令牌');
+      }
+      pairingStarted = true;
+      _setPairingStage(PairingStage.sendingWifi);
+      final result = await _pairInternal(
+        () => _repository.pairBleDevice(
+          uuid: uuid,
+          ssid: ssid,
+          password: password,
+        ),
+      );
+      mark('配网');
+      return ActionResult(
+        result.success,
+        withSteps(result.message),
+        code: result.code,
+      );
+    } on TuyaException catch (error) {
+      mark('失败');
+      // 没连过热点，所以只有令牌要收；配网已经发出去时它可能已被设备用掉。
+      await _abandonPairingAttempt(
+        releaseHotspot: false,
+        invalidateToken: pairingStarted,
+      );
+      throw TuyaException(error.code, withSteps(error.message));
+    } on ApiException catch (error) {
+      mark('失败');
+      await _abandonPairingAttempt(
+        releaseHotspot: false,
+        invalidateToken: pairingStarted,
+      );
+      throw ApiException(error.code, withSteps(error.message), data: error.data);
+    } catch (_) {
+      await _abandonPairingAttempt(
+        releaseHotspot: false,
+        invalidateToken: pairingStarted,
+      );
+      rethrow;
+    } finally {
       _setPairingStage(PairingStage.idle);
     }
   });
@@ -1067,8 +1154,13 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '已中止配网，设备热点连接已释放');
   });
 
-  Future<ActionResult> _pairInternal(PairingRequest request) async {
-    final device = await _pairOrRecover(request);
+  /// [send] 是"真正把凭据发出去"的那一下：AP 走 `pair()`，双模走 `pairBleDevice()`。
+  /// 两条路的收尾（置第三步、作废令牌、把设备并进列表、选中它）完全一样，所以只在
+  /// 这一个参数上分叉——复制一份最容易在其中一份上漏掉作废令牌。
+  Future<ActionResult> _pairInternal(
+    Future<SmartPlanterDevice> Function() send,
+  ) async {
+    final device = await _pairOrRecover(send);
     // 走到这里 SDK 已经回了 onActiveSuccess——设备**已经**连上路由器并注册到云端了。
     // 第三步「连接云端」在这一刻置位、随即在 finally 里归 idle，界面上不会单独停留。
     //
@@ -1096,12 +1188,15 @@ class FlowerpotState extends ChangeNotifier {
   /// 凭据就关掉热点去连路由器，手机正在从热点切回路由器的这个空档里，SDK 的确认
   /// 请求发不出去，最后报 `1006 out of time`，而设备其实已经绑到账号上了。云端
   /// 的设备列表才是权威，所以判失败之前先问一次。
-  Future<SmartPlanterDevice> _pairOrRecover(PairingRequest request) async {
+  Future<SmartPlanterDevice> _pairOrRecover(
+    Future<SmartPlanterDevice> Function() send,
+  ) async {
     final knownIds = _devices.map((item) => item.id).toSet();
     try {
-      return await _repository
-          .pair(request)
-          .timeout(pairingDeadline, onTimeout: _abortStalledPairing);
+      return await send().timeout(
+        pairingDeadline,
+        onTimeout: _abortStalledPairing,
+      );
     } on TuyaException catch (error) {
       // 主动中止和原生没回话这两种，设备都不可能刚好配上，不必再等六秒回查。
       if (error.code == 'pair_cancelled' || error.code == 'pair_timeout') {

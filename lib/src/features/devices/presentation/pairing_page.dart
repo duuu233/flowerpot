@@ -25,6 +25,8 @@ const double _startButtonInset = 92;
 class PairingArguments {
   const PairingArguments({
     this.hotspotSsid,
+    this.bleUuid,
+    this.deviceNetworks = const <DeviceWifiNetwork>[],
     this.request,
     this.routerSsid = '',
   });
@@ -41,6 +43,19 @@ class PairingArguments {
   /// of saying "the device hotspot".
   final String? hotspotSsid;
 
+  /// 这台设备的 BLE uuid；非空表示**走双模（蓝牙）配网**。
+  ///
+  /// 有它就不必碰设备的 Wi-Fi 热点：凭据经蓝牙下发（`FlowerpotState.pairViaBle`），
+  /// 于是**没有系统入网授权框**、手机也全程不用离开路由器。为空时回落到 AP 那条
+  /// （`pairViaHotspot`，配 [hotspotSsid] 使用）。
+  final String? bleUuid;
+
+  /// 设备**自己扫到的** Wi-Fi 列表，走蓝牙问它要的（`queryDeviceConfigState`）。
+  ///
+  /// 比手机扫到的准：手机在客厅收得到的网络，窗台上的花盆未必够得着。为空时
+  /// 「切换」弹层回落到手机扫到的那份。
+  final List<DeviceWifiNetwork> deviceNetworks;
+
   /// Credentials from a previous attempt, so a retry keeps what was entered.
   final PairingRequest? request;
 }
@@ -48,11 +63,26 @@ class PairingArguments {
 /// Route arguments for the failure screen. The reason is carried so a debug
 /// build can show the SDK's own code instead of only the generic copy.
 class PairingFailureArguments {
-  const PairingFailureArguments({this.request, this.code, this.message});
+  const PairingFailureArguments({
+    this.request,
+    this.code,
+    this.message,
+    this.bleUuid,
+    this.hotspotSsid,
+    this.deviceNetworks = const <DeviceWifiNetwork>[],
+  });
 
   final PairingRequest? request;
   final String? code;
   final String? message;
+
+  /// 刚才那次走的是**哪条路**。失败页据此决定「重新配网」照原样重来，以及蓝牙失败时
+  /// 要不要给出「改用热点方式」那条退路。
+  final String? bleUuid;
+  final String? hotspotSsid;
+
+  /// 上一次问设备要到的 Wi-Fi 列表，重试时不必再问一遍。
+  final List<DeviceWifiNetwork> deviceNetworks;
 }
 
 class PairingPage extends StatefulWidget {
@@ -88,6 +118,12 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// 全局操作锁，别处的写操作也会把它拉起来。
   bool _pairing = false;
 
+  /// 这一趟走的是**双模（蓝牙）**配网。
+  ///
+  /// 它与 AP 那条最实质的差别是**手机从来没离开路由器**，所以本页那几处「把 Wi-Fi
+  /// 还回去」对它全都不适用。
+  bool get _viaBle => (widget.arguments?.bleUuid ?? '').isNotEmpty;
+
   /// 上一次由扫描自动填进输入框的名称。用户自己打字或从「切换」里选过之后，
   /// 输入框的内容就和它对不上了，此后的刷新不再覆盖用户的选择。
   String? _autoFilledSsid;
@@ -112,12 +148,14 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       // 配网还在跑：中止它（内部会一并解开网络绑定）。
       unawaited(state.cancelPairing());
     } else {
-      // ⚠️ **没跑配网也要把手机的 Wi-Fi 还回去。** 进这一页时手机已经挂在设备热点上
-      // （搜索页连的），用户在这里直接返回、或者输到一半退出，不还原就等于把他的手机
-      // 撂在一个没网的热点上。改之前这里只在"配网真的跑起来过"时才处理，退回来那条
-      // 路径整个漏掉了。
+      // ⚠️ **没跑配网也要把手机的 Wi-Fi 还回去。** 走 AP 那条时，进这一页手机已经挂在
+      // 设备热点上（搜索页连的），用户在这里直接返回、或者输到一半退出，不还原就等于
+      // 把他的手机撂在一个没网的热点上。
+      //
+      // 走蓝牙那条时手机从来没离开路由器，没有热点可放——调了也是空操作，但按 uuid
+      // 判一下，读代码的人才不会以为双模也会动网络。
       final scope = _scopeState;
-      if (scope != null) unawaited(scope.releaseDeviceHotspot());
+      if (scope != null && !_viaBle) unawaited(scope.releaseDeviceHotspot());
     }
     ssidController.dispose();
     passwordController.dispose();
@@ -138,7 +176,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     //
     // ⚠️ 配网跑起来之后不能放：那会把正在用的通道掐断。
     if (lifecycleState == AppLifecycleState.paused) {
-      if (_pairing) return;
+      if (_pairing || _viaBle) return;
       unawaited(_scopeState?.releaseDeviceHotspot());
       return;
     }
@@ -208,13 +246,30 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   }
 
 
-  /// 「切换」弹层里列的网络：**手机扫到的那份**。
+  /// 「切换」弹层里列的网络。**设备自己扫到的优先。**
   ///
-  /// 这里曾经列「设备自己扫到的」（`queryDeviceConfigState` 的返回）。那一套随新流程
-  /// 一起删了——见 [FlowerpotState.pairViaHotspot] 的说明。手机这时虽然挂在设备热点上，
-  /// 但 `getScanResults()` 列的是**附近所有** AP，与连在哪个网络无关，照样可用。
-  List<WifiNetwork> _routerNetworks(FlowerpotState state) =>
-      state.wifiScan?.routerNetworks ?? const <WifiNetwork>[];
+  /// 走蓝牙那条时，上一页已经通过 `queryDeviceConfigState` 问设备要过它扫到的列表
+  /// （不走系统 Wi-Fi scan，与那条 4 次/2 分钟的配额无关）。**那份比手机扫到的准**：
+  /// 手机在客厅收得到的网络，窗台上的花盆未必够得着，让用户从手机的列表里挑，挑中一个
+  /// 设备根本连不上的网络是很常见的失败。
+  ///
+  /// 设备没给（老固件不支持、或这次查失败了）就回落到手机扫到的那份。设备只支持
+  /// 2.4G，所以频段一律按 2.4G 记。
+  List<WifiNetwork> _routerNetworks(FlowerpotState state) {
+    final fromDevice = widget.arguments?.deviceNetworks ?? const <DeviceWifiNetwork>[];
+    if (fromDevice.isNotEmpty) {
+      return fromDevice
+          .map(
+            (item) => WifiNetwork(
+              ssid: item.ssid,
+              level: item.rssi,
+              frequency: 2412,
+            ),
+          )
+          .toList(growable: false);
+    }
+    return state.wifiScan?.routerNetworks ?? const <WifiNetwork>[];
+  }
 
   Future<void> _switchWifi() async {
     final state = FlowerpotScope.of(context);
@@ -263,20 +318,29 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // 按 `223bdae^`（git 里最后一版配网成功的代码）原样恢复。
     _pairingState = state;
     setState(() => _pairing = true);
-    // **唯一一条配网路径**：`pairViaHotspot`（取令牌 → 连热点 → `pairWifiDevice`，
-    // 涂鸦标准 AP）。2026-09-11 定稿，另外三条（EZ、涂鸦「新流程」、扩展 SDK
-    // `ThingActivatorCoreKit`）都已删掉，原因见 [FlowerpotState.pairViaHotspot]。
+    // **两条配网路径，按上一页是怎么发现这台设备的分叉。**
     //
-    // 手机这时已经在设备热点上了（搜索页那颗「连接」干的），所以它内部的连热点一步会
-    // 检测到"已在目标热点上"而原地跳过——**这一页不会再弹系统框**。
+    // 1. **双模（蓝牙）——主路径。** 固件已确认支持蓝牙配网。凭据经蓝牙下发
+    //    （原生 `IMultiModeActivator.startActivator`），**全程不碰设备的 Wi-Fi 热点**：
+    //    没有系统入网授权框、手机不用离开路由器、也不依赖 Wi-Fi 扫描拿确切热点名。
+    // 2. **AP 热点——回落。** 一台 BLE 设备都没扫到时走它（手机蓝牙关着、或设备不是
+    //    双模）。手机这时已经在设备热点上（搜索页那颗「连接」干的），`pairViaHotspot`
+    //    内部的连热点一步会检测到"已在目标热点上"而原地跳过。
     //
-    // 令牌由搜索页在**还连着路由器**时预取（`prepareForPairing`）：手机一挂到设备热点上
-    // 就没有外网，而取令牌要走云端。
-    final result = await state.pairViaHotspot(
-      ssid: request.ssid,
-      password: request.password,
-      hotspotSsid: widget.arguments?.hotspotSsid,
-    );
+    // 两条都要令牌，而令牌走云端、必须在**还连着路由器**时取好——由搜索页预取
+    // （`prepareForPairing`）。AP 那条尤其要紧：手机一挂到设备热点上就没有外网了。
+    final bleUuid = widget.arguments?.bleUuid;
+    final result = bleUuid != null && bleUuid.isNotEmpty
+        ? await state.pairViaBle(
+            uuid: bleUuid,
+            ssid: request.ssid,
+            password: request.password,
+          )
+        : await state.pairViaHotspot(
+            ssid: request.ssid,
+            password: request.password,
+            hotspotSsid: widget.arguments?.hotspotSsid,
+          );
     _pairingState = null;
     if (!mounted) return;
     setState(() => _pairing = false);
@@ -288,6 +352,13 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
           request: request,
           code: result.code,
           message: result.message,
+          // 走的是哪条路要一起带过去：不带的话「重新配网」会掉进另一条分支，
+          // 用户得到的是**另一个**失败，排查方向直接被带偏。
+          bleUuid: widget.arguments?.bleUuid,
+          hotspotSsid: widget.arguments?.hotspotSsid,
+          deviceNetworks:
+              widget.arguments?.deviceNetworks ??
+              const <DeviceWifiNetwork>[],
         ),
       );
       return;

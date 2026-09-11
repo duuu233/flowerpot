@@ -110,7 +110,18 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 
   **铁律：配网全程不用 `WifiNetworkSpecifier`。** 它 + `requestNetwork` 在 Android 10+ **必弹**系统入网授权框，没有任何公开 API 能抑制它或代替用户点「连接」（2026-09-10 向涂鸦求证并实测确认；对方给的 `ThingSmartHotspotCredentialKit` 在官方 Maven 与其自己给的文档里都不存在，已改口「未公开发布」）。⚠️ **2026-09-10 实测推翻了「SDK 会替我们连热点」这条假设**：完整官方序列下单独调 `queryDeviceConfigState`，跑满 45 秒报 `207220`（配网任务整体超时），**全程没有弹出任何系统框**、手机始终在路由器上 ⇒ SDK 根本没去连。涂鸦 SDK 只是跑在我们进程里的库、没有额外特权；文档里「SDK 会在指定时间内自动去连接 AP 热点」那句写在**「恢复配网」**一节，讲的是中途掉线后重连**它已经连过的**热点，同一页开篇写的才是通用前提——「将手机连接到配网设备 Wi-Fi 热点后……**但用户需要手动切换手机的 Wi-Fi 设置**」。**所以①连热点必须由我们做**，用 `_joinHotspotForPairing`（`WifiNetworkSpecifier`，Android 必须给**确切 SSID**、iOS 只能给前缀）。产品口径：做不到零确认，但**自动选中**——框里只有搜索页扫到的那一台、已经选好，用户点一下「连接」，已连在该热点上时连框都不弹（见 `docs/PRODUCT_RULES.md` 1.2）。`openWifiPanel`（拉系统 Wi-Fi 面板）代码保留但**不在主流程上**。
 
-  当前动线（2026-09-11 定稿，改前先读 `FlowerpotState.pairViaHotspot` 的文档注释）。对照涂鸦官方 AP 四步：**① 设备置 AP 模式**（产品口径：开机就一定可配网，App 不参与）→ **② 手机连设备热点** → **③ 取 Token + 收 SSID/密码** → **④ `ApActivatorBuilder` 发起配网**。⚠️ 我们的 ③ **排在 ② 之前，而且必须相反**：取令牌要走云端，一连上设备热点手机就没有外网了。
+  **配网主路径是蓝牙双模（2026-09-11 晚定稿，固件方已确认支持蓝牙配网）**，AP 热点那条完整保留作回落。改前先读 `FlowerpotState.pairViaBle` 与 `pairViaHotspot` 的文档注释。
+
+  **双模动线**：① 搜索页进页面就开 BLE 扫描（`getBleOperator().startLeScan`，**不受 Wi-Fi 扫描配额约束**，双模设备一上电就在广播、通常一两秒出现）→ ② 扫到的设备直接进「已发现设备」列表（**扫到 BLE 就只列 BLE**，一台都没有才回落 Wi-Fi 热点那份——两条通道没有可靠的共同标识，混列就是同一台花盆出现两行）→ ③ **抢答窗口**：BLE 还在扫的头 4 秒（`_bleGrace`）**先不画 Wi-Fi 热点**——Wi-Fi 那条会先答（进页面读缓存不占配额、几乎不耗时，而缓存里往往已经有热点了），不压住的话用户会抢在 BLE 答出来之前点走更差的那条路；蓝牙用不了时一秒都不压，窗口到点由 `_bleGraceTimer` 主动重画。**Wi-Fi 扫描节奏没动**，它现在是回落路径但必须随时可用 → ④ 用户点「连接」：先 await 令牌预取，停扫（一边扫一边连是在抢同一个射频），`supportWifiList` 为真就调 `IMultiModeActivator.queryDeviceConfigState(MultiModeQueryBuilder)`——builder 直接吃 BLE 扫到的 `ScanDeviceBean`，**建本地蓝牙连接**问设备要它自己扫到的 Wi-Fi 列表，**不走系统 Wi-Fi scan** ⇒ 与「2 分钟 4 次 `startScan`」无关 → ⑤ 带着列表进「连接 Wi-Fi」页（「切换」弹层列的就是这份，比手机扫到的准）→ ⑥ `pairViaBle` → `IMultiModeActivator.startActivator(MultiModeActivatorBean{ssid,pwd,token,homeId,scanDeviceBean})`，凭据经蓝牙下发。**全程没有系统入网授权框，手机也从没离开路由器。**
+
+  ⚠️ **`ScanDeviceBean` 必须留在原生侧**（`bleScanned` 按 uuid 缓存）：双模那两个 API 吃的是对象本身，它过不了方法通道；停扫时**不清**这张表（点完设备就停扫，紧接着还要用它）。
+  ⚠️ **`supportWifiList` 为 false 不要调查询**：老固件（TuyaOS < 3.6.1）不认，只会干等一次超时。
+  ⚠️ **两个同名的 `queryDeviceConfigState` 别搞混**：`IThingOptimizedActivator` + `ApQueryBuilder` 那个是已判死的 AP 「新流程」（指望 SDK 自己连 Wi-Fi 热点）；双模这个是 `IMultiModeActivator` + `MultiModeQueryBuilder`，走蓝牙。
+  ⚠️ **`ActivatorService` / `BLEActivator` / `IDiscovery` / `ActivatorMode` / `DiscoveryMode` 在 7.5.1 里不存在**（全模块 0 命中，已解包核对）——那是设备固件侧 TuyaOS/TKL 的命名。App 侧 BLE 只有 `IBleActivator`（纯蓝牙，bean 无 ssid/pwd）与 `IMultiModeActivator`（双模，bean 带 ssid/pwd/token），花盆是后者。
+
+  **自动优选覆盖到失败之后，不只是发现阶段**：失败页的「重新配网」会带着 `bleUuid` / `hotspotSsid` / `deviceNetworks` **照原样重走刚才那条**（不带的话走蓝牙失败的那次会掉进 AP 分支、又没有热点名，用户得到的是另一个失败）；蓝牙失败时另给一颗「改用热点方式配网」，回搜索页并带 `preferHotspot: true`，那一轮不开 BLE、直接走 AP。**不做自动回落**：要再等一轮超时，而且 AP 必然弹系统框，在用户以为结束时冒出来更糟。EZ 不进优选池（真机实测设备不支持、整条已删），所以本产品的自动优选是 BLE ⇄ AP 两选一。
+
+  **AP 回落动线**（没有 BLE 设备时）：对照涂鸦官方 AP 四步：**① 设备置 AP 模式**（产品口径：开机就一定可配网，App 不参与）→ **② 手机连设备热点** → **③ 取 Token + 收 SSID/密码** → **④ `ApActivatorBuilder` 发起配网**。⚠️ 我们的 ③ **排在 ② 之前，而且必须相反**：取令牌要走云端，一连上设备热点手机就没有外网了。
 
   1. **搜索页**：`scanWifi` 找热点并展示（节奏见下文），进页面就 `prepareForPairing()` 预取「确认家庭 + 取令牌」= 官方③。**2026-09-11 起并行开一条 BLE 发现通道**（见下）。
   2. **点某一行的「连接」** = 官方②：`connectDeviceHotspot` → `_joinHotspotForPairing`（`WifiNetworkSpecifier`，Android 必须给**确切 SSID**、iOS 给前缀；已连在该热点上时原地跳过、不弹框）。产品口径：**Android 10+ 那一次系统入网授权框绕不开，就把它收在这一颗按钮上**，之后的页面一个框都没有。

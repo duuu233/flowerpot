@@ -84,11 +84,25 @@ class MockTuyaRepository implements TuyaRepository {
   @override
   Future<List<DeviceWifiNetwork>> queryDeviceWifiList(
     String uuid, {
-    int size = 20,
     Duration timeout = const Duration(seconds: 30),
   }) async {
     await _wait();
     return deviceWifiList;
+  }
+
+  /// 双模配网调用记录：`(uuid, ssid)`。用例据此断言走的是蓝牙那条、不是 AP。
+  final List<(String, String)> blePairCalls = <(String, String)>[];
+
+  @override
+  Future<SmartPlanterDevice> pairBleDevice({
+    required String uuid,
+    required String ssid,
+    required String password,
+    Duration timeout = const Duration(seconds: 120),
+  }) async {
+    await _wait();
+    blePairCalls.add((uuid, ssid));
+    return pair(PairingRequest(ssid: ssid, password: password));
   }
 
   /// 让测试和演示能驱动升级进度，无需真实设备。

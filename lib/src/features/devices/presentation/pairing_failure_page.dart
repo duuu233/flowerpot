@@ -3,12 +3,35 @@ import 'package:flutter/material.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import 'device_search_page.dart';
 import 'pairing_page.dart';
 
 class PairingFailurePage extends StatelessWidget {
-  const PairingFailurePage({super.key, this.request, this.code, this.message});
+  const PairingFailurePage({
+    super.key,
+    this.request,
+    this.code,
+    this.message,
+    this.bleUuid,
+    this.hotspotSsid,
+    this.deviceNetworks = const <DeviceWifiNetwork>[],
+  });
 
   final PairingRequest? request;
+
+  /// 刚才那次配网走的是**哪条路**，重试要照原样再来一遍。
+  ///
+  /// 改之前这两样都没带：重试只给 `request`，于是走蓝牙失败的那次，重试会掉进 AP
+  /// 分支、又没有热点名——Android 侧只给前缀会被拒（`hotspot_ssid_required`），
+  /// 用户点「重新配网」得到的是**另一个**失败，排查方向直接被带偏。
+  final String? bleUuid;
+  final String? hotspotSsid;
+
+  /// 上一次问设备要到的 Wi-Fi 列表，重试时不必再问一遍。
+  final List<DeviceWifiNetwork> deviceNetworks;
+
+  /// 这次失败的是蓝牙（双模）那条。
+  bool get _viaBle => (bleUuid ?? '').isNotEmpty;
 
   /// 涂鸦返回的原始失败原因。
   ///
@@ -117,16 +140,38 @@ class PairingFailurePage extends StatelessWidget {
     _ => null,
   };
 
+  /// 「重新配网」：**照原样再走一遍刚才那条路。**
+  ///
+  /// 凭据要带回去（输密码页不再预填占位值，不带就是一张空表单），走哪条路也要带
+  /// 回去——见 [bleUuid] 上的说明。
   void _retry(BuildContext context) {
-    // The Wi-Fi page no longer pre-fills placeholder credentials, so a retry
-    // has to carry the previous attempt back or the form arrives blank.
-    //
-    // 产品页只有 AP 一种方式，所以这里不再做「改用另一种模式」的回落——EZ 仍在
-    // 桥接层可用，但不对最终用户暴露。
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.pairing,
-      arguments: PairingArguments(request: request),
+      arguments: PairingArguments(
+        request: request,
+        bleUuid: bleUuid,
+        hotspotSsid: hotspotSsid,
+        deviceNetworks: deviceNetworks,
+      ),
+    );
+  }
+
+  /// 「改用热点方式」：蓝牙那条失败后的退路。
+  ///
+  /// 双模的意义是「App 自动优选最佳方式，**提升配网成功率**」——优选只发生在发现
+  /// 阶段是不够的，蓝牙这条真的没成时得有另一条路可走。
+  ///
+  /// 做成**一颗按钮**而不是自动重试，是权衡过的：自动回落要再等一轮超时（最长又是两
+  /// 分钟），而且 AP 必然弹一次系统入网授权框——在用户以为已经结束的时刻突然冒出来，
+  /// 比多点一下更糟。所以把选择权交回去，代价说清楚。
+  ///
+  /// 回搜索页而不是直接进输密码页：AP 要先扫到设备热点、再连上它，那两步都在搜索页。
+  void _retryOverHotspot(BuildContext context) {
+    Navigator.pushReplacementNamed(
+      context,
+      AppRoutes.deviceSearch,
+      arguments: DeviceSearchArguments(request: request, preferHotspot: true),
     );
   }
 
@@ -138,7 +183,7 @@ class PairingFailurePage extends StatelessWidget {
     Navigator.pushReplacementNamed(
       context,
       AppRoutes.deviceSearch,
-      arguments: request,
+      arguments: DeviceSearchArguments(request: request),
     );
   }
 
@@ -220,6 +265,29 @@ class PairingFailurePage extends StatelessWidget {
                           child: const Text('重新配网'),
                         ),
                       ),
+                      // **蓝牙那条失败后的退路。**双模的承诺是「自动优选最佳方式、
+                      // 提升成功率」，只在发现阶段优选是不够的——这条真的没成时得有
+                      // 另一条路。做成按钮而不是自动回落：自动重试要再等一轮超时，
+                      // 而且 AP 必然弹一次系统框，在用户以为结束的时刻冒出来更糟。
+                      if (_viaBle) ...<Widget>[
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: 50,
+                          child: OutlinedButton(
+                            key: const Key('retry-over-hotspot-button'),
+                            onPressed: () => _retryOverHotspot(context),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.brandPrimary,
+                              side: const BorderSide(
+                                color: AppColors.brandPrimary,
+                              ),
+                              shape: const StadiumBorder(),
+                              textStyle: const TextStyle(fontSize: 19),
+                            ),
+                            child: const Text('改用热点方式配网'),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       SizedBox(
                         height: 50,

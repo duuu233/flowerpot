@@ -46,8 +46,24 @@ import 'widgets/pairing_progress_view.dart';
 /// 见 [_DeviceSearchPageState._startSearchWindow]。首次进入要授权，那个系统框会把
 /// 调用挂起几十秒；让挡在它前面的是「读缓存」而不是「真扫」，一次配额都不会浪费，
 /// 3 分钟窗口也不会被授权时间吃掉。
+/// 搜索页的路由参数。
+///
+/// 原来这一页直接收一个裸 [PairingRequest]；[preferHotspot] 出现之后需要两样东西，
+/// 所以包一层。老调用点传裸 request 仍然可用（见 `AppRoutes._deviceSearchPage`）。
+class DeviceSearchArguments {
+  const DeviceSearchArguments({this.request, this.preferHotspot = false});
+
+  final PairingRequest? request;
+
+  /// **这一轮直接用 Wi-Fi 热点方式找设备，别开蓝牙那条。**
+  ///
+  /// 唯一的来路是失败页那颗「改用热点方式配网」：蓝牙已经试过并且没成，再自动优选
+  /// 到蓝牙上只会让用户在同一个坑里再等一轮。
+  final bool preferHotspot;
+}
+
 class DeviceSearchPage extends StatefulWidget {
-  const DeviceSearchPage({super.key, this.request});
+  const DeviceSearchPage({super.key, this.request, this.preferHotspot = false});
 
   /// 一轮搜索的时长。
   ///
@@ -57,6 +73,9 @@ class DeviceSearchPage extends StatefulWidget {
   static const Duration searchWindow = Duration(minutes: 3);
 
   final PairingRequest? request;
+
+  /// 见 [DeviceSearchArguments.preferHotspot]。
+  final bool preferHotspot;
 
   @override
   State<DeviceSearchPage> createState() => _DeviceSearchPageState();
@@ -231,6 +250,30 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   Timer? _stalledTimer;
 
+  /// **给蓝牙的抢答窗口。**
+  ///
+  /// 双模是主路径，可 Wi-Fi 那条**会先答**：进页面第一件事就是读系统扫描缓存（不占
+  /// 配额、几乎不耗时），而缓存里往往**已经**有设备热点了——系统自己、设置页、别的应用
+  /// 一直在扫。那一瞬间列表先画出 AP 那一行，用户一点，整条流程就掉进了更差的那条：
+  /// 多一个系统入网授权框、手机还要离开路由器、还得先拿到确切热点名。
+  ///
+  /// 所以扫描开始后的这几秒里，只要蓝牙**还在扫**，就先不画 Wi-Fi 热点。BLE 广播是
+  /// 设备主动周期性发的，双模设备通常一两秒就能扫到；给到 4 秒还没有，多半就不是双模
+  /// 设备（或蓝牙这条不通），那时再回落到热点列表——4 秒换一次"走对路"，值。
+  ///
+  /// ⚠️ 蓝牙用不了（没硬件、开关关着、包里没模块）时**根本不进这个窗口**：
+  /// [_bleScanStartedAt] 只在真的扫起来了才置位。
+  static const Duration _bleGrace = Duration(seconds: 4);
+
+  /// 本轮 BLE 扫描真正跑起来的时刻；没跑起来就是 null。
+  DateTime? _bleScanStartedAt;
+
+  /// 抢答窗口到点后重画一次。
+  ///
+  /// 没有它的话，窗口期内如果 BLE 一台都没扫到、Wi-Fi 也没有新结果，就没有任何东西
+  /// 触发重建——热点列表会一直被压着不显示，看起来就是"搜不到"。
+  Timer? _bleGraceTimer;
+
   /// 到点了还一台都没搜到。
   bool _stalled = false;
 
@@ -245,11 +288,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// **一定要停**：扫描回调在原生侧握着 Activity，而且在真的耗电。
   FlowerpotState? _bleState;
 
-  /// 正在问哪一台设备要 Wi-Fi 列表；空闲时为 null。
-  String? _queryingWifiUuid;
-
-  /// 上一次问设备要 Wi-Fi 列表的结果原文（成功是条数，失败是原始错误）。
-  String? _deviceWifiMessage;
+  /// 本页这一刻列出来的设备。**BLE 优先**，见 [_foundDevices]。
+  ///
+  /// 存一份是因为「点了第几行」要能对回具体设备：BLE 列表随扫描一直在变，
+  /// 光靠下标在两帧之间可能指向另一台。
+  List<_FoundDevice> _found = const <_FoundDevice>[];
 
   @override
   void initState() {
@@ -294,6 +337,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _pollTimer?.cancel();
     _deadlineTimer?.cancel();
     _stalledTimer?.cancel();
+    _bleGraceTimer?.cancel();
     _radarController.dispose();
     super.dispose();
   }
@@ -310,6 +354,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _autoOpened = false;
     _stalledTimer?.cancel();
     _stalled = false;
+    _bleGraceTimer?.cancel();
+    _bleScanStartedAt = null;
     // ⚠️ **不清 `_ownScans`**：配额由系统按时间算，重新扫描 / 重进页面都不会让它回补。
     // 清了只会让我们以为还有预算、继续把 SDK 的那份也花掉。
     _connectingIndex = null;
@@ -353,8 +399,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 一两秒就能扫到——「搜索不及时」正是冲着这一点。
     //
     // 不 await：BLE 起不起得来（手机没蓝牙、开关关着、固件不是双模）都不该拖住
-    // Wi-Fi 这条主路径。起不来时页面上那张卡会写清楚是哪一种。
-    unawaited(_startBleDiscovery(state));
+    // Wi-Fi 那条回落路径。起不来时页面上会写清楚是哪一种。
+    //
+    // `preferHotspot` 时整条跳过：那是从失败页「改用热点方式」过来的，蓝牙刚试过
+    // 并且没成，再优选回蓝牙只会让用户在同一个坑里再等一轮。
+    if (!widget.preferHotspot) unawaited(_startBleDiscovery(state));
     // ① 免费的一次：读系统扫描缓存。首次进入时的权限框就挡在这一步。
     _inFlight = true;
     try {
@@ -562,7 +611,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       _connectingIndex = null;
       _connectError = null;
     });
-    _openPairing(hotspot, routerSsid: routerSsid);
+    _openPairing(hotspotSsid: hotspot.ssid, routerSsid: routerSsid);
   }
 
   /// 和 Wi-Fi 扫描并行开 BLE 发现。
@@ -570,30 +619,132 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 失败不抛、不拦路：这条通道目前是**加上去的**，Wi-Fi 那条照常跑。
   Future<void> _startBleDiscovery(FlowerpotState state) async {
     _bleState = state;
-    await state.startBleDiscovery();
+    final started = await state.startBleDiscovery();
     if (!mounted) return;
+    // 真的扫起来了才给抢答窗口：蓝牙用不了时一秒都不该压着热点列表。
+    if (started) {
+      _bleScanStartedAt = DateTime.now();
+      _bleGraceTimer?.cancel();
+      _bleGraceTimer = Timer(_bleGrace, () {
+        if (mounted) setState(() {});
+      });
+    }
     // 可用性（可用 / 没硬件 / 没开蓝牙 / 包里没模块）要画到页面上，
     // 不能默默扫不出来让人以为是设备坏了。
     setState(() {});
   }
 
-  /// 走 BLE 问这台设备要**它自己扫到的** Wi-Fi 列表。
+  /// 蓝牙还在抢答窗口里：这几秒先别画 Wi-Fi 热点，见 [_bleGrace]。
+  bool _bleAnswering(FlowerpotState state) {
+    final startedAt = _bleScanStartedAt;
+    if (startedAt == null || !state.bleScanning) return false;
+    return DateTime.now().difference(startedAt) < _bleGrace;
+  }
+
+  /// 蓝牙那条通道不可用时的一句话；可用（或还没探测出结果）时返回 null。
   ///
-  /// 这一步是双模优化路径的关键验证点：成了就说明「BLE 发现 → 本地连接 → 查 Wi-Fi
-  /// 列表」整条走得通，手机的 Wi-Fi 扫描配额从此与搜索速度无关。
-  Future<void> _queryDeviceWifi(FlowerpotState state, BleDevice device) async {
-    if (_queryingWifiUuid != null) return;
+  /// 固件已确认支持蓝牙配网，所以**蓝牙关着 = 用户少了主路径**：他只会觉得"怎么搜这么
+  /// 慢"，而真正的原因是一条腿没了。说清楚比让他猜强。
+  String? _bleNotice(FlowerpotState state) {
+    // 这一轮本来就不走蓝牙（从失败页「改用热点方式」过来的），别再提蓝牙。
+    if (widget.preferHotspot) return null;
+    final availability = state.bleAvailability;
+    // 还没探完：别抢在结论之前说话。
+    if (availability == BleAvailability.unknown) return null;
+    if (availability.usable) return null;
+    if (availability.available && availability.supported) {
+      return '蓝牙没有打开。本机型支持蓝牙配网——打开蓝牙会快很多，也不用再确认连接热点。';
+    }
+    return '这台手机用不了蓝牙配网（${availability.reason}），正在用 Wi-Fi 热点方式搜索。';
+  }
+
+  /// 用户点了列表里第 [index] 台：按它是**哪条通道发现的**分叉。
+  ///
+  /// BLE（双模）那条是主路径——固件已确认支持蓝牙配网，而它在每一项上都更好：更快
+  /// 被发现、**没有系统入网授权框**、手机全程不离开路由器。Wi-Fi 热点那条是回落，
+  /// 只有一台 BLE 设备都没扫到时才会出现在列表里。
+  Future<void> _openDevice(int index) async {
+    if (index < 0 || index >= _found.length) return;
+    final device = _found[index];
+    final ble = device.ble;
+    if (ble != null) {
+      await _connectBleAndOpen(index, ble);
+      return;
+    }
+    await _connectAndOpen(index, device.hotspot!);
+  }
+
+  /// 这一刻要列出来的设备。**BLE 扫到就只列 BLE。**
+  ///
+  /// 为什么不两条通道都列：同一台设备会同时在广播 BLE、又拉着 Wi-Fi 热点，而两边
+  /// **没有可靠的共同标识**（BLE 给 uuid，Wi-Fi 只有 SSID），去重做不干净，混在一起
+  /// 就是同一台花盆出现两行、用户不知道该点哪个。既然双模那条在各方面都更好——更快、
+  /// 没有系统授权框、不用离开路由器——扫到就只走它，一台都没扫到才回落 Wi-Fi 热点。
+  List<_FoundDevice> _foundDevices(
+    FlowerpotState state,
+    List<WifiNetwork> hotspots,
+  ) {
+    if (widget.preferHotspot) {
+      return hotspots.map(_FoundDevice.hotspot).toList(growable: false);
+    }
+    final ble = state.bleDevices;
+    if (ble.isNotEmpty) {
+      return ble.map(_FoundDevice.ble).toList(growable: false);
+    }
+    // 蓝牙还在抢答窗口里：先空着，别让用户抢在 BLE 答出来之前点走更差的那条路。
+    if (_bleAnswering(state)) return const <_FoundDevice>[];
+    return hotspots.map(_FoundDevice.hotspot).toList(growable: false);
+  }
+
+  /// 用户点了一台 **BLE 发现的**设备：查它扫到的 Wi-Fi 列表，然后进输密码页。
+  ///
+  /// 这就是双模优化路径的前两步落在真实动线上的样子：
+  ///
+  /// 1. （已发生）BLE 扫描发现设备；
+  /// 2. `supportWifiList` 为真 ⇒ `queryDeviceConfigState`——**建本地蓝牙连接**问设备要
+  ///    它自己扫到的 Wi-Fi 列表，不走系统 Wi-Fi scan，与那条 4 次/2 分钟的配额无关；
+  /// 3. 带着列表进下一页，用户选网络 + 输密码，配网走 `pairViaBle`（凭据经蓝牙下发，
+  ///    **全程没有系统入网授权框**）。
+  ///
+  /// 查列表失败不拦路：Wi-Fi 名让用户从手机扫到的列表里自己选，配网照样能走。
+  Future<void> _connectBleAndOpen(int index, BleDevice device) async {
+    if (_connectingIndex != null || !mounted) return;
+    final state = FlowerpotScope.of(context);
+    // 趁还连着路由器把当前网络名记下来带给下一页。双模全程不离开路由器，所以这里
+    // 读到的就是用户要让设备加入的那个网络，直接填好、他只需输密码。
+    final scan = state.wifiScan;
+    final routerSsid = (scan?.currentIsDeviceHotspot ?? false)
+        ? ''
+        : (scan?.current ?? '');
     setState(() {
-      _queryingWifiUuid = device.uuid;
-      _deviceWifiMessage = null;
+      _connectingIndex = index;
+      _connectError = null;
     });
-    final result = await state.loadDeviceWifiList(device);
+    // 令牌要走云端，必须趁手机还连着路由器取好（双模下它本来就没离开）。
+    await _prepared;
     if (!mounted) return;
-    setState(() {
-      _queryingWifiUuid = null;
-      // 成功失败都把原文留在页面上（`PRODUCT_RULES` §4.1 事实在前）。
-      _deviceWifiMessage = result.message;
-    });
+    // 停扫再连：接下来要和这台建立蓝牙连接，一边扫一边连是在抢同一个射频，
+    // 只会把连接拖慢甚至连不上。
+    await state.stopBleDiscovery();
+    if (!mounted) return;
+    var networks = const <DeviceWifiNetwork>[];
+    if (device.supportWifiList) {
+      final result = await state.loadDeviceWifiList(device);
+      if (!mounted) return;
+      if (result.success) {
+        networks = state.deviceWifiNetworks;
+      } else {
+        // 不拦路，但把原文留在页面上——查不到列表和配不上是两回事。
+        setState(() => _connectError = _connectFailureHint(result.code, result.message));
+      }
+    }
+    setState(() => _connectingIndex = null);
+    if (!mounted) return;
+    _openPairing(
+      bleUuid: device.uuid,
+      deviceNetworks: networks,
+      routerSsid: routerSsid,
+    );
   }
 
   /// 长按复制页面上那段说明——失败时它就是完整的诊断信息。
@@ -642,18 +793,28 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     });
   }
 
-  /// 带着这台设备进「连接 Wi-Fi」。
+  /// 带着这台设备进「连接 Wi-Fi」。两条发现通道共用这一个入口。
   ///
-  /// 只带 `hotspotSsid` 与连热点**之前**读到的路由器名：下一页 2026-09-10 起不再画
-  /// 「已选择设备 xxx」（设备是在本页点「连接」确认的、热点那时也连上了），原来那个
-  /// 只为那一行存在的 `deviceName` 随之作废，2026-09-11 删掉。
-  void _openPairing(WifiNetwork hotspot, {String routerSsid = ''}) {
+  /// - **BLE（双模）**：带 [bleUuid] 与设备自己扫到的网络 [deviceNetworks]，下一页的
+  ///   配网走 `pairViaBle`（凭据经蓝牙下发，没有系统授权框）；
+  /// - **Wi-Fi 热点（AP）**：带 [hotspotSsid]，下一页走 `pairViaHotspot`。
+  ///
+  /// [routerSsid] 都要带：它是**连热点之前**（AP）或**此刻**（BLE，全程没离开路由器）
+  /// 读到的当前网络名，下一页据此把 Wi-Fi 名填好，用户只需输密码。
+  void _openPairing({
+    String? hotspotSsid,
+    String? bleUuid,
+    List<DeviceWifiNetwork> deviceNetworks = const <DeviceWifiNetwork>[],
+    String routerSsid = '',
+  }) {
     Navigator.pushNamed(
       context,
       AppRoutes.pairing,
       arguments: PairingArguments(
         request: widget.request,
-        hotspotSsid: hotspot.ssid,
+        hotspotSsid: hotspotSsid,
+        bleUuid: bleUuid,
+        deviceNetworks: deviceNetworks,
         routerSsid: routerSsid,
       ),
     );
@@ -676,7 +837,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     final state = FlowerpotScope.of(context);
     final scan = state.wifiScan;
     final hotspots = scan?.deviceHotspots ?? const <WifiNetwork>[];
-    final outcome = _outcome(scan, hotspots);
+    // 这一刻列什么：BLE 扫到就只列 BLE，一台都没有才回落 Wi-Fi 热点。
+    _found = _foundDevices(state, hotspots);
+    final outcome = _outcome(scan, hotspots, _found);
     // 点了「连接」之后盖上进度页——**照智能生活的做法**（`docs/配网1.jpg`）：标题
     // 「正在连接设备…」，下面把五步列出来，当前那一步转圈。前两步（建立连接、设备扫
     // Wi-Fi）就发生在这段等待里，走完就跳去选网络。
@@ -761,35 +924,35 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           const SizedBox(height: 12),
                           _PairingLogBox(lines: state.pairingLog),
                         ],
-                        // **BLE 那条并行发现通道的结果。**
-                        //
-                        // 单独一张卡、写清是哪条通道发现的：这一版的目的就是在真机上
-                        // 回答两个问题——设备到底有没有在广播 BLE、它的固件支不支持
-                        // 回报自己扫到的 Wi-Fi 列表。答案要能被截图，不能只在 logcat。
-                        const SizedBox(height: 16),
-                        _BleFindingsCard(
-                          availability: state.bleAvailability,
-                          scanning: state.bleScanning,
-                          devices: state.bleDevices,
-                          networks: state.deviceWifiNetworks,
-                          queryingUuid: _queryingWifiUuid,
-                          message: _deviceWifiMessage,
-                          onQueryWifi: (device) =>
-                              unawaited(_queryDeviceWifi(state, device)),
-                        ),
+                        // 蓝牙那条通道不可用时说一句——否则用户只看到"搜得慢"，
+                        // 不知道少了哪条腿。可用时什么都不说，不占地方。
+                        if (_bleNotice(state) case final String notice) ...<Widget>[
+                          const SizedBox(height: 10),
+                          Text(
+                            notice,
+                            key: const Key('device-search-ble-notice'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 13,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
                         // 找到的设备直接列在下面，边扫边冒出来。
-                        if (hotspots.isNotEmpty) ...<Widget>[
+                        if (_found.isNotEmpty) ...<Widget>[
                           const SizedBox(height: 20),
                           _FoundDeviceList(
-                            hotspots: hotspots,
+                            devices: _found,
                             busyIndex: _connectingIndex,
-                            // 手机已经在某个设备热点上（上次留下的、或系统记住后
-                            // 自动重连）时不会再弹框，这行预告就别出现。
+                            // 只有 AP 那条要连设备热点、才会弹系统框。走 BLE 时
+                            // 一个框都没有，别预告一件不会发生的事。
+                            // 手机已经在某个设备热点上时同样不弹。
                             showConsentHint:
+                                _found.any((item) => !item.isBle) &&
                                 !(scan?.currentIsDeviceHotspot ?? false),
-                            onSelected: (index) => unawaited(
-                              _connectAndOpen(index, hotspots[index]),
-                            ),
+                            onSelected: (index) =>
+                                unawaited(_openDevice(index)),
                           ),
                         ],
                         // iOS 列不出设备，「下一步」全程都在——那是它唯一的
@@ -832,16 +995,24 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   /// Copy for the current scan outcome. Kept in one place so the page never
   /// says "no device" when the platform simply cannot answer.
-  _SearchOutcome _outcome(WifiScan? scan, List<WifiNetwork> hotspots) {
+  _SearchOutcome _outcome(
+    WifiScan? scan,
+    List<WifiNetwork> hotspots,
+    List<_FoundDevice> found,
+  ) {
     // 已经找到设备时，标题就该讲这件事，而不是继续报「搜索中」。
-    if (hotspots.isNotEmpty) {
+    if (found.isNotEmpty) {
+      // 走蓝牙那条时**没有系统确认框**，别照抄 AP 的话术预告一件不会发生的事。
+      final viaBle = found.first.isBle;
       return _SearchOutcome(
-        '发现 ${hotspots.length} 台设备',
+        '发现 ${found.length} 台设备',
         // 设备本身不联网，所以下一步是给它配一个 Wi-Fi；这里先说清要点哪个按钮。
         // 预取失败时把原因顶上来，免得用户后面遇到失败完全没有线索。
         _connectError ??
-            '点设备右侧的「连接」连上这台设备（系统会弹一次确认框，请点「连接」），'
-                '之后只需输入 Wi-Fi 密码。',
+            (viaBle
+                ? '点设备右侧的「连接」，之后只需输入 Wi-Fi 密码。'
+                : '点设备右侧的「连接」连上这台设备（系统会弹一次确认框，请点「连接」），'
+                      '之后只需输入 Wi-Fi 密码。'),
         compactTitle: true,
       );
     }
@@ -858,9 +1029,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         // 那之后它不再广播热点，扫多久都没用。真扫受系统配额限制（前台 4 次 / 2 分钟）
         // 已经跑在上限上，所以这时有用的不是再等，而是让用户把设备断电重启——重启后
         // 热点一定在，下一次扫描就能看见。
+        // 两条通道都没答上来时才走到这里，所以话要覆盖两条：设备退出配网状态后
+        // **蓝牙广播和 Wi-Fi 热点会一起停**，断电重启两条一起恢复。
         return const _SearchOutcome(
           '还没搜到设备',
-          '设备静置一段时间会退出配网状态，此时它不再广播热点。\n'
+          '设备静置一段时间会退出配网状态，此时它既不广播蓝牙、也不再拉起热点。\n'
               '请给设备断电重启（重新上电后会自动回到配网状态），再点「重新扫描」。',
         );
       }
@@ -974,217 +1147,6 @@ class _PairingLogBox extends StatelessWidget {
   }
 }
 
-/// BLE 发现通道的结果卡。
-///
-/// **为什么单独画一张而不是并进上面那张设备列表**：这一版要在真机上回答的是
-/// 「这条路通不通」，所以每一格都必须是**事实**——BLE 可不可用、扫到几台、
-/// 每台的 `supportWifiList` 是真是假、问它要 Wi-Fi 列表得到了什么。混进主列表里
-/// 就分不清哪台是 Wi-Fi 扫到的、哪台是 BLE 扫到的，验证也就无从谈起。
-///
-/// 设备不支持 BLE（扫不到）时这张卡照常在，只是写着「未发现」——Wi-Fi 那条在下面
-/// 照常工作，配网流程一点没动。
-class _BleFindingsCard extends StatelessWidget {
-  const _BleFindingsCard({
-    required this.availability,
-    required this.scanning,
-    required this.devices,
-    required this.networks,
-    required this.onQueryWifi,
-    this.queryingUuid,
-    this.message,
-  });
-
-  final BleAvailability availability;
-  final bool scanning;
-  final List<BleDevice> devices;
-  final List<DeviceWifiNetwork> networks;
-  final ValueChanged<BleDevice> onQueryWifi;
-  final String? queryingUuid;
-  final String? message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: const Key('ble-findings-card'),
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.textTertiary.withValues(alpha: .3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              const Text(
-                '蓝牙发现',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(width: 8),
-              if (scanning)
-                const SizedBox.square(
-                  dimension: 12,
-                  child: CircularProgressIndicator(strokeWidth: 1.6),
-                ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            _status,
-            key: const Key('ble-findings-status'),
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12,
-              height: 1.45,
-            ),
-          ),
-          for (final device in devices) ...<Widget>[
-            const SizedBox(height: 10),
-            _BleDeviceRow(
-              device: device,
-              busy: queryingUuid == device.uuid,
-              // 一次只问一台：BLE 本地连接是独占的，并发只会互相打断。
-              enabled: queryingUuid == null,
-              onQueryWifi: () => onQueryWifi(device),
-            ),
-          ],
-          if (message != null) ...<Widget>[
-            const SizedBox(height: 10),
-            Text(
-              message!,
-              key: const Key('ble-wifi-query-message'),
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
-                height: 1.45,
-              ),
-            ),
-          ],
-          if (networks.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 8),
-            const Text(
-              '设备自己扫到的 Wi-Fi：',
-              style: TextStyle(color: AppColors.textPrimary, fontSize: 12),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              networks
-                  .map(
-                    (item) =>
-                        '${item.ssid}  ${item.rssi}dBm'
-                        '${item.needsPassword ? ' 🔒' : ''}',
-                  )
-                  .join('\n'),
-              key: const Key('ble-device-wifi-list'),
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 11,
-                height: 1.5,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// 一句话交代这条通道现在是什么状况——**先说事实**。
-  String get _status {
-    if (!availability.available || !availability.supported) {
-      return availability.reason.isEmpty
-          ? '这个包 / 这台手机用不了 BLE，已按 Wi-Fi 扫描那条走。'
-          : '${availability.reason}，已按 Wi-Fi 扫描那条走。';
-    }
-    if (!availability.enabled) return '蓝牙没有打开，打开后重新扫描即可。';
-    if (devices.isEmpty) {
-      return scanning
-          ? '正在扫……设备若是 Wi-Fi+BLE 双模，通常一两秒就能出现。'
-          : '未发现广播 BLE 的设备。设备可能不是双模，Wi-Fi 那条照常在下面。';
-    }
-    return '扫到 ${devices.length} 台。';
-  }
-}
-
-/// BLE 扫到的一台设备。
-///
-/// `supportWifiList` 单独标出来：它决定了能不能走「问设备要 Wi-Fi 列表」这条捷径
-/// （固件 TuyaOS ≥ 3.6.1），也是这一轮真机验证要看的那一格。
-class _BleDeviceRow extends StatelessWidget {
-  const _BleDeviceRow({
-    required this.device,
-    required this.busy,
-    required this.enabled,
-    required this.onQueryWifi,
-  });
-
-  final BleDevice device;
-  final bool busy;
-  final bool enabled;
-  final VoidCallback onQueryWifi;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      key: Key('ble-device-${device.uuid}'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                device.label,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 2),
-              // 这一行全是排查要的原文：信号、能力位、产品与 uuid。
-              Text(
-                '${device.rssi}dBm · '
-                '${device.supportWifiList ? '支持回报 Wi-Fi 列表' : '不支持回报 Wi-Fi 列表'}'
-                '（flag ${device.flag}）\n'
-                'pid ${device.productId.isEmpty ? '(空)' : device.productId} · '
-                'uuid ${device.uuid}',
-                style: const TextStyle(
-                  color: AppColors.textTertiary,
-                  fontSize: 11,
-                  height: 1.4,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        TextButton(
-          key: Key('ble-query-wifi-${device.uuid}'),
-          // 固件不支持时置灰而不是让它调下去：那条命令老固件不认，
-          // 点下去只会干等一次超时。
-          onPressed: enabled && device.supportWifiList && !busy
-              ? onQueryWifi
-              : null,
-          child: busy
-              ? const SizedBox.square(
-                  dimension: 14,
-                  child: CircularProgressIndicator(strokeWidth: 1.6),
-                )
-              : const Text('查Wi-Fi', style: TextStyle(fontSize: 12)),
-        ),
-      ],
-    );
-  }
-}
-
 /// 页面底部那颗按钮：要么「重新扫描」，要么 iOS 上的「下一步」。
 ///
 /// 什么时候画由页面决定（见 `build` 里那段注释），这里只管长什么样。
@@ -1227,9 +1189,36 @@ class _SearchActions extends StatelessWidget {
 ///
 /// 2026-09-10 之前这一步是跳到「选择设备」页；跳走会把「还有第二台正在冒出来」
 /// 整个吃掉，用户也没机会确认自己点的是哪台。现在边扫边往下加。
+/// 搜索页列出的一台待配网设备，**不区分是哪条通道发现的**。
+///
+/// 两条通道的模型完全不同（BLE 给 `ScanDeviceBean`，Wi-Fi 只有一个 SSID），但页面上
+/// 它们是同一件东西：一台可以点「连接」的设备。差异收在这里，列表与行就不必各写一遍。
+class _FoundDevice {
+  const _FoundDevice.ble(BleDevice device) : ble = device, hotspot = null;
+
+  const _FoundDevice.hotspot(WifiNetwork network)
+    : ble = null,
+      hotspot = network;
+
+  final BleDevice? ble;
+  final WifiNetwork? hotspot;
+
+  bool get isBle => ble != null;
+
+  /// 行上显示的名字。BLE 广播常常没有名字，`BleDevice.label` 会退到 mac 尾号。
+  String get label => ble?.label ?? hotspot!.ssid;
+
+  /// 行上那行小字：**说清楚是怎么发现的、下一步会怎么走**。整条动线是黑箱时，
+  /// 用户遇到失败完全无从下手。
+  String get detail => ble == null
+      ? 'Wi-Fi 热点 · 连上它再配网'
+      : '蓝牙 · ${ble!.rssi}dBm'
+            '${ble!.supportWifiList ? ' · 可直接读取设备扫到的 Wi-Fi' : ''}';
+}
+
 class _FoundDeviceList extends StatelessWidget {
   const _FoundDeviceList({
-    required this.hotspots,
+    required this.devices,
     required this.onSelected,
     required this.busyIndex,
     required this.showConsentHint,
@@ -1237,7 +1226,7 @@ class _FoundDeviceList extends StatelessWidget {
 
   static const listKey = Key('device-search-found-list');
 
-  final List<WifiNetwork> hotspots;
+  final List<_FoundDevice> devices;
 
   /// 回调给的是**下标**：页面要据它知道是哪一行在转圈。
   final ValueChanged<int> onSelected;
@@ -1275,13 +1264,14 @@ class _FoundDeviceList extends StatelessWidget {
           ),
           const SizedBox(height: 12),
         ],
-        for (var index = 0; index < hotspots.length; index++) ...<Widget>[
+        for (var index = 0; index < devices.length; index++) ...<Widget>[
           if (index > 0) const SizedBox(height: 10),
           _FoundDeviceTile(
             index: index,
-            hotspot: hotspots[index],
+            device: devices[index],
             busy: busyIndex == index,
-            // 正在连某一行时，别的行一律不可点——同时只能有一条热点连接。
+            // 正在连某一行时，别的行一律不可点——同时只能有一条连接，
+            // 蓝牙那条更是如此（一边扫一边连是在抢同一个射频）。
             onTap: busyIndex == null ? () => onSelected(index) : null,
           ),
         ],
@@ -1293,13 +1283,13 @@ class _FoundDeviceList extends StatelessWidget {
 class _FoundDeviceTile extends StatelessWidget {
   const _FoundDeviceTile({
     required this.index,
-    required this.hotspot,
+    required this.device,
     required this.onTap,
     required this.busy,
   });
 
   final int index;
-  final WifiNetwork hotspot;
+  final _FoundDevice device;
 
   /// null 表示此刻不可点（别的行正在连）。
   final VoidCallback? onTap;
@@ -1320,22 +1310,39 @@ class _FoundDeviceTile extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
           child: Row(
             children: <Widget>[
-              const Icon(
-                Icons.wifi_tethering,
+              // 图标就说明走的是哪条路：蓝牙 / 热点。
+              Icon(
+                device.isBle ? Icons.bluetooth : Icons.wifi_tethering,
                 size: 22,
                 color: AppColors.brandPrimary,
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  hotspot.ssid,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      device.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      device.detail,
+                      key: Key('device-search-found-detail-$index'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textTertiary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),

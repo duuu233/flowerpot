@@ -96,7 +96,9 @@ class MainActivity : FlutterActivity() {
             // BLE 发现要的是另一套权限（Android 12 起蓝牙扫描从定位里独立出来），
             // 拿 Wi-Fi 那套去要会当场少一个 BLUETOOTH_SCAN、扫不出任何东西。
             val needsBlePermissions =
-                call.method == "startBleScan" || call.method == "queryDeviceWifiOverBle"
+                call.method == "startBleScan" ||
+                    call.method == "queryDeviceConfigState" ||
+                    call.method == "pairBleDevice"
             if ((needsWifiPermissions || needsBlePermissions) &&
                 requestPairingPermissions(call, result, forBle = needsBlePermissions)
             ) {
@@ -389,7 +391,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     stopBleScan()
                     success(result, null)
                 }
-                "queryDeviceWifiOverBle" -> bleQueryDeviceWifi(call, result)
+                "queryDeviceConfigState" -> bleQueryDeviceWifi(call, result)
+                "pairBleDevice" -> pairBleDevice(call, result)
                 "publishDps" -> deviceAction(call, result, "publishDps")
                 "renameDevice" -> deviceAction(call, result, "renameDevice")
                 "removeDevice" -> deviceAction(call, result, "removeDevice")
@@ -442,6 +445,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val pending = pairingResult
         pairingResult = null
         stopActivator()
+        // 双模那条也要停：它和 AP 用的是两个不同的配网器，停一个不影响另一个，
+        // 漏停的那个会继续跑满超时、蓝牙连接也一直占着。
+        bleScanned.keys.toList().forEach(::stopMultiModeActivator)
         pending?.let { error(it, code, message) }
     }
 
@@ -651,17 +657,57 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     // `IThingBleOperator.startLeScan(LeScanSetting, BleScanResponse)/stopLeScan()`、
     // `LeScanSetting$Builder`、`ScanType.SINGLE`、`ScanDeviceBean`、
     // `CombosFlagCapability.SCAN_WIFI/isCapabilityEnable(int,int)`、
-    // `QueryWifiSetting$Builder`、`IThingBleManager.queryWifiListForDeviceScan`。
+    // `ThingHomeSdk.getActivator().newMultiModeActivator()`、
+    // `IMultiModeActivator.queryDeviceConfigState(MultiModeQueryBuilder, IThingResultCallback)`、
+    // `IMultiModeActivator.startActivator(MultiModeActivatorBean, IMultiModeActivatorListener)`、
+    // `IMultiModeActivator.stopActivator(String)`、`MultiModeQueryBuilder$Builder`、
+    // `MultiModeActivatorBean`（公有裸字段 ssid/pwd/token/homeId/scanDeviceBean/…）。
     // 核对工具是 `tools/aar_class_dump.py`（不依赖 JDK）。
+    //
+    // ⚠️ **同一轮里被证伪的名字，不要再有人接回来**：`ActivatorService` /
+    // `BLEActivator` / `IDiscovery` / `ActivatorMode` / `DiscoveryMode` 在 7.5.1 的
+    // **所有**模块里都是 0 命中——那几个名字属于设备固件侧的 TuyaOS（TKL），不是
+    // Android App SDK。App 侧只有两个 BLE 配网入口：`IBleActivator`（纯蓝牙设备，
+    // `BleActivatorBean` **没有 ssid/pwd**）与这里用的 `IMultiModeActivator`
+    // （Wi-Fi+BLE 双模，`MultiModeActivatorBean` 带 ssid/pwd/token）。花盆是后者。
 
     /** 正在跑的那个 BLE 扫描回调代理；停扫时必须断开，SDK 否则一直握着它和本 Activity。*/
     private var bleScanner: Any? = null
 
+    /**
+     * BLE 扫到的原始 `ScanDeviceBean`，按 uuid 存。
+     *
+     * **必须留在原生侧。** 双模那两个 API（`queryDeviceConfigState` /
+     * `startActivator`）吃的都是这个对象本身——`MultiModeQueryBuilder.setScanDeviceBean(bean)`、
+     * `MultiModeActivatorBean.scanDeviceBean`。它过不了方法通道（里面有 `byte[] raw`、
+     * `pidRaw` 这些广播原文），所以 Dart 侧只拿 uuid，用的时候回这里取。
+     */
+    private val bleScanned = ConcurrentHashMap<String, Any>()
+
+    /** 双模配网器，`newMultiModeActivator()` 造一次就留着：`stopActivator` 还要用它。*/
+    private var multiModeActivator: Any? = null
+
+    /**
+     * `ThingHomeSdk.getActivator().newMultiModeActivator()`。
+     *
+     * ⚠️ 注意是 `getActivator()`（返回 `IActivator`），**不是** `getActivatorInstance()`
+     * （返回 `IThingDeviceActivator`，AP / EZ 那一套在用的）。两个入口并存，名字只差一点。
+     */
+    private fun multiModeActivator(): Any = multiModeActivator ?: run {
+        val activatorApi = invokeStatic(sdkClass(), "getActivator")
+            ?: throw IllegalStateException("getActivator() 返回空")
+        val created = invoke(activatorApi, "newMultiModeActivator")
+            ?: throw IllegalStateException("newMultiModeActivator() 返回空")
+        multiModeActivator = created
+        created
+    }
+
+    /** 取回 BLE 扫到的那个 bean；没扫到过就说清楚，别让上层以为是超时。*/
+    private fun scannedBean(uuid: String): Any = bleScanned[uuid]
+        ?: throw IllegalStateException("uuid=$uuid 不在本轮 BLE 扫描结果里，请重新扫描")
+
     private fun bleOperator(): Any = invokeStatic(sdkClass(), "getBleOperator")
         ?: throw IllegalStateException("getBleOperator() 返回空")
-
-    private fun bleManager(): Any = invokeStatic(sdkClass(), "getBleManager")
-        ?: throw IllegalStateException("getBleManager() 返回空")
 
     /**
      * 这台手机 / 这个包到底能不能用 BLE。
@@ -738,7 +784,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "toString" -> "TuyaBleScan"
                 "onResult" -> {
                     args?.firstOrNull()?.let { bean ->
-                        runCatching { emit(bleDeviceMap(bean)) }.onFailure { cause ->
+                        runCatching {
+                            val map = bleDeviceMap(bean)
+                            // 原始 bean 留下：双模的查询与配网吃的都是它本身。
+                            (map["uuid"] as? String)?.takeIf { it.isNotEmpty() }?.let { uuid ->
+                                bleScanned[uuid] = bean
+                            }
+                            emit(map)
+                        }.onFailure { cause ->
                             trace("ble scan: 解析设备失败 ${cause.javaClass.simpleName}")
                         }
                     }
@@ -767,6 +820,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private fun stopBleScan() {
         if (bleScanner == null) return
         bleScanner = null
+        // ⚠️ **不清 `bleScanned`**：用户点了某一台之后页面就会停扫，紧接着要用那个
+        // bean 去查列表、去配网。清掉等于自己把下一步的入参删了。它只在下一轮扫描
+        // 开始时被新结果覆盖，条目数也就是附近设备数，不会无限涨。
         runCatching { invoke(bleOperator(), "stopLeScan") }.onFailure { cause ->
             Log.w(TUYA_LOG_TAG, "stopLeScan 失败：${cause.javaClass.simpleName}")
         }
@@ -821,16 +877,23 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }.getOrElse { false }
 
     /**
-     * 问设备要**它自己扫到的** Wi-Fi 列表，走 BLE 本地连接。
+     * **双模第②步：问设备要它自己扫到的 Wi-Fi 列表。**
      *
-     * 两个好处，都不是锦上添花：
+     * `IMultiModeActivator.queryDeviceConfigState(MultiModeQueryBuilder, IThingResultCallback)`
+     * ——builder 直接吃 BLE 扫到的那个 `ScanDeviceBean`，SDK 据此**建立本地蓝牙连接**再问
+     * 设备要列表。两个好处都不是锦上添花：
      *
-     * 1. **绕开 Android 的 Wi-Fi 扫描配额**——「搜索不及时」的根就在那里；
+     * 1. **绕开 Android 的 Wi-Fi 扫描配额**（前台每 2 分钟 4 次 `startScan`）——「搜索不
+     *    及时」的根就在那里；
      * 2. **列出来的是设备够得着的网络**。手机在客厅扫到的 5G，窗台上的花盆未必收得到；
-     *    让用户从手机的列表里选，选中一个设备根本连不上的网络是很常见的失败。
+     *    让用户从手机的列表里挑，挑中一个设备根本连不上的网络是很常见的失败。
      *
-     * ⚠️ 前提是这台设备的 `supportWifiList` 为 true（固件 TuyaOS ≥ 3.6.1）。不支持的
-     * 固件这里只会一直等到超时，所以调用方必须先看那个标志。
+     * ⚠️ **不要和 AP 那个同名方法搞混。** `IThingOptimizedActivator.queryDeviceConfigState(
+     * ApQueryBuilder, …)` 是「热点配网新流程」那一条，前提是 SDK 自己去连 **Wi-Fi 热点**，
+     * 2026-09-11 真机判死（跑满 45 秒 `207220`，手机始终在路由器上）、整条删掉了。这里这个
+     * 是 `MultiModeQueryBuilder`，走的是**蓝牙**，两件事只是重名。
+     *
+     * ⚠️ 前提是这台设备的 `supportWifiList` 为 true（固件 TuyaOS ≥ 3.6.1）。
      */
     private fun bleQueryDeviceWifi(call: MethodCall, result: MethodChannel.Result) {
         val uuid = call.argument<String>("uuid").orEmpty()
@@ -838,32 +901,166 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             error(result, "ble_uuid_required", "查设备 Wi-Fi 列表必须给 BLE 扫到的 uuid")
             return
         }
-        val builder = firstClass("com.thingclips.smart.android.ble.bean.QueryWifiSetting\$Builder")
+        val bean = scannedBean(uuid)
+        withHome(result) { home ->
+            val builder = firstClass(
+                "com.thingclips.smart.sdk.bean.MultiModeQueryBuilder\$Builder",
+            ).getDeclaredConstructor().apply { isAccessible = true }.newInstance()
+            invoke(builder, "setHomeId", home)
+            invoke(builder, "setTimeout", call.argument<Number>("timeoutMs")?.toLong() ?: 30_000L)
+            invoke(builder, "setScanDeviceBean", bean)
+            val query = invoke(builder, "build")
+                ?: throw IllegalStateException("MultiModeQueryBuilder.build() 返回空")
+            trace("ble wifi: queryDeviceConfigState(uuid=$uuid, home=$home)")
+            invokeWithCallback(
+                multiModeActivator(),
+                "queryDeviceConfigState",
+                query,
+                onSuccess = { value ->
+                    onMain(result) {
+                        val list = bleWifiList(value)
+                        trace("ble wifi: 设备报回 ${list.size} 个网络")
+                        success(result, list)
+                    }
+                },
+                onError = { code, message ->
+                    trace("ble wifi: 失败 $code $message")
+                    error(result, code, message)
+                },
+            )
+        }
+    }
+
+    /**
+     * **双模第③步：把路由器凭据经蓝牙交给设备。**
+     *
+     * `IMultiModeActivator.startActivator(MultiModeActivatorBean, IMultiModeActivatorListener)`。
+     *
+     * 这一步是整条双模路径真正的收益所在：**全程不碰设备的 Wi-Fi 热点**，于是
+     *
+     * - 不需要 `WifiNetworkSpecifier` ⇒ **Android 10+ 那个系统入网授权框彻底没有了**；
+     * - 不需要先把手机切到一个没有外网的热点上 ⇒ 不用绑进程网络、不用事后还原；
+     * - 不需要 Wi-Fi 扫描拿到确切热点名 ⇒ 配额与发现速度彻底脱钩。
+     *
+     * 令牌照旧要在**还连着路由器**时取好（`prepareActivatorToken`）：它走云端。
+     */
+    private fun pairBleDevice(call: MethodCall, rawResult: MethodChannel.Result) {
+        val uuid = call.argument<String>("uuid").orEmpty()
+        if (uuid.isEmpty()) {
+            error(rawResult, "ble_uuid_required", "双模配网必须给 BLE 扫到的 uuid")
+            return
+        }
+        val bean = scannedBean(uuid)
+        if (pairingResult != null) releasePairing("pair_cancelled", "被新的配网请求取代")
+        val result = PairingResult(rawResult)
+        pairingResult = result
+        val token = freshActivatorToken()
+        if (token != null) {
+            startMultiModeActivator(call, result, uuid, bean, token)
+            return
+        }
+        withHome(result) { id ->
+            fetchActivatorToken(id, result) { fresh ->
+                startMultiModeActivator(call, result, uuid, bean, fresh)
+            }
+        }
+    }
+
+    private fun startMultiModeActivator(
+        call: MethodCall,
+        result: MethodChannel.Result,
+        uuid: String,
+        bean: Any,
+        token: String,
+    ) = withHome(result) { home ->
+        val activatorBean = firstClass("com.thingclips.smart.sdk.bean.MultiModeActivatorBean")
             .getDeclaredConstructor()
             .apply { isAccessible = true }
             .newInstance()
-        invoke(builder, "setUuid", uuid)
-        invoke(builder, "setSize", call.argument<Number>("size")?.toInt() ?: 20)
-        invoke(builder, "setTimeout", call.argument<Number>("timeoutMs")?.toLong() ?: 30_000L)
-        val setting = invoke(builder, "build")
-            ?: throw IllegalStateException("QueryWifiSetting.build() 返回空")
-        trace("ble wifi: queryWifiListForDeviceScan(uuid=$uuid)")
-        invokeWithCallback(
-            bleManager(),
-            "queryWifiListForDeviceScan",
-            setting,
-            onSuccess = { value ->
-                onMain(result) {
-                    val list = bleWifiList(value)
-                    trace("ble wifi: 设备报回 ${list.size} 个网络")
-                    success(result, list)
+        // `MultiModeActivatorBean` 的字段是公有裸字段（没有 setter），所以直接写字段。
+        setField(activatorBean, "homeId", home)
+        setField(activatorBean, "uuid", uuid)
+        setField(activatorBean, "ssid", call.argument<String>("ssid").orEmpty())
+        setField(activatorBean, "pwd", call.argument<String>("password").orEmpty())
+        setField(activatorBean, "token", token)
+        setField(activatorBean, "timeout", call.argument<Number>("timeoutMs")?.toLong() ?: 120_000L)
+        // phase1 = 蓝牙那一段（连上设备、把凭据交过去）；剩下的时间留给设备连路由器 +
+        // 注册云端。给蓝牙段单独一个短一点的上限，连不上能快点报出来。
+        setField(activatorBean, "phase1Timeout", 30_000L)
+        setField(activatorBean, "scanDeviceBean", bean)
+        trace("ble pair: startActivator(uuid=$uuid, home=$home)")
+        val listenerClass = firstClass("com.thingclips.smart.sdk.api.IMultiModeActivatorListener")
+        val loader = listenerClass.classLoader ?: activity.classLoader
+        val delivered = AtomicBoolean(false)
+        val listener = Proxy.newProxyInstance(loader, arrayOf(listenerClass)) { self, method, args ->
+            when (method.name) {
+                "equals" -> self === args?.firstOrNull()
+                "hashCode" -> System.identityHashCode(self)
+                "toString" -> "TuyaMultiModeListener"
+                "onSuccess" -> {
+                    if (delivered.compareAndSet(false, true)) {
+                        onMain(result) {
+                            stopMultiModeActivator(uuid)
+                            // 令牌是一次性的，留着会让下一次配网报「令牌过期」。
+                            activatorToken = null
+                            val device = args?.firstOrNull()
+                            if (device == null) {
+                                error(result, "pair_failed", "配网未返回设备信息")
+                            } else {
+                                watchDevice(deviceIdOf(device))
+                                success(result, deviceMap(device))
+                            }
+                        }
+                    }
+                    defaultValue(method.returnType)
                 }
-            },
-            onError = { code, message ->
-                trace("ble wifi: 失败 $code $message")
-                error(result, code, message)
-            },
-        )
+                // `onFailure(int code, String msg, Object handle)`——错误码是 int，
+                // 和别处 `onError(String, String)` 的形状不一样，所以不走 callbackProxy。
+                "onFailure" -> {
+                    if (delivered.compareAndSet(false, true)) {
+                        val code = (args?.getOrNull(0) as? Number)?.toInt() ?: -1
+                        val message = args?.getOrNull(1)?.toString().orEmpty()
+                        stopMultiModeActivator(uuid)
+                        trace("ble pair: 失败 $code $message")
+                        error(
+                            result,
+                            code.toString(),
+                            message.ifEmpty { "双模配网失败" },
+                        )
+                    }
+                    defaultValue(method.returnType)
+                }
+                else -> defaultValue(method.returnType)
+            }
+        }
+        invoke(multiModeActivator(), "startActivator", activatorBean, listener)
+    }
+
+    /** 停掉双模配网。没在跑时调用也安全。*/
+    private fun stopMultiModeActivator(uuid: String) {
+        val activator = multiModeActivator ?: return
+        runCatching { invoke(activator, "stopActivator", uuid) }.onFailure { cause ->
+            Log.w(TUYA_LOG_TAG, "stopActivator 失败：${cause.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * 写一个公有裸字段，找不到就退回同名 setter。
+     *
+     * 涂鸦这几个 Bean 是「公有字段 + 少量 getter」的写法，`MultiModeActivatorBean` 连
+     * setter 都没有，只能直接写字段。
+     */
+    private fun setField(target: Any, name: String, value: Any?) {
+        val field = runCatching { target.javaClass.getField(name) }
+            .recoverCatching { target.javaClass.getDeclaredField(name) }
+            .getOrNull()
+        if (field != null) {
+            field.isAccessible = true
+            field.set(target, value)
+            return
+        }
+        val setter = "set" + name.replaceFirstChar { it.uppercaseChar() }
+        invoke(target, setter, value)
     }
 
     /**
