@@ -55,6 +55,19 @@ class MockTuyaRepository implements TuyaRepository {
 
   int rawBleScanStarts = 0;
 
+  /// [ensureBlePermissions] 被调了几次；用例据此断言"授权在探测之前"。
+  int blePermissionRequests = 0;
+  int appSettingsOpens = 0;
+
+  @override
+  Future<void> ensureBlePermissions() async {
+    await _wait();
+    blePermissionRequests++;
+  }
+
+  @override
+  Future<void> openAppSettings() async => appSettingsOpens++;
+
   @override
   Future<void> startRawBleScan() async {
     await _wait();

@@ -16,11 +16,13 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
+import android.net.Uri
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -103,7 +105,8 @@ class MainActivity : FlutterActivity() {
                 call.method == "startBleScan" ||
                     call.method == "queryDeviceConfigState" ||
                     call.method == "pairBleDevice" ||
-                    call.method == "startRawBleScan"
+                    call.method == "startRawBleScan" ||
+                    call.method == "ensureBlePermissions"
             if ((needsWifiPermissions || needsBlePermissions) &&
                 requestPairingPermissions(call, result, forBle = needsBlePermissions)
             ) {
@@ -410,6 +413,11 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     success(result, null)
                 }
                 "startRawBleScan" -> startRawBleScan(result)
+                // 只为了**触发那次授权框**。真正的权限申请由 `requestPairingPermissions`
+                // 在方法通道入口处完成（`needsBlePermissions` 里有它），所以能走到这里
+                // 就说明必需权限已经拿到了。
+                "ensureBlePermissions" -> success(result, true)
+                "openAppSettings" -> openAppSettings(result)
                 "queryDeviceConfigState" -> bleQueryDeviceWifi(call, result)
                 "pairBleDevice" -> pairBleDevice(call, result)
                 "publishDps" -> deviceAction(call, result, "publishDps")
@@ -895,6 +903,23 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * ⚠️ 它和涂鸦那条**同时开着**：BLE 扫描在系统层是共享的，多个 scanner 并存是允许的。
      */
     private var rawScanCallback: ScanCallback? = null
+
+    /**
+     * 打开本应用的系统设置页。
+     *
+     * 权限被点成「拒绝」之后，`requestPermissions` 不会再弹框（系统直接回拒绝），
+     * 这时能做的只有把用户送到设置页自己开。搜索页在检测到权限缺失时给这颗按钮。
+     */
+    private fun openAppSettings(result: MethodChannel.Result) {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", activity.packageName, null),
+        )
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { activity.startActivity(intent) }
+            .onSuccess { success(result, true) }
+            .onFailure { cause -> error(result, "open_settings_failed", "打不开设置页：${cause.message}") }
+    }
 
     private fun startRawBleScan(result: MethodChannel.Result) {
         stopRawBleScan()

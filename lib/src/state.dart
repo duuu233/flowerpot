@@ -585,6 +585,20 @@ class FlowerpotState extends ChangeNotifier {
     Duration timeout = const Duration(seconds: 60),
   }) async {
     if (_bleScanning) return true;
+    // ⚠️ **顺序是这条路的命门**：必须先把授权框弹掉、等用户答完，再去探测。
+    //
+    // 2026-09-11 真机踩的就是这个：搜索页把 BLE 那条 `unawaited` 出去、紧接着才调
+    // `probeWifi`，而**权限框是 `probeWifi` 触发的**。于是 BLE 探测抢在授权框被回答
+    // 之前跑完，`checkSelfPermission` 报"未授予" ⇒ 不扫描、也没人再探一次，页面上
+    // 就一直写着「缺少定位权限」——而用户去系统设置一看，权限明明给了。
+    // 表现出来就是「第二次进 App 才正常」。
+    //
+    // 授权失败不在这里下结论：照常往下探测，由 `bleProbe` 的实测结果说话。
+    try {
+      await _repository.ensureBlePermissions();
+    } catch (_) {
+      // 用户拒了、或系统不再弹框。探测会把"缺哪一项"如实报出来。
+    }
     final availability = await probeBle();
     if (!availability.usable) return false;
     _bleSub ??= _repository.bleDevices.listen((device) {
@@ -614,6 +628,17 @@ class FlowerpotState extends ChangeNotifier {
     _bleScanning = true;
     notifyListeners();
     return true;
+  }
+
+  /// 把用户送去本应用的系统设置页。
+  ///
+  /// 权限被点成「拒绝」之后系统不再弹框，这是唯一的出路。
+  Future<void> openAppSettings() async {
+    try {
+      await _repository.openAppSettings();
+    } catch (_) {
+      // 打不开设置页不值得打断页面；用户还可以自己去系统设置。
+    }
   }
 
   /// 停掉 BLE 扫描并断开订阅。

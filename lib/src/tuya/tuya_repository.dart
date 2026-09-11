@@ -205,6 +205,20 @@ abstract class TuyaRepository {
 
   /// 原生扫描逐条推上来的广播。
   Stream<RawBleDevice> get rawBleDevices;
+
+  /// **主动弹一次 BLE 所需权限的授权框**，用户答完才返回。
+  ///
+  /// ⚠️ 必须在 [bleProbe] **之前** await 掉。否则会踩 2026-09-11 那个坑：探测抢在授权框
+  /// 被回答之前跑完，`checkSelfPermission` 当然报"未授予"，于是既不扫描、也没人再探一次，
+  /// 页面上那句「缺少定位权限」就一直挂着——而用户去系统设置一看，权限明明是给了的
+  /// （第二次进 App 就正常，正是这个原因）。
+  ///
+  /// 权限被拒时抛 `permission_denied`；被点成「拒绝且不再询问」之后系统不再弹框，
+  /// 只能靠 [openAppSettings] 把用户送去设置页。
+  Future<void> ensureBlePermissions();
+
+  /// 打开本应用的系统设置页（权限被永久拒绝后唯一的出路）。
+  Future<void> openAppSettings();
 }
 
 class MethodChannelTuyaRepository implements TuyaRepository {
@@ -272,6 +286,12 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> startRawBleScan() => _invoke<void>('startRawBleScan');
+
+  @override
+  Future<void> ensureBlePermissions() => _invoke<void>('ensureBlePermissions');
+
+  @override
+  Future<void> openAppSettings() => _invoke<void>('openAppSettings');
 
   /// 解析原生的 BLE 事件：`{type: 'bleDevice', uuid, name, rssi, …}`。
   ///
