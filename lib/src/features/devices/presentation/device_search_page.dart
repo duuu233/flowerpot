@@ -240,6 +240,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 才成立。
   bool _scannedForReal = false;
 
+  /// 开过 BLE 扫描的那个状态对象，[dispose] 里用来停扫（那时已不能查 InheritedWidget）。
+  ///
+  /// **一定要停**：扫描回调在原生侧握着 Activity，而且在真的耗电。
+  FlowerpotState? _bleState;
+
+  /// 正在问哪一台设备要 Wi-Fi 列表；空闲时为 null。
+  String? _queryingWifiUuid;
+
+  /// 上一次问设备要 Wi-Fi 列表的结果原文（成功是条数，失败是原始错误）。
+  String? _deviceWifiMessage;
+
   @override
   void initState() {
     super.initState();
@@ -274,6 +285,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     final hotspotState = _hotspotState;
     _hotspotState = null;
     if (hotspotState != null) unawaited(hotspotState.releaseDeviceHotspot());
+    // BLE 扫描同理：不停的话它会一直扫到超时，还握着这个 Activity。
+    final bleState = _bleState;
+    _bleState = null;
+    if (bleState != null) unawaited(bleState.stopBleDiscovery());
     WidgetsBinding.instance.removeObserver(this);
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
@@ -331,6 +346,15 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 才去取。只取一次：令牌有效期比一轮搜索窗口长得多，重新扫描不必重取。
     // 它不在原生的权限门禁名单里，和下面的授权互不影响。
     _prepared ??= state.prepareForPairing();
+    // **并行开一条 BLE 发现通道**（2026-09-11 起）。
+    //
+    // Wi-Fi 那条的慢是系统给的：前台每 2 分钟只有 4 次 `startScan`，而设备上电到
+    // 热点广播出来还要几十秒。BLE 不受那条配额约束，双模设备一上电就在广播，通常
+    // 一两秒就能扫到——「搜索不及时」正是冲着这一点。
+    //
+    // 不 await：BLE 起不起得来（手机没蓝牙、开关关着、固件不是双模）都不该拖住
+    // Wi-Fi 这条主路径。起不来时页面上那张卡会写清楚是哪一种。
+    unawaited(_startBleDiscovery(state));
     // ① 免费的一次：读系统扫描缓存。首次进入时的权限框就挡在这一步。
     _inFlight = true;
     try {
@@ -462,12 +486,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     });
   }
 
-  /// 带着这台设备进「连接 Wi-Fi」。
-  /// 带着这台设备进「连接 Wi-Fi」。
-  ///
-  /// `deviceName` 也一起带过去：用户没有点过「确认连接这台」，那么连接的是哪台
-  /// 必须在下一页上写清楚，否则整条流程就成了黑箱。设备名就用热点名——AP 模式下
-  /// App 能拿到的就这一个标识。
   /// 用户点了某一行的「连接」：**把手机连到这台设备的热点上**，连上了才进下一页。
   ///
   /// ## 授权统一收在这一颗按钮上（2026-09-11 产品口径）
@@ -547,6 +565,37 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _openPairing(hotspot, routerSsid: routerSsid);
   }
 
+  /// 和 Wi-Fi 扫描并行开 BLE 发现。
+  ///
+  /// 失败不抛、不拦路：这条通道目前是**加上去的**，Wi-Fi 那条照常跑。
+  Future<void> _startBleDiscovery(FlowerpotState state) async {
+    _bleState = state;
+    await state.startBleDiscovery();
+    if (!mounted) return;
+    // 可用性（可用 / 没硬件 / 没开蓝牙 / 包里没模块）要画到页面上，
+    // 不能默默扫不出来让人以为是设备坏了。
+    setState(() {});
+  }
+
+  /// 走 BLE 问这台设备要**它自己扫到的** Wi-Fi 列表。
+  ///
+  /// 这一步是双模优化路径的关键验证点：成了就说明「BLE 发现 → 本地连接 → 查 Wi-Fi
+  /// 列表」整条走得通，手机的 Wi-Fi 扫描配额从此与搜索速度无关。
+  Future<void> _queryDeviceWifi(FlowerpotState state, BleDevice device) async {
+    if (_queryingWifiUuid != null) return;
+    setState(() {
+      _queryingWifiUuid = device.uuid;
+      _deviceWifiMessage = null;
+    });
+    final result = await state.loadDeviceWifiList(device);
+    if (!mounted) return;
+    setState(() {
+      _queryingWifiUuid = null;
+      // 成功失败都把原文留在页面上（`PRODUCT_RULES` §4.1 事实在前）。
+      _deviceWifiMessage = result.message;
+    });
+  }
+
   /// 长按复制页面上那段说明——失败时它就是完整的诊断信息。
   Future<void> _copyMessage(String message) async {
     await Clipboard.setData(ClipboardData(text: message));
@@ -564,7 +613,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 2. **手机的扫描配额被占满**。`startScan` 的配额按 UID 算，SDK 和我们共用；虽然已经
   ///    给它留了 [_quotaReservedForSdk] 次，但如果刚刚反复搜索过，系统那边可能仍在限流，
   ///    等一会儿再试就好。
-  /// 连设备失败时画在页面上的话。
   ///
   /// ⚠️ **事实在前，猜测在后。** 2026-09-11 第一版把两条"最常见原因"排在最上面，结果
   /// 用户看到的全是猜测、真正的诊断被挤到看不见的地方——而产品的反馈正是「感觉不是这个
@@ -594,6 +642,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     });
   }
 
+  /// 带着这台设备进「连接 Wi-Fi」。
+  ///
+  /// 只带 `hotspotSsid` 与连热点**之前**读到的路由器名：下一页 2026-09-10 起不再画
+  /// 「已选择设备 xxx」（设备是在本页点「连接」确认的、热点那时也连上了），原来那个
+  /// 只为那一行存在的 `deviceName` 随之作废，2026-09-11 删掉。
   void _openPairing(WifiNetwork hotspot, {String routerSsid = ''}) {
     Navigator.pushNamed(
       context,
@@ -601,7 +654,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       arguments: PairingArguments(
         request: widget.request,
         hotspotSsid: hotspot.ssid,
-        deviceName: hotspot.ssid,
         routerSsid: routerSsid,
       ),
     );
@@ -709,6 +761,22 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           const SizedBox(height: 12),
                           _PairingLogBox(lines: state.pairingLog),
                         ],
+                        // **BLE 那条并行发现通道的结果。**
+                        //
+                        // 单独一张卡、写清是哪条通道发现的：这一版的目的就是在真机上
+                        // 回答两个问题——设备到底有没有在广播 BLE、它的固件支不支持
+                        // 回报自己扫到的 Wi-Fi 列表。答案要能被截图，不能只在 logcat。
+                        const SizedBox(height: 16),
+                        _BleFindingsCard(
+                          availability: state.bleAvailability,
+                          scanning: state.bleScanning,
+                          devices: state.bleDevices,
+                          networks: state.deviceWifiNetworks,
+                          queryingUuid: _queryingWifiUuid,
+                          message: _deviceWifiMessage,
+                          onQueryWifi: (device) =>
+                              unawaited(_queryDeviceWifi(state, device)),
+                        ),
                         // 找到的设备直接列在下面，边扫边冒出来。
                         if (hotspots.isNotEmpty) ...<Widget>[
                           const SizedBox(height: 20),
@@ -902,6 +970,217 @@ class _PairingLogBox extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// BLE 发现通道的结果卡。
+///
+/// **为什么单独画一张而不是并进上面那张设备列表**：这一版要在真机上回答的是
+/// 「这条路通不通」，所以每一格都必须是**事实**——BLE 可不可用、扫到几台、
+/// 每台的 `supportWifiList` 是真是假、问它要 Wi-Fi 列表得到了什么。混进主列表里
+/// 就分不清哪台是 Wi-Fi 扫到的、哪台是 BLE 扫到的，验证也就无从谈起。
+///
+/// 设备不支持 BLE（扫不到）时这张卡照常在，只是写着「未发现」——Wi-Fi 那条在下面
+/// 照常工作，配网流程一点没动。
+class _BleFindingsCard extends StatelessWidget {
+  const _BleFindingsCard({
+    required this.availability,
+    required this.scanning,
+    required this.devices,
+    required this.networks,
+    required this.onQueryWifi,
+    this.queryingUuid,
+    this.message,
+  });
+
+  final BleAvailability availability;
+  final bool scanning;
+  final List<BleDevice> devices;
+  final List<DeviceWifiNetwork> networks;
+  final ValueChanged<BleDevice> onQueryWifi;
+  final String? queryingUuid;
+  final String? message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('ble-findings-card'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.textTertiary.withValues(alpha: .3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Text(
+                '蓝牙发现',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (scanning)
+                const SizedBox.square(
+                  dimension: 12,
+                  child: CircularProgressIndicator(strokeWidth: 1.6),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _status,
+            key: const Key('ble-findings-status'),
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              height: 1.45,
+            ),
+          ),
+          for (final device in devices) ...<Widget>[
+            const SizedBox(height: 10),
+            _BleDeviceRow(
+              device: device,
+              busy: queryingUuid == device.uuid,
+              // 一次只问一台：BLE 本地连接是独占的，并发只会互相打断。
+              enabled: queryingUuid == null,
+              onQueryWifi: () => onQueryWifi(device),
+            ),
+          ],
+          if (message != null) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(
+              message!,
+              key: const Key('ble-wifi-query-message'),
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+                height: 1.45,
+              ),
+            ),
+          ],
+          if (networks.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 8),
+            const Text(
+              '设备自己扫到的 Wi-Fi：',
+              style: TextStyle(color: AppColors.textPrimary, fontSize: 12),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              networks
+                  .map(
+                    (item) =>
+                        '${item.ssid}  ${item.rssi}dBm'
+                        '${item.needsPassword ? ' 🔒' : ''}',
+                  )
+                  .join('\n'),
+              key: const Key('ble-device-wifi-list'),
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11,
+                height: 1.5,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 一句话交代这条通道现在是什么状况——**先说事实**。
+  String get _status {
+    if (!availability.available || !availability.supported) {
+      return availability.reason.isEmpty
+          ? '这个包 / 这台手机用不了 BLE，已按 Wi-Fi 扫描那条走。'
+          : '${availability.reason}，已按 Wi-Fi 扫描那条走。';
+    }
+    if (!availability.enabled) return '蓝牙没有打开，打开后重新扫描即可。';
+    if (devices.isEmpty) {
+      return scanning
+          ? '正在扫……设备若是 Wi-Fi+BLE 双模，通常一两秒就能出现。'
+          : '未发现广播 BLE 的设备。设备可能不是双模，Wi-Fi 那条照常在下面。';
+    }
+    return '扫到 ${devices.length} 台。';
+  }
+}
+
+/// BLE 扫到的一台设备。
+///
+/// `supportWifiList` 单独标出来：它决定了能不能走「问设备要 Wi-Fi 列表」这条捷径
+/// （固件 TuyaOS ≥ 3.6.1），也是这一轮真机验证要看的那一格。
+class _BleDeviceRow extends StatelessWidget {
+  const _BleDeviceRow({
+    required this.device,
+    required this.busy,
+    required this.enabled,
+    required this.onQueryWifi,
+  });
+
+  final BleDevice device;
+  final bool busy;
+  final bool enabled;
+  final VoidCallback onQueryWifi;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: Key('ble-device-${device.uuid}'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                device.label,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              // 这一行全是排查要的原文：信号、能力位、产品与 uuid。
+              Text(
+                '${device.rssi}dBm · '
+                '${device.supportWifiList ? '支持回报 Wi-Fi 列表' : '不支持回报 Wi-Fi 列表'}'
+                '（flag ${device.flag}）\n'
+                'pid ${device.productId.isEmpty ? '(空)' : device.productId} · '
+                'uuid ${device.uuid}',
+                style: const TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 11,
+                  height: 1.4,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          key: Key('ble-query-wifi-${device.uuid}'),
+          // 固件不支持时置灰而不是让它调下去：那条命令老固件不认，
+          // 点下去只会干等一次超时。
+          onPressed: enabled && device.supportWifiList && !busy
+              ? onQueryWifi
+              : null,
+          child: busy
+              ? const SizedBox.square(
+                  dimension: 14,
+                  child: CircularProgressIndicator(strokeWidth: 1.6),
+                )
+              : const Text('查Wi-Fi', style: TextStyle(fontSize: 12)),
+        ),
+      ],
     );
   }
 }

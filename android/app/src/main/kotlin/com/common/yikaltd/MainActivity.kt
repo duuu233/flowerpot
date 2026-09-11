@@ -93,7 +93,13 @@ class MainActivity : FlutterActivity() {
             val result = SingleResult(rawResult)
             val needsWifiPermissions =
                 call.method == "pairWifiDevice" || call.method == "scanWifi"
-            if (needsWifiPermissions && requestPairingPermissions(call, result)) {
+            // BLE 发现要的是另一套权限（Android 12 起蓝牙扫描从定位里独立出来），
+            // 拿 Wi-Fi 那套去要会当场少一个 BLUETOOTH_SCAN、扫不出任何东西。
+            val needsBlePermissions =
+                call.method == "startBleScan" || call.method == "queryDeviceWifiOverBle"
+            if ((needsWifiPermissions || needsBlePermissions) &&
+                requestPairingPermissions(call, result, forBle = needsBlePermissions)
+            ) {
                 return@setMethodCallHandler
             }
             bridge.handle(call, result)
@@ -136,11 +142,23 @@ class MainActivity : FlutterActivity() {
     private fun requestPairingPermissions(
         call: MethodCall,
         result: MethodChannel.Result,
+        forBle: Boolean = false,
     ): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
         val required = mutableSetOf<String>()
         val requested = mutableSetOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (forBle) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // 清单里 BLUETOOTH_SCAN 带着 `neverForLocation`，所以 Android 12 起
+                // 扫描**不再需要定位权限**——少要一个框。
+                required += Manifest.permission.BLUETOOTH_SCAN
+                // 查设备扫到的 Wi-Fi 列表要真的和设备建一条 BLE 连接，那一步要 CONNECT。
+                required += Manifest.permission.BLUETOOTH_CONNECT
+            } else {
+                // Android 11 及以下没有独立的蓝牙扫描权限，BLE 扫描一律按定位管。
+                required += Manifest.permission.ACCESS_FINE_LOCATION
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             required += Manifest.permission.NEARBY_WIFI_DEVICES
             // Still asked for: several SDK paths read the current SSID through
             // location, but provisioning is not blocked when it is refused.
@@ -177,7 +195,9 @@ class MainActivity : FlutterActivity() {
         if (grantResults.isEmpty() || deniedRequired.isNotEmpty()) {
             pending.result.error(
                 "permission_denied",
-                "配网需要定位或附近 Wi-Fi 设备权限",
+                // 哪一条被拒了直接列出来：「需要定位权限」这种笼统说法，用户在
+                // 设置里根本对不上是哪一项（`PRODUCT_RULES` §4.1 事实在前）。
+                "缺少权限：${deniedRequired.joinToString { it.substringAfterLast('.') }}",
                 null,
             )
         } else {
@@ -304,6 +324,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     fun releaseDeviceListeners() {
         watched.keys.toList().forEach(::unwatchDevice)
         otaInstances.keys.toList().forEach(::releaseOta)
+        // BLE 扫描的回调代理同样握着本 Activity，而且还在真的耗电。
+        stopBleScan()
     }
 
     /**
@@ -361,6 +383,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     success(result, null)
                 }
                 "joinDeviceHotspot" -> joinDeviceHotspot(call, result)
+                "bleProbe" -> bleProbe(result)
+                "startBleScan" -> startBleScan(call, result)
+                "stopBleScan" -> {
+                    stopBleScan()
+                    success(result, null)
+                }
+                "queryDeviceWifiOverBle" -> bleQueryDeviceWifi(call, result)
                 "publishDps" -> deviceAction(call, result, "publishDps")
                 "renameDevice" -> deviceAction(call, result, "renameDevice")
                 "removeDevice" -> deviceAction(call, result, "removeDevice")
@@ -597,6 +626,271 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             @Suppress("DEPRECATION")
             manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
                 manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        }
+    }
+
+    // ════════════════ BLE 发现：双模设备的优化路径 ════════════════
+    //
+    // **为什么加这条。** 「搜索不及时」的根是 Android 的 Wi-Fi 扫描配额——前台每 2 分钟
+    // 只允许 4 次 `startScan`，而设备上电到热点广播出来还要几十秒，两头一凑就是搜索页
+    // 那段「30 秒真扫 + 2 秒读缓存」的硬扛。**BLE 扫描不受那条配额约束**：双模设备一上
+    // 电就在广播 BLE，通常一两秒就能扫到。
+    //
+    // 拿到 `ScanDeviceBean` 之后还有第二个好处：它的 `flag` 里带着
+    // `CombosFlagCapability.SCAN_WIFI` 这一位（固件 TuyaOS ≥ 3.6.1 才有）。置位就说明
+    // 设备愿意把**它自己扫到的** Wi-Fi 列表报上来，于是连手机的 Wi-Fi 扫描都不用了：
+    // 直接走 BLE 本地连接问它要（[bleQueryDeviceWifi]），彻底绕开配额。
+    //
+    // ⚠️ **这是一条并行加上去的发现通道，没有替换任何东西。** 设备扫不到 BLE 时搜索页
+    // 照旧走 Wi-Fi 热点那条（`scanWifi`），配网本身仍然是 AP 那一条唯一路径。真机验完
+    // 才决定要不要收掉其中一条。
+    //
+    // ⚠️ 反射调用没有编译期保护。这几个类与方法是 2026-09-11 从官方 Maven 下
+    // `thingsmart-bluetooth(-api/-business-api) 7.5.1` 解包核对过的，逐个存在：
+    // `ThingHomeSdk.getBleOperator()/getBleManager()`、
+    // `IThingBleOperator.startLeScan(LeScanSetting, BleScanResponse)/stopLeScan()`、
+    // `LeScanSetting$Builder`、`ScanType.SINGLE`、`ScanDeviceBean`、
+    // `CombosFlagCapability.SCAN_WIFI/isCapabilityEnable(int,int)`、
+    // `QueryWifiSetting$Builder`、`IThingBleManager.queryWifiListForDeviceScan`。
+    // 核对工具是 `tools/aar_class_dump.py`（不依赖 JDK）。
+
+    /** 正在跑的那个 BLE 扫描回调代理；停扫时必须断开，SDK 否则一直握着它和本 Activity。*/
+    private var bleScanner: Any? = null
+
+    private fun bleOperator(): Any = invokeStatic(sdkClass(), "getBleOperator")
+        ?: throw IllegalStateException("getBleOperator() 返回空")
+
+    private fun bleManager(): Any = invokeStatic(sdkClass(), "getBleManager")
+        ?: throw IllegalStateException("getBleManager() 返回空")
+
+    /**
+     * 这台手机 / 这个包到底能不能用 BLE。
+     *
+     * 三种情况分开报，别糅成一个 false：**手机没有 BLE 硬件**、**蓝牙开关关着**、
+     * **包里根本没有蓝牙模块**（被裁掉或 SDK 没起来）——处置完全不同，糅在一起
+     * 又成了让人猜（`PRODUCT_RULES` §4.1 事实在前）。
+     */
+    private fun bleProbe(result: MethodChannel.Result) {
+        val operator = runCatching { bleOperator() }.getOrElse { cause ->
+            success(
+                result,
+                mapOf(
+                    "available" to false,
+                    "supported" to false,
+                    "enabled" to false,
+                    "reason" to "SDK 蓝牙模块不可用：${cause.javaClass.simpleName}: ${cause.message}",
+                ),
+            )
+            return
+        }
+        val supported =
+            runCatching { invoke(operator, "isBleSupported") as? Boolean }.getOrNull() ?: false
+        val enabled =
+            runCatching { invoke(operator, "isBluetoothOpened") as? Boolean }.getOrNull() ?: false
+        success(
+            result,
+            mapOf(
+                "available" to true,
+                "supported" to supported,
+                "enabled" to enabled,
+                "reason" to when {
+                    !supported -> "这台手机不支持 BLE"
+                    !enabled -> "蓝牙没有打开"
+                    else -> ""
+                },
+            ),
+        )
+    }
+
+    /**
+     * 开一轮 BLE 扫描，扫到的设备**逐台**推给 Dart（事件通道，`type = bleDevice`）。
+     *
+     * 不做成「扫完一次性返回」：BLE 的全部价值就在于第一台通常一两秒就出来，攒到
+     * 超时再回等于把这个优势原样丢掉。
+     */
+    private fun startBleScan(call: MethodCall, result: MethodChannel.Result) {
+        // 上一轮没停干净就先停：SDK 只保留最后一个回调，旧代理会一直漏在那里。
+        stopBleScan()
+        val operator = bleOperator()
+        val timeout = call.argument<Number>("timeoutMs")?.toLong() ?: 60_000L
+        val builder = firstClass("com.thingclips.smart.android.ble.api.LeScanSetting\$Builder")
+            .getDeclaredConstructor()
+            .apply { isAccessible = true }
+            .newInstance()
+        invoke(builder, "setTimeout", timeout)
+        // 同一台设备允许重复上报：`rssi` 会跟着变，页面按信号排序就需要新值。
+        invoke(builder, "setRepeatFilter", false)
+        // SINGLE = 单点设备（非 mesh）。花盆是 Wi-Fi + BLE 双模的单点设备。
+        invoke(builder, "addScanType", bleScanType("SINGLE"))
+        val setting = invoke(builder, "build")
+            ?: throw IllegalStateException("LeScanSetting.build() 返回空")
+        // `ThingBleScanResponse` 继承 `BleScanResponse`，多出 onScanStart/onScanStop
+        // 两个钩子——真机上「到底扫没扫起来」全靠它们，所以优先用它。
+        val responseClass = firstClass(
+            "com.thingclips.smart.android.ble.api.ThingBleScanResponse",
+            "com.thingclips.smart.android.ble.api.BleScanResponse",
+        )
+        val loader = responseClass.classLoader ?: activity.classLoader
+        val proxy = Proxy.newProxyInstance(loader, arrayOf(responseClass)) { self, method, args ->
+            when (method.name) {
+                "equals" -> self === args?.firstOrNull()
+                "hashCode" -> System.identityHashCode(self)
+                "toString" -> "TuyaBleScan"
+                "onResult" -> {
+                    args?.firstOrNull()?.let { bean ->
+                        runCatching { emit(bleDeviceMap(bean)) }.onFailure { cause ->
+                            trace("ble scan: 解析设备失败 ${cause.javaClass.simpleName}")
+                        }
+                    }
+                    defaultValue(method.returnType)
+                }
+                "onScanStart" -> {
+                    trace("ble scan: 已开始")
+                    defaultValue(method.returnType)
+                }
+                "onScanStop" -> {
+                    val reason = args?.firstOrNull()?.toString().orEmpty()
+                    trace("ble scan: 已结束（$reason）")
+                    emit(mapOf("type" to "bleScanStopped", "reason" to reason))
+                    defaultValue(method.returnType)
+                }
+                else -> defaultValue(method.returnType)
+            }
+        }
+        bleScanner = proxy
+        invoke(operator, "startLeScan", setting, proxy)
+        trace("ble scan: startLeScan(timeout=${timeout}ms, SINGLE)")
+        success(result, null)
+    }
+
+    /** 停掉 BLE 扫描。没在扫时调用也安全——每条退出路径都会调它。*/
+    private fun stopBleScan() {
+        if (bleScanner == null) return
+        bleScanner = null
+        runCatching { invoke(bleOperator(), "stopLeScan") }.onFailure { cause ->
+            Log.w(TUYA_LOG_TAG, "stopLeScan 失败：${cause.javaClass.simpleName}")
+        }
+    }
+
+    private fun bleScanType(name: String): Any {
+        val clazz = firstClass("com.thingclips.smart.android.ble.api.ScanType")
+        val constants = (clazz.enumConstants ?: emptyArray()).filterIsInstance<Enum<*>>()
+        return constants.firstOrNull { it.name == name }
+            ?: throw IllegalStateException(
+                "SDK 的 ScanType 没有 $name，可用：" +
+                    constants.joinToString { it.name }.ifEmpty { "无" },
+            )
+    }
+
+    /**
+     * `ScanDeviceBean` → Dart。
+     *
+     * `supportWifiList` 是这条路的关键：只有 `flag` 的 `CombosFlagCapability.SCAN_WIFI`
+     * 位置位，设备才愿意把自己扫到的 Wi-Fi 列表报上来（固件 TuyaOS ≥ 3.6.1）。
+     *
+     * 读不到那个常量时按 **false** 报：宁可回落到手机的 Wi-Fi 扫描，也不要拿一个猜出来
+     * 的能力位去调 [bleQueryDeviceWifi]、然后让用户干等一次超时。
+     */
+    private fun bleDeviceMap(bean: Any): Map<String, Any?> {
+        val flag = (optionalGetter(bean, "getFlag") as? Number)?.toInt() ?: 0
+        return mapOf(
+            "type" to "bleDevice",
+            "id" to optionalGetter(bean, "getId")?.toString(),
+            "name" to optionalGetter(bean, "getName")?.toString(),
+            "mac" to (optionalGetter(bean, "getMac") ?: optionalGetter(bean, "getAddress"))
+                ?.toString(),
+            "uuid" to optionalGetter(bean, "getUuid")?.toString(),
+            "productId" to optionalGetter(bean, "getProductId")?.toString(),
+            "configType" to optionalGetter(bean, "getConfigType")?.toString(),
+            "deviceType" to ((optionalGetter(bean, "getDeviceType") as? Number)?.toInt() ?: 0),
+            "bound" to (optionalGetter(bean, "getIsbind") as? Boolean ?: false),
+            "rssi" to ((optionalGetter(bean, "getRssi") as? Number)?.toInt() ?: 0),
+            "flag" to flag,
+            "supportWifiList" to bleSupportsWifiList(flag),
+        )
+    }
+
+    private fun bleSupportsWifiList(flag: Int): Boolean = runCatching {
+        val clazz = firstClass("com.thingclips.smart.android.ble.api.CombosFlagCapability")
+        val bit = clazz.getField("SCAN_WIFI").getInt(null)
+        clazz.getMethod(
+            "isCapabilityEnable",
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType,
+        ).invoke(null, flag, bit) as? Boolean ?: false
+    }.getOrElse { false }
+
+    /**
+     * 问设备要**它自己扫到的** Wi-Fi 列表，走 BLE 本地连接。
+     *
+     * 两个好处，都不是锦上添花：
+     *
+     * 1. **绕开 Android 的 Wi-Fi 扫描配额**——「搜索不及时」的根就在那里；
+     * 2. **列出来的是设备够得着的网络**。手机在客厅扫到的 5G，窗台上的花盆未必收得到；
+     *    让用户从手机的列表里选，选中一个设备根本连不上的网络是很常见的失败。
+     *
+     * ⚠️ 前提是这台设备的 `supportWifiList` 为 true（固件 TuyaOS ≥ 3.6.1）。不支持的
+     * 固件这里只会一直等到超时，所以调用方必须先看那个标志。
+     */
+    private fun bleQueryDeviceWifi(call: MethodCall, result: MethodChannel.Result) {
+        val uuid = call.argument<String>("uuid").orEmpty()
+        if (uuid.isEmpty()) {
+            error(result, "ble_uuid_required", "查设备 Wi-Fi 列表必须给 BLE 扫到的 uuid")
+            return
+        }
+        val builder = firstClass("com.thingclips.smart.android.ble.bean.QueryWifiSetting\$Builder")
+            .getDeclaredConstructor()
+            .apply { isAccessible = true }
+            .newInstance()
+        invoke(builder, "setUuid", uuid)
+        invoke(builder, "setSize", call.argument<Number>("size")?.toInt() ?: 20)
+        invoke(builder, "setTimeout", call.argument<Number>("timeoutMs")?.toLong() ?: 30_000L)
+        val setting = invoke(builder, "build")
+            ?: throw IllegalStateException("QueryWifiSetting.build() 返回空")
+        trace("ble wifi: queryWifiListForDeviceScan(uuid=$uuid)")
+        invokeWithCallback(
+            bleManager(),
+            "queryWifiListForDeviceScan",
+            setting,
+            onSuccess = { value ->
+                onMain(result) {
+                    val list = bleWifiList(value)
+                    trace("ble wifi: 设备报回 ${list.size} 个网络")
+                    success(result, list)
+                }
+            },
+            onError = { code, message ->
+                trace("ble wifi: 失败 $code $message")
+                error(result, code, message)
+            },
+        )
+    }
+
+    /**
+     * 把设备报回来的 Wi-Fi 列表折成 Dart 认得的形状。
+     *
+     * 认不出字段时**把原样 `toString()` 一并带上**（`raw`）：真机上一眼就能看出这一版
+     * SDK 到底给的是什么 bean，比在这里猜字段名快得多。
+     */
+    private fun bleWifiList(value: Any?): List<Map<String, Any?>> {
+        val items = when (value) {
+            null -> emptyList<Any?>()
+            is List<*> -> value
+            is Array<*> -> value.toList()
+            else -> listOf(value)
+        }
+        return items.filterNotNull().map { item ->
+            if (item is CharSequence) {
+                mapOf("ssid" to item.toString(), "rssi" to 0, "sec" to 0, "raw" to item.toString())
+            } else {
+                mapOf(
+                    "ssid" to (optionalGetter(item, "getSsid") ?: optionalGetter(item, "getName"))
+                        ?.toString().orEmpty(),
+                    "rssi" to ((optionalGetter(item, "getRssi") as? Number)?.toInt() ?: 0),
+                    "sec" to ((optionalGetter(item, "getSec") as? Number)?.toInt() ?: 0),
+                    "raw" to item.toString(),
+                )
+            }
         }
     }
 

@@ -36,6 +36,61 @@ class MockTuyaRepository implements TuyaRepository {
 
   void emitPairingLog(String line) => _pairingLogs.add(line);
 
+  final StreamController<BleDevice> _bleDevices =
+      StreamController<BleDevice>.broadcast();
+
+  @override
+  Stream<BleDevice> get bleDevices => _bleDevices.stream;
+
+  /// 让用例像真机那样逐台推 BLE 设备上来，不需要蓝牙硬件。
+  void pushBleDevice(BleDevice device) => _bleDevices.add(device);
+
+  /// 这一台 mock「手机」的 BLE 情况，用例按需改。默认可用——搜索页的主路径要能跑。
+  BleAvailability bleAvailability = const BleAvailability(
+    available: true,
+    supported: true,
+    enabled: true,
+  );
+
+  /// [startBleScan] / [stopBleScan] 各被调了几次；用例据此断言退出路径有没有停扫。
+  int bleScanStarts = 0;
+  int bleScanStops = 0;
+
+  /// [queryDeviceWifiList] 的返回。默认给两个网络，够页面画列表。
+  List<DeviceWifiNetwork> deviceWifiList = const <DeviceWifiNetwork>[
+    DeviceWifiNetwork(ssid: 'TP-LINK_2.4G', rssi: -48, sec: 3),
+    DeviceWifiNetwork(ssid: 'Xiaomi_2.4G', rssi: -70, sec: 3),
+  ];
+
+  @override
+  Future<BleAvailability> bleProbe() async {
+    await _wait();
+    return bleAvailability;
+  }
+
+  @override
+  Future<void> startBleScan({
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
+    await _wait();
+    bleScanStarts++;
+  }
+
+  @override
+  Future<void> stopBleScan() async {
+    bleScanStops++;
+  }
+
+  @override
+  Future<List<DeviceWifiNetwork>> queryDeviceWifiList(
+    String uuid, {
+    int size = 20,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    await _wait();
+    return deviceWifiList;
+  }
+
   /// 让测试和演示能驱动升级进度，无需真实设备。
   void pushOtaProgress(OtaProgress progress) => _otaUpdates.add(progress);
 

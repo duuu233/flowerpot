@@ -398,10 +398,11 @@ final class FlowerpotTuyaBridge: NSObject {
     finishPairing(with: FlutterError(code: "pair_cancelled", message: "被新的配网请求取代", details: nil))
     pairingResult = result
     activator.delegate = self
-    // EZ 默认，AP 兜底；两者都走同一条 startConfigWiFi。
-    let mode = (args["mode"] as? String) == "ez" ? ThingActivatorModeEZ : ThingActivatorModeAP
+    // **AP 是唯一的配网模式。** EZ 真机实测设备不支持，2026-09-11 整条删掉，Dart 侧
+    // 也不再下发 `mode`——原来那句 `args["mode"] == "ez" ? EZ : AP` 留着是个陷阱：
+    // 字段没了之后它恒真走 AP 没错，但读一个不存在的键会让人以为还能切模式。
     activator.startConfigWiFi(
-      mode,
+      ThingActivatorModeAP,
       ssid: args["ssid"] as? String ?? "",
       password: args["password"] as? String ?? "",
       token: token,

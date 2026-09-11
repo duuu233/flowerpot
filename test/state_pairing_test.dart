@@ -453,4 +453,107 @@ class _PairingRepository extends MockTuyaRepository {
     expect(state.pairingStage, PairingStage.idle);
   });
 
+  testWidgets('BLE 发现：扫到的设备逐台进列表，已绑的不列', (tester) async {
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+
+    expect(await state.startBleDiscovery(), isTrue);
+    expect(repository.bleScanStarts, 1);
+    expect(state.bleScanning, isTrue);
+
+    repository
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-far',
+          name: '',
+          mac: 'AA:BB:CC:DD:3F:A2',
+          productId: 'pid1',
+          rssi: -80,
+          bound: false,
+          supportWifiList: true,
+        ),
+      )
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-near',
+          name: '花盆',
+          mac: 'AA:BB:CC:DD:11:22',
+          productId: 'pid1',
+          rssi: -42,
+          bound: false,
+          supportWifiList: false,
+        ),
+      )
+      // 已经绑在某个账号下的不该出现：点进去只会得到一次配网失败。
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-bound',
+          name: '别人的',
+          mac: 'AA:BB:CC:DD:99:99',
+          productId: 'pid1',
+          rssi: -40,
+          bound: true,
+          supportWifiList: true,
+        ),
+      );
+    await tester.pump();
+
+    expect(
+      state.bleDevices.map((item) => item.uuid),
+      // 信号强的在前。
+      <String>['uuid-near', 'uuid-far'],
+    );
+    // 广播里没有名字时退到 mac 尾号，别画一个空行。
+    expect(state.bleDevices.last.label, '设备 3FA2');
+
+    // 退出动线必须停扫：回调在原生侧握着 Activity，而且在真的耗电。
+    await state.stopBleDiscovery();
+    expect(repository.bleScanStops, 1);
+    expect(state.bleScanning, isFalse);
+  });
+
+  testWidgets('BLE 查 Wi-Fi 列表：老固件直接拒，不让用户干等超时', (tester) async {
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+
+    // `supportWifiList == false`（固件 TuyaOS < 3.6.1）：这条命令设备不认，
+    // 调下去只会等满超时，所以在 Dart 侧就拦住。
+    const legacy = BleDevice(
+      uuid: 'uuid-legacy',
+      name: '老固件',
+      mac: 'AA:BB:CC:DD:00:01',
+      productId: 'pid1',
+      rssi: -50,
+      bound: false,
+      supportWifiList: false,
+    );
+    final refused = await state.loadDeviceWifiList(legacy);
+    expect(refused.success, isFalse);
+    expect(refused.code, 'ble_wifi_list_unsupported');
+    expect(state.deviceWifiNetworks, isEmpty);
+
+    // 支持的固件：拿回设备**自己扫到的**那份列表。
+    const modern = BleDevice(
+      uuid: 'uuid-modern',
+      name: '新固件',
+      mac: 'AA:BB:CC:DD:00:02',
+      productId: 'pid1',
+      rssi: -50,
+      bound: false,
+      supportWifiList: true,
+    );
+    final loaded = await state.loadDeviceWifiList(modern);
+    expect(loaded.success, isTrue);
+    expect(
+      state.deviceWifiNetworks.map((item) => item.ssid),
+      <String>['TP-LINK_2.4G', 'Xiaomi_2.4G'],
+    );
+    expect(state.deviceWifiNetworks.first.needsPassword, isTrue);
+  });
 }

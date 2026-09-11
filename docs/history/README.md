@@ -32,6 +32,7 @@
 
 ## 索引
 
+- [`2026-09/2026-09-11-pairing-stuck-fix-and-ble-discovery.md`](2026-09/2026-09-11-pairing-stuck-fix-and-ble-discovery.md)：**「输完 Wi-Fi 密码点下一步卡住」的修复**——`aef6ccd` 那次大删除把 `_pair()` 里的 `_pairingState = state` 与 `setState(() => _pairing = true)` 一起删了，进度页再也不出现、「取消配网」够不到、切后台还会把正在下发凭据的热点通道掐断；按 `223bdae^` 原样恢复并补回归断言。同轮按官方 4 步梳理配网并删掉多余代码（`pairDevice`、`PairingRequest.mode`、`PairingArguments.deviceName`、`_PairingHintCard`、三段悬空注释），另**新增 BLE 发现通道**（`getBleOperator().startLeScan` + `CombosFlagCapability.SCAN_WIFI` + `queryWifiListForDeviceScan`，与 Wi-Fi 扫描并行、不替换），反射目标用新工具 `tools/aar_class_dump.py` 解包逐个核对过。⚠️ BLE 全部未真机验证。
 - [`2026-09/2026-09-10-toast-drop-source-prefix.md`](2026-09/2026-09-10-toast-drop-source-prefix.md)：toast 去掉 `接口-` / `涂鸦-` / `APP-` 来源前缀直接给内容；`_tagged` 改名 `_diagnostic` 只服务诊断行（`sessionDiagnostics` 与后端会话失效原因），来源信息仍在 `ActionResult.code` 里。
 - [`2026-09/2026-09-10-ap-new-flow-implemented.md`](2026-09/2026-09-10-ap-new-flow-implemented.md)：配网整体切到涂鸦「热点配网新流程」——桥接新增 `apQueryDeviceWifi`/`apStartPairing`/`apStopPairing`，**连热点交给 SDK**，`WifiNetworkSpecifier` 与手动引导整套退出动线；「切换 Wi-Fi」改列设备自己扫到的网络。⚠️ 反射签名与固件版本（TuyaOS ≥ 3.6.1）均未真机验证。
 - [`2026-09/2026-09-10-tuya-ap-new-flow-found.md`](2026-09/2026-09-10-tuya-ap-new-flow-found.md)：**找到官方「热点配网新流程」——SDK 自己会连热点**，不必再用 `WifiNetworkSpecifier`、也就没有系统授权框；`ThingApActivatorBuilder` / `IThingOptimizedActivator` / `queryDeviceConfigState` 等接口在 7.5.1 里已实测存在，无需升级 SDK。前置条件：设备固件 TuyaOS ≥ 3.6.1（待设备开发确认）。官方文档已存档到 `docs/reference/`。

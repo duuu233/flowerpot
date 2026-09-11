@@ -487,6 +487,136 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
+  // ════════════════ BLE 发现（双模设备的优化路径） ════════════════
+  //
+  // **和 Wi-Fi 扫描并行，不替换它。** 两条通道各有各的前提：
+  //
+  // | | 靠什么发现 | 快不快 | 前提 |
+  // | --- | --- | --- | --- |
+  // | Wi-Fi | 设备拉起的 AP 热点 | 慢（Android 每 2 分钟只给 4 次 `startScan`） | 设备进了 AP 模式 |
+  // | BLE | 设备的 BLE 广播 | 快（不受那条配额约束，通常一两秒） | 设备是双模、手机蓝牙开着 |
+  //
+  // BLE 扫到之后还有第二步好处：[BleDevice.supportWifiList] 为 true（固件
+  // TuyaOS ≥ 3.6.1）时，可以直接问设备要**它自己扫到的** Wi-Fi 列表
+  // （[loadDeviceWifiList]），连手机的 Wi-Fi 扫描都省了——「搜索不及时」的根就此绕开。
+  //
+  // ⚠️ **配网本身没有改**：仍然是 AP 那一条唯一路径（[pairViaHotspot]）。BLE 这条
+  // 目前只管「发现设备」和「拿 Wi-Fi 列表」。真机验完才谈要不要再往前走。
+
+  BleAvailability _bleAvailability = BleAvailability.unknown;
+
+  /// 本轮扫到的设备，按 uuid 存最后一次上报（信号强度一直在变）。
+  final Map<String, BleDevice> _bleDevices = <String, BleDevice>{};
+
+  StreamSubscription<BleDevice>? _bleSub;
+  bool _bleScanning = false;
+
+  /// 最近一次 [loadDeviceWifiList] 拿回来的、**设备自己扫到的** Wi-Fi 列表。
+  List<DeviceWifiNetwork> _deviceWifiNetworks = <DeviceWifiNetwork>[];
+
+  BleAvailability get bleAvailability => _bleAvailability;
+
+  bool get bleScanning => _bleScanning;
+
+  /// 扫到的设备，信号强的在前。
+  ///
+  /// **已经绑过的不列**（[BleDevice.bound]）：那些是别人家的、或这个账号里已有的，
+  /// 点进去只会得到一个配网失败。
+  List<BleDevice> get bleDevices {
+    final items = _bleDevices.values.where((item) => !item.bound).toList()
+      ..sort((a, b) => b.rssi.compareTo(a.rssi));
+    return List<BleDevice>.unmodifiable(items);
+  }
+
+  List<DeviceWifiNetwork> get deviceWifiNetworks =>
+      List<DeviceWifiNetwork>.unmodifiable(_deviceWifiNetworks);
+
+  /// 探一次 BLE 能不能用，结果记在 [bleAvailability] 上。
+  ///
+  /// 不抛错：这条路不可用只是回落到 Wi-Fi 扫描，不该把搜索页整页打断。
+  Future<BleAvailability> probeBle() async {
+    try {
+      _bleAvailability = await _repository.bleProbe();
+    } catch (error) {
+      _bleAvailability = BleAvailability(
+        available: false,
+        supported: false,
+        enabled: false,
+        reason: '探测蓝牙失败：$error',
+      );
+    }
+    notifyListeners();
+    return _bleAvailability;
+  }
+
+  /// 开一轮 BLE 扫描。扫到的设备逐台进 [bleDevices]。
+  ///
+  /// **不占 [_guard] 的 busy 锁**：它和 Wi-Fi 扫描并行跑在搜索页上，占锁会把用户
+  /// 这期间的任何操作挡成「请等待当前操作完成」——`probeWifi` 早就因为同样的理由
+  /// 不占锁了。
+  ///
+  /// 返回 false 表示这条路没开起来（BLE 不可用、或原生拒绝），调用方照常走 Wi-Fi。
+  Future<bool> startBleDiscovery({
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
+    if (_bleScanning) return true;
+    final availability = await probeBle();
+    if (!availability.usable) return false;
+    _bleSub ??= _repository.bleDevices.listen((device) {
+      _bleDevices[device.uuid] = device;
+      notifyListeners();
+    });
+    try {
+      await _repository.startBleScan(timeout: timeout);
+    } catch (error) {
+      _bleAvailability = BleAvailability(
+        available: availability.available,
+        supported: availability.supported,
+        enabled: availability.enabled,
+        reason: '开启 BLE 扫描失败：$error',
+      );
+      notifyListeners();
+      return false;
+    }
+    _bleScanning = true;
+    notifyListeners();
+    return true;
+  }
+
+  /// 停掉 BLE 扫描并断开订阅。
+  ///
+  /// **每条离开搜索页的路径都要调**：扫描回调在原生侧握着 Activity，而且在真的耗电。
+  /// 没在扫时调用也安全。
+  Future<void> stopBleDiscovery() async {
+    await _bleSub?.cancel();
+    _bleSub = null;
+    if (!_bleScanning) return;
+    _bleScanning = false;
+    try {
+      await _repository.stopBleScan();
+    } catch (_) {
+      // 停不掉不该盖过调用方要做的事；最坏情况是多扫一会儿。
+    }
+    notifyListeners();
+  }
+
+  /// 走 BLE 问一台设备要**它自己扫到的** Wi-Fi 列表。
+  ///
+  /// ⚠️ 调用方必须先看 [BleDevice.supportWifiList]：老固件（TuyaOS < 3.6.1）不认这条
+  /// 命令，调下去只会让用户干等一次超时——那比直接用手机扫到的列表还慢。
+  Future<ActionResult> loadDeviceWifiList(BleDevice device) => _run(() async {
+    if (!device.supportWifiList) {
+      throw const TuyaException(
+        'ble_wifi_list_unsupported',
+        '这台设备的固件不支持回报 Wi-Fi 列表（需 TuyaOS 3.6.1 及以上）',
+      );
+    }
+    final networks = await _repository.queryDeviceWifiList(device.uuid);
+    _deviceWifiNetworks = networks;
+    notifyListeners();
+    return ActionResult(true, '设备扫到 ${networks.length} 个网络');
+  });
+
   /// 会把失败说出来的设备列表刷新：设备列表页的下拉刷新 / 重试共用这一个
   /// 入口。和会话恢复那条静默路径（`ignoreErrors: true`）相反，家庭查询、自动建家
   /// 和设备列表的失败都作为 [ActionResult] 返回，不会被吞掉。
@@ -534,36 +664,19 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '账号已注销');
   });
 
-  Future<ActionResult> pairDevice(PairingRequest request) =>
-      _guard(() => _pairInternal(request));
-
   /// Dart 侧兜底的等待上限。原生各自有超时（系统弹框 60 秒、activator 120 秒），
   /// 这里只防原生永远不回话的情况——那会让 [_guard] 的 busy 锁永远不放，整个
   /// App 都点不动。到点后主动 [cancelPairing]，让原生把资源放掉。
   static const Duration hotspotJoinDeadline = Duration(seconds: 90);
   static const Duration pairingDeadline = Duration(seconds: 150);
 
-  /// 一步走完 AP 配网：取令牌 → 连设备热点 → 配网。
-  ///
-  /// 三件事必须按这个顺序、并且在同一次操作里完成：令牌只能在手机还连着路由器
-  /// 时去云端取，而连上设备热点之后就没有外网了。拆成三个按钮让用户自己按顺序
-  /// 点，中间任何一步走神都会失败，而失败原因（令牌过期、没连上热点）从涂鸦的
-  /// `1006 out of time` 里完全看不出来。
-  ///
-  /// 平台连不了热点（iOS、Android 9 及以下）时回落到手动路径：先看手机是不是
-  /// 已经连在设备热点上，不是就以 `hotspot_manual_required` 失败并保留令牌，
-  /// 页面据此引导用户去系统设置连热点；用户连好后带 [hotspotJoinedManually]
-  /// 再调一次，令牌在有效期内直接复用，不再去云端取（那时已经没有外网了）。
-  ///
-  /// 任何一步失败都会释放热点连接与进程网络绑定：那是原生层的状态，不释放的话
-  /// 进程会一直绑在一个没有互联网的网络上，之后的回查设备、重试取令牌全部失败，
-  /// 看起来就像「设备被占住了」。
   /// 配网前的准备：先把家庭确认下来、再取令牌，这两步都要走云端，必须在手机
   /// 还连着路由器时完成。
   ///
   /// 连上设备热点之后手机就没有外网，那时再查家庭轻则失败、重则拿到一份空列表
   /// 被当成「这个账号还没有家庭」而新建一个——账号里从此多一个空家庭，下次登录
-  /// 就可能读到它、一台设备都没有。所以配网页先跑这一步、转个圈，成了才去连热点。
+  /// 就可能读到它、一台设备都没有。所以**搜索页进页面就先跑这一步**（`_prepared`），
+  /// 点「连接」时先 await 它，成了才去连热点。
   Future<ActionResult> prepareForPairing() => _guard(() async {
     var home = '';
     try {
@@ -802,7 +915,7 @@ class FlowerpotState extends ChangeNotifier {
       pairingStarted = true;
       _setPairingStage(PairingStage.sendingWifi);
       final result = await _pairInternal(
-        PairingRequest(ssid: ssid, password: password, mode: 'ap'),
+        PairingRequest(ssid: ssid, password: password),
       );
       mark('配网');
       return ActionResult(
@@ -2061,6 +2174,17 @@ class FlowerpotState extends ChangeNotifier {
     _sessionEpoch++;
     _deviceUpdates?.cancel();
     _otaUpdates?.cancel();
+    // BLE 扫描在原生侧握着 Activity、还在耗电，状态对象没了更没人去停它。
+    //
+    // ⚠️ **这里不能调 `stopBleDiscovery()`**：它 `await` 之后还要 `notifyListeners()`，
+    // 而那一刻 `super.dispose()` 已经跑完，`ChangeNotifier` 会抛「used after being
+    // disposed」。所以拆开手写，只做释放、不通知——已经没人在听了。
+    unawaited(_bleSub?.cancel() ?? Future<void>.value());
+    _bleSub = null;
+    if (_bleScanning) {
+      _bleScanning = false;
+      unawaited(_repository.stopBleScan().catchError((Object _) {}));
+    }
     _backend.close();
     super.dispose();
   }

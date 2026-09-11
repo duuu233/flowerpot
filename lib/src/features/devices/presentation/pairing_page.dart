@@ -24,7 +24,6 @@ const double _startButtonInset = 92;
 
 class PairingArguments {
   const PairingArguments({
-    this.deviceName,
     this.hotspotSsid,
     this.request,
     this.routerSsid = '',
@@ -36,9 +35,6 @@ class PairingArguments {
   /// （当前连的是热点，填它等于让设备去连它自己）。所以趁还在路由器上先把名字抓下来带
   /// 过来，用户到这一页仍然看到自己的 Wi-Fi 已经填好，只需输密码。
   final String routerSsid;
-
-  /// Planter picked on the selection page, shown above the credentials.
-  final String? deviceName;
 
   /// The access point that planter raises in AP mode, as the scan saw it. AP
   /// provisioning needs the phone to join it, so the page can name it instead
@@ -80,10 +76,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     text: widget.arguments?.request?.password ?? '',
   );
 
-  /// 平台不让 App 自己连热点（iOS、Android 9 及以下）时切到手动路径：页面改为
-  /// 引导用户去系统设置连热点，按钮变成「已连接热点，开始配网」，下一次点击
-  /// 告诉状态层热点已经由用户连好，直接配网。
-
   /// 正在跑的那次配网所属的状态对象。用户在配网期间退出本页时据此中止：
   /// 否则 activator 会继续跑满两分钟，手机也一直挂在设备热点上。dispose 里
   /// 已经不能查 InheritedWidget，所以发起时就把引用留下。
@@ -95,10 +87,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
   /// 本页发起的配网正在跑。用它而不是 `state.busy` 来决定是否盖进度页：busy 是
   /// 全局操作锁，别处的写操作也会把它拉起来。
   bool _pairing = false;
-
-
-  /// 配网前的准备（确认家庭 + 取令牌）正在跑。这两步都要走云端，必须在还连着
-  /// 路由器时完成，所以先转个圈等它结束，成了才去碰设备热点。
 
   /// 上一次由扫描自动填进输入框的名称。用户自己打字或从「切换」里选过之后，
   /// 输入框的内容就和它对不上了，此后的刷新不再覆盖用户的选择。
@@ -263,6 +251,18 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
       ssid: ssidController.text.trim(),
       password: passwordController.text,
     );
+    // ⚠️ **这两行不能省，`2026-09-11` 的大删除（`aef6ccd`）把它们连同上面那段注释一起
+    // 删掉了，症状就是「填完密码点下一步卡住」。** `build` 靠 `_pairing` 切进度页：它一直
+    // 是 false，点下按钮后页面就还停在输密码那一屏，只有按钮里转一个圈，而 `pairViaHotspot`
+    // 最长要跑满 `pairingDeadline`（150 秒）才回来——中间没有任何进度、也没有「取消配网」。
+    //
+    // `_pairingState` 同样要留下：`dispose` 与 `didChangeAppLifecycleState` 都按它区分
+    // 「配网正在跑」。为 null 时退出本页走的是 `releaseDeviceHotspot()`、切后台也会去放
+    // 热点——那会把正在下发凭据的通道掐断，配网**真的会失败**，不只是看起来卡住。
+    //
+    // 按 `223bdae^`（git 里最后一版配网成功的代码）原样恢复。
+    _pairingState = state;
+    setState(() => _pairing = true);
     // **唯一一条配网路径**：`pairViaHotspot`（取令牌 → 连热点 → `pairWifiDevice`，
     // 涂鸦标准 AP）。2026-09-11 定稿，另外三条（EZ、涂鸦「新流程」、扩展 SDK
     // `ThingActivatorCoreKit`）都已删掉，原因见 [FlowerpotState.pairViaHotspot]。
@@ -435,40 +435,6 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Small notice strip used for the band warning and the AP hotspot step.
-class _PairingHintCard extends StatelessWidget {
-  const _PairingHintCard({
-    required this.tone,
-    required this.text,
-    super.key,
-  });
-
-  final Color tone;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: tone.withValues(alpha: .08),
-        borderRadius: AppRadius.card,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              text,
-              style: TextStyle(color: tone, fontSize: 13, height: 1.55),
-            ),
-          ],
-        ),
       ),
     );
   }

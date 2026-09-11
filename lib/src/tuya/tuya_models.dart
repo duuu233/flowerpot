@@ -713,29 +713,15 @@ class AnimationAsset {
 
 /// 配网请求。
 ///
-/// [mode] 取 `ap` 或 `ez`：
-/// - `ap`（默认）手机先连设备自己拉起的热点，再把路由器凭据交给它。Android 10
-///   起 App 可以直接发起这个连接（系统弹框确认即可，见 `joinDeviceHotspot`），
-///   不必让用户去系统设置，所以步骤并不比 EZ 多。它不受路由器组播策略影响，是
-///   实测唯一稳定配上的方式。
-/// - `ez` 手机全程连在路由器上广播凭据，看似更省事，但必须处在 2.4G，且很多
-///   路由器会过滤组播导致设备收不到；设备也必须处在 EZ 模式（快闪、不拉热点）。
-///
-/// 没有双模：7.5.1 的 `ActivatorModelEnum` 只提供
-/// `THING_AP / THING_EZ / THING_4G_GATEWAY / THING_STATIC_IP / THING_QR`，
-/// 实机查询过，不存在 EZ+AP 合一的常量。
+/// **没有模式字段了。** 以前带一个 `mode`（`ap` / `ez`），2026-09-11 删掉：EZ 真机实测
+/// 设备不支持、整条路已经删干净，Android 原生侧也早就不读它（`2b0a4b8` 把
+/// `if (requested == "ap")` 改成无条件）。留着一个只有一种取值的字段，唯一的作用是
+/// 让人以为还能切——而万一漏传，iOS 那边会静默按另一种模式发，排查起来完全看不出。
 class PairingRequest {
-  const PairingRequest({
-    required this.ssid,
-    required this.password,
-    this.mode = 'ap',
-  });
+  const PairingRequest({required this.ssid, required this.password});
 
   final String ssid;
   final String password;
-  final String mode;
-
-  bool get isAp => mode == 'ap';
 }
 
 /// One access point seen by the phone.
@@ -796,6 +782,170 @@ class WifiNetwork {
         compact.startsWith('tuya') ||
         compact.startsWith('ysplanter');
   }
+}
+
+/// 这台手机 / 这个包能不能用 BLE 发现。
+///
+/// 三件事分开报而不是折成一个 bool：**手机没有 BLE 硬件**、**蓝牙开关关着**、
+/// **包里根本没有蓝牙模块**，处置完全不同——第二种让用户开一下蓝牙就行，第一、三种
+/// 只能回落到 Wi-Fi 扫描。糅成 false 就又变成让人猜（`PRODUCT_RULES` §4.1）。
+class BleAvailability {
+  const BleAvailability({
+    required this.available,
+    required this.supported,
+    required this.enabled,
+    this.reason = '',
+  });
+
+  factory BleAvailability.fromMap(Map<Object?, Object?> raw) => BleAvailability(
+    available: raw['available'] == true,
+    supported: raw['supported'] == true,
+    enabled: raw['enabled'] == true,
+    reason: raw['reason']?.toString() ?? '',
+  );
+
+  /// SDK 里有蓝牙模块、拿得到操作实例。false 表示这个包根本没这条路。
+  final bool available;
+
+  /// 这台手机有 BLE 硬件。
+  final bool supported;
+
+  /// 蓝牙开关开着。
+  final bool enabled;
+
+  /// 不可用时的原文，直接画到页面上。
+  final String reason;
+
+  /// 三项都成立才谈得上扫。
+  bool get usable => available && supported && enabled;
+
+  static const BleAvailability unknown = BleAvailability(
+    available: false,
+    supported: false,
+    enabled: false,
+    reason: '尚未探测',
+  );
+}
+
+/// BLE 扫描看到的一台设备（涂鸦 `ScanDeviceBean`）。
+///
+/// 这条发现通道的意义：Wi-Fi 扫描受 Android 配额限制（前台每 2 分钟 4 次），设备上电
+/// 到热点广播出来还要几十秒，两头一凑就是「搜索不及时」；**BLE 不受那条约束**，双模
+/// 设备一上电就在广播。
+class BleDevice {
+  const BleDevice({
+    required this.uuid,
+    required this.name,
+    required this.mac,
+    required this.productId,
+    required this.rssi,
+    required this.bound,
+    required this.supportWifiList,
+    this.id = '',
+    this.configType = '',
+    this.deviceType = 0,
+    this.flag = 0,
+  });
+
+  factory BleDevice.fromMap(Map<Object?, Object?> raw) => BleDevice(
+    uuid: raw['uuid']?.toString() ?? '',
+    name: raw['name']?.toString() ?? '',
+    mac: raw['mac']?.toString() ?? '',
+    productId: raw['productId']?.toString() ?? '',
+    rssi: (raw['rssi'] as num?)?.toInt() ?? 0,
+    bound: raw['bound'] == true,
+    supportWifiList: raw['supportWifiList'] == true,
+    id: raw['id']?.toString() ?? '',
+    configType: raw['configType']?.toString() ?? '',
+    deviceType: (raw['deviceType'] as num?)?.toInt() ?? 0,
+    flag: (raw['flag'] as num?)?.toInt() ?? 0,
+  );
+
+  /// 设备的 BLE uuid，**查 Wi-Fi 列表就靠它**（`queryWifiListForDeviceScan`）。
+  final String uuid;
+  final String name;
+  final String mac;
+  final String productId;
+
+  /// 信号强度 dBm，越接近 0 越强。
+  final int rssi;
+
+  /// 已经绑在某个账号下。配网页要的是没绑的那些。
+  final bool bound;
+
+  /// 设备愿意把**它自己扫到的** Wi-Fi 列表报上来（固件 TuyaOS ≥ 3.6.1，
+  /// 对应 `CombosFlagCapability.SCAN_WIFI` 那一位）。
+  ///
+  /// **false 时不要去调 `queryDeviceWifiList`**：老固件不认这条命令，只会让用户
+  /// 干等一次超时，回落到手机的 Wi-Fi 扫描反而快。
+  final bool supportWifiList;
+
+  final String id;
+  final String configType;
+  final int deviceType;
+
+  /// 能力位原值。真机上排查 [supportWifiList] 为什么是 false 时要看它。
+  final int flag;
+
+  /// 页面上怎么称呼这一台。
+  ///
+  /// BLE 广播里的 name 经常是空的（很多固件根本不放），退到 mac 尾号——
+  /// 「设备 3F:A2」也比一个空行强。
+  String get label {
+    final trimmed = name.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+    final tail = mac.replaceAll(':', '');
+    if (tail.length >= 4) return '设备 ${tail.substring(tail.length - 4)}';
+    return uuid.isNotEmpty ? '设备 $uuid' : '未命名设备';
+  }
+
+  /// 与 [WifiNetwork.signalBars] 同一套档位，页面画格数用。
+  int get signalBars => switch (rssi) {
+    >= -55 => 4,
+    >= -65 => 3,
+    >= -75 => 2,
+    _ => 1,
+  };
+}
+
+/// 设备**自己扫到的**一个 Wi-Fi（走 BLE 问它要的那份列表）。
+///
+/// 比手机扫到的准：手机在客厅收得到的网络，窗台上的花盆未必够得着，让用户从手机的
+/// 列表里挑，挑中一个设备连不上的网络是很常见的失败。
+class DeviceWifiNetwork {
+  const DeviceWifiNetwork({
+    required this.ssid,
+    required this.rssi,
+    required this.sec,
+    this.raw = '',
+  });
+
+  factory DeviceWifiNetwork.fromMap(Map<Object?, Object?> item) =>
+      DeviceWifiNetwork(
+        ssid: item['ssid']?.toString() ?? '',
+        rssi: (item['rssi'] as num?)?.toInt() ?? 0,
+        sec: (item['sec'] as num?)?.toInt() ?? 0,
+        raw: item['raw']?.toString() ?? '',
+      );
+
+  final String ssid;
+  final int rssi;
+
+  /// 加密方式，0 = 开放网络。
+  final int sec;
+
+  /// 原生那一版 bean 的 `toString()`。字段名对不上时，真机上一眼就能看出
+  /// SDK 到底给的是什么——比在代码里猜快得多。
+  final String raw;
+
+  bool get needsPassword => sec != 0;
+
+  int get signalBars => switch (rssi) {
+    >= -55 => 4,
+    >= -65 => 3,
+    >= -75 => 2,
+    _ => 1,
+  };
 }
 
 /// 配网进度，对应 `设备配网-配网中的步骤` 那三步。
@@ -904,15 +1054,18 @@ class WifiScan {
   }
 
   /// Whether the phone itself sits on a planter hotspot, which is what AP
-  /// provisioning needs right before [PairingRequest] with `mode: 'ap'`.
+  /// provisioning needs right before [PairingRequest] is handed to the SDK.
   bool get currentIsDeviceHotspot {
     final ssid = current;
     return ssid != null && WifiNetwork.isDeviceHotspotName(ssid);
   }
 
-  /// Planters waiting in AP provisioning mode, strongest first. Scanning for
-  /// these is the only real evidence the app has that a device entered pairing
-  /// state: the product has no BLE discovery and the SDK has no scan API.
+  /// Planters waiting in AP provisioning mode, strongest first.
+  ///
+  /// 2026-09-11 之前这里写着「产品没有 BLE 发现、SDK 也没有扫描 API」——**两句都是
+  /// 错的**：`ThingHomeSdk.getBleOperator().startLeScan(...)` 一直都在（已解包核对），
+  /// 双模设备也在广播 BLE。现在 BLE 是一条并行的发现通道（见 [BleDevice]），这份
+  /// Wi-Fi 热点列表是设备不支持 BLE 时的那条。
   List<WifiNetwork> get deviceHotspots =>
       _strongestPerSsid(networks.where((item) => item.looksLikeDeviceHotspot));
 

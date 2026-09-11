@@ -269,11 +269,11 @@ void main() {
     // 2026-09-10 动线调整：设备是在**搜索页**上点「连接」确认的，热点那时也已经连上。
     // 这一页的任务只剩「选一个要让设备加入的 Wi-Fi 并输密码」，再画一遍
     // 「已选择设备 xxx」只是占地方。（原用例断言的就是那一行，随之作废。）
+    // 2026-09-11：连 `PairingArguments.deviceName` 字段本身也删了——传进来没人读。
     await _pumpPairingPage(
       tester,
       const Size(375, 812),
       arguments: const PairingArguments(
-        deviceName: 'SmartLife-A1B2',
         hotspotSsid: 'SmartLife-A1B2',
         request: PairingRequest(ssid: 'TP-LINK_2.4G', password: '87654321'),
       ),
@@ -390,6 +390,13 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(state.busy, isTrue);
     expect(repository.pairCalls, 1);
+    // ⚠️ 回归守卫：点下按钮的那一刻页面就该换成进度页。`_pairing` 一旦漏设
+    // （`aef6ccd` 就是这么删掉的），用户停在输密码那一屏、只有按钮里转个圈，
+    // 而配网最长要跑满 150 秒才回来——报上来就是「填完密码点下一步卡住了」。
+    expect(find.byKey(const Key('pairing-progress-view')), findsOneWidget);
+    expect(find.byKey(const Key('pairing-progress-title')), findsOneWidget);
+    // 进度页上的「取消配网」要能用，它靠的是同一处赋值的 `_pairingState`。
+    expect(find.byKey(const Key('pairing-progress-cancel')), findsOneWidget);
 
     // The page goes away with the pairing still running: the activator must
     // not keep going for two minutes with the phone stuck on the hotspot.

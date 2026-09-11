@@ -149,7 +149,35 @@ abstract class TuyaRepository {
   /// `pairing step: …`。
   Stream<String> get pairingLogs;
 
+  /// BLE 发现是否可用：包里有没有蓝牙模块、手机有没有 BLE、蓝牙开没开。
+  ///
+  /// 调 [startBleScan] 之前先问一次——不可用时页面要**直说是哪一种**，而不是默默
+  /// 扫不出来让用户以为设备坏了。
+  Future<BleAvailability> bleProbe();
 
+  /// 开一轮 BLE 扫描。扫到的设备**逐台**从 [bleDevices] 推上来，不等扫完。
+  ///
+  /// 这条路的意义是绕开 Android 的 Wi-Fi 扫描配额（前台每 2 分钟 4 次 `startScan`）
+  /// ——「搜索不及时」的根就在那里。双模设备一上电就在广播 BLE，通常一两秒就能扫到。
+  Future<void> startBleScan({Duration timeout});
+
+  /// 停掉 BLE 扫描。没在扫时调用也安全。
+  ///
+  /// **每条离开搜索页的路径都要调**：扫描回调握着 Activity，而且在真的耗电。
+  Future<void> stopBleScan();
+
+  /// 问设备要**它自己扫到的** Wi-Fi 列表，走 BLE 本地连接。
+  ///
+  /// [uuid] 来自 [BleDevice.uuid]。⚠️ **先看 [BleDevice.supportWifiList]**：老固件
+  /// （TuyaOS < 3.6.1）不认这条命令，调下去只会让用户干等一次超时。
+  Future<List<DeviceWifiNetwork>> queryDeviceWifiList(
+    String uuid, {
+    int size,
+    Duration timeout,
+  });
+
+  /// BLE 扫描逐台推上来的设备。同一台会重复出现（信号强度在变），去重交给调用方。
+  Stream<BleDevice> get bleDevices;
 }
 
 class MethodChannelTuyaRepository implements TuyaRepository {
@@ -194,6 +222,22 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       .map((event) => _stringField(event, 'pairingLog', 'line'))
       .where((line) => line != null && line.isNotEmpty)
       .cast<String>();
+
+  @override
+  late final Stream<BleDevice> bleDevices = _rawEvents
+      .map(_bleDevice)
+      .where((device) => device != null)
+      .cast<BleDevice>();
+
+  /// 解析原生的 BLE 事件：`{type: 'bleDevice', uuid, name, rssi, …}`。
+  ///
+  /// 没有 uuid 的一律丢掉：查 Wi-Fi 列表、配网都要它，画在页面上也点不动。
+  BleDevice? _bleDevice(Object? event) {
+    if (event is! Map) return null;
+    if ('${event['type'] ?? ''}' != 'bleDevice') return null;
+    final device = BleDevice.fromMap(event.cast<Object?, Object?>());
+    return device.uuid.isEmpty ? null : device;
+  }
 
   /// 从原生事件里取一个字符串字段：`{type: <type>, <field>: '…'}`。
   String? _stringField(Object? event, String type, String field) {
@@ -401,7 +445,6 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       <String, Object?>{
         'ssid': request.ssid,
         'password': request.password,
-        'mode': request.mode,
         'homeName': TuyaConfig.defaultHomeName,
       },
     );
@@ -463,6 +506,52 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       throttled: raw['throttled'] == true,
       ageMs: (raw['ageMs'] as num?)?.toInt(),
     );
+  }
+
+  @override
+  Future<BleAvailability> bleProbe() async {
+    final raw = await _invoke<Map<Object?, Object?>>('bleProbe');
+    if (raw == null) {
+      return const BleAvailability(
+        available: false,
+        supported: false,
+        enabled: false,
+        reason: '这个平台没有实现 BLE 发现',
+      );
+    }
+    return BleAvailability.fromMap(raw);
+  }
+
+  @override
+  Future<void> startBleScan({
+    Duration timeout = const Duration(seconds: 60),
+  }) => _invoke<void>('startBleScan', <String, Object?>{
+    'timeoutMs': timeout.inMilliseconds,
+  });
+
+  @override
+  Future<void> stopBleScan() => _invoke<void>('stopBleScan');
+
+  @override
+  Future<List<DeviceWifiNetwork>> queryDeviceWifiList(
+    String uuid, {
+    int size = 20,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final raw = await _invoke<List<Object?>>(
+      'queryDeviceWifiOverBle',
+      <String, Object?>{
+        'uuid': uuid,
+        'size': size,
+        'timeoutMs': timeout.inMilliseconds,
+      },
+    );
+    return (raw ?? <Object?>[])
+        .whereType<Map<Object?, Object?>>()
+        .map(DeviceWifiNetwork.fromMap)
+        // 空 SSID 是隐藏网络或解析没对上，画出来用户也选不了。
+        .where((item) => item.ssid.isNotEmpty)
+        .toList(growable: false);
   }
 
   @override
