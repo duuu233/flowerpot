@@ -13,6 +13,20 @@ abstract final class TuyaConfig {
   /// editing rows by hand.
   static const productId = 'yciq4kssu1fv8umn';
 
+  /// 设备 **BLE 广播包里**带的标识（2026-09-11 真机确认）。
+  ///
+  /// ⚠️ **它和 [productId] 是两个不同的东西，不是"对不上"**：
+  ///
+  /// | | 是什么 | 谁用 |
+  /// | --- | --- | --- |
+  /// | [productId] `yciq4kssu1fv8umn` | 涂鸦 IoT 平台上那个**产品**的 ID | 配网、绑定、DP 表——**云端一律以它为准** |
+  /// | [broadcastId] `ehbx83xdh9jkmxvz` | 设备**广播**时放进 BLE 包里的标识 | 只用于本地判断「这条广播是不是这款产品」 |
+  ///
+  /// 后台接口返回的 `broadcastId` 就是它。BLE 扫描回来的 `ScanDeviceBean.getProductId()`
+  /// 拿到的是**广播里那个**，所以认设备时两个都要比——只比 [productId] 会永远认不出来
+  /// （2026-09-11 真机上扫到 -32dBm 的花盆却没被标成"本产品"，就是这个原因）。
+  static const broadcastId = 'ehbx83xdh9jkmxvz';
+
   /// Product DP table, keyed by the Tuya *identifier* rather than by an app
   /// concept, so a row can be diffed against the platform export character for
   /// character. App-facing names resolve through [setting] and [history];

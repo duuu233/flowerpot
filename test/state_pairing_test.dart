@@ -523,7 +523,10 @@ class _PairingRepository extends MockTuyaRepository {
           uuid: 'uuid-pot',
           name: '',
           mac: 'AA:BB:CC:00:00:02',
-          productId: TuyaConfig.productId,
+          // ⚠️ 真机上 BLE 扫到的是**广播包里那个标识**，不是平台产品 ID
+          // （2026-09-11：-32dBm 的花盆报的是 broadcastId）。只比 productId
+          // 会永远认不出来，所以这里刻意用 broadcastId 来守这条。
+          productId: TuyaConfig.broadcastId,
           rssi: -85,
           bound: false,
           supportWifiList: true,
@@ -534,6 +537,8 @@ class _PairingRepository extends MockTuyaRepository {
     // **本产品置顶**：不过滤扫描时附近一堆别的涂鸦设备，花盆混在中间要人一行行找。
     expect(state.bleDevices.first.uuid, 'uuid-pot');
     expect(state.bleOurProductCount, 1);
+    // 产品 ID 那一路也要认（有的固件广播的就是它）。
+    expect(TuyaConfig.productId == TuyaConfig.broadcastId, isFalse);
 
     // 云端产品名要补上：广播里没有名字（`name` 是空的），只有查回来才认得出。
     expect(state.productInfoFor('uuid-pot')?.name, '智能花盆');

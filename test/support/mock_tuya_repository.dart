@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flowerpot/src/tuya/tuya_config.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'plant_catalog.dart';
@@ -61,6 +62,8 @@ class MockTuyaRepository implements TuyaRepository {
   /// 云端产品信息的假数据：按 pid 给名字，用例可改。
   Map<String, BleProductInfo> productInfoByPid = <String, BleProductInfo>{
     'pid1': const BleProductInfo(name: '智能花盆'),
+    // 真机上 BLE 广播里带的是 broadcastId，云端同样按它查得到产品。
+    TuyaConfig.broadcastId: const BleProductInfo(name: '智能花盆'),
   };
 
   /// 查了几次；用例据此断言"去重 + 限量"真的生效。

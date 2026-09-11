@@ -569,12 +569,19 @@ class FlowerpotState extends ChangeNotifier {
     return List<BleDevice>.unmodifiable(capped);
   }
 
-  /// 这台 BLE 设备**就是本产品**（花盆）——pid 和平台上建的产品对得上。
+  /// 这台 BLE 设备**就是本产品**（花盆）。
   ///
-  /// pid 与固件烧录的 PID 严格一致，所以这是唯一可靠的判据：广播里的名字常常是空的，
-  /// mac 每台都不一样，只有 pid 是"这一款产品"的身份。
-  static bool _isOurProduct(BleDevice device) =>
-      device.productId.isNotEmpty && device.productId == TuyaConfig.productId;
+  /// ⚠️ **两个 id 都要比**：BLE 扫描回来的 `ScanDeviceBean.getProductId()` 拿到的是
+  /// **广播包里那个标识**（`TuyaConfig.broadcastId`），不是平台上的产品 ID。只比
+  /// `productId` 会永远认不出来——2026-09-11 真机上扫到 -32dBm 的花盆却没被标成
+  /// 「本产品」，就是这个原因。两者的区别见 [TuyaConfig.broadcastId]。
+  ///
+  /// 广播里的名字常常是空的、mac 每台都不同，所以这是唯一可靠的判据。
+  static bool _isOurProduct(BleDevice device) {
+    final id = device.productId;
+    if (id.isEmpty) return false;
+    return id == TuyaConfig.productId || id == TuyaConfig.broadcastId;
+  }
 
   /// 扫到的**本产品**台数。页面上单独报——这就是「到底有没有搜到花盆」的答案。
   int get bleOurProductCount =>

@@ -716,6 +716,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       // 是唯一可靠的判据（广播名常常是空的，mac 每台都不同）。
       '本产品（${TuyaConfig.productId}）：'
           '${state.bleOurProductCount == 0 ? '未扫到' : '扫到 ${state.bleOurProductCount} 台，已置顶'}',
+      // 扫到了别的设备、却一台本产品都没有时说一句。**不要**把它说成"pid 对不上、
+      // 去找设备方"——广播里那个标识本来就和平台产品 ID 不是同一个字段
+      // （见 `TuyaConfig.broadcastId`），两个都比过之后才谈得上"没扫到"。
+      if (state.bleOurProductCount == 0 && ble.isNotEmpty)
+          '扫到的都不是本产品（按产品 ID 与广播 ID 两个都比过）',
       '过滤：无（扫到什么列什么）',
     ];
     return where.join('\n');
@@ -1501,7 +1506,9 @@ class _FoundDevice {
       return 'Wi-Fi 热点 · 连上它再配网';
     }
     final parts = <String>[
-      if (device.productId == TuyaConfig.productId) '★ 本产品',
+      if (device.productId == TuyaConfig.productId ||
+          device.productId == TuyaConfig.broadcastId)
+        '★ 本产品',
       '蓝牙 ${device.rssi}dBm',
       if (device.bound) '已被绑定',
       device.supportWifiList ? '可读取设备扫到的 Wi-Fi' : '固件不支持读 Wi-Fi 列表',

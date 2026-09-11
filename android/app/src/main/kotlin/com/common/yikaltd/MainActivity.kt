@@ -1112,13 +1112,45 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         bean: Any,
         token: String,
     ) = withHome(result) { home ->
-        val activatorBean = firstClass("com.thingclips.smart.sdk.bean.MultiModeActivatorBean")
-            .getDeclaredConstructor()
-            .apply { isAccessible = true }
-            .newInstance()
-        // `MultiModeActivatorBean` 的字段是公有裸字段（没有 setter），所以直接写字段。
+        val beanClass = firstClass("com.thingclips.smart.sdk.bean.MultiModeActivatorBean")
+        // ⚠️ **必须用吃 `ScanDeviceBean` 的那个构造函数。**
+        //
+        // 2026-09-11 真机报 `NullPointerException`（约 6.7 秒后）就是这里：原先用无参构造、
+        // 只手填了 8 个字段，而这个 bean 还有 `address` / `mac` / `productId` / `deviceType` /
+        // `flag` 全留在 null/0 上——SDK 要拿 `address` 去连那条 BLE 链路，一解引用就炸。
+        //
+        // `MultiModeActivatorBean(ScanDeviceBean)` 是 SDK 给的正道：扫到的那台是什么，
+        // 它自己全抄过去。老版本没有这个构造时退回无参 + 逐字段搬。
+        val fromScan = runCatching {
+            beanClass.getDeclaredConstructor(bean.javaClass.superclass ?: bean.javaClass)
+        }.getOrNull() ?: beanClass.constructors.firstOrNull { ctor ->
+            ctor.parameterTypes.size == 1 &&
+                ctor.parameterTypes[0].isAssignableFrom(bean.javaClass)
+        }
+        val activatorBean = if (fromScan != null) {
+            fromScan.isAccessible = true
+            fromScan.newInstance(bean)
+        } else {
+            trace("ble pair: ⚠️ 没有 MultiModeActivatorBean(ScanDeviceBean)，退回逐字段搬")
+            val created = beanClass.getDeclaredConstructor()
+                .apply { isAccessible = true }
+                .newInstance()
+            // 扫到什么就搬什么——少搬一个就是一次 NPE。
+            for (name in listOf(
+                "uuid", "address", "mac", "productId", "deviceType", "flag",
+            )) {
+                runCatching {
+                    val field = bean.javaClass.getField(name)
+                    field.isAccessible = true
+                    setField(created, name, field.get(bean))
+                }
+            }
+            setField(created, "scanDeviceBean", bean)
+            created
+        }
+        // 这几项是这次配网才知道的，构造函数抄不到，必须自己填。
+        // （字段是公有裸字段、没有 setter，所以直接写字段。）
         setField(activatorBean, "homeId", home)
-        setField(activatorBean, "uuid", uuid)
         setField(activatorBean, "ssid", call.argument<String>("ssid").orEmpty())
         setField(activatorBean, "pwd", call.argument<String>("password").orEmpty())
         setField(activatorBean, "token", token)
@@ -1126,8 +1158,25 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // phase1 = 蓝牙那一段（连上设备、把凭据交过去）；剩下的时间留给设备连路由器 +
         // 注册云端。给蓝牙段单独一个短一点的上限，连不上能快点报出来。
         setField(activatorBean, "phase1Timeout", 30_000L)
-        setField(activatorBean, "scanDeviceBean", bean)
-        trace("ble pair: startActivator(uuid=$uuid, home=$home)")
+        // uuid 以扫到的为准；构造函数没抄到时这一行补上。
+        if (readField(activatorBean, "uuid").isNullOrEmpty()) {
+            setField(activatorBean, "uuid", uuid)
+        }
+        // **把真正交给 SDK 的那几项打出来**：再出 NPE 时，一眼能看出是哪一项空着，
+        // 而不是对着一个光秃秃的 NullPointerException 猜（`PRODUCT_RULES` §4.1）。
+        // ⚠️ 别在插值里再套同种引号（`"…${f(x, "y")}…"`）——那会骗过我们自己的静态
+        // 检查器（`tools/kt_dangling_refs.py`），2026-09-11 打包失败也栽在同一类写法上。
+        // 先拼成变量，再一次性 trace。
+        val probed = listOf("uuid", "address", "mac", "productId", "deviceType")
+            .joinToString(", ") { name ->
+                name + "=" + (readField(activatorBean, name) ?: "(空)")
+            }
+        val ssidArg = call.argument<String>("ssid").orEmpty()
+        val tokenState = if (token.isEmpty()) "(空)" else "有"
+        trace(
+            "ble pair: startActivator(home=" + home + ", " + probed +
+                ", ssid=" + ssidArg + ", token=" + tokenState + ")",
+        )
         val listenerClass = firstClass("com.thingclips.smart.sdk.api.IMultiModeActivatorListener")
         val loader = listenerClass.classLoader ?: activity.classLoader
         val delivered = AtomicBoolean(false)
@@ -1189,6 +1238,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * 涂鸦这几个 Bean 是「公有字段 + 少量 getter」的写法，`MultiModeActivatorBean` 连
      * setter 都没有，只能直接写字段。
      */
+    /** 读一个公有裸字段，读不到就返回 null。只用于诊断打印。*/
+    private fun readField(target: Any, name: String): String? = runCatching {
+        val field = target.javaClass.getField(name)
+        field.isAccessible = true
+        field.get(target)?.toString()
+    }.getOrNull()
+
     private fun setField(target: Any, name: String, value: Any?) {
         val field = runCatching { target.javaClass.getField(name) }
             .recoverCatching { target.javaClass.getDeclaredField(name) }
