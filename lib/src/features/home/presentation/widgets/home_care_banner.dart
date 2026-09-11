@@ -42,7 +42,12 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
   /// 不到水了，该加水啦。」差一倍），不固定住的话每切一条卡片就会抽一下。
   static const double _messageHeight = 36;
 
-  static const Duration _transition = Duration(milliseconds: 420);
+  /// 一条换下一条的**动画时长**（不是轮播间隔 [interval]，那是 5 秒换一条）。
+  ///
+  /// 2026-09-12 产品要求「滚动速率慢一点」——指的就是这一段：旧的一句往下淡出、新的
+  /// 从下面淡入，这个位移+淡入过程走多久。420ms 显得"刷"一下就过去了，放到 900ms
+  /// 读起来从容。**轮播间隔没动**：还是 5 秒换一条，只是换的那一下变慢。
+  static const Duration _transition = Duration(milliseconds: 900);
 
   int _index = 0;
   Timer? _timer;
@@ -160,8 +165,11 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
                 height: _messageHeight,
                 child: AnimatedSwitcher(
                   duration: _transition,
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
+                  // 时长拉长之后曲线也要换：`easeOutCubic` 尾巴收得太快，
+                  // 900ms 下会显得"前面猛冲、最后一截停住"。`easeInOut` 两头都缓，
+                  // 整段匀一些，才是"慢"而不是"拖"。
+                  switchInCurve: Curves.easeInOut,
+                  switchOutCurve: Curves.easeInOut,
                   transitionBuilder: (child, animation) => FadeTransition(
                     opacity: animation,
                     child: SlideTransition(
