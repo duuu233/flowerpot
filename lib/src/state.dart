@@ -605,6 +605,24 @@ class FlowerpotState extends ChangeNotifier {
   /// 拉一次后台产品清单，把 `broadcastId` 记下来给搜索页配对用。
   ///
   /// 尽力而为：拉不到不拦路——本地兜底那两个常量仍然认得出当前这款。
+  /// 拉一株植物的**完整**资料（`/Client/UserProduct/getUserProductPlantDetail`）。
+  ///
+  /// ⚠️ 详情页必须调它：列表接口 `getProductPlantList` 的返回体只有五个字段
+  /// （id/名称/图片/涂鸦标识/分类），**学名、别名、简介、温湿度、养护建议都不在里面**
+  /// （2026-09-12 按 swagger 核实）。
+  ///
+  /// 拉不到就返回 null，页面继续用列表那份——空着总比编一份假的强。
+  Future<PlantProfile?> loadPlantDetail(int productPlantId) async {
+    try {
+      final plant = await _backend.getProductPlantDetail(productPlantId);
+      // 详情里也带涂鸦标识，顺手并进目录：下次按 DP 116 匹配就不用再拉一次。
+      _rememberPlants(<PlantProfile>[plant]);
+      return plant;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> refreshProductCatalog() async {
     try {
       final products = await _backend.getProducts();

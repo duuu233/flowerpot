@@ -53,6 +53,20 @@ abstract class AppBackendRepository {
   /// 所以不再先查 `getProductList` 换 productId——不传就是后台配置的全部植物。
   Future<List<PlantProfile>> getProductPlants({String keyword = ''});
 
+  /// 单株植物的**完整**资料。
+  ///
+  /// ⚠️ **必须单独拉一次，列表接口给不了。**（2026-09-12 按 swagger 核实）
+  /// `/Client/Product/getProductPlantList` 的返回体 `ClientProductPlantApiOut` **只有五个
+  /// 字段**：`productPlantId` / `plantName` / `plantImg` / `tuYaRemark` / `categoryType`
+  /// ——**没有学名、没有别名**，也没有简介、温湿度、养护建议。那一整套在
+  /// `/Client/UserProduct/getUserProductPlantDetail` 的 `ClientProductPlantDetailApiOut` 里。
+  ///
+  /// 植物详情页此前直接用列表传进来的对象、从不单独拉详情，所以「学名」「别名」永远是
+  /// 空的——产品反馈的就是这个。
+  ///
+  /// [productPlantId] 就是接口参数 `id`（文档原话：「植物详情,id传productPlantId」）。
+  Future<PlantProfile> getProductPlantDetail(int productPlantId);
+
   /// 设备图库按涂鸦 `deviceId` 走，不再先用 `getUserProductList` 换后端的
   /// `userProductId`：设备档案由涂鸦提供，看一眼图片不该先在后端建一条用户产品
   /// 记录，那条链路上任何一个接口不可用（例如 404）都会把图库整页顶掉。
@@ -196,6 +210,10 @@ class DisabledAppBackendRepository implements AppBackendRepository {
 
   @override
   Future<List<PlantProfile>> getProductPlants({String keyword = ''}) async =>
+      _disabled();
+
+  @override
+  Future<PlantProfile> getProductPlantDetail(int productPlantId) async =>
       _disabled();
 
   @override
@@ -500,6 +518,23 @@ class HttpAppBackendRepository implements AppBackendRepository {
           },
         ),
       ).map(_plant).toList(growable: false);
+
+  @override
+  Future<PlantProfile> getProductPlantDetail(int productPlantId) async {
+    final json = await _client.getJson(
+      '/Client/UserProduct/getUserProductPlantDetail',
+      query: <String, Object?>{'id': productPlantId},
+    );
+    // 详情接口的 `retData` 是**单个对象**，不是分页行；`extractApiRows` 那套用不上。
+    final data = json['retData'];
+    if (data is! Map) {
+      throw ApiException(
+        json['retCode'] ?? -1,
+        '${json['retMsg'] ?? '植物详情返回体不是对象'}',
+      );
+    }
+    return _plant(data.cast<String, dynamic>());
+  }
 
   @override
   Future<List<BackendImage>> getImages(String deviceId) async =>

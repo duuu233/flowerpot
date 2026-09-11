@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
 
@@ -11,14 +14,56 @@ class PlantDetailArguments {
   final bool bound;
 }
 
-/// 详情内容全部来自植物列表那一行——`getProductPlantList` 已经把字段带齐了，
-/// 主流程不再单独打一次植物详情接口。
-class PlantDetailPage extends StatelessWidget {
+/// 详情页。
+///
+/// ⚠️ **进页面必须单独拉一次植物详情**（2026-09-12 按 swagger 核实后改）。
+///
+/// 此前这里写着「`getProductPlantList` 已经把字段带齐了，不再单独打详情接口」——
+/// **那个假设是错的**：列表的返回体 `ClientProductPlantApiOut` 只有五个字段
+/// （`productPlantId` / `plantName` / `plantImg` / `tuYaRemark` / `categoryType`），
+/// **学名、别名、简介、温湿度、养护建议一个都没有**。所以这一页的「学名」「别名」
+/// 一直是空的——产品反馈的正是这个。全套在
+/// `/Client/UserProduct/getUserProductPlantDetail`（id 传 productPlantId）里。
+///
+/// 先用列表那份画（名字和图片已经够画首屏），详情回来再补齐；拉不到就保持空白，
+/// **不拿本地数据顶替**。
+class PlantDetailPage extends StatefulWidget {
   const PlantDetailPage({required this.arguments, super.key});
 
   final PlantDetailArguments arguments;
 
-  PlantProfile get plant => arguments.plant;
+  @override
+  State<PlantDetailPage> createState() => _PlantDetailPageState();
+}
+
+class _PlantDetailPageState extends State<PlantDetailPage> {
+  PlantProfile? _detail;
+  bool _loading = false;
+  bool _requested = false;
+
+  PlantProfile get plant => _detail ?? widget.arguments.plant;
+
+  PlantDetailArguments get arguments => widget.arguments;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_requested) return;
+    _requested = true;
+    final id = widget.arguments.plant.productPlantId;
+    if (id == null) return;
+    setState(() => _loading = true);
+    final state = FlowerpotScope.of(context);
+    unawaited(
+      state.loadPlantDetail(id).then((value) {
+        if (!mounted) return;
+        setState(() {
+          if (value != null) _detail = value;
+          _loading = false;
+        });
+      }),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -332,6 +377,9 @@ class _PlantBasicInfoCard extends StatelessWidget {
                     '学名 ${plant.latinName.trim().isEmpty ? '空' : '有'}',
                     '别名 ${data.alias.trim().isEmpty ? '空' : '有'}',
                     '涂鸦标识 ${plant.tuyaIdentifier.trim().isEmpty ? '空' : plant.tuyaIdentifier}',
+                    _loading
+                        ? '详情接口 加载中'
+                        : '详情接口 ${_detail == null ? '未取到' : '已取到'}',
                   ].join(' · '),
                   style: const TextStyle(fontSize: 12),
                 ),
