@@ -86,8 +86,33 @@ class _HomePageState extends State<HomePage> {
     // 先补一次植物资料：引导窗要显示「已检测到 xxx 植物」，名字来自后端目录。
     await state.ensurePlantProfile(deviceId);
     if (!mounted) return;
-    if (state.plantGuidePending(deviceId)) {
+    await _maybeShowPlantGuide(state, deviceId);
+  }
+
+  /// 引导窗正在显示。防止 DP 连续上报时叠出好几个。
+  bool _guideShowing = false;
+
+  /// **设备在页面打开期间把 162 改成「要弹」时，也要弹。**
+  ///
+  /// ⚠️ 2026-09-11 产品反馈「按固件按钮能切换有无植物的场景，但是没有弹窗」——根因就在
+  /// 这里：原来只有 `didChangeDependencies` 里那一次 `_entryChecked` 检查，**进页面时查一次
+  /// 就再也不查了**。而用户是在页面上按按钮的，DP 162 通过实时上报变成 true，界面上的
+  /// 植物场景跟着变了，引导窗却没人再去触发。
+  ///
+  /// 现在每次 build 之后都看一眼：由「不弹」变成「要弹」就补上。已经在显示时不重复弹。
+  Future<void> _maybeShowPlantGuide(FlowerpotState state, String deviceId) async {
+    if (_guideShowing || !mounted) return;
+    if (!state.plantGuidePending(deviceId)) return;
+    _guideShowing = true;
+    try {
+      // 名字来自后端目录：设备刚报上来的植物可能还没补过资料。
+      await state.ensurePlantProfile(deviceId);
+      if (!mounted) return;
+      // 等资料回来的这段时间里设备可能又改回「不弹」了，再确认一次。
+      if (!state.plantGuidePending(deviceId)) return;
       await _showPlantGuide(state, deviceId);
+    } finally {
+      _guideShowing = false;
     }
   }
 
@@ -153,6 +178,14 @@ class _HomePageState extends State<HomePage> {
     final device = widget.deviceId == null
         ? state.selectedDevice
         : state.deviceById(widget.deviceId!);
+    // **设备在页面打开期间把 162 改成「要弹」时补上引导窗**（见 [_maybeShowPlantGuide]）。
+    // 放在 build 之后跑：showDialog 不能在 build 过程中调。
+    final watchedId = widget.deviceId ?? device?.id;
+    if (watchedId != null && state.plantGuidePending(watchedId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_maybeShowPlantGuide(state, watchedId));
+      });
+    }
     final model =
         widget.dashboard ??
         HomeDashboardModel.fromDevice(

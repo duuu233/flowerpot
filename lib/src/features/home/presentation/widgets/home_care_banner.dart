@@ -87,7 +87,9 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
         constraints: const BoxConstraints(minHeight: 44),
         child: AppSurfaceCard(
           key: const Key('home-care-notice'),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          // ⚠️ **内边距要和下面那一支一模一样**（2026-09-11）：这两支是同一张卡的两个
+          // 状态，差 2px 也会在切换时看出来。
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
           color: AppColors.surfaceTranslucent,
           borderRadius: AppRadius.large,
           side: const BorderSide(color: AppColors.surface),
@@ -100,10 +102,23 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
               ),
               const SizedBox(width: AppSpacing.lg),
               Expanded(
-                child: Text(
-                  notice,
-                  style: AppTypography.compactBody.copyWith(
-                    color: AppColors.textSecondary,
+                // **同样固定两行高**（[_messageHeight]）。
+                //
+                // 改之前这一支让文字自己撑高：「未检测到植物」只有一行，而有植物时的
+                // 养护建议区是固定两行，于是用户按固件按钮切换有无植物时，整张卡的高度
+                // 变一次、下面的内容跟着跳一次（2026-09-11 产品反馈）。两支同高就不跳。
+                child: SizedBox(
+                  height: _messageHeight,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      notice,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.compactBody.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
                   ),
                 ),
               ),
