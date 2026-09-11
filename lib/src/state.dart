@@ -551,9 +551,12 @@ class FlowerpotState extends ChangeNotifier {
   /// 比藏起来有用。
   List<BleDevice> get bleDevices {
     final items = _bleDevices.values
-        .where(
-          (item) => PairingGate.showUnfilteredBleScan ? true : !item.bound,
-        )
+        .where((item) {
+          if (PairingGate.showUnfilteredBleScan) return true;
+          // 正常动线：**只列本产品、且还没被绑定的**。附近别人的涂鸦设备、已经绑走的，
+          // 列出来只会让用户点到一个必然失败的东西。
+          return !item.bound && _isOurProduct(item);
+        })
         .toList()
       ..sort((a, b) => b.rssi.compareTo(a.rssi));
     // **按信号强弱只取前 [bleListLimit] 台**（2026-09-11 产品要求：列出来我看看有没有）。
@@ -584,22 +587,57 @@ class FlowerpotState extends ChangeNotifier {
   /// 「本产品」，就是这个原因。两者的区别见 [TuyaConfig.broadcastId]。
   ///
   /// 广播里的名字常常是空的、mac 每台都不同，所以这是唯一可靠的判据。
-  static bool _isOurProduct(BleDevice device) {
-    final id = device.productId;
+  bool _isOurProduct(BleDevice device) {
+    final id = device.productId.trim();
     if (id.isEmpty) return false;
-    return id == TuyaConfig.productId || id == TuyaConfig.broadcastId;
+    // ① 本地兜底：平台产品 ID 与广播 ID（`TuyaConfig`）。后台没拉到时也能认。
+    if (id == TuyaConfig.productId || id == TuyaConfig.broadcastId) return true;
+    // ② **以后台产品清单为准**（2026-09-11 产品口径「根据后台的接口配对一下」）。
+    //    后台 `/Client/Product/getProductList` 的每一条都带 `broadcastId`——那正是设备
+    //    BLE 广播里的标识，也就是 `ScanDeviceBean.getProductId()` 拿到的值。这样以后
+    //    后台新增产品，App 不用改代码、也不用发版就能认出来。
+    return _backendBroadcastIds.contains(id);
+  }
+
+  /// 后台产品清单里的 `broadcastId` 集合。拉不到就是空的，只走上面的本地兜底。
+  final Set<String> _backendBroadcastIds = <String>{};
+
+  /// 拉一次后台产品清单，把 `broadcastId` 记下来给搜索页配对用。
+  ///
+  /// 尽力而为：拉不到不拦路——本地兜底那两个常量仍然认得出当前这款。
+  Future<void> refreshProductCatalog() async {
+    try {
+      final products = await _backend.getProducts();
+      final ids = products
+          .map((item) => item.broadcastId.trim())
+          .where((id) => id.isNotEmpty);
+      if (ids.isEmpty) return;
+      _backendBroadcastIds
+        ..clear()
+        ..addAll(ids);
+      notifyListeners();
+    } catch (_) {
+      // 后端没配、没登录、网络不好都可能失败，不该拦住配网。
+    }
   }
 
   /// 扫到的**本产品**台数。页面上单独报——这就是「到底有没有搜到花盆」的答案。
   int get bleOurProductCount =>
       _bleDevices.values.where(_isOurProduct).length;
 
+  /// 列表是否只保留本产品。排查态（[PairingGate.showUnfilteredBleScan]）下不过滤。
+  bool get _filterToOurProduct => !PairingGate.showUnfilteredBleScan;
+
   /// 涂鸦 SDK 扫到的设备在页面上最多画几台。
   static const int bleListLimit = 50;
 
   /// 涂鸦 SDK 扫到的总台数（按 uuid 去重、过滤规则之后、**未截断**）。
   int get bleTotal => _bleDevices.values
-      .where((item) => PairingGate.showUnfilteredBleScan ? true : !item.bound)
+      .where(
+        (item) => PairingGate.showUnfilteredBleScan
+            ? true
+            : (!item.bound && _isOurProduct(item)),
+      )
       .length;
 
   /// 这台 BLE 设备的云端产品信息；还没查到就是 null。

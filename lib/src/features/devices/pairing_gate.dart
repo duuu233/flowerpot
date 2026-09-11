@@ -20,7 +20,7 @@ abstract final class PairingGate {
   /// 生产值就是下面这个；用例改了必须在 `tearDown` 里 [reset] 回来。
   static bool apEnabled = _apEnabledDefault;
 
-  /// 蓝牙搜索结果**不做任何过滤**，扫到什么就画什么。
+  /// 蓝牙搜索结果**不做任何过滤**，扫到什么就画什么（**排查态**，生产值为 false）。
   ///
   /// 正常动线只该列「没绑过的涂鸦单点设备」。但这一轮要回答的是**「设备到底在不在
   /// 广播、广播成什么样」**，被过滤掉的恰恰可能就是答案：绑过的、别的 ScanType 的、
@@ -31,7 +31,9 @@ abstract final class PairingGate {
   static bool showUnfilteredBleScan = _showUnfilteredBleScanDefault;
 
   static const bool _apEnabledDefault = false;
-  static const bool _showUnfilteredBleScanDefault = true;
+  /// 2026-09-11 晚：真机**配网已跑通**，排查态收掉——列表回到「只列本产品」。
+  /// 需要再排查时把它翻成 true，那一整套诊断（不过滤 + 全字段打印 + 状态行）都还在。
+  static const bool _showUnfilteredBleScanDefault = false;
 
   /// 用例收尾用：把两个开关恢复成生产值。
   static void reset() {

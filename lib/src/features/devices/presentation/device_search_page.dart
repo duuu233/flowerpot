@@ -11,7 +11,6 @@ import '../../../routes/app_routes.dart';
 // `FlowerpotState`：连上热点之后本页就持有一条连接，dispose / paused 里要还原网络，
 // 那时已经不能查 InheritedWidget，所以得按类型留引用。
 import '../../../state.dart';
-import '../../../tuya/tuya_config.dart';
 import '../../../tuya/tuya_models.dart';
 import '../pairing_gate.dart';
 import 'pairing_page.dart';
@@ -398,6 +397,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 才去取。只取一次：令牌有效期比一轮搜索窗口长得多，重新扫描不必重取。
     // 它不在原生的权限门禁名单里，和下面的授权互不影响。
     _prepared ??= state.prepareForPairing();
+    // 后台产品清单里带 `broadcastId`，搜索页据此认「这台是不是本产品」。
+    // 尽力而为、不 await：拉不到时本地那两个常量仍然认得出当前这款。
+    unawaited(state.refreshProductCatalog());
     // **并行开一条 BLE 发现通道**（2026-09-11 起）。
     //
     // Wi-Fi 那条的慢是系统给的：前台每 2 分钟只有 4 次 `startScan`，而设备上电到
@@ -716,13 +718,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
           '${state.bleTotal > ble.length ? '，按信号列最强的 ${ble.length} 台' : ''}',
       // **这一行就是「到底有没有搜到花盆」的答案。**pid 与固件烧录的 PID 严格一致，
       // 是唯一可靠的判据（广播名常常是空的，mac 每台都不同）。
-      '本产品（${TuyaConfig.productId}）：'
-          '${state.bleOurProductCount == 0 ? '未扫到' : '扫到 ${state.bleOurProductCount} 台，已置顶'}',
-      // 扫到了别的设备、却一台本产品都没有时说一句。**不要**把它说成"pid 对不上、
-      // 去找设备方"——广播里那个标识本来就和平台产品 ID 不是同一个字段
-      // （见 `TuyaConfig.broadcastId`），两个都比过之后才谈得上"没扫到"。
-      if (state.bleOurProductCount == 0 && ble.isNotEmpty)
-          '扫到的都不是本产品（按产品 ID 与广播 ID 两个都比过）',
+      '本产品：'
+          '${state.bleOurProductCount == 0 ? '未扫到' : '扫到 ${state.bleOurProductCount} 台'}',
       '过滤：无（扫到什么列什么）',
     ];
     return where.join('\n');
@@ -1082,7 +1079,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         // ⚠️ AP 屏蔽期间**只要有日志就画**，不再等到失败才画：这一轮的
                         // 目的就是判定设备支不支持蓝牙，「扫描起没起来、报了什么」本身
                         // 就是要交付的结论，成功那次的日志同样要能截图。
-                        if ((!PairingGate.apEnabled || _connectError != null) &&
+                        if ((PairingGate.showUnfilteredBleScan ||
+                                _connectError != null) &&
                             state.pairingLog.isNotEmpty) ...<Widget>[
                           const SizedBox(height: 12),
                           _PairingLogBox(lines: state.pairingLog),
@@ -1091,7 +1089,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         // 不知道少了哪条腿。可用时什么都不说，不占地方。
                         // **常驻的搜索状态行**（AP 屏蔽期间）：这一页现在是排查工具，
                         // 「用的是不是蓝牙、扫到几台、扫了多久」必须一眼看得到、能截图。
-                        if (!PairingGate.apEnabled) ...<Widget>[
+                        // 常驻状态行只在**排查态**画：配网跑通之后它对用户没有意义。
+                        if (PairingGate.showUnfilteredBleScan) ...<Widget>[
                           const SizedBox(height: 10),
                           GestureDetector(
                             onLongPress: () => _copyMessage(_bleScanStatus(state)),
@@ -1506,18 +1505,22 @@ class _FoundDevice {
   /// 2026-09-11 产品要求「扫描到什么设备就按信号列出来、信息都打印出来，我自己判断」。
   /// 所以这里不做取舍：能读到的字段全画，读不到的显式写「(空)」——**空本身就是线索**
   /// （比如 address 为空就连不上、uuid 为空就配不了网）。等宽字体、整块可长按复制。
+  /// 行上那行小字。
+  ///
+  /// **正常动线只说用户看得懂的**（按 UI 图：一行信号强度就够）。设备标识、能力位、
+  /// SDK 原样输出那一整套是**排查态**才画的——2026-09-11 配网跑通后收掉，
+  /// 需要时把 [PairingGate.showUnfilteredBleScan] 翻回 true，整套还在。
   String get detail {
     final device = ble;
     if (device == null) {
-      return 'Wi-Fi 热点 · 连上它再配网';
+      return '点「连接」连上它再配网';
+    }
+    if (!PairingGate.showUnfilteredBleScan) {
+      return '信号 ${device.rssi}dBm';
     }
     String or(String value) => value.trim().isEmpty ? '(空)' : value.trim();
-    final mine =
-        device.productId == TuyaConfig.productId ||
-        device.productId == TuyaConfig.broadcastId;
     final product = productInfo;
     return <String>[
-      if (mine) '★ 本产品',
       '信号 ${device.rssi}dBm'
           ' · ${device.bound ? '已被绑定' : '未绑定'}'
           ' · ${device.supportWifiList ? '可读设备 Wi-Fi 列表' : '不可读 Wi-Fi 列表'}',
@@ -1530,8 +1533,6 @@ class _FoundDevice {
       'deviceType ${device.deviceType} · flag ${device.flag}'
           ' · configType ${or(device.configType)}',
       if (device.providerName.trim().isNotEmpty) 'provider ${device.providerName}',
-      // SDK 那个 bean 的原样输出：上面的字段是按常见 getter 名读的，万一这一版
-      // 字段名不同会全读成空，只有这一行能说明 SDK 究竟给了什么。
       if (device.rawText.trim().isNotEmpty) 'raw ${device.rawText}',
     ].join('\n');
   }
@@ -1684,11 +1685,19 @@ class _FoundDeviceTile extends StatelessWidget {
                       child: Text(
                         device.detail,
                         key: Key('device-search-found-detail-$index'),
-                        style: const TextStyle(
+                        // 正常态就一行信号强度，按 UI 图走普通字号；排查态要对
+                        // mac / uuid，那时才用等宽多行。
+                        maxLines: PairingGate.showUnfilteredBleScan ? null : 1,
+                        overflow: PairingGate.showUnfilteredBleScan
+                            ? TextOverflow.clip
+                            : TextOverflow.ellipsis,
+                        style: TextStyle(
                           color: AppColors.textTertiary,
-                          fontSize: 11,
-                          height: 1.5,
-                          fontFamily: 'monospace',
+                          fontSize: PairingGate.showUnfilteredBleScan ? 11 : 12,
+                          height: PairingGate.showUnfilteredBleScan ? 1.5 : null,
+                          fontFamily: PairingGate.showUnfilteredBleScan
+                              ? 'monospace'
+                              : null,
                         ),
                       ),
                     ),

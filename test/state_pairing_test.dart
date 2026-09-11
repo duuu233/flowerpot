@@ -527,6 +527,48 @@ class _PairingRepository extends MockTuyaRepository {
     await state.stopBleDiscovery();
   });
 
+  testWidgets('BLE 发现：正常态只列本产品，别人的涂鸦设备不列', (tester) async {
+    // 2026-09-11 晚：真机配网跑通后收掉排查态，列表回到「只列本产品」。
+    // 认设备以**后台产品清单的 broadcastId** 为准，本地常量兜底。
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+    await state.startBleDiscovery();
+
+    repository
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-pot',
+          name: '',
+          mac: 'AA:BB:CC:00:00:02',
+          productId: TuyaConfig.broadcastId,
+          rssi: -60,
+          bound: false,
+          supportWifiList: true,
+        ),
+      )
+      // 附近别人的涂鸦设备：信号更强，但不是本产品 ⇒ 不该出现在列表里。
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-other',
+          name: '别人的',
+          mac: 'AA:BB:CC:00:00:03',
+          productId: 'pid-other',
+          rssi: -30,
+          bound: false,
+          supportWifiList: false,
+        ),
+      );
+    await tester.pumpAndSettle();
+
+    expect(state.bleDevices.map((item) => item.uuid), <String>['uuid-pot']);
+    expect(state.bleOurProductCount, 1);
+
+    await state.stopBleDiscovery();
+  });
+
   testWidgets('BLE 发现：本产品置顶，并补上云端产品名', (tester) async {
     final repository = MockTuyaRepository(
       latency: Duration.zero,
