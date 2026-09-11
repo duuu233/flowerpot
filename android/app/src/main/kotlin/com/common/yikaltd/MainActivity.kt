@@ -410,6 +410,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 // 就说明必需权限已经拿到了。
                 "ensureBlePermissions" -> success(result, true)
                 "queryDeviceProductInfo" -> queryDeviceProductInfo(call, result)
+                "disconnectBleDevice" -> {
+                    disconnectBleDevice(call.argument<String>("uuid").orEmpty())
+                    success(result, null)
+                }
                 "openAppSettings" -> openAppSettings(result)
                 "queryDeviceConfigState" -> bleQueryDeviceWifi(call, result)
                 "pairBleDevice" -> pairBleDevice(call, result)
@@ -468,6 +472,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 双模那条也要停：它和 AP 用的是两个不同的配网器，停一个不影响另一个，
         // 漏停的那个会继续跑满超时、蓝牙连接也一直占着。
         bleScanned.keys.toList().forEach(::stopMultiModeActivator)
+        // 兜底全断：设备只有在**没有连接**时才会广播，留着一条就等于让它从此扫不到。
+        disconnectBleDevice("")
         pending?.let { error(it, code, message) }
     }
 
@@ -1225,11 +1231,53 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     /** 停掉双模配网。没在跑时调用也安全。*/
+    /**
+     * 停掉双模配网，**并把那条 BLE 链路断干净**。
+     *
+     * ⚠️ **断开这一步不能省，它直接决定设备还能不能被再次扫到。**
+     *
+     * BLE 外设**在连接状态下会停止广播**。配网一旦连上设备、中途又失败了，如果我们不
+     * 显式断开，设备就一直挂在这条连接上、不再发广播——下一轮扫描当然什么都扫不到。
+     * 2026-09-11 真机「之前搜得到、配网失败之后就搜不到了」正是这个（另一半原因是设备
+     * 静置会退出配网状态，那一半只能靠断电重启）。
+     *
+     * 改之前这里只调 `stopActivator`，链路留着没人管。
+     */
     private fun stopMultiModeActivator(uuid: String) {
-        val activator = multiModeActivator ?: return
-        runCatching { invoke(activator, "stopActivator", uuid) }.onFailure { cause ->
-            Log.w(TUYA_LOG_TAG, "stopActivator 失败：${cause.javaClass.simpleName}")
+        multiModeActivator?.let { activator ->
+            runCatching { invoke(activator, "stopActivator", uuid) }.onFailure { cause ->
+                Log.w(TUYA_LOG_TAG, "stopActivator 失败：${cause.javaClass.simpleName}")
+            }
         }
+        disconnectBleDevice(uuid)
+    }
+
+    /**
+     * 主动断开与某台设备的 BLE 连接，让它回到广播状态。
+     *
+     * uuid 为空时**把所有的都断掉**——退出配网动线时用，那一刻我们不该再占着任何一条。
+     */
+    private fun disconnectBleDevice(uuid: String) {
+        val operator = runCatching { bleOperator() }.getOrNull() ?: return
+        if (uuid.isNotEmpty()) {
+            runCatching { invoke(operator, "disconnectBleDevice", uuid) }
+                .onSuccess { trace("ble: 已断开 $uuid（断开后设备才会重新广播）") }
+                .onFailure { cause ->
+                    Log.w(TUYA_LOG_TAG, "disconnectBleDevice 失败：${cause.javaClass.simpleName}")
+                }
+            return
+        }
+        // 全断：SDK 的管理器上有一把总开关，没有就逐个断本轮扫到的。
+        val manager = runCatching { invokeStatic(sdkClass(), "getBleManager") }.getOrNull()
+        val all = manager?.let {
+            runCatching { invoke(it, "disconnectAllBleDevices") }.isSuccess
+        } ?: false
+        if (!all) {
+            bleScanned.keys.toList().forEach { id ->
+                runCatching { invoke(operator, "disconnectBleDevice", id) }
+            }
+        }
+        trace("ble: 已断开全部连接")
     }
 
     /**

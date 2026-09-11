@@ -347,9 +347,21 @@ strings -a -n 2 cls/path/To/Class.class | grep -E '^(on|get|set|is)?[A-Z_]'
   `startLeScan`，配网只走 `IMultiModeActivator`；不用系统原生 `BluetoothLeScanner`，哪怕只是
   拿来做对照诊断。那一轮加过一条原生扫描当日就撤了。需要"设备到底在不在广播"这类证据时，
   用涂鸦扫描**不过滤 + 扫描类型全开**的结果来看，不另起一套。
+  ⚠️ **BLE 设备在连接状态下不广播。** 所以每条退出配网动线的路径都必须把 BLE 链路断掉
+  （`disconnectBleDevice`），漏一条，设备就从此扫不到——2026-09-11 真机「之前搜得到、
+  配网失败之后就搜不到了」，一半原因就是这个（另一半是设备静置会退出配网状态，只能断电重启）。
+  `stopActivator` **不等于**断开连接，两件事都要做。
+
   ⚠️ 但**「涂鸦 SDK 的方法」以解包核对为准，不以任何转述为准**：`ActivatorService` /
   `BLEActivator` / `IDiscovery` / `ActivatorMode` / `DiscoveryMode` 这套名字在 7.5.1 里 0 命中，
   属于设备固件侧的 TuyaOS 命名；再有人贴来，先跑 `tools/aar_class_dump.py` 再说。
+  **2026-09-11 又查了一次最新版 7.8.6（我们在 7.5.1）：同样 0 命中**，所以也不是"升级就有"。
+  另一个识别特征：那段示例里的 `didDiscover` 是 **Objective-C/Swift 的委托命名**，
+  把 iOS 风格套进 Java 语法——见到这种写法基本可以判定是编的。
+  它想做的事**我们已经在做**，只是类名不同，对应关系：
+  `IDiscovery.startDiscovery()` → `getBleOperator().startLeScan(LeScanSetting, BleScanResponse)`；
+  `didDiscover(IBluetoothDevice)` → `BleScanResponse.onResult(ScanDeviceBean)`；
+  `getProductId()/getUUID()/getAddress()` → `ScanDeviceBean` 上的同名 getter。
 - 本机（dev box）没有 Flutter / Dart / Kotlin 工具链，所以 flowerpot 的改动**一律未经
   编译与测试**。报告时必须说明这一点，不得宣称通过。
 - 既然编译不了，就**把编译器会替你抓的事自己抓一遍**（2026-09-10 被一次打包失败教训到）：

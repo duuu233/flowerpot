@@ -211,6 +211,13 @@ abstract class TuyaRepository {
   /// 打开本应用的系统设置页（权限被永久拒绝后唯一的出路）。
   Future<void> openAppSettings();
 
+  /// 主动断开与设备的 BLE 连接；[uuid] 为空表示**全断**。
+  ///
+  /// ⚠️ **这一步直接决定设备还能不能被再次扫到。** BLE 外设**在连接状态下会停止广播**，
+  /// 配网中途失败又没断干净的话，设备就一直挂在那条连接上、不再发广播——下一轮扫描
+  /// 什么都扫不到（2026-09-11 真机「之前搜得到、配网失败之后就搜不到了」）。
+  Future<void> disconnectBleDevice({String uuid});
+
   /// 按 BLE 扫到的标识去云端查**这台是什么产品**（名称、图标）。
   ///
   /// 原生走 `IThingDeviceActivator.getActivatorDeviceInfo(productId, uuid, mac, …)`。
@@ -276,6 +283,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> openAppSettings() => _invoke<void>('openAppSettings');
+
+  @override
+  Future<void> disconnectBleDevice({String uuid = ''}) =>
+      _invoke<void>('disconnectBleDevice', <String, Object?>{'uuid': uuid});
 
   @override
   Future<BleProductInfo> queryDeviceProductInfo({

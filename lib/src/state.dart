@@ -725,6 +725,14 @@ class FlowerpotState extends ChangeNotifier {
     } catch (_) {
       // 停不掉不该盖过调用方要做的事；最坏情况是多扫一会儿。
     }
+    // ⚠️ **把 BLE 链路也断掉。** 设备只有在**没有连接**时才会广播；配网中途失败留下的
+    // 那条连接会让它从此扫不到（2026-09-11 真机：之前搜得到、配网失败之后就搜不到了）。
+    // 放在停扫之后、不抛错：它的职责就是"无论如何把设备放回广播状态"。
+    try {
+      await _repository.disconnectBleDevice();
+    } catch (_) {
+      // 断不掉也不该打断调用方；下一次进页面还会再断一次。
+    }
     notifyListeners();
   }
 

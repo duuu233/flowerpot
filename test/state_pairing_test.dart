@@ -546,6 +546,9 @@ class _PairingRepository extends MockTuyaRepository {
     expect(repository.productInfoQueries.where((u) => u == 'uuid-pot'), hasLength(1));
 
     await state.stopBleDiscovery();
+    // ⚠️ 停扫必须连**BLE 链路**一起断：设备只有在没有连接时才广播，留着一条就等于
+    // 让它从此扫不到（2026-09-11 真机：之前搜得到、配网失败之后就搜不到了）。
+    expect(repository.bleDisconnects, isNotEmpty);
   });
 
   testWidgets('BLE 发现：扫到的设备逐台进列表，已绑的不列', (tester) async {

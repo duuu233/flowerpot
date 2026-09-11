@@ -59,6 +59,14 @@ class MockTuyaRepository implements TuyaRepository {
   @override
   Future<void> openAppSettings() async => appSettingsOpens++;
 
+  /// 断开调用记录；用例据此断言"每条退出路径都断干净了"。
+  final List<String> bleDisconnects = <String>[];
+
+  @override
+  Future<void> disconnectBleDevice({String uuid = ''}) async {
+    bleDisconnects.add(uuid);
+  }
+
   /// 云端产品信息的假数据：按 pid 给名字，用例可改。
   Map<String, BleProductInfo> productInfoByPid = <String, BleProductInfo>{
     'pid1': const BleProductInfo(name: '智能花盆'),
