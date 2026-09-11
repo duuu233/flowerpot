@@ -1111,7 +1111,15 @@ class HttpAppBackendRepository implements AppBackendRepository {
       introduction: introduction,
       temperatureRequirement: _text(row, 'optimalTemperature'),
       humidityRequirement: _text(row, 'optimalHumidity'),
-      lightingRequirement: _text(row, 'lightingRequirements'),
+      // ⚠️ **优先取 `…Msg`**（2026-09-11 真实返回体确认）：后端这一项是**枚举数字**
+      // （`lightingRequirements: 1`），人话在配套的 `lightingRequirementsMsg`
+      // （`"全日照"`）里。改之前直接 `_text` 取数字字段，界面上画出来就是个「1」。
+      // 没有 Msg 时才退回原值，老接口仍然能用。
+      lightingRequirement: _text(
+        row,
+        'lightingRequirementsMsg',
+        fallback: _text(row, 'lightingRequirements'),
+      ),
       wateringFrequency: _text(row, 'wateringFrequency'),
       growthCharacteristics: _text(row, 'growthCharacteristics'),
       careInstructions: care,

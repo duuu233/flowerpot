@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../design_system/design_system.dart';
@@ -303,9 +304,39 @@ class _PlantBasicInfoCard extends StatelessWidget {
               title: '基础信息',
             ),
             const SizedBox(height: 14),
-            _DetailRow(label: '学名', child: Text(plant.latinName)),
+            // 空值显式画一句，别留一行空白——分不清是"后台没配"还是"App 没读到"。
+            _DetailRow(
+              label: '学名',
+              child: Text(
+                plant.latinName.trim().isEmpty ? '—' : plant.latinName,
+              ),
+            ),
             const SizedBox(height: 12),
-            _DetailRow(label: '别名', child: Text(data.alias)),
+            _DetailRow(
+              label: '别名',
+              child: Text(data.alias.trim().isEmpty ? '—' : data.alias),
+            ),
+            // ⚠️ **只在 debug 包出现的字段体检**（2026-09-11）。
+            //
+            // 产品反馈「详情页没读到图片、学名、别名」，而后台那条数据（tuYaRemark=17）
+            // 明明配全了。差别在于：**详情页用的是列表接口 `getProductPlantList` 传进来的
+            // 对象，从不单独拉详情**——列表返回什么，这一页就只有什么。所以要能一眼看出
+            // 到底是哪几项没从接口下来。正式包不画。
+            if (kDebugMode) ...<Widget>[
+              const SizedBox(height: 12),
+              _DetailRow(
+                label: '接口体检',
+                child: Text(
+                  <String>[
+                    '图片 ${(plant.imageUrl ?? '').trim().isEmpty ? '空' : '有'}',
+                    '学名 ${plant.latinName.trim().isEmpty ? '空' : '有'}',
+                    '别名 ${data.alias.trim().isEmpty ? '空' : '有'}',
+                    '涂鸦标识 ${plant.tuyaIdentifier.trim().isEmpty ? '空' : plant.tuyaIdentifier}',
+                  ].join(' · '),
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             _DetailRow(
               label: '养护难度',
