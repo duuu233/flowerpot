@@ -709,7 +709,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
           ' · 定位服务：${availability.locationOn ? '开' : '关（BLE 扫描必需）'}',
       '权限：扫描 ${availability.scanPermission ? '已授予' : '未授予'}'
           ' · 定位 ${availability.locationPermission ? '已授予' : '未授予'}',
-      '扫描：${state.bleScanning ? '进行中 $elapsed' : '未在扫描'}',
+      '系统：Android ${availability.release}（API ${availability.sdkInt}）',
+      '扫描：${state.bleScanning ? '进行中 $elapsed' : '未在扫描'}'
+          ' · SDK 回调 ${state.bleCallbackCount} 次',
       '涂鸦 SDK 扫到 ${state.bleTotal} 台${bound == 0 ? '' : '（其中 $bound 台已被绑定）'}'
           '${state.bleTotal > ble.length ? '，按信号列最强的 ${ble.length} 台' : ''}',
       // **这一行就是「到底有没有搜到花盆」的答案。**pid 与固件烧录的 PID 严格一致，
@@ -1156,6 +1158,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                                 !(scan?.currentIsDeviceHotspot ?? false),
                             onSelected: (index) =>
                                 unawaited(_openDevice(index)),
+                            onCopyDetail: _copyMessage,
                           ),
                         ],
                         // iOS 列不出设备，「下一步」全程都在——那是它唯一的
@@ -1498,39 +1501,52 @@ class _FoundDevice {
 
   /// 行上那行小字：**说清楚是怎么发现的、下一步会怎么走**。整条动线是黑箱时，
   /// 用户遇到失败完全无从下手。
-  /// 行上那行小字：**说清楚是怎么发现的、这台是什么、下一步会怎么走**。
+  /// 行上的详细信息：**把这台设备的每一项都摊开**。
   ///
-  /// AP 屏蔽期间这一行同时是**排查证据**（`PairingGate.showUnfilteredBleScan`）：
-  /// 不做过滤之后，绑定状态、能力位、pid 都得摆出来，否则用户看到一行却不知道
-  /// 它为什么点不动、或者为什么点了会失败。
+  /// 2026-09-11 产品要求「扫描到什么设备就按信号列出来、信息都打印出来，我自己判断」。
+  /// 所以这里不做取舍：能读到的字段全画，读不到的显式写「(空)」——**空本身就是线索**
+  /// （比如 address 为空就连不上、uuid 为空就配不了网）。等宽字体、整块可长按复制。
   String get detail {
     final device = ble;
     if (device == null) {
       return 'Wi-Fi 热点 · 连上它再配网';
     }
-    final parts = <String>[
-      if (device.productId == TuyaConfig.productId ||
-          device.productId == TuyaConfig.broadcastId)
-        '★ 本产品',
-      '蓝牙 ${device.rssi}dBm',
-      if (device.bound) '已被绑定',
-      device.supportWifiList ? '可读取设备扫到的 Wi-Fi' : '固件不支持读 Wi-Fi 列表',
-      if (device.productId.isNotEmpty) 'pid ${device.productId}',
-      // mac / uuid 是核对「这一行是不是花盆」的凭据：广播里常常没有名字，
-      // 只能靠这两样和设备方对。
-      if (device.mac.isNotEmpty) device.mac,
-      if (device.uuid.isNotEmpty) 'uuid ${device.uuid}',
-      // 云端还没答上来时说一声，免得用户以为"这台就是没名字"。
-      if (productInfo == null) '产品名查询中…',
-    ];
-    return parts.join(' · ');
+    String or(String value) => value.trim().isEmpty ? '(空)' : value.trim();
+    final mine =
+        device.productId == TuyaConfig.productId ||
+        device.productId == TuyaConfig.broadcastId;
+    final product = productInfo;
+    return <String>[
+      if (mine) '★ 本产品',
+      '信号 ${device.rssi}dBm'
+          ' · ${device.bound ? '已被绑定' : '未绑定'}'
+          ' · ${device.supportWifiList ? '可读设备 Wi-Fi 列表' : '不可读 Wi-Fi 列表'}',
+      'pid      ${or(device.productId)}',
+      'uuid     ${or(device.uuid)}',
+      'mac      ${or(device.mac)}',
+      'address  ${or(device.address)}',
+      'name     ${or(device.name)}',
+      '云端产品名 ${product == null ? '查询中…' : or(product.name)}',
+      'deviceType ${device.deviceType} · flag ${device.flag}'
+          ' · configType ${or(device.configType)}',
+      if (device.providerName.trim().isNotEmpty) 'provider ${device.providerName}',
+      // SDK 那个 bean 的原样输出：上面的字段是按常见 getter 名读的，万一这一版
+      // 字段名不同会全读成空，只有这一行能说明 SDK 究竟给了什么。
+      if (device.rawText.trim().isNotEmpty) 'raw ${device.rawText}',
+    ].join('\n');
   }
 
   /// 这一行现在能不能点。
   ///
   /// **已被绑定的不给点**：它要么在别人账号下、要么已经在本账号里，点下去必然失败。
   /// 但仍然**列出来**——这一轮要的就是「蓝牙到底看见了什么」，藏起来等于把证据删掉。
-  bool get selectable => ble == null || !ble!.bound;
+  bool get selectable {
+    final device = ble;
+    if (device == null) return true;
+    // 已绑定的点了必然失败；**没有 uuid 的配不了网**（双模配网要拿它取回原生缓存的
+    // ScanDeviceBean）。两种都照常列出来——这一轮要的就是"扫到什么看到什么"——但点不动。
+    return !device.bound && device.uuid.trim().isNotEmpty;
+  }
 }
 
 class _FoundDeviceList extends StatelessWidget {
@@ -1539,7 +1555,11 @@ class _FoundDeviceList extends StatelessWidget {
     required this.onSelected,
     required this.busyIndex,
     required this.showConsentHint,
+    this.onCopyDetail,
   });
+
+  /// 长按某一行时复制它的全部信息。
+  final ValueChanged<String>? onCopyDetail;
 
   static const listKey = Key('device-search-found-list');
 
@@ -1593,6 +1613,7 @@ class _FoundDeviceList extends StatelessWidget {
             onTap: busyIndex == null && devices[index].selectable
                 ? () => onSelected(index)
                 : null,
+            onCopyDetail: onCopyDetail,
           ),
         ],
       ],
@@ -1606,10 +1627,14 @@ class _FoundDeviceTile extends StatelessWidget {
     required this.device,
     required this.onTap,
     required this.busy,
+    this.onCopyDetail,
   });
 
   final int index;
   final _FoundDevice device;
+
+  /// 长按复制这一台的全部信息——排查时要发出去的就是这一整段。
+  final ValueChanged<String>? onCopyDetail;
 
   /// null 表示此刻不可点（别的行正在连）。
   final VoidCallback? onTap;
@@ -1652,15 +1677,19 @@ class _FoundDeviceTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      device.detail,
-                      key: Key('device-search-found-detail-$index'),
-                      // 这行现在带着 mac / uuid，是核对用的凭据，不能被省略号吃掉。
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textTertiary,
-                        fontSize: 12,
+                    // **整块信息都画出来，不截断。** 产品要「信息都打印出来自己判断」，
+                    // 省略号在这里等于把证据删掉。等宽字体便于对 mac / uuid。
+                    GestureDetector(
+                      onLongPress: () => onCopyDetail?.call(device.detail),
+                      child: Text(
+                        device.detail,
+                        key: Key('device-search-found-detail-$index'),
+                        style: const TextStyle(
+                          color: AppColors.textTertiary,
+                          fontSize: 11,
+                          height: 1.5,
+                          fontFamily: 'monospace',
+                        ),
                       ),
                     ),
                   ],

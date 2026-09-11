@@ -797,6 +797,8 @@ class BleAvailability {
     this.locationOn = true,
     this.scanPermission = true,
     this.locationPermission = true,
+    this.sdkInt = 0,
+    this.release = '',
     this.reason = '',
   });
 
@@ -805,6 +807,8 @@ class BleAvailability {
     supported: raw['supported'] == true,
     enabled: raw['enabled'] == true,
     // 缺省按 true：老桥接不回这三项时，别凭空报一个「定位没开」把人带偏。
+    sdkInt: (raw['sdkInt'] as num?)?.toInt() ?? 0,
+    release: raw['release']?.toString() ?? '',
     locationOn: raw['locationOn'] != false,
     scanPermission: raw['scanPermission'] != false,
     locationPermission: raw['locationPermission'] != false,
@@ -833,6 +837,10 @@ class BleAvailability {
 
   /// 定位权限（`ACCESS_FINE_LOCATION`）。BLE 扫描需要，理由同 [locationOn]。
   final bool locationPermission;
+
+  /// 系统版本：决定走哪一套蓝牙权限模型，排查时必须知道。
+  final int sdkInt;
+  final String release;
 
   /// 不可用时的原文，直接画到页面上。
   final String reason;
@@ -871,24 +879,32 @@ class BleDevice {
     required this.rssi,
     required this.bound,
     required this.supportWifiList,
+    this.address = '',
     this.id = '',
     this.configType = '',
+    this.providerName = '',
     this.deviceType = 0,
     this.flag = 0,
+    this.seq = 0,
+    this.rawText = '',
   });
 
   factory BleDevice.fromMap(Map<Object?, Object?> raw) => BleDevice(
     uuid: raw['uuid']?.toString() ?? '',
     name: raw['name']?.toString() ?? '',
     mac: raw['mac']?.toString() ?? '',
+    address: raw['address']?.toString() ?? '',
     productId: raw['productId']?.toString() ?? '',
     rssi: (raw['rssi'] as num?)?.toInt() ?? 0,
     bound: raw['bound'] == true,
     supportWifiList: raw['supportWifiList'] == true,
     id: raw['id']?.toString() ?? '',
     configType: raw['configType']?.toString() ?? '',
+    providerName: raw['providerName']?.toString() ?? '',
     deviceType: (raw['deviceType'] as num?)?.toInt() ?? 0,
     flag: (raw['flag'] as num?)?.toInt() ?? 0,
+    seq: (raw['seq'] as num?)?.toInt() ?? 0,
+    rawText: raw['raw']?.toString() ?? '',
   );
 
   /// 设备的 BLE uuid。**查 Wi-Fi 列表与双模配网都靠它**：原生按它取回自己缓存的
@@ -912,12 +928,39 @@ class BleDevice {
   /// 干等一次超时，回落到手机的 Wi-Fi 扫描反而快。
   final bool supportWifiList;
 
+  /// 蓝牙地址。**和 [mac] 是两个字段**：双模配网真正拿去连的是 address，
+  /// 之前把两者合并上报，address 为空时看不出来。
+  final String address;
+
   final String id;
   final String configType;
+  final String providerName;
   final int deviceType;
+
+  /// 这是本轮第几次 `onResult` 回调。**用来判断"SDK 到底有没有在回报"**：
+  /// 列表为空而 seq 一直在涨，说明扫描是活的、只是我们没留住；两者都是 0 才是真的没回调。
+  final int seq;
+
+  /// SDK 那个 bean 的原样 `toString()`。
+  ///
+  /// ⚠️ 上面那些字段是按常见 getter 名猜着读的；万一这一版 SDK 字段名不一样，全都会是空，
+  /// 而页面上看不出为什么。有了这一条，真机上一眼能看到 SDK 究竟给了什么。
+  final String rawText;
 
   /// 能力位原值。真机上排查 [supportWifiList] 为什么是 false 时要看它。
   final int flag;
+
+  /// 去重用的稳定键。
+  ///
+  /// ⚠️ **不能只用 uuid**：广播里未必带 uuid，而按 uuid 去重会让所有没有 uuid 的设备
+  /// 挤成一条、甚至被整条丢掉（2026-09-11 真机"一台都扫不到"的原因之一就是仓库层
+  /// 把 uuid 为空的直接 return null 了）。按 uuid → mac → address → id 依次退。
+  String get key {
+    for (final candidate in <String>[uuid, mac, address, id]) {
+      if (candidate.trim().isNotEmpty) return candidate.trim();
+    }
+    return 'seq-$seq';
+  }
 
   /// 页面上怎么称呼这一台。
   ///

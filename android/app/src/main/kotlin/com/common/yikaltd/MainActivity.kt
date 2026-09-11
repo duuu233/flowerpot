@@ -780,6 +780,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "available" to true,
                 "supported" to supported,
                 "enabled" to enabled,
+                // 系统版本决定走哪一套权限模型，排查时必须知道。
+                "sdkInt" to Build.VERSION.SDK_INT,
+                "release" to Build.VERSION.RELEASE,
                 "locationOn" to locationOn,
                 "scanPermission" to scanPermission,
                 "locationPermission" to locationPermission,
@@ -869,7 +872,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     defaultValue(method.returnType)
                 }
                 "onScanStart" -> {
-                    trace("ble scan: 已开始")
+                    trace("ble scan: 已开始（SDK 回调 onScanStart）")
+                    emit(mapOf("type" to "bleScanStarted"))
                     defaultValue(method.returnType)
                 }
                 "onScanStop" -> {
@@ -882,6 +886,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             }
         }
         bleScanner = proxy
+        bleCallbackCount.set(0)
         invoke(operator, "startLeScan", setting, proxy)
         trace("ble scan: startLeScan(timeout=${timeout}ms, 类型 $added 种)")
         success(result, null)
@@ -996,20 +1001,34 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val flag = (optionalGetter(bean, "getFlag") as? Number)?.toInt() ?: 0
         return mapOf(
             "type" to "bleDevice",
+            "seq" to bleCallbackCount.incrementAndGet(),
             "id" to optionalGetter(bean, "getId")?.toString(),
             "name" to optionalGetter(bean, "getName")?.toString(),
-            "mac" to (optionalGetter(bean, "getMac") ?: optionalGetter(bean, "getAddress"))
-                ?.toString(),
+            "mac" to optionalGetter(bean, "getMac")?.toString(),
+            // address 和 mac 是两个字段，**分开报**：双模配网真正拿去连的是 address，
+            // 之前把两者合并成一个，address 为空时看不出来。
+            "address" to optionalGetter(bean, "getAddress")?.toString(),
             "uuid" to optionalGetter(bean, "getUuid")?.toString(),
             "productId" to optionalGetter(bean, "getProductId")?.toString(),
             "configType" to optionalGetter(bean, "getConfigType")?.toString(),
+            "providerName" to optionalGetter(bean, "getProviderName")?.toString(),
+            "data" to optionalGetter(bean, "getData")?.toString(),
             "deviceType" to ((optionalGetter(bean, "getDeviceType") as? Number)?.toInt() ?: 0),
             "bound" to (optionalGetter(bean, "getIsbind") as? Boolean ?: false),
+            "share" to (optionalGetter(bean, "isShare") as? Boolean ?: false),
+            "roam" to (optionalGetter(bean, "isRoam") as? Boolean ?: false),
             "rssi" to ((optionalGetter(bean, "getRssi") as? Number)?.toInt() ?: 0),
             "flag" to flag,
             "supportWifiList" to bleSupportsWifiList(flag),
+            // ⚠️ **原样的 `toString()` 一定要带上**：上面这些 getter 是按常见写法猜的，
+            // 万一这一版 SDK 的字段名不一样，全都会读成 null 而页面上看不出为什么。
+            // 有了 raw，真机上一眼能看到 SDK 到底给了什么。
+            "raw" to runCatching { bean.toString() }.getOrElse { "(toString 失败)" },
         )
     }
+
+    /** 本轮 `onResult` 被回调了多少次——**包括我们没能解析的那些**。*/
+    private val bleCallbackCount = java.util.concurrent.atomic.AtomicInteger(0)
 
     private fun bleSupportsWifiList(flag: Int): Boolean = runCatching {
         val clazz = firstClass("com.thingclips.smart.android.ble.api.CombosFlagCapability")

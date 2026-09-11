@@ -496,6 +496,37 @@ class _PairingRepository extends MockTuyaRepository {
     await state.stopBleDiscovery();
   });
 
+  testWidgets('BLE 发现：没有 uuid 的也照常列出来（只是点不动）', (tester) async {
+    // ⚠️ 2026-09-11 真机一直搜不到设备，原因之一就是仓库层把 uuid 为空的**静默丢掉**了：
+    // 广播里没带 uuid 的设备直接消失，页面显示「一台都没扫到」——「我们扔了它」被当成
+    // 「设备没在广播」，排查方向正好反。现在一条都不丢。
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+    await state.startBleDiscovery();
+
+    repository.pushBleDevice(
+      const BleDevice(
+        uuid: '',
+        name: '',
+        mac: 'AA:BB:CC:00:00:09',
+        productId: '',
+        rssi: -60,
+        bound: false,
+        supportWifiList: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(state.bleDevices, hasLength(1));
+    // uuid 为空时按 mac 去重，不会和别的挤成一条。
+    expect(state.bleDevices.single.key, 'AA:BB:CC:00:00:09');
+
+    await state.stopBleDiscovery();
+  });
+
   testWidgets('BLE 发现：本产品置顶，并补上云端产品名', (tester) async {
     final repository = MockTuyaRepository(
       latency: Duration.zero,

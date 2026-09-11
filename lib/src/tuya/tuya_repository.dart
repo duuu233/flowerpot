@@ -305,12 +305,18 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   /// 解析原生的 BLE 事件：`{type: 'bleDevice', uuid, name, rssi, …}`。
   ///
-  /// 没有 uuid 的一律丢掉：查 Wi-Fi 列表、配网都要它，画在页面上也点不动。
+  /// ⚠️ **一条都不丢。**
+  ///
+  /// 改之前这里写着「没有 uuid 的一律丢掉」——理由是配网要 uuid、画出来也点不动。
+  /// 但那是**静默过滤**：广播里没带 uuid 的设备直接消失，页面上显示的是「一台都没扫到」，
+  /// 于是「我们把它扔了」被当成了「设备没在广播」，排查方向正好反（2026-09-11 真机
+  /// 一直搜不到设备，这是原因之一）。
+  ///
+  /// 现在全部留下、全部画出来；能不能点由页面按 uuid 是否为空自己决定。
   BleDevice? _bleDevice(Object? event) {
     if (event is! Map) return null;
     if ('${event['type'] ?? ''}' != 'bleDevice') return null;
-    final device = BleDevice.fromMap(event.cast<Object?, Object?>());
-    return device.uuid.isEmpty ? null : device;
+    return BleDevice.fromMap(event.cast<Object?, Object?>());
   }
 
   /// 从原生事件里取一个字符串字段：`{type: <type>, <field>: '…'}`。

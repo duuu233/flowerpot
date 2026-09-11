@@ -518,6 +518,13 @@ class FlowerpotState extends ChangeNotifier {
   /// 正在查的 uuid，防止同一台并发查两次。
   final Set<String> _productInfoInFlight = <String>{};
 
+  /// SDK 的 `onResult` 本轮被回调了多少次（取上报序号的最大值）。
+  ///
+  /// **判断"SDK 到底有没有在回报"**：列表为空而这个数在涨，说明扫描是活的、只是没留住；
+  /// 两者都是 0 才是真的一次回调都没有。
+  int _bleCallbackCount = 0;
+  int get bleCallbackCount => _bleCallbackCount;
+
   /// **一轮搜索里最多查几台**。
   ///
   /// 这是云端往返：不过滤扫描时附近可能有几十台设备，挨个查会把接口打满、也会拖慢页面。
@@ -677,11 +684,15 @@ class FlowerpotState extends ChangeNotifier {
     final availability = await probeBle();
     if (!availability.usable) return false;
     _bleSub ??= _repository.bleDevices.listen((device) {
-      _bleDevices[device.uuid] = device;
+      // 按稳定键去重（uuid → mac → address → id）：广播里未必带 uuid，
+      // 只按 uuid 会让所有没 uuid 的挤成一条。
+      if (device.seq > _bleCallbackCount) _bleCallbackCount = device.seq;
+      _bleDevices[device.key] = device;
       notifyListeners();
       // 顺手把云端产品信息补上（内部去重 + 限量，不会每条回调都往返）。
       unawaited(refreshBleProductInfo());
     });
+    _bleCallbackCount = 0;
     try {
       await _repository.startBleScan(timeout: timeout);
     } catch (error) {
