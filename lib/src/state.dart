@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -955,20 +954,15 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '已中止配网，设备热点连接已释放');
   });
 
-  /// 第三步「连接云端」的停留时长。**只在涂鸦一条 `onStep` 都没报时才用。**
-  ///
-  /// ⚠️ **这一步原来没有接任何实际业务**：涂鸦的 activator 返回时设备其实已经注册
-  /// 到云端了，所以没有可等的东西。产品口径是先给它一个 1–2 秒的随机停留、然后
-  /// 直接按成功处理——否则第三步会一闪而过，用户看到的是「第二步刚亮起就跳走了」。
-  /// 这里留作兜底，免得第二步刚亮起就跳走。
-  static Duration _cloudStageDelay() =>
-      Duration(milliseconds: 1000 + Random().nextInt(1000));
-
   Future<ActionResult> _pairInternal(PairingRequest request) async {
     final device = await _pairOrRecover(request);
-    // 凭据已经被设备收下，接下来是它自己连路由器、注册到云端。
+    // 走到这里 SDK 已经回了 onActiveSuccess——设备**已经**连上路由器并注册到云端了。
+    // 第三步「连接云端」在这一刻置位、随即在 finally 里归 idle，界面上不会单独停留。
+    //
+    // 2026-09-11 晚删掉了这里原来那段 1–2 秒的随机 `Future.delayed`：它只是为了让第三步
+    // 在进度卡上"亮一会儿"，纯装的（产品要"最简洁、最高效"）。成功页本身就是"云端完成"
+    // 的信号，用户不会因为少看到一格转圈而困惑。
     _setPairingStage(PairingStage.connectingCloud);
-    await Future<void>.delayed(_cloudStageDelay());
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.
     _activatorTokenAt = null;

@@ -228,6 +228,22 @@ Android 10+ 上「把手机连到设备热点」这一步会弹一次系统入�
 | `WifiManager.connect(WifiConfiguration, ActionListener)` | 方法**存在**、调用**不抛异常**，但 `ActionListener` **一个回调都没来**；`addNetwork()` 返回 **-1**（系统拒绝保存网络）。12 秒内手机一直留在路由器上 |
 | `WifiNetworkSuggestion` | `addNetworkSuggestions` 返回 **0 也没用**：Android 10 上**首次必须用户在通知栏点同意**，且「The platform **ultimately chooses** which access point to accept」——没有 API 能要求它立刻连。设备热点没有外网、手机正连着有外网的路由器，平台不会切。**代码已删**（留着只会在配网关键路径上白等十秒，而设备静置会退出配网模式，§1.5）。实现见 git `747d871` |
 
+### 「零系统框」终审（2026-09-11 晚，产品拍板：不走）
+
+零系统框在技术上**有一条路**：系统 Wi-Fi 面板（`Settings.Panel.ACTION_INTERNET_CONNECTIVITY`，
+`da5a054` 的 `openWifiPanel`）+ 标准 AP `pairViaHotspot`。用户在浮起的系统列表里自己点
+`SmartLife-xxxx`，没有授权框。**但不走**，产品原话选「保留一次系统框（推荐）」：
+
+- 步骤更多（离开 App、在列表里找、点、等、回来），现版是点一下「连接」；
+- 连接归**系统**持有，Android 10 判定"无互联网"后**可能中途把手机切回路由器**——随机
+  `207220`。`WifiNetworkSpecifier` 是 App 持有请求，系统在请求期间保证不切走，这就是
+  现版稳定的原因；
+- 多半还会冒「此网络无法访问互联网」的系统通知，系统 UI 并没有真的消失。
+
+⚠️ **产品记忆里"早期有一版全程没框、只是 Wi-Fi 名显示不对"（`78afe2a` 前后）从未配成过**：
+那几版把连热点交给了涂鸦新流程，而它根本不连——没框和 `207220` 是同一件事。
+详见 `docs/history/2026-09/2026-09-11-zero-dialog-verdict.md`。**不要再往回找。**
+
 ### 现在的实现
 
 1. **捷径**（零点击）：已持有该热点连接、或手机本来就连在该热点上 —— 直接成功。
@@ -321,6 +337,9 @@ strings -a -n 2 cls/path/To/Class.class | grep -E '^(on|get|set|is)?[A-Z_]'
 ## 6. 协作方式
 
 - **先 pull 再改**；任务完成并验证后默认提交并推送（Hub 约定）。
+- **每出一个测试包，`pubspec.yaml` 的 build number 加一**（2026-09-11：两天 40 多个包全是
+  `1.0.0+1`，产品分不清哪个是哪个，"那版能配成"因此追不回来）。关于页版本是硬编码
+  （`about_page_model.dart`），要显示真实版本得接 `package_info_plus`——待办，本机无法验证依赖。
 - **文档不要来回乱改。** 结论写进 `AI_CONTEXT.md` 或本文件；试错过程写进
   `docs/history/`。不要在 `AI_CONTEXT.md` 里堆成一串自相矛盾的时间日志。（2026-09-10）
 - **产品说过的要求要归纳到本文件**，不要让产品反复强调。（2026-09-10）
