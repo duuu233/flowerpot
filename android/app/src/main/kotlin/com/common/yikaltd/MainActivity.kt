@@ -1137,6 +1137,21 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         bean: Any,
         token: String,
     ) = withHome(result) { home ->
+        // ⚠️ **先把家庭详情同步下来再配网**，否则 SDK 内部缓存是空的、`startActivator`
+        // 当场 NPE（2026-09-11 真机 `pqppqpd.bdpdqbp:21`）。见 [withHomeDetail]。
+        withHomeDetail(home, result) {
+            startMultiModeActivatorWithHome(call, result, uuid, bean, token, home)
+        }
+    }
+
+    private fun startMultiModeActivatorWithHome(
+        call: MethodCall,
+        result: MethodChannel.Result,
+        uuid: String,
+        bean: Any,
+        token: String,
+        home: Long,
+    ) {
         val beanClass = firstClass("com.thingclips.smart.sdk.bean.MultiModeActivatorBean")
         // ⚠️ **必须用吃 `ScanDeviceBean` 的那个构造函数。**
         //
@@ -1665,6 +1680,63 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         )
     }
 
+    /** 本进程里已经拉过 `getHomeDetail` 的家庭。*/
+    private val homeDetailLoaded = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
+
+    /**
+     * **确保这个家庭的详情已经同步到 SDK，再往下走。**
+     *
+     * ⚠️ 这一步是 2026-09-11 真机那个 NPE 的正解：
+     * `NullPointerException @ pqppqpd.bdpdqbp:21 (ble_start_failed)`——混淆后的类名说明
+     * 炸在**涂鸦 SDK 内部**，就在我们调 `startActivator` 的那一瞬间。
+     *
+     * 原因：`withHome` 只负责**拿到 homeId**（Dart 侧会话开始时 `setHomeId` 钉进来的），
+     * 全程没有调过 `getHomeDetail`；而 SDK 的配网器要从**家庭缓存**里取东西。App 重启后
+     * 直接进搜索页配网，那份缓存还是空的，一解引用就 NPE。涂鸦给的排查第三条
+     * 「App 重启后未先调用 homedetail 接口同步网关数据」说的正是它。
+     *
+     * 之所以以前 AP 配网没暴露：走 AP 的用户通常先进过设备列表（`getDevices` 会调
+     * `getHomeDetail`），缓存顺带就热了。蓝牙这条动线可以完全不经过设备列表。
+     *
+     * 每个家庭每进程只拉一次；失败**不拦路**（照常往下走，让真正的配网错误来说话）。
+     */
+    private fun withHomeDetail(
+        id: Long,
+        result: MethodChannel.Result,
+        ready: () -> Unit,
+    ) {
+        if (homeDetailLoaded.contains(id)) {
+            ready()
+            return
+        }
+        val home = runCatching { invokeStatic(sdkClass(), "newHomeInstance", id) }.getOrNull()
+        if (home == null) {
+            trace("home detail: 拿不到家庭实例，跳过同步")
+            ready()
+            return
+        }
+        trace("home detail: 同步家庭 " + id + " …（配网前必须先热一次 SDK 缓存）")
+        runCatching {
+            invokeWithCallback(
+                home,
+                "getHomeDetail",
+                onSuccess = {
+                    homeDetailLoaded.add(id)
+                    trace("home detail: 同步完成")
+                    onMain(result) { ready() }
+                },
+                onError = { code, message ->
+                    // 不拦路：同步失败也让配网自己去报真正的错，别把两件事混成一个。
+                    trace("home detail: 同步失败 " + code + " " + message + "（不拦路）")
+                    onMain(result) { ready() }
+                },
+            )
+        }.onFailure { cause ->
+            trace("home detail: 调用失败 " + cause.javaClass.simpleName + "（不拦路）")
+            ready()
+        }
+    }
+
     private fun loadHomeDevices(id: Long, result: MethodChannel.Result) {
         val home = invokeStatic(sdkClass(), "newHomeInstance", id)
             ?: throw IllegalStateException("无法创建家庭实例")
@@ -1672,6 +1744,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             home,
             "getHomeDetail",
             onSuccess = { value ->
+                homeDetailLoaded.add(id)
                 onMain(result) {
                     val devices =
                         value?.let { optionalGetter(it, "getDeviceList") } as? List<*>
