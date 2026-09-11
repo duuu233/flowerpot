@@ -612,8 +612,7 @@ class _PlantDetailData {
   final String growth;
   final List<String> careAdvice;
 
-  /// 后台单独维护的四条建议文案。**没有本地兜底**：写死的 `_byId` / `_generic`
-  /// 里都是空串，后台没配就整行不显示，不拿阈值区间冒充建议。
+  /// 后台单独维护的四条建议文案。后台没配就整行不显示，不拿阈值区间冒充建议。
   final String lightingSuggestion;
   final String waterSuggestion;
   final String temperatureSuggestion;
@@ -622,50 +621,33 @@ class _PlantDetailData {
   /// Written per plant. The generic fallback produced near-identical cards —
   /// same temperature range, same three tips, and `别名` echoing the plant's
   /// own name — so every plant read the same in the picker.
+  /// 从后端植物资料构造。**一律用真实数据，后端没给就留空。**
+  ///
+  /// ⚠️ 2026-09-12 产品口径：「去掉静态数据，所有都要真实的数据，没有就为空」。
+  ///
+  /// 改之前这里有一整套**本地写死的兜底**（`_byId` 按 id 配了六种植物、`_generic` 按
+  /// 含水量/光照阈值现编一份），任何一个字段后端为空就拿兜底顶上。结果是页面上显示着
+  /// 一份**看起来有、实际是编的**植物资料——产品说的「页面数据都是错的」就是它。
+  /// 空着反而是对的：一眼能看出后台哪几项没配。
   factory _PlantDetailData.fromProfile(PlantProfile plant) {
-    final fallback = _byId[plant.id] ?? _generic(plant);
-    final hasBackendDetail =
-        plant.introduction.isNotEmpty ||
-        plant.alias.isNotEmpty ||
-        plant.temperatureRequirement.isNotEmpty ||
-        plant.humidityRequirement.isNotEmpty ||
-        plant.lightingRequirement.isNotEmpty ||
-        plant.wateringFrequency.isNotEmpty ||
-        plant.growthCharacteristics.isNotEmpty ||
-        plant.careInstructions.isNotEmpty ||
-        plant.lightingSuggestion.isNotEmpty ||
-        plant.waterSuggestion.isNotEmpty ||
-        plant.temperatureSuggestion.isNotEmpty ||
-        plant.humiditySuggestion.isNotEmpty ||
-        plant.difficultyMaintenance != null;
-    if (!hasBackendDetail) return fallback;
     final careAdvice = plant.careInstructions
         .split(RegExp(r'[\r\n；;]+'))
         .map((item) => item.trim())
         .where((item) => item.isNotEmpty)
         .toList(growable: false);
     return _PlantDetailData(
-      temperature: plant.temperatureRequirement.isEmpty
-          ? fallback.temperature
-          : plant.temperatureRequirement,
-      humidity: plant.humidityRequirement.isEmpty
-          ? fallback.humidity
-          : plant.humidityRequirement,
-      lightRating: _rating(plant.lightingRequirement, fallback.lightRating),
-      summary: plant.introduction.isEmpty
-          ? fallback.summary
-          : plant.introduction,
-      alias: plant.alias.isEmpty ? fallback.alias : plant.alias,
-      difficulty: (plant.difficultyMaintenance ?? fallback.difficulty)
-          .clamp(1, 5)
-          .toInt(),
-      watering: plant.wateringFrequency.isEmpty
-          ? fallback.watering
-          : plant.wateringFrequency,
-      growth: plant.growthCharacteristics.isEmpty
-          ? fallback.growth
-          : plant.growthCharacteristics,
-      careAdvice: careAdvice.isEmpty ? fallback.careAdvice : careAdvice,
+      temperature: plant.temperatureRequirement,
+      humidity: plant.humidityRequirement,
+      // 后端给的是枚举数字 + `…Msg` 人话（见 `app_backend_repository._plant`）。
+      // 解析不出 1..5 就给 0——由页面决定这一行画不画，不再猜一个 3 出来。
+      lightRating: _rating(plant.lightingRequirement),
+      summary: plant.introduction,
+      alias: plant.alias,
+      // 后端没给难度就是 0：星级那一行按 0 处理，不再默认 3 星。
+      difficulty: (plant.difficultyMaintenance ?? 0).clamp(0, 5).toInt(),
+      watering: plant.wateringFrequency,
+      growth: plant.growthCharacteristics,
+      careAdvice: careAdvice,
       lightingSuggestion: plant.lightingSuggestion,
       waterSuggestion: plant.waterSuggestion,
       temperatureSuggestion: plant.temperatureSuggestion,
@@ -673,133 +655,10 @@ class _PlantDetailData {
     );
   }
 
-  static int _rating(String value, int fallback) {
+  /// 从光照要求里取 1..5 的星级；取不到给 0（= 没有数据，不画星）。
+  static int _rating(String value) {
     final match = RegExp(r'[1-5]').firstMatch(value);
-    return int.tryParse(match?.group(0) ?? '') ?? fallback;
+    return int.tryParse(match?.group(0) ?? '') ?? 0;
   }
 
-  static const _byId = <String, _PlantDetailData>{
-    'pilea_cadierei': pilea,
-    'pothos': pothos,
-    'ivy': ivy,
-    'monstera': monstera,
-    'bird_of_paradise': birdOfParadise,
-    'china_doll': chinaDoll,
-  };
-
-  static _PlantDetailData _generic(PlantProfile plant) {
-    final highMoisture = plant.moistureTarget >= 60;
-    final highLight = plant.lightTarget >= 220;
-    return _PlantDetailData(
-      temperature: '18-28°C',
-      humidity: highMoisture ? '55-75%' : '45-65%',
-      lightRating: highLight ? 4 : 3,
-      summary: plant.tip,
-      alias: plant.latinName,
-      difficulty: 3,
-      watering: highMoisture ? '生长期每周2-3次，冬季适当减少' : '表土干燥后浇透，避免盆内积水',
-      growth: '适合室内明亮散射光环境，保持良好通风可促进健康生长。',
-      careAdvice: <String>[
-        '避免阳光直射，放在明亮的散射光处。',
-        '根据土壤干湿情况补水，避免长期积水。',
-        '生长期定期补充稀释肥料，及时清理枯叶。',
-      ],
-    );
-  }
-
-  static const pothos = _PlantDetailData(
-    temperature: '15-30°C',
-    humidity: '50-70%',
-    lightRating: 2,
-    summary: '藤蔓下垂生长，叶片心形油亮，耐阴好养，是最适合新手的室内绿植之一。',
-    alias: '黄金葛',
-    difficulty: 1,
-    watering: '春夏每周1-2次，冬季10-15天一次，宁干勿涝',
-    growth: '生长速度快，可水培也可土培，攀爬或垂吊都有观赏性，耐阴性极强。',
-    careAdvice: <String>[
-      '放在有散射光的位置即可，长期全黑会让叶片斑纹变淡。',
-      '盆土表面干透再浇，冬季减少浇水，避免烂根。',
-      '藤蔓过长时随时修剪，剪下的枝条插水里就能生根。',
-    ],
-  );
-
-  static const ivy = _PlantDetailData(
-    temperature: '10-25°C',
-    humidity: '55-75%',
-    lightRating: 3,
-    summary: '枝叶纤细成串垂落，耐寒耐阴，适合放在书架或窗台边营造层次感。',
-    alias: '洋常春藤',
-    difficulty: 2,
-    watering: '春秋每周1-2次，夏季保持土壤微润，冬季控水',
-    growth: '喜凉爽湿润，怕闷热，通风不良时容易生红蜘蛛，夏季需注意降温。',
-    careAdvice: <String>[
-      '避开正午直射光，明亮散射光下叶色最好。',
-      '天气干燥时向叶片喷水，既增湿也能减少虫害。',
-      '每年春季换盆一次，同时修剪过密的枝条。',
-    ],
-  );
-
-  static const monstera = _PlantDetailData(
-    temperature: '18-30°C',
-    humidity: '55-75%',
-    lightRating: 3,
-    summary: '叶片宽大并自然开裂，造型感强，是室内最上镜的观叶植物之一。',
-    alias: '蓬莱蕉',
-    difficulty: 2,
-    watering: '春夏每周1次浇透，冬季2周1次，表土干2-3厘米再浇',
-    growth: '生长期长得快，叶片会随成熟度增加裂口，成株需要支撑柱引导攀爬。',
-    careAdvice: <String>[
-      '明亮散射光处开裂最漂亮，光照太弱新叶会不开裂。',
-      '定期用湿布擦拭叶面，保持光泽也利于呼吸。',
-      '气生根不要剪掉，可以引导入土帮助吸收养分。',
-    ],
-  );
-
-  static const birdOfParadise = _PlantDetailData(
-    temperature: '18-30°C',
-    humidity: '45-65%',
-    lightRating: 5,
-    summary: '叶片挺拔如扇，株型大气，光照充足时可开出形似飞鸟的橙蓝色花朵。',
-    alias: '鹤望兰',
-    difficulty: 3,
-    watering: '生长期每周1-2次浇透，冬季减半，忌盆内积水',
-    growth: '喜光耐旱，光照越足株型越紧凑；室内养护建议放在南向窗边。',
-    careAdvice: <String>[
-      '每天至少4小时明亮光照，长期光照不足很难开花。',
-      '叶片易被风吹裂属正常现象，不影响健康。',
-      '生长期每月补一次磷钾肥，有助于孕蕾。',
-    ],
-  );
-
-  static const chinaDoll = _PlantDetailData(
-    temperature: '18-28°C',
-    humidity: '50-70%',
-    lightRating: 4,
-    summary: '羽状复叶层层展开，新叶嫩绿明快，寓意好，常作为乔迁与开业的礼物。',
-    alias: '菜豆树',
-    difficulty: 3,
-    watering: '春夏每周2次，秋冬每周1次，保持土壤微润',
-    growth: '喜温暖湿润和充足散射光，环境突变时容易落叶，缓苗后会重新萌发。',
-    careAdvice: <String>[
-      '刚搬回家掉叶属于正常缓苗，先固定位置不要频繁挪动。',
-      '空气干燥时向周围喷雾，避免叶尖发黄干枯。',
-      '每年春季修剪徒长枝，保持树形紧凑。',
-    ],
-  );
-
-  static const pilea = _PlantDetailData(
-    temperature: '18-28°C',
-    humidity: '50-70%',
-    lightRating: 3,
-    summary: '叶片布满银白色脉纹，清新雅致，喜湿润明亮环境，适合室内桌面或半阴环境栽培。',
-    alias: '银脉冷水花',
-    difficulty: 3,
-    watering: '春秋每周1-2次，夏季每周2-3次，冬季每周1次',
-    growth: '喜湿润环境，生长迅速，耐阴性较强，叶色清新，极具观赏价值。',
-    careAdvice: <String>[
-      '避免阳光直射，放在明亮的散射光处，如窗边或室内明亮处。',
-      '保持土壤湿润但不积水，空气干燥时可向叶片喷水增湿。',
-      '生长期每月施一次稀释的液体肥，促进叶片生长更旺盛。',
-    ],
-  );
 }
