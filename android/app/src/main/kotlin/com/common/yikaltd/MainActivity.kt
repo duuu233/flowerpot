@@ -1144,7 +1144,151 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
     }
 
+    /** 并行配网器实例；`stopConfigWifi` 还要用它，造一次就留着。*/
+    private var parallelActivator: Any? = null
+
+    /**
+     * **双模配网（并行配网器）——涂鸦推荐的那条路。**
+     *
+     * `IMultiModeParallelActivator`：`config(MultiModeActivatorConfig)` →
+     * `appendDevice(ScanDeviceBean)` → `addMultiModeParallelListener(…)` → `startConfigWifi()`。
+     *
+     * ⚠️ **为什么换成它**：2026-09-11 真机上 `IMultiModeActivator.startActivator(bean, …)`
+     * 一调就在 SDK 内部炸 `NullPointerException @ pqppqpd.bdpdqbp:21`。那条路要我们**手工拼出
+     * 整个 `MultiModeActivatorBean`**（二十多个字段），拼漏一项就是一次 NPE，而混淆过的栈帧
+     * 根本看不出漏了哪一项。涂鸦的排查建议里反复说的「必须先 `appendDevice` 再 start」，
+     * 指的正是这套并行 API——解包核对确认 `appendDevice(ScanDeviceBean)` 真实存在。
+     *
+     * 这条路**把扫到的 `ScanDeviceBean` 整个交回给 SDK**，字段由它自己取，我们只提供这次
+     * 配网才知道的 ssid / 密码 / 令牌 / 家庭。没有手工拼 bean，也就没有拼漏的可能。
+     *
+     * 拿不到并行配网器时回落到旧的 `startActivator(bean, …)`（[startSingleModeActivator]）。
+     */
     private fun startMultiModeActivatorWithHome(
+        call: MethodCall,
+        result: MethodChannel.Result,
+        uuid: String,
+        bean: Any,
+        token: String,
+        home: Long,
+    ) {
+        val ssid = call.argument<String>("ssid").orEmpty()
+        val password = call.argument<String>("password").orEmpty()
+        val timeout = call.argument<Number>("timeoutMs")?.toLong() ?: 120_000L
+        val parallel = runCatching {
+            val api = invokeStatic(sdkClass(), "getActivator")
+                ?: throw IllegalStateException("getActivator() 返回空")
+            invoke(api, "newMultiModeParallelActivator")
+        }.getOrNull()
+        if (parallel == null) {
+            trace("ble pair: 拿不到并行配网器，回落到 startActivator(bean)")
+            startSingleModeActivator(call, result, uuid, bean, token, home)
+            return
+        }
+        parallelActivator = parallel
+
+        val configBuilder = firstClass(
+            "com.thingclips.smart.sdk.bean.MultiModeActivatorConfig\$Builder",
+        ).getDeclaredConstructor().apply { isAccessible = true }.newInstance()
+        invoke(configBuilder, "setSsid", ssid)
+        invoke(configBuilder, "setPwd", password)
+        invoke(configBuilder, "setToken", token)
+        // gid 就是家庭 id。
+        invoke(configBuilder, "setGid", home)
+        invoke(configBuilder, "setTimeout", timeout)
+        val config = invoke(configBuilder, "build")
+            ?: throw IllegalStateException("MultiModeActivatorConfig.build() 返回空")
+
+        val listenerClass = firstClass(
+            "com.thingclips.smart.sdk.api.IMultiModeParallelListener",
+        )
+        val loader = listenerClass.classLoader ?: activity.classLoader
+        val delivered = AtomicBoolean(false)
+        val listener = Proxy.newProxyInstance(loader, arrayOf(listenerClass)) { self, method, args ->
+            when (method.name) {
+                "equals" -> self === args?.firstOrNull()
+                "hashCode" -> System.identityHashCode(self)
+                "toString" -> "TuyaParallelListener"
+                "onStartConfig" -> {
+                    trace("ble pair: onStartConfig " + (args?.firstOrNull() ?: ""))
+                    defaultValue(method.returnType)
+                }
+                "onSuccess" -> {
+                    if (delivered.compareAndSet(false, true)) {
+                        onMain(result) {
+                            stopMultiModeActivator(uuid)
+                            // 令牌一次性，留着会让下一次报「令牌过期」。
+                            activatorToken = null
+                            val device = args?.firstOrNull()
+                            if (device == null) {
+                                error(result, "pair_failed", "配网未返回设备信息")
+                            } else {
+                                watchDevice(deviceIdOf(device))
+                                success(result, deviceMap(device))
+                            }
+                        }
+                    }
+                    defaultValue(method.returnType)
+                }
+                // `onError(String, String, String)`——三个都是字符串，按位置取：
+                // 通常是 (uuid, errorCode, errorMsg)。把三个原样拼进消息，别猜。
+                "onError" -> {
+                    if (delivered.compareAndSet(false, true)) {
+                        val texts = args?.map { it?.toString().orEmpty() }.orEmpty()
+                        val code = texts.getOrNull(1).orEmpty().ifEmpty { "ble_pair_failed" }
+                        val detail = texts.joinToString(" | ")
+                        stopMultiModeActivator(uuid)
+                        trace("ble pair: onError " + detail)
+                        error(result, code, detail)
+                    }
+                    defaultValue(method.returnType)
+                }
+                else -> defaultValue(method.returnType)
+            }
+        }
+
+        trace(
+            "ble pair: 并行配网 config(ssid=" + ssid + ", gid=" + home +
+                ", timeout=" + timeout + ", token=" + (if (token.isEmpty()) "(空)" else "有") + ")",
+        )
+        runCatching {
+            invoke(parallel, "config", config)
+            invoke(parallel, "addMultiModeParallelListener", listener)
+            // ⚠️ **先 appendDevice 再 start**——涂鸦排查建议里反复强调的就是这个顺序。
+            // 把扫到的 bean 整个交回去，字段由 SDK 自己取。
+            invoke(parallel, "appendDevice", bean)
+            invoke(parallel, "startConfigWifi")
+        }.onFailure { cause ->
+            val real = TuyaSdkInitializer.unwrap(cause)
+            val frame = real.stackTrace.firstOrNull { item ->
+                item.className.startsWith("com.thingclips") ||
+                    item.className.startsWith("com.common")
+            }
+            val where = if (frame == null) {
+                ""
+            } else {
+                " @ " + frame.className.substringAfterLast('.') +
+                    "." + frame.methodName + ":" + frame.lineNumber
+            }
+            trace("ble pair: 并行配网抛异常 " + real.javaClass.simpleName + where)
+            stopMultiModeActivator(uuid)
+            error(
+                result,
+                "ble_start_failed",
+                "并行配网调用失败：" + real.javaClass.simpleName +
+                    (real.message?.let { ": " + it } ?: "") + where,
+            )
+        }
+    }
+
+    /**
+     * 旧路：`IMultiModeActivator.startActivator(MultiModeActivatorBean, …)`。
+     *
+     * 只在拿不到并行配网器时回落到这里。它要手工拼整个 bean，2026-09-11 真机上就是在这一步
+     * 炸的 NPE——留着只是为了不把唯一的路堵死。
+     */
+    private fun startSingleModeActivator(
+
         call: MethodCall,
         result: MethodChannel.Result,
         uuid: String,
@@ -1337,6 +1481,16 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * 改之前这里只调 `stopActivator`，链路留着没人管。
      */
     private fun stopMultiModeActivator(uuid: String) {
+        // 并行配网器（现在的主路）：`stopConfigWifi` + 把这台从队列里摘掉。
+        parallelActivator?.let { activator ->
+            runCatching { invoke(activator, "stopConfigWifi") }.onFailure { cause ->
+                Log.w(TUYA_LOG_TAG, "stopConfigWifi 失败：${cause.javaClass.simpleName}")
+            }
+            if (uuid.isNotEmpty()) {
+                runCatching { invoke(activator, "removeDevice", uuid) }
+            }
+        }
+        // 旧路（回落用）：两条各自有自己的配网器，停一个不影响另一个。
         multiModeActivator?.let { activator ->
             runCatching { invoke(activator, "stopActivator", uuid) }.onFailure { cause ->
                 Log.w(TUYA_LOG_TAG, "stopActivator 失败：${cause.javaClass.simpleName}")
