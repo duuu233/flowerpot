@@ -61,7 +61,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('养护建议轮播四条状态建议，5 秒换一条', (tester) async {
+  testWidgets('养护建议轮播四条状态建议，8 秒换一条', (tester) async {
     final model = HomeDashboardModel.fromDevice(device: _fixture, userLabel: '用户');
     await tester.pumpWidget(
       MaterialApp(
@@ -81,19 +81,19 @@ void main() {
     expect(find.text(model.careMessages[0]), findsOneWidget);
     expect(find.text(model.careMessages[1]), findsNothing);
 
-    await tester.pump(const Duration(seconds: 5));
+    await tester.pump(const Duration(seconds: 8));
     await tester.pumpAndSettle();
     expect(find.text(model.careMessages[1]), findsOneWidget);
 
-    await tester.pump(const Duration(seconds: 5));
+    await tester.pump(const Duration(seconds: 8));
     await tester.pumpAndSettle();
     expect(find.text(model.careMessages[2]), findsOneWidget);
 
     // 四条播完回到第一条。
-    await tester.pump(const Duration(seconds: 5));
+    await tester.pump(const Duration(seconds: 8));
     await tester.pumpAndSettle();
     expect(find.text(model.careMessages[3]), findsOneWidget);
-    await tester.pump(const Duration(seconds: 5));
+    await tester.pump(const Duration(seconds: 8));
     await tester.pumpAndSettle();
     expect(find.text(model.careMessages[0]), findsOneWidget);
   });

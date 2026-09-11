@@ -13,7 +13,7 @@ class HomeCareBanner extends StatefulWidget {
   const HomeCareBanner({
     required this.messages,
     this.title = '今日养护',
-    this.interval = const Duration(seconds: 5),
+    this.interval = const Duration(seconds: 8),
     this.notice,
     super.key,
   });
@@ -27,7 +27,11 @@ class HomeCareBanner extends StatefulWidget {
   /// 左边那几个字，跟着界面语言走。
   final String title;
 
-  /// 切换间隔。
+  /// 切换间隔：**这一条停留多久才换下一条**，和切换那一下的动画时长
+  /// （[_HomeCareBannerState._transition]）是两回事。
+  ///
+  /// 2026-09-12 从 5 秒放到 8 秒（产品：「轮播间隙时间可以再长一点」）。减去 900ms
+  /// 的切换动画，每条实际静止约 7.1 秒，够把两行读完。
   final Duration interval;
 
   /// 有值时整行只画这一句（前面是惊叹号图标），养护建议和标题都不显示。
@@ -42,11 +46,19 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
   /// 不到水了，该加水啦。」差一倍），不固定住的话每切一条卡片就会抽一下。
   static const double _messageHeight = 36;
 
-  /// 一条换下一条的**动画时长**（不是轮播间隔 [interval]，那是 5 秒换一条）。
+  /// 图标和它右边那一截（有植物时是「今日养护」，没植物时是提示语）之间的间距。
   ///
-  /// 2026-09-12 产品要求「滚动速率慢一点」——指的就是这一段：旧的一句往下淡出、新的
-  /// 从下面淡入，这个位移+淡入过程走多久。420ms 显得"刷"一下就过去了，放到 900ms
-  /// 读起来从容。**轮播间隔没动**：还是 5 秒换一条，只是换的那一下变慢。
+  /// 2026-09-12 从 `AppSpacing.lg`（16）收到 8（产品：「今日养护要和左边的图标离得
+  /// 近点」）。**两支都用它**——这两支是同一张卡的两个状态，只改一边的话，设备切换
+  /// 有无植物时图标后面的文字会横向跳一下。
+  static const double _iconGap = AppSpacing.sm;
+
+  /// 一条换下一条的**动画时长**，不是轮播间隔（那是 [HomeCareBanner.interval]，
+  /// 2026-09-12 起 8 秒换一条）。产品先后提了两次，指的是不同的东西，别弄混：
+  ///
+  /// - 「滚动速率慢一点」→ 改的是这里：旧的一句往下淡出、新的从下面淡入，这个
+  ///   位移+淡入过程走多久。420ms 显得"刷"一下就过去了，放到 900ms 读起来从容。
+  /// - 「轮播间隙时间再长一点」→ 改的是 [HomeCareBanner.interval]，5 秒 → 8 秒。
   static const Duration _transition = Duration(milliseconds: 900);
 
   int _index = 0;
@@ -105,7 +117,9 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
                 size: 18,
                 color: AppColors.warning,
               ),
-              const SizedBox(width: AppSpacing.lg),
+              // 间距和下面那一支保持一致（见 [_iconGap]），否则设备切换有无植物时，
+              // 图标后面的文字会横向跳一下。
+              const SizedBox(width: _iconGap),
               Expanded(
                 // **同样固定两行高**（[_messageHeight]）。
                 //
@@ -151,7 +165,7 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
               filterQuality: FilterQuality.high,
               semanticLabel: widget.title,
             ),
-            const SizedBox(width: AppSpacing.lg),
+            const SizedBox(width: _iconGap),
             Text(
               widget.title,
               style: AppTypography.compactBody.copyWith(
