@@ -940,47 +940,6 @@ class BleDevice {
   };
 }
 
-/// **系统原生 BLE 扫描**看到的一条广播（不带任何过滤）。
-///
-/// 只做对照，不参与配网。涂鸦的扫描只回报**它认得的涂鸦协议广播**，扫不到时有两种
-/// 完全不同的可能而页面上看起来一模一样：设备根本没在广播，还是在广播但格式不对
-/// （后者是固件的事）。两边的数目一对比就分得开。
-class RawBleDevice {
-  const RawBleDevice({
-    required this.mac,
-    required this.name,
-    required this.rssi,
-    this.manufacturerIds = const <int>[],
-    this.serviceUuids = const <String>[],
-  });
-
-  factory RawBleDevice.fromMap(Map<Object?, Object?> raw) => RawBleDevice(
-    mac: raw['mac']?.toString() ?? '',
-    name: raw['name']?.toString() ?? '',
-    rssi: (raw['rssi'] as num?)?.toInt() ?? 0,
-    manufacturerIds: (raw['manufacturerIds'] as List<Object?>? ?? <Object?>[])
-        .map((item) => (item as num?)?.toInt() ?? 0)
-        .toList(growable: false),
-    serviceUuids: (raw['serviceUuids'] as List<Object?>? ?? <Object?>[])
-        .map((item) => item.toString())
-        .toList(growable: false),
-  );
-
-  final String mac;
-
-  /// 广播里的名字。**读不到是常态**（要权限、也未必广播），空着不代表这条无效——
-  /// 「有广播但没名字」本身就是有效信息。
-  final String name;
-  final int rssi;
-
-  /// 厂商 id 与 service uuid：判断「这是不是涂鸦设备」的线索，真机上一眼能看出
-  /// 广播长什么样。
-  final List<int> manufacturerIds;
-  final List<String> serviceUuids;
-
-  String get label => name.trim().isNotEmpty ? name.trim() : mac;
-}
-
 /// 设备**自己扫到的**一个 Wi-Fi（走 BLE 问它要的那份列表）。
 ///
 /// 比手机扫到的准：手机在客厅收得到的网络，窗台上的花盆未必够得着，让用户从手机的

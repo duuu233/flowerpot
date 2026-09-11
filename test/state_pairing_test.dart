@@ -491,8 +491,6 @@ class _PairingRepository extends MockTuyaRepository {
     // 报了个假的"未授予"，而且之后再没人重新探测。
     expect(repository.blePermissionRequests, 1);
     expect(repository.bleScanStarts, 1);
-    // 对照用的原生扫描也要一起开——它是"设备到底在不在广播"的唯一证据。
-    expect(repository.rawBleScanStarts, 1);
 
     await state.stopBleDiscovery();
   });

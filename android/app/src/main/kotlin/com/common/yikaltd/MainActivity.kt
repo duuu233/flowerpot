@@ -5,10 +5,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.bluetooth.BluetoothManager
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.ConnectivityManager
@@ -105,7 +101,6 @@ class MainActivity : FlutterActivity() {
                 call.method == "startBleScan" ||
                     call.method == "queryDeviceConfigState" ||
                     call.method == "pairBleDevice" ||
-                    call.method == "startRawBleScan" ||
                     call.method == "ensureBlePermissions"
             if ((needsWifiPermissions || needsBlePermissions) &&
                 requestPairingPermissions(call, result, forBle = needsBlePermissions)
@@ -347,7 +342,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         otaInstances.keys.toList().forEach(::releaseOta)
         // BLE 扫描的回调代理同样握着本 Activity，而且还在真的耗电。
         stopBleScan()
-        stopRawBleScan()
     }
 
     /**
@@ -409,10 +403,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "startBleScan" -> startBleScan(call, result)
                 "stopBleScan" -> {
                     stopBleScan()
-                    stopRawBleScan()
                     success(result, null)
                 }
-                "startRawBleScan" -> startRawBleScan(result)
                 // 只为了**触发那次授权框**。真正的权限申请由 `requestPairingPermissions`
                 // 在方法通道入口处完成（`needsBlePermissions` 里有它），所以能走到这里
                 // 就说明必需权限已经拿到了。
@@ -889,22 +881,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     /**
-     * **系统原生 BLE 扫描**——只做对照，不参与配网。
-     *
-     * 为什么要有它：涂鸦的 `startLeScan` 只回报**它认得的涂鸦协议广播**，扫不到时有两种
-     * 完全不同的可能，而页面上看起来一模一样：
-     *
-     * 1. 设备**根本没在广播**（没上电、已退出配网状态、固件不支持 BLE）；
-     * 2. 设备**在广播，但不是涂鸦要的那种格式** ⇒ 这是固件的事，得设备方去改。
-     *
-     * `BluetoothLeScanner` **不带任何 filter**，附近有什么广播就收什么。两边的数目一对比，
-     * 上面那两种立刻分得开——这正是这一轮要交付的结论（`PRODUCT_RULES` §4.1 事实在前）。
-     *
-     * ⚠️ 它和涂鸦那条**同时开着**：BLE 扫描在系统层是共享的，多个 scanner 并存是允许的。
-     */
-    private var rawScanCallback: ScanCallback? = null
-
-    /**
      * 打开本应用的系统设置页。
      *
      * 权限被点成「拒绝」之后，`requestPermissions` 不会再弹框（系统直接回拒绝），
@@ -919,70 +895,6 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         runCatching { activity.startActivity(intent) }
             .onSuccess { success(result, true) }
             .onFailure { cause -> error(result, "open_settings_failed", "打不开设置页：${cause.message}") }
-    }
-
-    private fun startRawBleScan(result: MethodChannel.Result) {
-        stopRawBleScan()
-        val manager = activity.getSystemService(BluetoothManager::class.java)
-        val scanner = manager?.adapter?.bluetoothLeScanner
-        if (scanner == null) {
-            error(result, "ble_scanner_unavailable", "拿不到系统 BLE 扫描器（蓝牙没开？）")
-            return
-        }
-        val callback = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, scanResult: ScanResult?) {
-                val device = scanResult?.device ?: return
-                val record = scanResult.scanRecord
-                emit(
-                    mapOf(
-                        "type" to "rawBleDevice",
-                        "mac" to device.address.orEmpty(),
-                        // 名字要权限才读得到，读不到就空着——**不要**因此把这条丢掉，
-                        // 「有广播但没名字」本身就是有效信息。
-                        "name" to runCatching { record?.deviceName ?: device.name }
-                            .getOrNull()
-                            .orEmpty(),
-                        "rssi" to scanResult.rssi,
-                        // 厂商 id 与 service uuid 是判断"这是不是涂鸦设备"的线索，
-                        // 原样带上去，真机上一眼能看出广播长什么样。
-                        "manufacturerIds" to (
-                            record?.manufacturerSpecificData?.let { data ->
-                                List(data.size()) { index -> data.keyAt(index) }
-                            } ?: emptyList<Int>()
-                            ),
-                        "serviceUuids" to (
-                            record?.serviceUuids?.map { it.toString() } ?: emptyList<String>()
-                            ),
-                    ),
-                )
-            }
-
-            override fun onScanFailed(errorCode: Int) {
-                trace("raw ble scan: 失败 errorCode=$errorCode")
-                emit(mapOf("type" to "rawBleScanFailed", "code" to errorCode))
-            }
-        }
-        rawScanCallback = callback
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
-        // 不给 filter：附近有什么收什么，这正是对照的意义。
-        scanner.startScan(null, settings, callback)
-        trace("raw ble scan: 已开始（无过滤）")
-        success(result, null)
-    }
-
-    private fun stopRawBleScan() {
-        val callback = rawScanCallback ?: return
-        rawScanCallback = null
-        runCatching {
-            activity.getSystemService(BluetoothManager::class.java)
-                ?.adapter
-                ?.bluetoothLeScanner
-                ?.stopScan(callback)
-        }.onFailure { cause ->
-            Log.w(TUYA_LOG_TAG, "stopScan(raw) 失败：${cause.javaClass.simpleName}")
-        }
     }
 
     /** 停掉 BLE 扫描。没在扫时调用也安全——每条退出路径都会调它。*/
