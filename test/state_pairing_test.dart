@@ -476,6 +476,25 @@ class _PairingRepository extends MockTuyaRepository {
     expect(state.pairingStage, PairingStage.idle);
   });
 
+  testWidgets('BLE 发现：先弹授权框、答完再探测（首次进入才不会误报"缺权限"）', (
+    tester,
+  ) async {
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+
+    expect(await state.startBleDiscovery(), isTrue);
+    // ⚠️ 顺序就是这条路的命门：授权必须在探测**之前**跑完。2026-09-11 真机上
+    // 「第一次进搜不到、退出去重进就好了」，根因正是探测抢在授权框被回答之前完成、
+    // 报了个假的"未授予"，而且之后再没人重新探测。
+    expect(repository.blePermissionRequests, 1);
+    expect(repository.bleScanStarts, 1);
+
+    await state.stopBleDiscovery();
+  });
+
   testWidgets('BLE 发现：扫到的设备逐台进列表，已绑的不列', (tester) async {
     // 这一条验的是**过滤开着**时的口径。2026-09-11 起生产值是「不过滤」
     // （`PairingGate.showUnfilteredBleScan`，为了验设备支不支持蓝牙），

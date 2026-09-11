@@ -197,14 +197,19 @@ abstract class TuyaRepository {
   /// BLE 扫描逐台推上来的设备。同一台会重复出现（信号强度在变），去重交给调用方。
   Stream<BleDevice> get bleDevices;
 
-  /// **系统原生 BLE 扫描**（不带任何过滤），只做对照、不参与配网。
+  /// **主动弹一次 BLE 所需权限的授权框**，用户答完才返回。
   ///
-  /// 涂鸦的扫描只认它自己的协议广播。两边数目一对比，就能把「设备根本没在广播」和
-  /// 「在广播但格式不是涂鸦要的」分开——后者是固件的事。见 [RawBleDevice]。
-  Future<void> startRawBleScan();
+  /// ⚠️ 必须在 [bleProbe] **之前** await 掉。否则会踩 2026-09-11 那个坑：探测抢在授权框
+  /// 被回答之前跑完，`checkSelfPermission` 当然报"未授予"，于是既不扫描、也没人再探一次，
+  /// 页面上那句「缺少定位权限」就一直挂着——而用户去系统设置一看，权限明明是给了的
+  /// （第二次进 App 就正常，正是这个原因）。
+  ///
+  /// 权限被拒时抛 `permission_denied`；被点成「拒绝且不再询问」之后系统不再弹框，
+  /// 只能靠 [openAppSettings] 把用户送去设置页。
+  Future<void> ensureBlePermissions();
 
-  /// 原生扫描逐条推上来的广播。
-  Stream<RawBleDevice> get rawBleDevices;
+  /// 打开本应用的系统设置页（权限被永久拒绝后唯一的出路）。
+  Future<void> openAppSettings();
 }
 
 class MethodChannelTuyaRepository implements TuyaRepository {
@@ -257,21 +262,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       .cast<BleDevice>();
 
   @override
-  late final Stream<RawBleDevice> rawBleDevices = _rawEvents
-      .map(_rawBleDevice)
-      .where((device) => device != null)
-      .cast<RawBleDevice>();
-
-  RawBleDevice? _rawBleDevice(Object? event) {
-    if (event is! Map) return null;
-    if ('${event['type'] ?? ''}' != 'rawBleDevice') return null;
-    final device = RawBleDevice.fromMap(event.cast<Object?, Object?>());
-    // mac 是原生扫描唯一稳定的键，没有就没法去重，丢掉。
-    return device.mac.isEmpty ? null : device;
-  }
+  Future<void> ensureBlePermissions() => _invoke<void>('ensureBlePermissions');
 
   @override
-  Future<void> startRawBleScan() => _invoke<void>('startRawBleScan');
+  Future<void> openAppSettings() => _invoke<void>('openAppSettings');
 
   /// 解析原生的 BLE 事件：`{type: 'bleDevice', uuid, name, rssi, …}`。
   ///

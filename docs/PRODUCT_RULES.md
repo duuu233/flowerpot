@@ -343,6 +343,13 @@ strings -a -n 2 cls/path/To/Class.class | grep -E '^(on|get|set|is)?[A-Z_]'
 - **文档不要来回乱改。** 结论写进 `AI_CONTEXT.md` 或本文件；试错过程写进
   `docs/history/`。不要在 `AI_CONTEXT.md` 里堆成一串自相矛盾的时间日志。（2026-09-10）
 - **产品说过的要求要归纳到本文件**，不要让产品反复强调。（2026-09-10）
+- **能用涂鸦 SDK 实现的，就不要自己实现。**（2026-09-11，两次确认）搜索设备只走涂鸦 SDK 的
+  `startLeScan`，配网只走 `IMultiModeActivator`；不用系统原生 `BluetoothLeScanner`，哪怕只是
+  拿来做对照诊断。那一轮加过一条原生扫描当日就撤了。需要"设备到底在不在广播"这类证据时，
+  用涂鸦扫描**不过滤 + 扫描类型全开**的结果来看，不另起一套。
+  ⚠️ 但**「涂鸦 SDK 的方法」以解包核对为准，不以任何转述为准**：`ActivatorService` /
+  `BLEActivator` / `IDiscovery` / `ActivatorMode` / `DiscoveryMode` 这套名字在 7.5.1 里 0 命中，
+  属于设备固件侧的 TuyaOS 命名；再有人贴来，先跑 `tools/aar_class_dump.py` 再说。
 - 本机（dev box）没有 Flutter / Dart / Kotlin 工具链，所以 flowerpot 的改动**一律未经
   编译与测试**。报告时必须说明这一点，不得宣称通过。
 - 既然编译不了，就**把编译器会替你抓的事自己抓一遍**（2026-09-10 被一次打包失败教训到）：

@@ -313,6 +313,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     //
     // ⚠️ 正在连的那一刻不能放：系统入网授权框会把本页 pause，这时放等于自己把刚发出去
     // 的请求撤回。`_connectingIndex != null` 正好覆盖那一段。
+    if (lifecycleState == AppLifecycleState.resumed) {
+      unawaited(_reprobeBleOnResume());
+      return;
+    }
     if (lifecycleState != AppLifecycleState.paused) return;
     if (_connectingIndex != null) return;
     final state = _hotspotState;
@@ -407,8 +411,16 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     //
     // ⚠️ AP 被屏蔽时（[PairingGate.apEnabled] = false）`preferHotspot` 不再成立——
     // 那条路整条关着，没有「改用热点」可退，所以蓝牙无条件开。
+    // ⚠️ **await，不要 `unawaited`。** 两个原因：
+    //
+    // 1. 它内部会先把 BLE 的授权框弹掉并等用户答完（`ensureBlePermissions`）。放出去
+    //    异步跑的话，探测会抢在授权框被回答之前完成，报一个假的"未授予"——2026-09-11
+    //    真机上「第一次进搜不到、退出去重进就好了」就是这么来的。
+    // 2. 原生的权限申请**同时只能有一个在跑**（多一个会被回成 `busy`），而下一行的
+    //    `probeWifi` 也会申请权限。串起来才不会互相顶掉。
     if (PairingGate.apEnabled ? !widget.preferHotspot : true) {
-      unawaited(_startBleDiscovery(state));
+      await _startBleDiscovery(state);
+      if (!mounted) return;
     }
     // ① 免费的一次：读系统扫描缓存。首次进入时的权限框就挡在这一步。
     _inFlight = true;
@@ -632,6 +644,19 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _openPairing(hotspotSsid: hotspot.ssid, routerSsid: routerSsid);
   }
 
+  /// 回到前台：**重新探测并再试一次**。
+  ///
+  /// 用户从这一页离开、去系统设置里打开定位或授予权限，回来时必须当场生效——
+  /// 否则页面上还挂着那句「缺少权限」，而权限其实已经给了（用户会以为是设备的问题）。
+  Future<void> _reprobeBleOnResume() async {
+    if (!mounted || PairingGate.apEnabled) return;
+    final state = FlowerpotScope.of(context);
+    if (state.bleScanning) return;
+    await state.startBleDiscovery();
+    if (!mounted) return;
+    setState(() {});
+  }
+
   /// 和 Wi-Fi 扫描并行开 BLE 发现。
   ///
   /// 失败不抛、不拦路：这条通道目前是**加上去的**，Wi-Fi 那条照常跑。
@@ -676,7 +701,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     final blocked = availability.usable
         ? '可用'
         : (availability.reason.isEmpty ? '不可用' : availability.reason);
-    final raw = state.rawBleDevices;
     final where = <String>[
       '搜索方式：蓝牙（AP 已屏蔽）',
       '蓝牙：$blocked',
@@ -685,11 +709,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       '权限：扫描 ${availability.scanPermission ? '已授予' : '未授予'}'
           ' · 定位 ${availability.locationPermission ? '已授予' : '未授予'}',
       '扫描：${state.bleScanning ? '进行中 $elapsed' : '未在扫描'}',
-      '涂鸦 SDK 扫到 ${ble.length} 台${bound == 0 ? '' : '（其中 $bound 台已被绑定）'}',
-      // **这一行是这轮的关键证据**：系统原生扫描不带任何过滤，附近有广播就收。
-      // 它比涂鸦那条多出来的部分，就是「在广播、但不是涂鸦协议格式」的设备。
-      '系统原生扫到 ${raw.length} 条广播（无过滤，仅对照）',
-      if (raw.isNotEmpty) '　最强：${raw.first.label} ${raw.first.rssi}dBm',
+      '涂鸦 SDK 扫到 ${state.bleTotal} 台${bound == 0 ? '' : '（其中 $bound 台已被绑定）'}'
+          '${state.bleTotal > ble.length ? '，按信号列最强的 ${ble.length} 台' : ''}',
       '过滤：无（扫到什么列什么）',
     ];
     return where.join('\n');
@@ -707,9 +728,22 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (availability == BleAvailability.unknown) return null;
     if (availability.usable) return null;
     if (availability.available && availability.supported) {
-      return PairingGate.apEnabled
-          ? '蓝牙没有打开。本机型支持蓝牙配网——打开蓝牙会快很多，也不用再确认连接热点。'
-          : '蓝牙没有打开。当前版本只走蓝牙配网（热点方式已屏蔽），请先打开蓝牙。';
+      // ⚠️ 不能把所有「不可用」都说成"蓝牙没打开"：蓝牙开着、卡在定位或权限上时
+      // 这句话会把人直接带偏（去反复开关蓝牙）。按实际卡住的那一项说。
+      if (!availability.enabled) {
+        return PairingGate.apEnabled
+            ? '蓝牙没有打开。本机型支持蓝牙配网——打开蓝牙会快很多，也不用再确认连接热点。'
+            : '蓝牙没有打开。当前版本只走蓝牙配网（热点方式已屏蔽），请先打开蓝牙。';
+      }
+      if (!availability.scanPermission || !availability.locationPermission) {
+        return '还缺搜索所需的权限。Android 上 BLE 扫描要「附近的设备」与「定位」权限，'
+            '**选「仅在使用该应用时允许」就够了**。';
+      }
+      if (!availability.locationOn) {
+        return '权限已经给了，但**系统的定位服务开关是关着的**——BLE 扫描要求它打开，'
+            '关着时不会报错、只会一台都扫不到。';
+      }
+      return null;
     }
     // ⚠️ AP 屏蔽期间**不能再说「正在用 Wi-Fi 热点方式搜索」**——那条根本没开，
     // 说了就是假话，会让人以为还有另一条路在跑。
@@ -1061,6 +1095,29 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                             ),
                           ),
                         ],
+                        // 有哪一道门关着时给两条出路。**必须有**：权限被点成「拒绝」
+                        // 之后系统不再弹框，页面上光说「缺权限」而没有入口，用户就卡死了。
+                        if (!PairingGate.apEnabled &&
+                            !state.bleAvailability.usable) ...<Widget>[
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: <Widget>[
+                              TextButton(
+                                key: const Key('device-search-recheck'),
+                                onPressed: () =>
+                                    unawaited(_reprobeBleOnResume()),
+                                child: const Text('重新检测'),
+                              ),
+                              TextButton(
+                                key: const Key('device-search-open-settings'),
+                                onPressed: () =>
+                                    unawaited(state.openAppSettings()),
+                                child: const Text('去系统设置'),
+                              ),
+                            ],
+                          ),
+                        ],
                         // 找到的设备直接列在下面，边扫边冒出来。
                         if (_found.isNotEmpty) ...<Widget>[
                           const SizedBox(height: 20),
@@ -1256,21 +1313,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       );
     }
     if (_stalled) {
-      // 涂鸦扫不到时，**系统原生扫描的数目就是分水岭**——把结论直接写出来，
-      // 别让人对着「未发现设备」去猜（`PRODUCT_RULES` §4.1 事实在前）。
-      final rawCount = state.rawBleDevices.length;
-      if (rawCount > 0) {
-        return _SearchOutcome(
-          '附近有蓝牙广播，但没有涂鸦设备',
-          '系统原生扫描收到 $rawCount 条广播，而涂鸦 SDK 一台都没认出来。\n'
-              '这说明手机这边的扫描是通的：要么这些广播里没有花盆，'
-              '要么花盆广播的格式不是涂鸦配网要的那种（属于固件侧）。\n'
-              '请确认设备已上电并处于配网状态；仍然如此的话，把本页截图给设备方。',
-        );
-      }
       return const _SearchOutcome(
         '蓝牙没有扫到任何设备',
-        '已经扫了一段时间，**连系统原生扫描也一条广播都没收到**（当前不做任何过滤）。\n'
+        '已经扫了一段时间，涂鸦 SDK **一台蓝牙设备都没有回报**（当前不做任何过滤，'
+            '扫描类型全开，扫到什么都会列出来）。\n'
             '可能是：设备没有在广播 BLE（固件未支持）、设备已退出配网状态、或距离太远。\n'
             '请给设备断电重启后靠近手机，再点「重新扫描」。',
       );
@@ -1426,6 +1472,10 @@ class _FoundDevice {
       if (device.bound) '已被绑定',
       device.supportWifiList ? '可读取设备扫到的 Wi-Fi' : '固件不支持读 Wi-Fi 列表',
       if (device.productId.isNotEmpty) 'pid ${device.productId}',
+      // mac / uuid 是核对「这一行是不是花盆」的凭据：广播里常常没有名字，
+      // 只能靠这两样和设备方对。
+      if (device.mac.isNotEmpty) device.mac,
+      if (device.uuid.isNotEmpty) 'uuid ${device.uuid}',
     ];
     return parts.join(' · ');
   }
@@ -1559,7 +1609,8 @@ class _FoundDeviceTile extends StatelessWidget {
                     Text(
                       device.detail,
                       key: Key('device-search-found-detail-$index'),
-                      maxLines: 1,
+                      // 这行现在带着 mac / uuid，是核对用的凭据，不能被省略号吃掉。
+                      maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: AppColors.textTertiary,
