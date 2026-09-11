@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../design_system/design_system.dart';
+import 'device_plant_artwork.dart';
 import '../../models/battery_status_page_model.dart';
 
 class BatteryStatusSummaryCard extends StatelessWidget {
@@ -18,10 +19,13 @@ class BatteryStatusSummaryCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              const SizedBox(
+              SizedBox(
                 width: 100,
                 child: Center(
-                  child: AppDevicePlaceholder(hasPlant: true, width: 100),
+                  child: DevicePlantArtwork(
+                    deviceId: model.deviceId,
+                    width: 100,
+                  ),
                 ),
               ),
               const SizedBox(width: AppSpacing.md),

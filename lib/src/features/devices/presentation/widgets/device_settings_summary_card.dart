@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../design_system/design_system.dart';
+import 'device_plant_artwork.dart';
 import '../../models/device_settings_page_model.dart';
 
 class DeviceSettingsSummaryCard extends StatelessWidget {
@@ -23,10 +24,13 @@ class DeviceSettingsSummaryCard extends StatelessWidget {
         borderRadius: AppRadius.large,
         child: Row(
           children: <Widget>[
-            const SizedBox(
+            SizedBox(
               width: 70,
               child: Center(
-                child: AppDevicePlaceholder(hasPlant: true, width: 70),
+                child: DevicePlantArtwork(
+                  deviceId: model.deviceId,
+                  width: 70,
+                ),
               ),
             ),
             const SizedBox(width: AppSpacing.md),

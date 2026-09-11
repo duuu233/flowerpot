@@ -353,13 +353,13 @@ class _PlantBasicInfoCard extends StatelessWidget {
             _DetailRow(
               label: '学名',
               child: Text(
-                plant.latinName.trim().isEmpty ? '—' : plant.latinName,
+                plant.latinName.trim().isEmpty ? '--' : plant.latinName,
               ),
             ),
             const SizedBox(height: 12),
             _DetailRow(
               label: '别名',
-              child: Text(data.alias.trim().isEmpty ? '—' : data.alias),
+              child: Text(data.alias.trim().isEmpty ? '--' : data.alias),
             ),
             // ⚠️ **只在 debug 包出现的字段体检**（2026-09-11）。
             //

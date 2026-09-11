@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
+import 'widgets/device_plant_artwork.dart';
 import '../../../tuya/tuya_models.dart';
 
 class DeviceInfoPage extends StatelessWidget {
@@ -283,10 +284,10 @@ class _DeviceInfoHero extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
           child: Row(
             children: <Widget>[
-              const SizedBox(
+              SizedBox(
                 width: 76,
                 child: Center(
-                  child: AppDevicePlaceholder(hasPlant: true, width: 62),
+                  child: DevicePlantArtwork(deviceId: device.id, width: 62),
                 ),
               ),
               const SizedBox(width: 14),
