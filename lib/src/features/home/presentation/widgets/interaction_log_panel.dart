@@ -12,7 +12,10 @@ import '../../../../design_system/design_system.dart';
 /// ⚠️ **这是临时设施，流程验通后连同 [FlowerpotState.interactionLog] 一起去掉。**
 /// 放在页面最底部、可折叠，不占正常使用时的视线。
 class InteractionLogPanel extends StatefulWidget {
-  const InteractionLogPanel({super.key});
+  const InteractionLogPanel({super.key, this.onClose});
+
+  /// 由浮层传进来：有它时「收起」是关掉整个浮层，没有时只折叠日志列表。
+  final VoidCallback? onClose;
 
   @override
   State<InteractionLogPanel> createState() => _InteractionLogPanelState();
@@ -55,9 +58,11 @@ class _InteractionLogPanelState extends State<InteractionLogPanel> {
                 child: const Text('清空', style: TextStyle(fontSize: 12)),
               ),
               TextButton(
-                onPressed: () => setState(() => _expanded = !_expanded),
+                onPressed:
+                    widget.onClose ??
+                    () => setState(() => _expanded = !_expanded),
                 child: Text(
-                  _expanded ? '收起' : '展开',
+                  widget.onClose != null || _expanded ? '收起' : '展开',
                   style: const TextStyle(fontSize: 12),
                 ),
               ),

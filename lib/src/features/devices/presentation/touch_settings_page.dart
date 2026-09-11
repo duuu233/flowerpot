@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/touch_settings_page_model.dart';
+import 'device_online_guard.dart';
 import 'widgets/touch_settings_card.dart';
 
 class TouchSettingsPage extends StatefulWidget {
@@ -28,7 +29,7 @@ class _TouchSettingsPageState extends State<TouchSettingsPage> {
     if (!mounted) return;
     setState(() => updatingInteraction = false);
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
     }
   }
 
@@ -52,7 +53,7 @@ class _TouchSettingsPageState extends State<TouchSettingsPage> {
       pendingSensitivity = null;
     });
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
     }
   }
 

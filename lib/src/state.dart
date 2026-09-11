@@ -955,13 +955,106 @@ class FlowerpotState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 设备是否在线。**全站唯一的在线判断入口**。
+  ///
+  /// 产品口径（2026-09-12）：设备列表页、设备详情页能点进去的相关页面，以及所有
+  /// 下发 DP 的动作，都要先过这一道。页面侧用 `ensureDeviceOnline(context, id)`
+  /// 包一层提示和跳转，下发那一路在 [_publishDps] 里直接拦。
+  ///
+  /// 不认识的设备 id 一律当不在线：既然连设备都没有，就更谈不上能操作。
+  bool isDeviceOnline(String id) => deviceById(id)?.online ?? false;
+
+  /// 进到某个页面时记一条。
+  void logPageEntry(String page) => _logInteraction('进入 ← [$page]');
+
+  /// 进页面时把这一页的功能点连同当前取到的值一起记下来。
+  ///
+  /// 产品要的是「刚进来的时候就要读取功能设置对应的 DPID 是什么、接收到的值是
+  /// 什么」，所以一行里把四样东西摆齐：App 的设置键 → 涂鸦标识符 → DP 号 → 页面
+  /// 此刻用的值，联调时能直接对着功能点表看。
+  ///
+  /// ⚠️ 值是**页面当前取到的值**：设备还没上报过这条 DP 时，它就是 App 的默认值。
+  /// 想区分「设备报的」和「App 默认的」，得等固件把全量 DP 报上来再说。
+  void logSettingsSnapshot(String deviceId, String page, List<String> keys) {
+    final device = deviceById(deviceId);
+    if (device == null) {
+      _logInteraction('读取 ← [$page] 未找到设备 $deviceId');
+      return;
+    }
+    final entries = <String>[
+      for (final key in keys) _settingLogEntry(device.settings, key),
+    ];
+    _logInteraction('读取 ← [$page] ${entries.join('，')}');
+  }
+
+  String _settingLogEntry(DeviceControlSettings settings, String key) {
+    final value = _settingLogValue(settings, key);
+    if (key == 'napPeriod') {
+      return _periodLogEntry('nap_start_time', 'nap_end_time', value);
+    }
+    if (key == 'nightPeriod') {
+      return _periodLogEntry(
+        'night_sleep_start_time',
+        'night_sleep_end_time',
+        value,
+      );
+    }
+    final identifier = TuyaConfig.setting[key];
+    if (identifier == null) return '$key=未接功能点';
+    final dpId = TuyaConfig.dp[identifier];
+    if (dpId == null) return '$identifier=未接功能点';
+    return 'DP$dpId $identifier=$value';
+  }
+
+  /// 作息那两项各占一头一尾两条 DP，页面上是一个区间，所以合起来记。
+  String _periodLogEntry(
+    String startIdentifier,
+    String endIdentifier,
+    Object? value,
+  ) {
+    final start = TuyaConfig.dp[startIdentifier];
+    final end = TuyaConfig.dp[endIdentifier];
+    return 'DP$start+DP$end $startIdentifier/$endIdentifier=$value';
+  }
+
+  Object? _settingLogValue(DeviceControlSettings settings, String key) =>
+      switch (key) {
+        'autoBrightness' || 'led' => settings.autoBrightness,
+        'soundInteraction' => settings.soundInteraction,
+        'soundSensitivity' => settings.soundSensitivity,
+        'touchInteraction' => settings.touchInteraction,
+        'touchSensitivity' => settings.touchSensitivity,
+        'vibration' => settings.vibration,
+        'touchKeyVibration' => settings.touchKeyVibration,
+        'touchPlantVibration' => settings.touchPlantVibration,
+        'napEnabled' => settings.napEnabled,
+        'napPeriod' => settings.napPeriod,
+        'nightEnabled' => settings.nightEnabled,
+        'nightPeriod' => settings.nightPeriod,
+        'temperatureUnit' => settings.temperatureUnit,
+        'clockFormat' => settings.clockFormat,
+        'standby' => settings.standbyEnabled,
+        'standbyDelay' => settings.standbyDelayMinutes,
+        'deviceLanguage' => settings.deviceLanguage,
+        'plantDetection' => settings.plantDetection,
+        _ => null,
+      };
+
   /// 统一的 DP 下发入口：**所有写 DP 的地方都走它**，这样日志不会漏。
   ///
   /// 直接调 `_repository.publishDps` 的话，新增一处下发就少记一条，日志就不可信了。
   Future<void> _publishDps(String deviceId, Map<int, Object> dps) async {
+    // 离线设备不下发：指令到不了设备，还会让页面以为改成功了。只拦「认识而且
+    // 确实离线」的设备——刚配网完还没进列表的设备 [deviceById] 查不到，那种情况
+    // 照常发，不然会把配网收尾的写操作一起拦掉。
+    final known = deviceById(deviceId);
+    if (known != null && !known.online) {
+      _logInteraction('下发被拦 ✗ 设备已离线 $dps');
+      throw const TuyaException('device_offline', '设备已离线');
+    }
     _logInteraction('下发 → $dps');
     try {
-      await _publishDps(deviceId, dps);
+      await _repository.publishDps(deviceId, dps);
     } catch (error) {
       _logInteraction('下发失败 ✗ $error');
       rethrow;

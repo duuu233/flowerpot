@@ -9,10 +9,10 @@ import '../../../shared/user_avatar.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../devices/models/water_status_page_model.dart';
+import '../../devices/presentation/device_online_guard.dart';
 import '../../devices/presentation/plant_picker_page.dart';
 import '../models/home_dashboard_model.dart';
 import 'widgets/home_care_banner.dart';
-import 'widgets/interaction_log_panel.dart';
 import 'widgets/home_empty_device_content.dart';
 import 'widgets/home_header.dart';
 import 'widgets/home_help_card.dart';
@@ -175,11 +175,7 @@ class _HomePageState extends State<HomePage> {
         () => state.confirmDetectedPlant(deviceId),
       );
       if (!mounted || result == null) return;
-      showAppMessage(
-        context,
-        result.message,
-        tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-      );
+      showDeviceActionResult(context, result, announceSuccess: true);
       return;
     }
     _openAddPlant(context, deviceId);
@@ -346,10 +342,6 @@ class _HomePageState extends State<HomePage> {
                                   AppRoutes.help,
                                 ),
                               ),
-                              // **联调日志框（临时）**：和涂鸦 / 设备每次数据交互都打在
-                              // 这里，方便和固件对。页面最下面、可折叠。
-                              // ⚠️ 流程验通后连同 `FlowerpotState.interactionLog` 一起去掉。
-                              const InteractionLogPanel(),
                             ],
                           ),
                         ),
@@ -367,6 +359,7 @@ class _HomePageState extends State<HomePage> {
       showAppMessage(context, '请先添加并连接花盆', tone: AppMessageTone.info);
       return;
     }
+    if (!ensureDeviceOnline(context, deviceId)) return;
     Navigator.pushNamed(
       context,
       AppRoutes.plantPicker,
@@ -395,6 +388,9 @@ class _HomePageState extends State<HomePage> {
       showAppMessage(context, '请先添加并连接花盆', tone: AppMessageTone.info);
       return;
     }
+    // 详情页能点进去的页面统一过一道在线门禁：离线时里面读到的全是上一次快照，
+    // 操作也会被设备拒掉。
+    if (!ensureDeviceOnline(context, deviceId)) return;
     final arguments = route == AppRoutes.waterStatus
         ? WaterStatusArguments(
             deviceId: deviceId,

@@ -5,6 +5,7 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../../tuya/tuya_repository.dart' show TuyaException;
+import 'device_online_guard.dart';
 import 'widgets/ota_progress_dialog.dart';
 import 'widgets/water_level_calibration_dialog.dart';
 
@@ -113,11 +114,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       context,
     ).updateSetting(widget.deviceId, key, value);
     if (!mounted) return;
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
+    showDeviceActionResult(context, result, announceSuccess: true);
   }
 
   Future<void> _calibrateWaterLevel() async {
@@ -128,7 +125,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
         final result = await scope.calibrateWaterLevel(widget.deviceId, step);
         if (!mounted) return false;
         if (!result.success) {
-          showAppMessage(context, result.message, tone: AppMessageTone.error);
+          showDeviceActionResult(context, result);
         }
         return result.success;
       },
@@ -201,7 +198,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       );
       if (!mounted) return;
       if (!result.success) {
-        showAppMessage(context, result.message, tone: AppMessageTone.error);
+        showDeviceActionResult(context, result);
         return;
       }
       // 升级只是「发起」了，进度和成败随后从事件通道回来：盖一个进度弹层，
@@ -247,7 +244,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
     ).removeDevice(widget.deviceId, resetFactory: true);
     if (!mounted) return;
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
       return;
     }
     // 设备已经从账号里移除，本页和它的兄弟页都失去了数据源，所以清到根再进
@@ -277,7 +274,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
     ).removeDevice(widget.deviceId, resetFactory: resetFactory);
     if (!mounted) return;
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
       return;
     }
     showAppMessage(context, result.message, tone: AppMessageTone.success);

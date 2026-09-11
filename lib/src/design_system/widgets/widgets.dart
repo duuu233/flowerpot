@@ -12,6 +12,8 @@ export 'data_display/app_icon_badge.dart';
 export 'data_display/app_metric_tile.dart';
 export 'data_display/app_notice_dot.dart';
 export 'data_display/app_option_tile.dart';
+export 'data_display/app_rich_html.dart';
+export 'data_display/app_rich_html_parser.dart';
 export 'data_display/app_status_chip.dart';
 export 'data_display/app_step_indicator.dart';
 export 'data_display/date_range_navigator.dart';

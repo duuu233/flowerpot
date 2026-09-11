@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
-import 'widgets/device_plant_artwork.dart';
 import '../../../tuya/tuya_models.dart';
+import 'device_online_guard.dart';
+import 'widgets/device_plant_artwork.dart';
 
 class DeviceInfoPage extends StatelessWidget {
   const DeviceInfoPage({required this.deviceId, super.key, this.info});
@@ -21,11 +22,7 @@ class DeviceInfoPage extends StatelessWidget {
       context,
     ).renameDevice(device.id, name);
     if (context.mounted) {
-      showAppMessage(
-        context,
-        result.message,
-        tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-      );
+      showDeviceActionResult(context, result, announceSuccess: true);
     }
   }
 

@@ -7,6 +7,7 @@ import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../home/presentation/widgets/home_care_banner.dart';
 import '../models/device_settings_page_model.dart';
+import 'device_online_guard.dart';
 import 'plant_picker_page.dart';
 import 'widgets/device_settings_function_list.dart';
 import 'widgets/device_settings_summary_card.dart';
@@ -107,6 +108,11 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
     SmartPlanterDevice device,
     DeviceSettingsMenuKind kind,
   ) {
+    // 帮助中心和设备无关，其余每一项点进去都要先确认设备在线。
+    if (kind != DeviceSettingsMenuKind.helpCenter &&
+        !ensureDeviceOnline(context, device.id)) {
+      return;
+    }
     if (kind == DeviceSettingsMenuKind.plant) {
       // 盆里没有植物（DP 116 == -1）时不让选：选了也会被设备下一次上报覆盖，
       // 用户该做的是先把植物种进去。
@@ -158,6 +164,7 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
   }
 
   void _showMore(BuildContext context, SmartPlanterDevice device) {
+    if (!ensureDeviceOnline(context, device.id)) return;
     Navigator.pushNamed(context, AppRoutes.deviceInfo, arguments: device.id);
   }
 }

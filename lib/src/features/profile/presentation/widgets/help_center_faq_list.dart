@@ -117,9 +117,12 @@ class _HelpCenterFaqTile extends StatelessWidget {
                       color: AppColors.textPrimary.withValues(alpha: .03),
                       borderRadius: AppRadius.small,
                     ),
-                    child: Text(
-                      item.answer,
-                      style: AppTypography.smallBody.copyWith(
+                    // 后台常见问题是富文本编辑器存的 HTML，按标签渲染，
+                    // 不能直接当纯文本显示（那样用户会看见 <p> 这种标签）。
+                    child: AppRichHtml(
+                      key: Key('help-faq-answer-html-${item.id}'),
+                      html: item.answer,
+                      baseStyle: AppTypography.smallBody.copyWith(
                         color: AppColors.textSecondary,
                         fontSize: 12,
                         height: 1.58,

@@ -8,6 +8,7 @@ import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../home/models/home_dashboard_model.dart';
 import '../../home/presentation/home_page.dart';
+import 'device_online_guard.dart';
 
 class DeviceListPage extends StatelessWidget {
   const DeviceListPage({super.key, this.devices, this.onOpenProfile});
@@ -30,8 +31,9 @@ class DeviceListPage extends StatelessWidget {
     FlowerpotState state,
     SmartPlanterDevice device,
   ) {
+    // 这里已经是设备列表页，提示即可，不用再往列表页跳。
     if (!device.online) {
-      showAppMessage(context, '请打开设备并保持在线', tone: AppMessageTone.info);
+      showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.error);
       return;
     }
     state.selectDevice(device.id);

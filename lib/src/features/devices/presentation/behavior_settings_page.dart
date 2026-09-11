@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/behavior_settings_page_model.dart';
+import 'device_online_guard.dart';
 import 'widgets/behavior_schedule_card.dart';
 import 'widgets/schedule_slot_dialog.dart';
 import 'widgets/standby_settings_card.dart';
@@ -105,7 +106,7 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
     if (!mounted) return;
     setState(() => _standbyUpdating = false);
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
     }
   }
 
@@ -122,7 +123,7 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
     if (!mounted) return;
     setState(() => updating.remove(kind));
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
     }
   }
 

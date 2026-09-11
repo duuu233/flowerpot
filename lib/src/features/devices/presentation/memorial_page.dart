@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_memorial_codec.dart';
+import 'device_online_guard.dart';
 import 'memorial_edit_page.dart';
 
 /// 纪念日列表（`docs/UI/v2/智能花盆ysplanter/纪念日.png`）。
@@ -130,11 +131,7 @@ class _MemorialPageState extends State<MemorialPage> {
       context,
     ).deleteMemorial(deviceId, entry.id);
     if (!context.mounted) return;
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
+    showDeviceActionResult(context, result, announceSuccess: true);
   }
 }
 

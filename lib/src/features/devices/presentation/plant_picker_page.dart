@@ -1,15 +1,16 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
-import 'package:flutter/foundation.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../home/models/home_dashboard_model.dart';
 import '../../home/presentation/home_page.dart';
+import 'device_online_guard.dart';
 import 'plant_detail_page.dart';
 
 enum PlantPickerMode { add, select }
@@ -136,11 +137,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
       context,
     ).selectPlant(widget.deviceId, selectedPlant);
     if (!mounted) return;
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
+    showDeviceActionResult(context, result, announceSuccess: true);
     if (result.success) {
       if (addingPlant) {
         // Replace the "no plant yet" page with the device detail page, so

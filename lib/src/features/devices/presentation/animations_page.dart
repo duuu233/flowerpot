@@ -8,6 +8,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
+import 'device_online_guard.dart';
 
 class AnimationsPage extends StatefulWidget {
   const AnimationsPage({required this.deviceId, super.key});
@@ -142,11 +143,7 @@ class _AnimationsPageState extends State<AnimationsPage> {
       path: file.path,
     );
     if (!context.mounted) return;
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
+    showDeviceActionResult(context, result, announceSuccess: true);
   }
 
   void _toggleSelection(AnimationAsset file) {
@@ -220,11 +217,7 @@ class _AnimationsPageState extends State<AnimationsPage> {
     final result = await state.pinDevicePhoto(widget.deviceId, file.name);
     if (!context.mounted) return;
     if (result.success) state.pinAnimation(file.id);
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
+    showDeviceActionResult(context, result, announceSuccess: true);
   }
 }
 

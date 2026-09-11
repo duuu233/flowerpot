@@ -7,6 +7,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../shared/l10n/app_l10n.dart';
 import '../../../tuya/tuya_memorial_codec.dart';
+import 'device_online_guard.dart';
 
 /// Route arguments for [MemorialEditPage].
 class MemorialEditArguments {
@@ -124,11 +125,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
     );
     if (!mounted) return;
     setState(() => _saving = false);
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
+    showDeviceActionResult(context, result, announceSuccess: true);
     if (result.success) Navigator.pop(context);
   }
 
