@@ -104,18 +104,24 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   ///   不记在我们的 UID 上；
   /// - `pairWifiDevice`（标准 AP）在手机已经挂到热点上之后只跟 `192.168.176.1` 通讯。
   ///
-  /// 所以 2026-09-11 预留从 2 降到 **1**：一格保险（「连接 Wi-Fi」页那颗刷新按钮、以及
-  /// 万一 SDK 真要扫一次），其余三格全给搜索页。**不要降到 0**——省下的 10 秒换不回一次
-  /// 配网卡死。
-  static const int _quotaReservedForSdk = 1;
+  /// 2026-09-11 晚：预留从 1 降到 **0**。理由是动线里**再没有任何东西会在我们 UID 上
+  /// `startScan`**——连热点要么走 `WifiNetworkSpecifier`（匹配网络由**系统进程**扫）、
+  /// 要么走 `openWifiPanel`（用户手动连），`pairWifiDevice`（标准 AP）在手机已上热点后只跟
+  /// `192.168.176.1` 开 socket，都不扫。所以 4 格全给搜索页，真扫到达系统允许的最快节奏。
+  ///
+  /// ⚠️ 将来若重新引入任何「SDK 自己扫描找设备」的配网路径（如
+  /// `queryDeviceConfigState`），**必须把这个值改回 ≥1**，否则会重演 09-11 的
+  /// 「连接设备卡几十秒」——SDK 抢不到配额，在等一个永远不来的扫描广播。
+  static const int _quotaReservedForSdk = 0;
 
   /// 搜索页自己能用的真扫次数（每 [quotaWindow] 内）。
   static const int _ownScanBudget = quotaScans - _quotaReservedForSdk;
 
   /// 两次**主动扫描**之间的间隔：按预算**均匀铺满**整个窗口。
   ///
-  /// 由 [_ownScanBudget] 反推：3 次 / 2 分钟 ⇒ 40 秒一次；留 2 秒余量取 42 秒，免得第 4 次
-  /// 正好卡在滚动窗口边界上。**改 [_quotaReservedForSdk] 就要跟着改这里。**
+  /// 由 [_ownScanBudget] 反推：4 次 / 2 分钟 ⇒ 30 秒一次是系统允许的上限（再密只会被拒）。
+  /// 留 2 秒余量取 32 秒，排下来 0/32/64/96/128s：第 5 次在 128s，此时滚动窗口 [8s,128s]
+  /// 里只有 32/64/96 三次，稳稳在配额内。**改 [_quotaReservedForSdk] 就要跟着改这里。**
   ///
   /// **为什么是均匀铺满，而不是前面加密。** 早先排的是 0/6/46/86s——把 4 次里的 2 次押在
   /// 头 6 秒，赌「用户进页面时设备早就开着」。这个赌对了一半：设备先开机那条确实第一次就
@@ -124,7 +130,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 最多一个间隔就被扫到，而「设备先开机」那条仍然是第一次就扫到，没有损失。
   ///
   /// 中间的空档由 [_cachePollGap] 的读缓存补上，那条路不占配额。
-  static const Duration _forceScanGap = Duration(seconds: 42);
+  static const Duration _forceScanGap = Duration(seconds: 32);
 
   /// **读缓存**的节奏。
   ///
@@ -217,11 +223,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 搜了这么久还一台都没有，就把「设备可能已经退出配网状态」这条说出来，并且**立刻**
   /// 把动作交给用户，不要让他等满整个 3 分钟窗口。
   ///
-  /// 为什么是这个数：进页面立刻真扫一次，第二次真扫在 [_forceScanGap]（42 秒），中间一直
-  /// 在读缓存（系统自己、别的应用扫出来的结果都会被捡到）。所以取**第二次真扫之后**——
-  /// 两次真扫加一路读缓存都没有，才值得提醒用户设备可能已经退出配网状态。再往前提会在
-  /// 设备正常启动的那几十秒里误报，也会在第二次真扫出结果之前就先喊。
-  static const Duration _stalledAfter = Duration(seconds: 48);
+  /// 为什么是这个数：进页面立刻真扫一次，第二次真扫在 [_forceScanGap]（32 秒），中间一直
+  /// 在读缓存（系统自己、别的应用扫出来的结果都会被捡到）。取**第二次真扫之后**——两次
+  /// 真扫加一路读缓存都没有，才值得提醒用户设备可能已经退出配网状态。再往前提会在设备
+  /// 正常启动的那几十秒里误报，也会在第二次真扫出结果之前就先喊。
+  static const Duration _stalledAfter = Duration(seconds: 40);
 
   Timer? _stalledTimer;
 
@@ -353,7 +359,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       if (!mounted) return;
       setState(() => _stalled = true);
     });
-    // 两条线并行：42 秒一次真扫（受配额约束），1 秒一次读缓存（不受约束）。
+    // 两条线并行：32 秒一次真扫（受配额约束），1 秒一次读缓存（不受约束）。
     _pollTimer = Timer.periodic(_cachePollGap, (_) => unawaited(_pollCache()));
     unawaited(_runScan());
   }
@@ -441,7 +447,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _maybeAutoOpen();
     if (_autoOpened) return;
     if (retryable && !_windowExpired) {
-      // 均匀 42 秒一次——排下来 0/42/84/126s，任意 2 分钟窗口里都不超过预算的
+      // 均匀 32 秒一次——排下来 0/32/64/96/128s，任意 2 分钟窗口里都不超过配额的
       // 4 次。中间的空档由读缓存补上，那条不占配额。
       setState(() {});
       _forceScanTimer = Timer(_forceScanGap, () => unawaited(_runScan()));
@@ -730,7 +736,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         ] else if ((!_scanning || _stalled) &&
                             hotspots.isEmpty) ...<Widget>[
                           const SizedBox(height: 20),
-                          // `_stalled` 让这颗按钮在 48 秒就出现，而不是等满 3 分钟窗口。
+                          // `_stalled` 让这颗按钮在 40 秒就出现，而不是等满 3 分钟窗口。
                           // 设备静置一段时间会退出配网状态，这时用户要做的事（断电重启
                           // 再搜）和我们能做的事（重排扫描）都得尽早给他。
                           _SearchActions(onRescan: _scan),
