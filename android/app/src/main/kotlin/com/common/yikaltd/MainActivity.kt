@@ -766,8 +766,32 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         invoke(builder, "setTimeout", timeout)
         // 同一台设备允许重复上报：`rssi` 会跟着变，页面按信号排序就需要新值。
         invoke(builder, "setRepeatFilter", false)
-        // SINGLE = 单点设备（非 mesh）。花盆是 Wi-Fi + BLE 双模的单点设备。
-        invoke(builder, "addScanType", bleScanType("SINGLE"))
+        // **ScanType 全加上**（Dart 侧 `PairingGate.showUnfilteredBleScan`，2026-09-11）。
+        //
+        // 花盆按理是 `SINGLE`（Wi-Fi+BLE 双模的单点设备），正常动线只加它就够。但这一轮
+        // 要回答的是**「设备到底在不在广播、广播成什么样」**：万一它报的是别的类型，
+        // 只加 SINGLE 就什么都扫不到，而页面上看起来和「设备没开机」一模一样——结论正好
+        // 相反。把 SDK 给的类型全加上，扫到什么算什么，让人看见事实再下判断。
+        //
+        // 只加得上 SDK 真有的那些：`unsupported` 里的名字只打一行日志，不拦路。
+        val wanted = listOf("SINGLE", "SINGLE_QR", "NORMAL", "THING_BEACON", "MESH", "SIG_MESH")
+        val unsupported = mutableListOf<String>()
+        var added = 0
+        for (name in wanted) {
+            val type = runCatching { bleScanType(name) }.getOrNull()
+            if (type == null) {
+                unsupported += name
+                continue
+            }
+            invoke(builder, "addScanType", type)
+            added++
+        }
+        if (added == 0) {
+            throw IllegalStateException("SDK 的 ScanType 一个都没匹配上：$wanted")
+        }
+        if (unsupported.isNotEmpty()) {
+            trace("ble scan: 这一版 SDK 没有 ${unsupported.joinToString("/")}，已跳过")
+        }
         val setting = invoke(builder, "build")
             ?: throw IllegalStateException("LeScanSetting.build() 返回空")
         // `ThingBleScanResponse` 继承 `BleScanResponse`，多出 onScanStart/onScanStop
@@ -812,7 +836,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
         bleScanner = proxy
         invoke(operator, "startLeScan", setting, proxy)
-        trace("ble scan: startLeScan(timeout=${timeout}ms, SINGLE)")
+        trace("ble scan: startLeScan(timeout=${timeout}ms, 类型 $added 种)")
         success(result, null)
     }
 

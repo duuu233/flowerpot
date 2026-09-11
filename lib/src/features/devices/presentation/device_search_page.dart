@@ -12,6 +12,7 @@ import '../../../routes/app_routes.dart';
 // 那时已经不能查 InheritedWidget，所以得按类型留引用。
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
+import '../pairing_gate.dart';
 import 'pairing_page.dart';
 import 'widgets/pairing_progress_view.dart';
 
@@ -403,7 +404,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     //
     // `preferHotspot` 时整条跳过：那是从失败页「改用热点方式」过来的，蓝牙刚试过
     // 并且没成，再优选回蓝牙只会让用户在同一个坑里再等一轮。
-    if (!widget.preferHotspot) unawaited(_startBleDiscovery(state));
+    //
+    // ⚠️ AP 被屏蔽时（[PairingGate.apEnabled] = false）`preferHotspot` 不再成立——
+    // 那条路整条关着，没有「改用热点」可退，所以蓝牙无条件开。
+    if (PairingGate.apEnabled ? !widget.preferHotspot : true) {
+      unawaited(_startBleDiscovery(state));
+    }
     // ① 免费的一次：读系统扫描缓存。首次进入时的权限框就挡在这一步。
     _inFlight = true;
     try {
@@ -432,9 +438,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       if (!mounted) return;
       setState(() => _stalled = true);
     });
-    // 两条线并行：32 秒一次真扫（受配额约束），1 秒一次读缓存（不受约束）。
+    // 1 秒一次读缓存（不占配额）：**AP 关着也要留**。它维持 `wifiScan.current`——
+    // 也就是「手机现在连的是哪个路由器」，下一页要拿它把 Wi-Fi 名填好。
     _pollTimer = Timer.periodic(_cachePollGap, (_) => unawaited(_pollCache()));
-    unawaited(_runScan());
+    // 32 秒一次真扫只服务 AP：它唯一的用途是发现**设备热点**。AP 屏蔽期间不发，
+    // 省下那条「2 分钟 4 次 `startScan`」的配额，也不让雷达页显得在做无用功。
+    if (PairingGate.apEnabled) {
+      unawaited(_runScan());
+    }
   }
 
   /// 读一次系统的扫描缓存。不调 `startScan`，不占配额，几乎不耗时。
@@ -464,6 +475,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 扫到之后扫描线全部停掉——目标已经在眼前了，再扫只是白烧系统配额。
   void _maybeAutoOpen() {
     if (_autoOpened || !mounted) return;
+    // 「扫到热点就停下来等用户点」是 AP 的动线。AP 屏蔽期间热点列表根本不画，
+    // 停在这里只会把 BLE 那条的扫描线一起掐掉。
+    if (!PairingGate.apEnabled) return;
     final hotspots =
         FlowerpotScope.of(context).wifiScan?.deviceHotspots ??
         const <WifiNetwork>[];
@@ -596,7 +610,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       setState(() {
         _connectingIndex = null;
         _awaitingConsent = false;
-        _connectError = _connectFailureHint(joined.code, joined.message);
+        _connectError = _connectFailureHint(
+          joined.code,
+          reason: joined.message,
+          viaBle: false,
+        );
       });
       return;
     }
@@ -641,6 +659,29 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     return DateTime.now().difference(startedAt) < _bleGrace;
   }
 
+  /// 常驻的蓝牙搜索状态：**一行事实**，可长按复制。
+  ///
+  /// AP 屏蔽期间这一页实质是排查工具，要回答的是「用的是不是蓝牙、扫到了什么」。
+  /// 所以这里只摆事实、不下结论（`PRODUCT_RULES` §4.1）：扫描方式、蓝牙可用性、
+  /// 扫到几台、其中多少台已被绑定、已经扫了多久。
+  String _bleScanStatus(FlowerpotState state) {
+    final availability = state.bleAvailability;
+    final ble = state.bleDevices;
+    final bound = ble.where((item) => item.bound).length;
+    final startedAt = _bleScanStartedAt;
+    final elapsed = startedAt == null
+        ? '未开始'
+        : '${DateTime.now().difference(startedAt).inSeconds}s';
+    final where = <String>[
+      '搜索方式：蓝牙（AP 已屏蔽）',
+      '蓝牙：${availability.usable ? '可用' : (availability.reason.isEmpty ? '不可用' : availability.reason)}',
+      '扫描：${state.bleScanning ? '进行中 $elapsed' : '未在扫描'}',
+      '扫到 ${ble.length} 台${bound == 0 ? '' : '（其中 $bound 台已被绑定）'}',
+      '过滤：无（扫到什么列什么）',
+    ];
+    return where.join('\n');
+  }
+
   /// 蓝牙那条通道不可用时的一句话；可用（或还没探测出结果）时返回 null。
   ///
   /// 固件已确认支持蓝牙配网，所以**蓝牙关着 = 用户少了主路径**：他只会觉得"怎么搜这么
@@ -653,9 +694,15 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (availability == BleAvailability.unknown) return null;
     if (availability.usable) return null;
     if (availability.available && availability.supported) {
-      return '蓝牙没有打开。本机型支持蓝牙配网——打开蓝牙会快很多，也不用再确认连接热点。';
+      return PairingGate.apEnabled
+          ? '蓝牙没有打开。本机型支持蓝牙配网——打开蓝牙会快很多，也不用再确认连接热点。'
+          : '蓝牙没有打开。当前版本只走蓝牙配网（热点方式已屏蔽），请先打开蓝牙。';
     }
-    return '这台手机用不了蓝牙配网（${availability.reason}），正在用 Wi-Fi 热点方式搜索。';
+    // ⚠️ AP 屏蔽期间**不能再说「正在用 Wi-Fi 热点方式搜索」**——那条根本没开，
+    // 说了就是假话，会让人以为还有另一条路在跑。
+    return PairingGate.apEnabled
+        ? '这台手机用不了蓝牙配网（${availability.reason}），正在用 Wi-Fi 热点方式搜索。'
+        : '这台手机用不了蓝牙配网（${availability.reason}），而热点方式已屏蔽，本机暂时没有可用路径。';
   }
 
   /// 用户点了列表里第 [index] 台：按它是**哪条通道发现的**分叉。
@@ -671,6 +718,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       await _connectBleAndOpen(index, ble);
       return;
     }
+    // 走到这里说明列表里有热点行。AP 屏蔽期间 `_foundDevices` 根本不产出热点行，
+    // 所以这是"不该发生"的一支——显式挡住并说清楚，比让它悄悄走 AP 强。
+    if (!PairingGate.apEnabled) {
+      setState(() => _connectError = 'AP（热点）配网已屏蔽，当前版本只走蓝牙。');
+      return;
+    }
     await _connectAndOpen(index, device.hotspot!);
   }
 
@@ -684,6 +737,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     FlowerpotState state,
     List<WifiNetwork> hotspots,
   ) {
+    // **AP 屏蔽期间只有蓝牙一条**（2026-09-11）：热点一律不列，`preferHotspot`
+    // 也不再成立。要的就是「蓝牙扫到什么就是什么」，混进 AP 会让结论失真——
+    // 用户一旦从热点那条配成了，这轮要验的「设备支不支持蓝牙」就没答案了。
+    if (!PairingGate.apEnabled) {
+      return state.bleDevices.map(_FoundDevice.ble).toList(growable: false);
+    }
     if (widget.preferHotspot) {
       return hotspots.map(_FoundDevice.hotspot).toList(growable: false);
     }
@@ -735,7 +794,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         networks = state.deviceWifiNetworks;
       } else {
         // 不拦路，但把原文留在页面上——查不到列表和配不上是两回事。
-        setState(() => _connectError = _connectFailureHint(result.code, result.message));
+        setState(
+          () => _connectError = _connectFailureHint(
+            result.code,
+            reason: result.message,
+            viaBle: true,
+          ),
+        );
       }
     }
     setState(() => _connectingIndex = null);
@@ -768,14 +833,35 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// ⚠️ **事实在前，猜测在后。** 2026-09-11 第一版把两条"最常见原因"排在最上面，结果
   /// 用户看到的全是猜测、真正的诊断被挤到看不见的地方——而产品的反馈正是「感觉不是这个
   /// 问题」。现在原始码与原文顶在第一行，建议缩成一行放最后。
-  String _connectFailureHint(String? code, String reason) {
+  /// 连接/查询失败时画在页面上的话。**事实在前、建议在后**（`PRODUCT_RULES` §4.1）。
+  ///
+  /// [viaBle] 决定给哪一套建议：两条路的失败原因**完全不重合**，串台的建议比没有建议
+  /// 更糟。早先这里只有 AP 那一套，蓝牙失败时会劝用户「等系统的 Wi-Fi 扫描限制缓过来」
+  /// ——而蓝牙这条根本不碰 Wi-Fi 扫描，照做只是白等。
+  String _connectFailureHint(
+    String? code, {
+    required String reason,
+    required bool viaBle,
+  }) {
     final tag = code == null || code.isEmpty ? '' : '【$code】';
-    // 事实在前、建议在后（`PRODUCT_RULES` §4.1）。在系统框上点了「取消」是**用户的
-    // 选择，不是故障**，那一种单独给话术——别把"断电重启"这种排障步骤推给他。
-    final advice = code == 'hotspot_join_cancelled'
-        ? '重新点「连接」，在系统框里选「连接」即可。\n'
-              '设备放久了会退出配网模式，那种情况下断电重启再试。'
-        : '可以先试：给设备断电重启后再点「连接」；或等十几秒让系统的 Wi-Fi 扫描限制缓过来。';
+    final String advice;
+    if (viaBle) {
+      advice = switch (code) {
+        'ble_wifi_list_unsupported' =>
+          '这台设备的固件不支持回报 Wi-Fi 列表（需 TuyaOS 3.6.1 及以上）。\n'
+              '配网仍可继续：下一页手动输入 Wi-Fi 名与密码即可。',
+        _ =>
+          '可以先试：让设备靠近手机；给设备断电重启（重上电后会回到配网状态）；\n'
+              '确认手机蓝牙已打开，然后重新点「连接」。',
+      };
+    } else {
+      // 在系统框上点了「取消」是**用户的选择，不是故障**，那一种单独给话术——
+      // 别把"断电重启"这种排障步骤推给他。
+      advice = code == 'hotspot_join_cancelled'
+          ? '重新点「连接」，在系统框里选「连接」即可。\n'
+                '设备放久了会退出配网模式，那种情况下断电重启再试。'
+          : '可以先试：给设备断电重启后再点「连接」；或等十几秒让系统的 Wi-Fi 扫描限制缓过来。';
+    }
     return '$tag$reason\n'
         '\n'
         '$advice';
@@ -917,15 +1003,38 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                             ),
                           ),
                         ),
-                        // 连设备失败时把**原生日志原样画出来**，产品直接截图给开发。
-                        // 不看 logcat 也能定位：停在哪一步、手机当时连的是什么、用了多久。
-                        if (_connectError != null &&
+                        // 把**原生日志原样画出来**，产品直接截图给开发。不看 logcat 也能
+                        // 定位：停在哪一步、手机当时连的是什么、用了多久。
+                        //
+                        // ⚠️ AP 屏蔽期间**只要有日志就画**，不再等到失败才画：这一轮的
+                        // 目的就是判定设备支不支持蓝牙，「扫描起没起来、报了什么」本身
+                        // 就是要交付的结论，成功那次的日志同样要能截图。
+                        if ((!PairingGate.apEnabled || _connectError != null) &&
                             state.pairingLog.isNotEmpty) ...<Widget>[
                           const SizedBox(height: 12),
                           _PairingLogBox(lines: state.pairingLog),
                         ],
                         // 蓝牙那条通道不可用时说一句——否则用户只看到"搜得慢"，
                         // 不知道少了哪条腿。可用时什么都不说，不占地方。
+                        // **常驻的搜索状态行**（AP 屏蔽期间）：这一页现在是排查工具，
+                        // 「用的是不是蓝牙、扫到几台、扫了多久」必须一眼看得到、能截图。
+                        if (!PairingGate.apEnabled) ...<Widget>[
+                          const SizedBox(height: 10),
+                          GestureDetector(
+                            onLongPress: () => _copyMessage(_bleScanStatus(state)),
+                            child: Text(
+                              _bleScanStatus(state),
+                              key: const Key('device-search-ble-status'),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: AppColors.textTertiary,
+                                fontSize: 12,
+                                height: 1.5,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          ),
+                        ],
                         if (_bleNotice(state) case final String notice) ...<Widget>[
                           const SizedBox(height: 10),
                           Text(
@@ -961,11 +1070,15 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         // 能列设备的平台上，「重新扫描」**只在搜完一轮、一台都
                         // 没搜到时**才出现：搜索中它点了也只是白烧一次系统配额，
                         // 已经搜到设备时用户要点的是那台设备、不是再扫一遍。
-                        if (!_canListNetworks) ...<Widget>[
+                        // ⚠️ iOS 那颗「下一步」是 **AP 专用**的入口（它列不出附近
+                        // Wi-Fi，只能按前缀直连热点）。AP 屏蔽期间它通向一条走不通的
+                        // 路——点下去只会在下一页拿不到 BLE uuid 而报错，所以直接不画，
+                        // 由 `_bleOnlyOutcome()` 说明本机为什么没有可用路径。
+                        if (!_canListNetworks && PairingGate.apEnabled) ...<Widget>[
                           const SizedBox(height: 20),
                           _SearchActions(onContinue: _continueWithoutList),
                         ] else if ((!_scanning || _stalled) &&
-                            hotspots.isEmpty) ...<Widget>[
+                            _found.isEmpty) ...<Widget>[
                           const SizedBox(height: 20),
                           // `_stalled` 让这颗按钮在 40 秒就出现，而不是等满 3 分钟窗口。
                           // 设备静置一段时间会退出配网状态，这时用户要做的事（断电重启
@@ -1000,6 +1113,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     List<WifiNetwork> hotspots,
     List<_FoundDevice> found,
   ) {
+    // ⚠️ **AP 屏蔽期间先分流**：下面那一整套结论（限流、没扫到网络、iOS 列不出来）
+    // 讲的都是 **Wi-Fi 扫描**，而这轮根本不发 Wi-Fi 扫描。原样走下去会给出
+    // 「系统限制了 Wi-Fi 扫描频率」这种与事实无关的话，把排查方向带偏。
+    if (!PairingGate.apEnabled && found.isEmpty) {
+      return _bleOnlyOutcome();
+    }
     // 已经找到设备时，标题就该讲这件事，而不是继续报「搜索中」。
     if (found.isNotEmpty) {
       // 走蓝牙那条时**没有系统确认框**，别照抄 AP 的话术预告一件不会发生的事。
@@ -1077,6 +1196,44 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     return const _SearchOutcome(
       '未发现设备',
       '请确认设备已开机并靠近手机后重新扫描。',
+    );
+  }
+
+  /// AP 屏蔽期间还没扫到设备时说什么。**只讲蓝牙**，并且把当前事实摆出来。
+  ///
+  /// 这一轮的目的就是判定「设备到底支不支持蓝牙配网」，所以这里每一句都要能被当作
+  /// 证据：蓝牙能不能用、扫没扫起来、扫了多久、扫到几台。含糊的「未发现设备」在这轮
+  /// 里是没有价值的（`PRODUCT_RULES` §4.1 事实在前）。
+  _SearchOutcome _bleOnlyOutcome() {
+    final state = FlowerpotScope.of(context);
+    final availability = state.bleAvailability;
+    if (!availability.available || !availability.supported) {
+      return _SearchOutcome(
+        '本机用不了蓝牙配网',
+        '${availability.reason.isEmpty ? '这台手机或这个包不支持 BLE' : availability.reason}。
+'
+            '当前版本已屏蔽热点（AP）配网，只走蓝牙，所以这里没有可用的替代路径。',
+      );
+    }
+    if (!availability.enabled) {
+      return const _SearchOutcome(
+        '请先打开蓝牙',
+        '当前版本只走蓝牙配网（热点方式已屏蔽）。打开手机蓝牙后点「重新扫描」。',
+      );
+    }
+    if (_stalled) {
+      return const _SearchOutcome(
+        '蓝牙没有扫到任何设备',
+        '已经扫了一段时间，**一台蓝牙设备都没有出现**（当前不做任何过滤，扫到什么都会列出来）。
+'
+            '可能是：设备没有在广播 BLE（固件未支持）、设备已退出配网状态、或距离太远。
+'
+            '请给设备断电重启后靠近手机，再点「重新扫描」。',
+      );
+    }
+    return const _SearchOutcome(
+      '正在用蓝牙搜索设备...',
+      '当前版本已屏蔽热点（AP）配网，只用蓝牙搜索；扫到的设备**不做任何过滤**，全部列出。',
     );
   }
 
@@ -1210,10 +1367,30 @@ class _FoundDevice {
 
   /// 行上那行小字：**说清楚是怎么发现的、下一步会怎么走**。整条动线是黑箱时，
   /// 用户遇到失败完全无从下手。
-  String get detail => ble == null
-      ? 'Wi-Fi 热点 · 连上它再配网'
-      : '蓝牙 · ${ble!.rssi}dBm'
-            '${ble!.supportWifiList ? ' · 可直接读取设备扫到的 Wi-Fi' : ''}';
+  /// 行上那行小字：**说清楚是怎么发现的、这台是什么、下一步会怎么走**。
+  ///
+  /// AP 屏蔽期间这一行同时是**排查证据**（`PairingGate.showUnfilteredBleScan`）：
+  /// 不做过滤之后，绑定状态、能力位、pid 都得摆出来，否则用户看到一行却不知道
+  /// 它为什么点不动、或者为什么点了会失败。
+  String get detail {
+    final device = ble;
+    if (device == null) {
+      return 'Wi-Fi 热点 · 连上它再配网';
+    }
+    final parts = <String>[
+      '蓝牙 ${device.rssi}dBm',
+      if (device.bound) '已被绑定',
+      device.supportWifiList ? '可读取设备扫到的 Wi-Fi' : '固件不支持读 Wi-Fi 列表',
+      if (device.productId.isNotEmpty) 'pid ${device.productId}',
+    ];
+    return parts.join(' · ');
+  }
+
+  /// 这一行现在能不能点。
+  ///
+  /// **已被绑定的不给点**：它要么在别人账号下、要么已经在本账号里，点下去必然失败。
+  /// 但仍然**列出来**——这一轮要的就是「蓝牙到底看见了什么」，藏起来等于把证据删掉。
+  bool get selectable => ble == null || !ble!.bound;
 }
 
 class _FoundDeviceList extends StatelessWidget {
@@ -1272,7 +1449,10 @@ class _FoundDeviceList extends StatelessWidget {
             busy: busyIndex == index,
             // 正在连某一行时，别的行一律不可点——同时只能有一条连接，
             // 蓝牙那条更是如此（一边扫一边连是在抢同一个射频）。
-            onTap: busyIndex == null ? () => onSelected(index) : null,
+            // 已被绑定的那些照常列出来（这一轮不过滤），但点不动。
+            onTap: busyIndex == null && devices[index].selectable
+                ? () => onSelected(index)
+                : null,
           ),
         ],
       ],

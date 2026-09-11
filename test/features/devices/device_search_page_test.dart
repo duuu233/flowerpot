@@ -1,6 +1,7 @@
 import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
+import 'package:flowerpot/src/features/devices/pairing_gate.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_search_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
@@ -19,6 +20,18 @@ abstract final class _FoundListKey {
 }
 
 void main() {
+  // 本文件里**绝大多数用例验的是 AP（热点）那条动线**，而 2026-09-11 起 AP 被
+  // `PairingGate` 整条屏蔽了（只走蓝牙，为的是验设备支不支持）。
+  //
+  // 这里统一把它开回来，既保住既有覆盖，也正是「屏蔽不是删除」那句话的守护：
+  // AP 的代码必须一直是能跑的，将来翻回 true 不需要重写。
+  // 屏蔽之后的行为由文件末尾单独的用例覆盖。
+  setUp(() {
+    PairingGate.apEnabled = true;
+    PairingGate.showUnfilteredBleScan = false;
+  });
+  tearDown(PairingGate.reset);
+
   testWidgets('device search page exposes the Figma content', (tester) async {
     await _pumpDeviceSearchPage(tester, const Size(375, 812));
 
@@ -420,6 +433,87 @@ Future<void> _runOutSearchWindow(WidgetTester tester) async {
     expect(arguments.routerSsid, 'TP-LINK_2.4G');
     // 连之前要停扫：一边扫一边连是在抢同一个射频。
     expect(repository.bleScanStops, greaterThanOrEqualTo(1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('AP 屏蔽后：只用蓝牙搜，热点一台都不列，页面上写清楚', (tester) async {
+    PairingGate.reset(); // 用生产值：apEnabled = false、不过滤
+    final repository = MockTuyaRepository(latency: Duration.zero);
+    final state = await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+    // 抢答窗口过掉也不该冒出热点——AP 整条关着。
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pump();
+
+    // mock 的扫描结果里是有 `SmartLife-A1B2` 这个设备热点的。
+    expect(state.wifiScan?.deviceHotspots, hasLength(1));
+    // 但一行都不画。
+    expect(find.byKey(_FoundListKey.key), findsNothing);
+    expect(find.text('SmartLife-A1B2'), findsNothing);
+    // 页面上要写清楚现在用的是什么、扫到了什么、过滤了没有。
+    final status = tester.widget<Text>(
+      find.byKey(const Key('device-search-ble-status')),
+    );
+    expect(status.data, contains('搜索方式：蓝牙'));
+    expect(status.data, contains('AP 已屏蔽'));
+    expect(status.data, contains('过滤：无'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('AP 屏蔽后：蓝牙扫到什么就列什么，已绑定的也列出来但点不动', (tester) async {
+    PairingGate.reset();
+    final repository = MockTuyaRepository(latency: Duration.zero);
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    repository
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-free',
+          name: '花盆',
+          mac: 'AA:BB:CC:DD:11:22',
+          productId: 'pid1',
+          rssi: -44,
+          bound: false,
+          supportWifiList: true,
+        ),
+      )
+      // 已被绑定：**照样列出来**。这一轮要的是「蓝牙看见了什么」，
+      // 藏起来等于把证据删掉——设备若因故被报成已绑定，过滤后页面上就是
+      // 「什么都没扫到」，结论正好反了。
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-bound',
+          name: '别人的',
+          mac: 'AA:BB:CC:DD:99:99',
+          productId: 'pid1',
+          rssi: -40,
+          bound: true,
+          supportWifiList: false,
+        ),
+      );
+    await tester.pumpAndSettle();
+
+    expect(find.text('花盆'), findsOneWidget);
+    expect(find.text('别人的'), findsOneWidget);
+    // 行上的小字要把事实摆出来：绑定状态、能力位。
+    expect(find.textContaining('已被绑定'), findsOneWidget);
+    expect(find.textContaining('固件不支持读 Wi-Fi 列表'), findsOneWidget);
+    // 已绑定那行点不动（信号更强，排在第 0 行）。
+    final boundButton = tester.widget<FilledButton>(
+      find.byKey(const Key('device-search-connect-0')),
+    );
+    expect(boundButton.onPressed, isNull);
     expect(tester.takeException(), isNull);
   });
 }

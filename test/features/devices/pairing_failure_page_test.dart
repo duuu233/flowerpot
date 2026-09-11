@@ -1,4 +1,5 @@
 import 'package:flowerpot/src/design_system/design_system.dart';
+import 'package:flowerpot/src/features/devices/pairing_gate.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_search_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_failure_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_page.dart';
@@ -74,6 +75,9 @@ void main() {
   });
 
   testWidgets('蓝牙失败：重试照原样走蓝牙，另给一条「改用热点方式」的退路', (tester) async {
+    // 那条退路只在 AP 可用时存在；2026-09-11 起生产值是屏蔽的（见下一条用例）。
+    PairingGate.apEnabled = true;
+    addTearDown(PairingGate.reset);
     Object? pairingArguments;
     Object? searchArguments;
     await _pumpFailurePage(
@@ -116,9 +120,26 @@ void main() {
   });
 
   testWidgets('走 AP 失败时不画「改用热点方式」——本来就是热点那条', (tester) async {
+    PairingGate.apEnabled = true;
+    addTearDown(PairingGate.reset);
     await _pumpFailurePage(tester, const Size(375, 812));
 
     expect(find.byKey(const Key('retry-over-hotspot-button')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('AP 屏蔽后：蓝牙失败也不给「改用热点方式」', (tester) async {
+    // 给了退路、用户一退就用 AP 配成了，这一轮要验的「设备支不支持蓝牙」
+    // 就被盖掉了。所以屏蔽期间一律不给。
+    await _pumpFailurePage(
+      tester,
+      const Size(375, 812),
+      bleUuid: 'uuid-pot',
+    );
+
+    expect(find.byKey(const Key('retry-over-hotspot-button')), findsNothing);
+    // 「重新配网」仍在，走的还是蓝牙那条。
+    expect(find.byKey(const Key('retry-pairing-button')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

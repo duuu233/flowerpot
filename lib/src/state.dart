@@ -8,6 +8,7 @@ import 'core/backend/backend.dart';
 import 'core/cache/image_cache_cleanup.dart';
 import 'core/network/api_exception.dart';
 import 'features/auth/domain/auth_validator.dart';
+import 'features/devices/pairing_gate.dart';
 import 'shared/l10n/app_language.dart';
 import 'tuya/tuya_config.dart';
 import 'tuya/tuya_memorial_codec.dart';
@@ -520,10 +521,19 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 扫到的设备，信号强的在前。
   ///
-  /// **已经绑过的不列**（[BleDevice.bound]）：那些是别人家的、或这个账号里已有的，
-  /// 点进去只会得到一个配网失败。
+  /// 正常口径是**已经绑过的不列**（[BleDevice.bound]）：那些是别人家的、或这个账号
+  /// 里已有的，点进去只会得到一个配网失败。
+  ///
+  /// ⚠️ 但 [PairingGate.showUnfilteredBleScan] 打开时**一个都不剔**：这一轮要回答的是
+  /// 「设备到底在不在广播」，被过滤掉的恰恰可能就是答案——花盆若因为某种原因被报成
+  /// 已绑定，剔掉之后页面上就是「什么都没扫到」，结论正好反了。列出来并在行上标注，
+  /// 比藏起来有用。
   List<BleDevice> get bleDevices {
-    final items = _bleDevices.values.where((item) => !item.bound).toList()
+    final items = _bleDevices.values
+        .where(
+          (item) => PairingGate.showUnfilteredBleScan ? true : !item.bound,
+        )
+        .toList()
       ..sort((a, b) => b.rssi.compareTo(a.rssi));
     return List<BleDevice>.unmodifiable(items);
   }

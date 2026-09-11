@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../tuya/tuya_models.dart';
+import '../pairing_gate.dart';
 import 'device_search_page.dart';
 import 'pairing_page.dart';
 
@@ -32,6 +33,12 @@ class PairingFailurePage extends StatelessWidget {
 
   /// 这次失败的是蓝牙（双模）那条。
   bool get _viaBle => (bleUuid ?? '').isNotEmpty;
+
+  /// 要不要给「改用热点方式」那条退路。
+  ///
+  /// ⚠️ AP 屏蔽期间**一律不给**（[PairingGate.apEnabled]）：这一轮要验的就是蓝牙这条
+  /// 通不通，给了退路、用户一退就用 AP 配成了，正好把结论盖掉。
+  bool get _offerHotspotFallback => _viaBle && PairingGate.apEnabled;
 
   /// 涂鸦返回的原始失败原因。
   ///
@@ -269,7 +276,7 @@ class PairingFailurePage extends StatelessWidget {
                       // 提升成功率」，只在发现阶段优选是不够的——这条真的没成时得有
                       // 另一条路。做成按钮而不是自动回落：自动重试要再等一轮超时，
                       // 而且 AP 必然弹一次系统框，在用户以为结束的时刻冒出来更糟。
-                      if (_viaBle) ...<Widget>[
+                      if (_offerHotspotFallback) ...<Widget>[
                         const SizedBox(height: 12),
                         SizedBox(
                           height: 50,

@@ -1,6 +1,7 @@
 import 'support/mock_tuya_repository.dart';
 import 'dart:async';
 
+import 'package:flowerpot/src/features/devices/pairing_gate.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
@@ -476,6 +477,11 @@ class _PairingRepository extends MockTuyaRepository {
   });
 
   testWidgets('BLE 发现：扫到的设备逐台进列表，已绑的不列', (tester) async {
+    // 这一条验的是**过滤开着**时的口径。2026-09-11 起生产值是「不过滤」
+    // （`PairingGate.showUnfilteredBleScan`，为了验设备支不支持蓝牙），
+    // 但过滤那套逻辑必须一直是能跑的——将来关掉排查模式就靠它。
+    PairingGate.showUnfilteredBleScan = false;
+    addTearDown(PairingGate.reset);
     final repository = MockTuyaRepository(
       latency: Duration.zero,
       seedDevice: false,
