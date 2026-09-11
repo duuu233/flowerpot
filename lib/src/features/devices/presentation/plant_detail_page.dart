@@ -89,7 +89,12 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
                 bound: arguments.bound,
               ),
               const SizedBox(height: 12),
-              _PlantBasicInfoCard(plant: plant, data: data),
+              _PlantBasicInfoCard(
+                plant: plant,
+                data: data,
+                detailLoading: _loading,
+                detailLoaded: _detail != null,
+              ),
               const SizedBox(height: 12),
               _PlantCareAdviceCard(items: data.careAdvice),
             ],
@@ -327,10 +332,21 @@ class _EnvironmentMetric extends StatelessWidget {
 }
 
 class _PlantBasicInfoCard extends StatelessWidget {
-  const _PlantBasicInfoCard({required this.plant, required this.data});
+  const _PlantBasicInfoCard({
+    required this.plant,
+    required this.data,
+    required this.detailLoading,
+    required this.detailLoaded,
+  });
 
   final PlantProfile plant;
   final _PlantDetailData data;
+
+  /// 详情接口还在路上。只画在 debug 包的「接口体检」行里用。
+  final bool detailLoading;
+
+  /// 详情接口已经取回了数据。同上，只给体检行用。
+  final bool detailLoaded;
 
   @override
   Widget build(BuildContext context) {
@@ -377,9 +393,9 @@ class _PlantBasicInfoCard extends StatelessWidget {
                     '学名 ${plant.latinName.trim().isEmpty ? '空' : '有'}',
                     '别名 ${data.alias.trim().isEmpty ? '空' : '有'}',
                     '涂鸦标识 ${plant.tuyaIdentifier.trim().isEmpty ? '空' : plant.tuyaIdentifier}',
-                    _loading
+                    detailLoading
                         ? '详情接口 加载中'
-                        : '详情接口 ${_detail == null ? '未取到' : '已取到'}',
+                        : '详情接口 ${detailLoaded ? '已取到' : '未取到'}',
                   ].join(' · '),
                   style: const TextStyle(fontSize: 12),
                 ),

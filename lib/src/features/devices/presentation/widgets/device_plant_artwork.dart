@@ -25,8 +25,10 @@ class DevicePlantArtwork extends StatelessWidget {
     final state = FlowerpotScope.of(context);
     final id = deviceId ?? state.selectedDevice?.id;
     final missing = state.plantMissing(id);
+    // `plantMissing` 收 String?，`deviceById` 只收 String，所以这里自己判一次空。
+    final device = id == null ? null : state.deviceById(id);
     // `device.plant` 不可空，但 `imageUrl` 可空——后台没配图片时就是 null。
-    final url = missing ? null : state.deviceById(id)?.plant.imageUrl?.trim();
+    final url = missing ? null : device?.plant.imageUrl?.trim();
     // ⚠️ **不做静态兜底**（2026-09-12 产品口径：「没有就为空，不要用静态数据兜底」）。
     // 后端没配图 / 盆里没植物 / 图片加载失败，一律留空位——占位图会让人以为"有数据"，
     // 而那张图跟这台设备实际种的东西没有任何关系。位置照留，免得旁边的文字跳动。

@@ -381,6 +381,21 @@ strings -a -n 2 cls/path/To/Class.class | grep -E '^(on|get|set|is)?[A-Z_]'
     换行**，Dart 源码里的字符串于是断成两行（`'…。` 换行 `'`）——**括号完全配平**，自检全绿，
     直到 Windows 那边 `assembleRelease` 才报 `String starting with ' must end with '`。
     检查器已用那一版坏代码自测过：报出的 6 行与编译器报的完全一致。
+  - ⚠️ **改完 Dart 还要跑 `python3 tools/dart_dangling_refs.py`**（2026-09-12 打包失败之后
+    加的）。它查**跨类引用私有成员**：Dart 里 `_foo` 是库私有，类体里一个光秃秃的 `_foo`
+    只能解析到本类（或同文件的父类 / mixin）的成员、局部变量或库级声明；「它是**别的类**的
+    成员、而本类和库级都没有」一定是错的，这也是它唯一会报的情况，力求零误报。
+    那次的具体死法：把植物详情页拆成 StatefulWidget 时，debug 用的「接口体检」行留在了
+    `_PlantBasicInfoCard` 里，但它读的 `_loading` / `_detail` 是 `_PlantDetailPageState`
+    的字段——**括号配平、字符串检查全绿**，直到 `assembleRelease` 才报
+    `The getter '_loading' isn't defined for the type '_PlantBasicInfoCard'`。
+    检查器已用那一版坏代码自测过：报出的行号（380、382）与编译器完全一致，全库 281 个文件
+    零误报。
+  - ⚠️ **这三个脚本都查不出类型错误。** 同一次打包还炸了两处类型问题，只能靠人看：
+    ① `ApiClient.getJson` **已经拆过信封**（`retCode` 非 200 直接抛，返回的就是 `retData`
+    本身），不要再 `json['retData']`——它的静态类型是 `Object?`，`[]` 根本没定义；
+    ② `state.deviceById(id)` 只收 `String`，而 `plantMissing(id)` 收 `String?`，**同一个
+    可空变量喂给两个签名不同的方法**就会炸。写之前先 `grep` 一眼目标方法的签名。
   - ⚠️ **括号数得再准也看不见引号。** 上面两个脚本各管一段，别拿其中一个当"全都查过了"。
     另外**插值里再套一层同种引号**（`'${a ? 'x' : b}'`）虽然合法，但会骗过粗暴的字符串剥离，
     能拆成局部变量就拆。

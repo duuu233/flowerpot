@@ -521,19 +521,16 @@ class HttpAppBackendRepository implements AppBackendRepository {
 
   @override
   Future<PlantProfile> getProductPlantDetail(int productPlantId) async {
-    final json = await _client.getJson(
+    // [ApiClient.getJson] 已经拆过信封——`retCode` 不是 200 时它自己抛，成功时
+    // 返回的就是 `retData` 本身，这里不能再取一次 `retData`。
+    //
+    // 这个接口的 retData 是**单个对象**，不是分页行，所以 `extractApiRows` 用不上；
+    // 不是对象时 `_map` 会抛 PARSE_ERROR。
+    final data = await _client.getJson(
       '/Client/UserProduct/getUserProductPlantDetail',
       query: <String, Object?>{'id': productPlantId},
     );
-    // 详情接口的 `retData` 是**单个对象**，不是分页行；`extractApiRows` 那套用不上。
-    final data = json['retData'];
-    if (data is! Map) {
-      throw ApiException(
-        json['retCode'] ?? -1,
-        '${json['retMsg'] ?? '植物详情返回体不是对象'}',
-      );
-    }
-    return _plant(data.cast<String, dynamic>());
+    return _plant(_map(data));
   }
 
   @override
