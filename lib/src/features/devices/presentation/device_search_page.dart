@@ -11,6 +11,7 @@ import '../../../routes/app_routes.dart';
 // `FlowerpotState`：连上热点之后本页就持有一条连接，dispose / paused 里要还原网络，
 // 那时已经不能查 InheritedWidget，所以得按类型留引用。
 import '../../../state.dart';
+import '../../../tuya/tuya_config.dart';
 import '../../../tuya/tuya_models.dart';
 import '../pairing_gate.dart';
 import 'pairing_page.dart';
@@ -711,6 +712,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       '扫描：${state.bleScanning ? '进行中 $elapsed' : '未在扫描'}',
       '涂鸦 SDK 扫到 ${state.bleTotal} 台${bound == 0 ? '' : '（其中 $bound 台已被绑定）'}'
           '${state.bleTotal > ble.length ? '，按信号列最强的 ${ble.length} 台' : ''}',
+      // **这一行就是「到底有没有搜到花盆」的答案。**pid 与固件烧录的 PID 严格一致，
+      // 是唯一可靠的判据（广播名常常是空的，mac 每台都不同）。
+      '本产品（${TuyaConfig.productId}）：'
+          '${state.bleOurProductCount == 0 ? '未扫到' : '扫到 ${state.bleOurProductCount} 台，已置顶'}',
       '过滤：无（扫到什么列什么）',
     ];
     return where.join('\n');
@@ -788,14 +793,28 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 也不再成立。要的就是「蓝牙扫到什么就是什么」，混进 AP 会让结论失真——
     // 用户一旦从热点那条配成了，这轮要验的「设备支不支持蓝牙」就没答案了。
     if (!PairingGate.apEnabled) {
-      return state.bleDevices.map(_FoundDevice.ble).toList(growable: false);
+      return state.bleDevices
+          .map(
+            (device) => _FoundDevice.ble(
+              device,
+              productInfo: state.productInfoFor(device.uuid),
+            ),
+          )
+          .toList(growable: false);
     }
     if (widget.preferHotspot) {
       return hotspots.map(_FoundDevice.hotspot).toList(growable: false);
     }
     final ble = state.bleDevices;
     if (ble.isNotEmpty) {
-      return ble.map(_FoundDevice.ble).toList(growable: false);
+      return ble
+          .map(
+            (device) => _FoundDevice.ble(
+              device,
+              productInfo: state.productInfoFor(device.uuid),
+            ),
+          )
+          .toList(growable: false);
     }
     // 蓝牙还在抢答窗口里：先空着，别让用户抢在 BLE 答出来之前点走更差的那条路。
     if (_bleAnswering(state)) return const <_FoundDevice>[];
@@ -1441,19 +1460,33 @@ class _SearchActions extends StatelessWidget {
 /// 两条通道的模型完全不同（BLE 给 `ScanDeviceBean`，Wi-Fi 只有一个 SSID），但页面上
 /// 它们是同一件东西：一台可以点「连接」的设备。差异收在这里，列表与行就不必各写一遍。
 class _FoundDevice {
-  const _FoundDevice.ble(BleDevice device) : ble = device, hotspot = null;
+  const _FoundDevice.ble(BleDevice device, {this.productInfo})
+    : ble = device,
+      hotspot = null;
 
   const _FoundDevice.hotspot(WifiNetwork network)
     : ble = null,
-      hotspot = network;
+      hotspot = network,
+      productInfo = null;
 
   final BleDevice? ble;
   final WifiNetwork? hotspot;
 
+  /// 云端按 pid 查回来的产品信息（`getActivatorDeviceInfo`）。可能还没查到。
+  final BleProductInfo? productInfo;
+
   bool get isBle => ble != null;
 
-  /// 行上显示的名字。BLE 广播常常没有名字，`BleDevice.label` 会退到 mac 尾号。
-  String get label => ble?.label ?? hotspot!.ssid;
+  /// 行上显示的名字。
+  ///
+  /// **云端产品名优先**：BLE 广播里常常没有名字，只剩 mac 尾号，人根本看不出哪台是花盆；
+  /// 拿 pid 去云端换回来的产品名才是能认的那个（2026-09-11 产品给的思路）。查不到再退回
+  /// 广播里的名字 / mac 尾号。
+  String get label {
+    final product = productInfo;
+    if (product != null && !product.isEmpty) return product.name;
+    return ble?.label ?? hotspot!.ssid;
+  }
 
   /// 行上那行小字：**说清楚是怎么发现的、下一步会怎么走**。整条动线是黑箱时，
   /// 用户遇到失败完全无从下手。
@@ -1468,6 +1501,7 @@ class _FoundDevice {
       return 'Wi-Fi 热点 · 连上它再配网';
     }
     final parts = <String>[
+      if (device.productId == TuyaConfig.productId) '★ 本产品',
       '蓝牙 ${device.rssi}dBm',
       if (device.bound) '已被绑定',
       device.supportWifiList ? '可读取设备扫到的 Wi-Fi' : '固件不支持读 Wi-Fi 列表',
@@ -1476,6 +1510,8 @@ class _FoundDevice {
       // 只能靠这两样和设备方对。
       if (device.mac.isNotEmpty) device.mac,
       if (device.uuid.isNotEmpty) 'uuid ${device.uuid}',
+      // 云端还没答上来时说一声，免得用户以为"这台就是没名字"。
+      if (productInfo == null) '产品名查询中…',
     ];
     return parts.join(' · ');
   }

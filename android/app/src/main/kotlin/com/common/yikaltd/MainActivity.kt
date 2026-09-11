@@ -409,6 +409,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 // 在方法通道入口处完成（`needsBlePermissions` 里有它），所以能走到这里
                 // 就说明必需权限已经拿到了。
                 "ensureBlePermissions" -> success(result, true)
+                "queryDeviceProductInfo" -> queryDeviceProductInfo(call, result)
                 "openAppSettings" -> openAppSettings(result)
                 "queryDeviceConfigState" -> bleQueryDeviceWifi(call, result)
                 "pairBleDevice" -> pairBleDevice(call, result)
@@ -895,6 +896,63 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         runCatching { activity.startActivity(intent) }
             .onSuccess { success(result, true) }
             .onFailure { cause -> error(result, "open_settings_failed", "打不开设置页：${cause.message}") }
+    }
+
+    /**
+     * 按 BLE 扫到的标识**去云端查这台是什么产品**（名称、图标）。
+     *
+     * `IThingDeviceActivator.getActivatorDeviceInfo(productId, uuid, mac, IThingDataCallback)`
+     * ——2026-09-11 产品给的思路，解包核对确实存在（不像同一批里那些 `ActivatorService` /
+     * `IDiscovery`，那些是设备固件侧 TuyaOS 的命名、App SDK 里 0 命中）。
+     *
+     * 为什么需要它：BLE 广播里**常常没有名字**，页面上一行只有 `mac + pid + rssi`，人没法
+     * 判断哪一台是花盆。拿 pid 去云端换回产品名和图标之后，列表才真的能"看出有没有"。
+     *
+     * ⚠️ 这是**云端往返**，调用方必须自己去重并限量（见 Dart 侧 `_productInfoBudget`）：
+     * 不过滤扫描时附近可能有几十台设备，挨个查会把接口打满、也会拖慢页面。
+     */
+    private fun queryDeviceProductInfo(call: MethodCall, result: MethodChannel.Result) {
+        val activatorApi = invokeStatic(sdkClass(), "getActivatorInstance")
+            ?: throw IllegalStateException("无法获取配网实例")
+        val productId = call.argument<String>("productId").orEmpty()
+        val uuid = call.argument<String>("uuid").orEmpty()
+        val mac = call.argument<String>("mac").orEmpty()
+        invokeWithCallback(
+            activatorApi,
+            "getActivatorDeviceInfo",
+            productId,
+            uuid,
+            mac,
+            onSuccess = { value ->
+                onMain(result) { success(result, productInfoMap(value)) }
+            },
+            onError = { code, message -> error(result, code, message) },
+        )
+    }
+
+    /**
+     * 云端返回的产品信息 → Dart。
+     *
+     * 字段名按常见写法逐个试，**认不出就把原样 `toString()` 带上**（`raw`）：真机上一眼
+     * 能看出这一版 SDK 给的是什么 bean，比在这里猜快得多。
+     */
+    private fun productInfoMap(value: Any?): Map<String, Any?> {
+        if (value == null) return mapOf("raw" to "")
+        return mapOf(
+            "name" to (
+                optionalGetter(value, "getName")
+                    ?: optionalGetter(value, "getProductName")
+                )?.toString(),
+            "icon" to (
+                optionalGetter(value, "getIcon")
+                    ?: optionalGetter(value, "getIconUrl")
+                )?.toString(),
+            "productId" to (
+                optionalGetter(value, "getProductId")
+                    ?: optionalGetter(value, "getPid")
+                )?.toString(),
+            "raw" to value.toString(),
+        )
     }
 
     /** 停掉 BLE 扫描。没在扫时调用也安全——每条退出路径都会调它。*/

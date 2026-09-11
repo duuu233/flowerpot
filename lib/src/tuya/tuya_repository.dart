@@ -210,6 +210,16 @@ abstract class TuyaRepository {
 
   /// 打开本应用的系统设置页（权限被永久拒绝后唯一的出路）。
   Future<void> openAppSettings();
+
+  /// 按 BLE 扫到的标识去云端查**这台是什么产品**（名称、图标）。
+  ///
+  /// 原生走 `IThingDeviceActivator.getActivatorDeviceInfo(productId, uuid, mac, …)`。
+  /// ⚠️ **云端往返**：调用方必须自己去重并限量，不过滤扫描时附近可能几十台设备。
+  Future<BleProductInfo> queryDeviceProductInfo({
+    required String productId,
+    required String uuid,
+    required String mac,
+  });
 }
 
 class MethodChannelTuyaRepository implements TuyaRepository {
@@ -266,6 +276,21 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> openAppSettings() => _invoke<void>('openAppSettings');
+
+  @override
+  Future<BleProductInfo> queryDeviceProductInfo({
+    required String productId,
+    required String uuid,
+    required String mac,
+  }) async {
+    final raw = await _invoke<Map<Object?, Object?>>(
+      'queryDeviceProductInfo',
+      <String, Object?>{'productId': productId, 'uuid': uuid, 'mac': mac},
+    );
+    return raw == null
+        ? const BleProductInfo()
+        : BleProductInfo.fromMap(raw);
+  }
 
   /// 解析原生的 BLE 事件：`{type: 'bleDevice', uuid, name, rssi, …}`。
   ///

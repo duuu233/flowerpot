@@ -512,6 +512,18 @@ class FlowerpotState extends ChangeNotifier {
   StreamSubscription<BleDevice>? _bleSub;
   bool _bleScanning = false;
 
+  /// 云端查回来的产品信息，按 uuid 存。查过的（含查空的）都留下，避免重复往返。
+  final Map<String, BleProductInfo> _bleProductInfo = <String, BleProductInfo>{};
+
+  /// 正在查的 uuid，防止同一台并发查两次。
+  final Set<String> _productInfoInFlight = <String>{};
+
+  /// **一轮搜索里最多查几台**。
+  ///
+  /// 这是云端往返：不过滤扫描时附近可能有几十台设备，挨个查会把接口打满、也会拖慢页面。
+  /// 按信号从强到弱查前 20 台——想找的那台就在手边，几乎必然在这 20 台里。
+  static const int _productInfoBudget = 20;
+
 
   /// 最近一次 [loadDeviceWifiList] 拿回来的、**设备自己扫到的** Wi-Fi 列表。
   List<DeviceWifiNetwork> _deviceWifiNetworks = <DeviceWifiNetwork>[];
@@ -542,11 +554,31 @@ class FlowerpotState extends ChangeNotifier {
     // 不过滤 + 扫描类型全开之后，附近的涂鸦设备可能不止一台（邻居的、办公室里的）；
     // 全画出来页面长到没法看、也没法截图。按信号排序之后，**想找的那台几乎必然在最前面**
     // ——它就在手边。总数另由 [bleTotal] 报，页面上要说清「一共几台、列了几台」。
+    // **本产品置顶**（pid == `TuyaConfig.productId`，2026-09-11 产品给的 pid
+    // `yciq4kssu1fv8umn`）。不过滤扫描时附近可能有一堆别的涂鸦设备，花盆混在中间要人
+    // 一行行找；把它顶上来，页面一眼就能回答「有没有」。同组内仍按信号排。
+    items.sort((a, b) {
+      final mine = _isOurProduct(b) ? 1 : 0;
+      final theirs = _isOurProduct(a) ? 1 : 0;
+      if (mine != theirs) return mine - theirs;
+      return b.rssi.compareTo(a.rssi);
+    });
     final capped = items.length <= bleListLimit
         ? items
         : items.sublist(0, bleListLimit);
     return List<BleDevice>.unmodifiable(capped);
   }
+
+  /// 这台 BLE 设备**就是本产品**（花盆）——pid 和平台上建的产品对得上。
+  ///
+  /// pid 与固件烧录的 PID 严格一致，所以这是唯一可靠的判据：广播里的名字常常是空的，
+  /// mac 每台都不一样，只有 pid 是"这一款产品"的身份。
+  static bool _isOurProduct(BleDevice device) =>
+      device.productId.isNotEmpty && device.productId == TuyaConfig.productId;
+
+  /// 扫到的**本产品**台数。页面上单独报——这就是「到底有没有搜到花盆」的答案。
+  int get bleOurProductCount =>
+      _bleDevices.values.where(_isOurProduct).length;
 
   /// 涂鸦 SDK 扫到的设备在页面上最多画几台。
   static const int bleListLimit = 50;
@@ -555,6 +587,39 @@ class FlowerpotState extends ChangeNotifier {
   int get bleTotal => _bleDevices.values
       .where((item) => PairingGate.showUnfilteredBleScan ? true : !item.bound)
       .length;
+
+  /// 这台 BLE 设备的云端产品信息；还没查到就是 null。
+  BleProductInfo? productInfoFor(String uuid) => _bleProductInfo[uuid];
+
+  /// 给**信号最强的前 [_productInfoBudget] 台**补齐云端产品信息。
+  ///
+  /// BLE 广播里常常没有名字，只有 mac + pid；拿 pid 去云端换回产品名之后，列表才真的
+  /// 能"看出有没有"。每台只查一次（查空也算查过），失败也记一条空的——**否则每次
+  /// 扫描回调都会重试，几十台设备就是几十次往返**。
+  Future<void> refreshBleProductInfo() async {
+    final targets = bleDevices.take(_productInfoBudget).where((device) {
+      if (device.uuid.isEmpty || device.productId.isEmpty) return false;
+      return !_bleProductInfo.containsKey(device.uuid) &&
+          !_productInfoInFlight.contains(device.uuid);
+    }).toList(growable: false);
+    if (targets.isEmpty) return;
+    for (final device in targets) {
+      _productInfoInFlight.add(device.uuid);
+      try {
+        _bleProductInfo[device.uuid] = await _repository.queryDeviceProductInfo(
+          productId: device.productId,
+          uuid: device.uuid,
+          mac: device.mac,
+        );
+      } catch (_) {
+        // 查不到也要占位：不占的话每次扫描回调都会重试同一台。
+        _bleProductInfo[device.uuid] = const BleProductInfo();
+      } finally {
+        _productInfoInFlight.remove(device.uuid);
+      }
+    }
+    notifyListeners();
+  }
 
   List<DeviceWifiNetwork> get deviceWifiNetworks =>
       List<DeviceWifiNetwork>.unmodifiable(_deviceWifiNetworks);
@@ -607,6 +672,8 @@ class FlowerpotState extends ChangeNotifier {
     _bleSub ??= _repository.bleDevices.listen((device) {
       _bleDevices[device.uuid] = device;
       notifyListeners();
+      // 顺手把云端产品信息补上（内部去重 + 限量，不会每条回调都往返）。
+      unawaited(refreshBleProductInfo());
     });
     try {
       await _repository.startBleScan(timeout: timeout);
@@ -643,6 +710,7 @@ class FlowerpotState extends ChangeNotifier {
   Future<void> stopBleDiscovery() async {
     await _bleSub?.cancel();
     _bleSub = null;
+    _productInfoInFlight.clear();
     if (!_bleScanning) return;
     _bleScanning = false;
     try {

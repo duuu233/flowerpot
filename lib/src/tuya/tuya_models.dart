@@ -940,6 +940,28 @@ class BleDevice {
   };
 }
 
+/// 云端按 pid / uuid / mac 查回来的**产品信息**。
+///
+/// BLE 广播里常常没有名字，页面上一行只有 `mac + pid + rssi`，人没法判断哪一台是花盆。
+/// 拿 pid 去云端换回产品名之后，列表才真的能"看出有没有"。
+class BleProductInfo {
+  const BleProductInfo({this.name = '', this.icon = '', this.raw = ''});
+
+  factory BleProductInfo.fromMap(Map<Object?, Object?> map) => BleProductInfo(
+    name: map['name']?.toString() ?? '',
+    icon: map['icon']?.toString() ?? '',
+    raw: map['raw']?.toString() ?? '',
+  );
+
+  final String name;
+  final String icon;
+
+  /// 认不出字段时的原样 `toString()`。真机上一眼能看出 SDK 给的是什么 bean。
+  final String raw;
+
+  bool get isEmpty => name.trim().isEmpty;
+}
+
 /// 设备**自己扫到的**一个 Wi-Fi（走 BLE 问它要的那份列表）。
 ///
 /// 比手机扫到的准：手机在客厅收得到的网络，窗台上的花盆未必够得着，让用户从手机的

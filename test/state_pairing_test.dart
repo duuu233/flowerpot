@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:flowerpot/src/features/devices/pairing_gate.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/tuya_config.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/widgets.dart';
@@ -491,6 +492,53 @@ class _PairingRepository extends MockTuyaRepository {
     // 报了个假的"未授予"，而且之后再没人重新探测。
     expect(repository.blePermissionRequests, 1);
     expect(repository.bleScanStarts, 1);
+
+    await state.stopBleDiscovery();
+  });
+
+  testWidgets('BLE 发现：本产品置顶，并补上云端产品名', (tester) async {
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+    await state.startBleDiscovery();
+
+    repository
+      // 信号最强，但**不是本产品**——不该排在花盆前面。
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-other',
+          name: '别人的耳机',
+          mac: 'AA:BB:CC:00:00:01',
+          productId: 'pid-other',
+          rssi: -30,
+          bound: false,
+          supportWifiList: false,
+        ),
+      )
+      // 信号弱，但 pid 就是平台上建的那个产品。
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-pot',
+          name: '',
+          mac: 'AA:BB:CC:00:00:02',
+          productId: TuyaConfig.productId,
+          rssi: -85,
+          bound: false,
+          supportWifiList: true,
+        ),
+      );
+    await tester.pumpAndSettle();
+
+    // **本产品置顶**：不过滤扫描时附近一堆别的涂鸦设备，花盆混在中间要人一行行找。
+    expect(state.bleDevices.first.uuid, 'uuid-pot');
+    expect(state.bleOurProductCount, 1);
+
+    // 云端产品名要补上：广播里没有名字（`name` 是空的），只有查回来才认得出。
+    expect(state.productInfoFor('uuid-pot')?.name, '智能花盆');
+    // 每台只查一次——否则每条扫描回调都会往返一次。
+    expect(repository.productInfoQueries.where((u) => u == 'uuid-pot'), hasLength(1));
 
     await state.stopBleDiscovery();
   });

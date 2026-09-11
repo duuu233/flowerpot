@@ -58,6 +58,25 @@ class MockTuyaRepository implements TuyaRepository {
   @override
   Future<void> openAppSettings() async => appSettingsOpens++;
 
+  /// 云端产品信息的假数据：按 pid 给名字，用例可改。
+  Map<String, BleProductInfo> productInfoByPid = <String, BleProductInfo>{
+    'pid1': const BleProductInfo(name: '智能花盆'),
+  };
+
+  /// 查了几次；用例据此断言"去重 + 限量"真的生效。
+  final List<String> productInfoQueries = <String>[];
+
+  @override
+  Future<BleProductInfo> queryDeviceProductInfo({
+    required String productId,
+    required String uuid,
+    required String mac,
+  }) async {
+    await _wait();
+    productInfoQueries.add(uuid);
+    return productInfoByPid[productId] ?? const BleProductInfo();
+  }
+
   /// 这一台 mock「手机」的 BLE 情况，用例按需改。默认可用——搜索页的主路径要能跑。
   BleAvailability bleAvailability = const BleAvailability(
     available: true,
