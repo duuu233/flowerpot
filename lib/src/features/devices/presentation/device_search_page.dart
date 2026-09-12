@@ -802,6 +802,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
             (device) => _FoundDevice.ble(
               device,
               productInfo: state.productInfoFor(device.uuid),
+              productInfoPending: state.productInfoPending(device.uuid),
             ),
           )
           .toList(growable: false);
@@ -816,6 +817,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
             (device) => _FoundDevice.ble(
               device,
               productInfo: state.productInfoFor(device.uuid),
+              productInfoPending: state.productInfoPending(device.uuid),
             ),
           )
           .toList(growable: false);
@@ -1470,20 +1472,27 @@ class _SearchActions extends StatelessWidget {
 /// 两条通道的模型完全不同（BLE 给 `ScanDeviceBean`，Wi-Fi 只有一个 SSID），但页面上
 /// 它们是同一件东西：一台可以点「连接」的设备。差异收在这里，列表与行就不必各写一遍。
 class _FoundDevice {
-  const _FoundDevice.ble(BleDevice device, {this.productInfo})
-    : ble = device,
-      hotspot = null;
+  const _FoundDevice.ble(
+    BleDevice device, {
+    this.productInfo,
+    this.productInfoPending = false,
+  }) : ble = device,
+       hotspot = null;
 
   const _FoundDevice.hotspot(WifiNetwork network)
     : ble = null,
       hotspot = network,
-      productInfo = null;
+      productInfo = null,
+      productInfoPending = false;
 
   final BleDevice? ble;
   final WifiNetwork? hotspot;
 
   /// 云端按 pid 查回来的产品信息（`getActivatorDeviceInfo`）。可能还没查到。
   final BleProductInfo? productInfo;
+
+  /// 云端产品名还在查。查完（含查空、查失败）就是 false。
+  final bool productInfoPending;
 
   bool get isBle => ble != null;
 
@@ -1495,6 +1504,13 @@ class _FoundDevice {
   String get label {
     final product = productInfo;
     if (product != null && !product.isEmpty) return product.name;
+    // ⚠️ **查的过程中先留白，不要画广播里那串标识**（2026-09-12 产品反馈：
+    // 「设备名称会闪一下，先显示一串字符，然后才显示具体名称」）。
+    //
+    // 根因：BLE 广播常常没有名字、mac 也是空的，`BleDevice.label` 只能退成
+    // `设备 uuid23119e…`——一串十六进制先画出来，一两秒后被云端产品名顶掉，看着就是
+    // 闪一下。查完（含查空、查失败）才退回广播里的名字，那时它不会再变了。
+    if (productInfoPending) return '正在识别设备…';
     return ble?.label ?? hotspot!.ssid;
   }
 

@@ -550,8 +550,9 @@ class _UploadedFilesCard extends StatelessWidget {
 /// - **没选中**：一条长按钮「上传图片」，宽度约 80%，圆角胶囊——和全站其它页面
 ///   底部那颗主按钮（选择植物页的「确认选择」）同一个样式。原来这里是一颗 56 的
 ///   小圆钮，产品反馈「太小了」。
-/// - **选中了**：换成一排圆形功能钮——**置顶**、上传、删除、取消选择。上传在两种
-///   状态下都在（产品：「原来的上传你也可以保留」），只是形态不同。
+/// - **选中了**：换成一排圆形功能钮——**置顶**、删除、取消选择。
+///   ⚠️ 选中态**不画上传**（2026-09-12 产品二次明确：「选中图片的时候，下面的上传
+///   图片小图标就不需要了」）。要传新图先点「取消选择」。
 ///
 /// ⚠️ **最左边那颗是「置顶」（DP 157 `pin_photo`）**，不是上传。产品 2026-09-12
 /// 指出原来这一颗挂的是上传，DPID 对不上；上传现在是没选中时那条长按钮。
@@ -638,16 +639,6 @@ class _GalleryActionBar extends StatelessWidget {
           color: AppColors.brandPrimary,
           tooltip: '置顶显示',
           onTap: onPinSelected,
-        ),
-        const SizedBox(width: AppSpacing.lg),
-        // 选中状态下上传入口也留着（产品 2026-09-12：「原来的上传你也可以保留」），
-        // 用户不必先取消选择才能再传一张。
-        _GalleryAction(
-          actionKey: const Key('animation-upload-icon-action'),
-          icon: Icons.file_upload_outlined,
-          color: AppColors.brandDark,
-          tooltip: '上传图片',
-          onTap: onUpload,
         ),
         const SizedBox(width: AppSpacing.lg),
         _GalleryAction(

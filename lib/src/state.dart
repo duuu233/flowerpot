@@ -690,6 +690,31 @@ class FlowerpotState extends ChangeNotifier {
   /// 这台 BLE 设备的云端产品信息；还没查到就是 null。
   BleProductInfo? productInfoFor(String uuid) => _bleProductInfo[uuid];
 
+  /// 这台设备的云端产品名**还没有定论**。
+  ///
+  /// 搜索页用它决定名字先画什么：还没定论时留白，不要把广播里那串标识先画出来、
+  /// 一两秒后再被产品名顶掉（见 `_FoundDevice.label`）。
+  ///
+  /// 三种情况分清楚，少一种都会留下一个永远转不完的「正在识别设备…」：
+  ///
+  /// 1. **查过了**（含查空、查失败，[_bleProductInfo] 里有键）→ 有定论，false。
+  /// 2. **正在查** → true。
+  /// 3. **还没轮到** → 只有进了待查名单（信号最强的前 [_productInfoBudget] 台、
+  ///    且 uuid 和 pid 都在）才算 true；名单外的设备压根不会被查，直接算有定论，
+  ///    页面立刻退回广播里的名字。
+  bool productInfoPending(String uuid) {
+    if (uuid.isEmpty || _bleProductInfo.containsKey(uuid)) return false;
+    if (_productInfoInFlight.contains(uuid)) return true;
+    return bleDevices
+        .take(_productInfoBudget)
+        .any(
+          (device) =>
+              device.uuid == uuid &&
+              device.uuid.isNotEmpty &&
+              device.productId.isNotEmpty,
+        );
+  }
+
   /// 给**信号最强的前 [_productInfoBudget] 台**补齐云端产品信息。
   ///
   /// BLE 广播里常常没有名字，只有 mac + pid；拿 pid 去云端换回产品名之后，列表才真的

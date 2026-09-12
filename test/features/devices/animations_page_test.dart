@@ -100,12 +100,11 @@ void main() {
       findsNothing,
     );
 
-    // 选中一张：换成一排功能钮，**第一颗是置顶**（DP 157），上传变成图标继续留着。
+    // 选中一张：换成一排功能钮，**第一颗是置顶**（DP 157）；上传这时候不画。
     await tester.tap(find.byKey(const Key('animation-tile-0')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('animation-pin-action')), findsOneWidget);
-    expect(find.byKey(const Key('animation-upload-icon-action')), findsOneWidget);
     expect(find.byKey(const Key('animation-delete-action')), findsOneWidget);
     expect(
       find.byKey(const Key('animation-clear-selection-action')),
