@@ -64,8 +64,17 @@ abstract class AppBackendRepository {
   /// 植物详情页此前直接用列表传进来的对象、从不单独拉详情，所以「学名」「别名」永远是
   /// 空的——产品反馈的就是这个。
   ///
-  /// [productPlantId] 就是接口参数 `id`（文档原话：「植物详情,id传productPlantId」）。
-  Future<PlantProfile> getProductPlantDetail(int productPlantId);
+  /// 两个查询键**二选一，不能同时为空**（2026-09-12 后端加的 `tuYaRemark`）：
+  ///
+  /// - [tuyaRemark] → 接口参数 `tuYaRemark`，**涂鸦标识符**。优先用它：它才是设备
+  ///   DP 116 报上来的那个值，而且后台保证不重复。
+  /// - [productPlantId] → 接口参数 `id`，后端自增主键。只在拿不到标识符时兜底。
+  ///
+  /// 两个都给时只发 [tuyaRemark]；都为空直接抛，不发请求。
+  Future<PlantProfile> getProductPlantDetail({
+    int? productPlantId,
+    String? tuyaRemark,
+  });
 
   /// 设备图库按涂鸦 `deviceId` 走，不再先用 `getUserProductList` 换后端的
   /// `userProductId`：设备档案由涂鸦提供，看一眼图片不该先在后端建一条用户产品
@@ -99,7 +108,9 @@ abstract class AppBackendRepository {
   // ── 基础数据 ──────────────────────────────────────────────────────
   Future<BackendAppVersion?> getLastVersion(String appVersionNo);
   Future<BackendBasicData> getBasicData();
-  Future<List<BackendFaq>> getFaqs({String keyword = ''});
+  /// [broadcastId] 是后台产品表那个字段（界面上 2026-09-12 起叫「涂鸦产品ID」），
+  /// 用来把常见问题筛到本产品。传空就不带这个参数，行为和以前一样。
+  Future<List<BackendFaq>> getFaqs({String keyword = '', String broadcastId = ''});
   Future<BackendFaq?> getFaqDetail(int faqId);
 
   /// 通用文件上传，返回可以直接写进 DP 帧或提交给后端的 URL。设备图库走的是
@@ -213,8 +224,10 @@ class DisabledAppBackendRepository implements AppBackendRepository {
       _disabled();
 
   @override
-  Future<PlantProfile> getProductPlantDetail(int productPlantId) async =>
-      _disabled();
+  Future<PlantProfile> getProductPlantDetail({
+    int? productPlantId,
+    String? tuyaRemark,
+  }) async => _disabled();
 
   @override
   Future<List<BackendImage>> getImages(String deviceId) async => _disabled();
@@ -267,8 +280,10 @@ class DisabledAppBackendRepository implements AppBackendRepository {
   Future<BackendBasicData> getBasicData() async => BackendBasicData.empty;
 
   @override
-  Future<List<BackendFaq>> getFaqs({String keyword = ''}) async =>
-      const <BackendFaq>[];
+  Future<List<BackendFaq>> getFaqs({
+    String keyword = '',
+    String broadcastId = '',
+  }) async => const <BackendFaq>[];
 
   @override
   Future<BackendFaq?> getFaqDetail(int faqId) async => null;
@@ -520,7 +535,19 @@ class HttpAppBackendRepository implements AppBackendRepository {
       ).map(_plant).toList(growable: false);
 
   @override
-  Future<PlantProfile> getProductPlantDetail(int productPlantId) async {
+  Future<PlantProfile> getProductPlantDetail({
+    int? productPlantId,
+    String? tuyaRemark,
+  }) async {
+    // 二选一：有涂鸦标识就用它，没有才退回自增 id。**只发其中一个**——接口说的是
+    // 「二选一」，同时发两个的行为没定义，别赌。
+    final remark = tuyaRemark?.trim() ?? '';
+    if (remark.isEmpty && productPlantId == null) {
+      throw const ApiException(
+        'PLANT_DETAIL_NO_KEY',
+        '查植物详情要给 tuYaRemark 或 id，两个不能都为空',
+      );
+    }
     // [ApiClient.getJson] 已经拆过信封——`retCode` 不是 200 时它自己抛，成功时
     // 返回的就是 `retData` 本身，这里不能再取一次 `retData`。
     //
@@ -528,7 +555,9 @@ class HttpAppBackendRepository implements AppBackendRepository {
     // 不是对象时 `_map` 会抛 PARSE_ERROR。
     final data = await _client.getJson(
       '/Client/UserProduct/getUserProductPlantDetail',
-      query: <String, Object?>{'id': productPlantId},
+      query: remark.isNotEmpty
+          ? <String, Object?>{'tuYaRemark': remark}
+          : <String, Object?>{'id': productPlantId},
     );
     return _plant(_map(data));
   }
@@ -753,7 +782,10 @@ class HttpAppBackendRepository implements AppBackendRepository {
   }
 
   @override
-  Future<List<BackendFaq>> getFaqs({String keyword = ''}) async =>
+  Future<List<BackendFaq>> getFaqs({
+    String keyword = '',
+    String broadcastId = '',
+  }) async =>
       extractApiRows(
             await _client.getJson(
               '/Client/Product/getProductFaqList',
@@ -761,6 +793,8 @@ class HttpAppBackendRepository implements AppBackendRepository {
                 'pageIndex': 1,
                 'pageSize': 50,
                 if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
+                if (broadcastId.trim().isNotEmpty)
+                  'broadcastId': broadcastId.trim(),
               },
             ),
           )

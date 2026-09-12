@@ -125,6 +125,17 @@ abstract class TuyaRepository {
     SensorMetric metric,
     ReportRange range,
   );
+
+  /// 历史 DP 的**到货情况**，给联调日志框用。
+  ///
+  /// 报表和状态页的曲线只有一个数据源：设备自己上报的 131–139 这九条 raw DP
+  /// （云端统计服务要付费订阅，这个账号没有）。所以"没有历史记录"只可能是
+  /// ①设备压根没报这条 DP ②报了但解不出来。这个方法把每条的原始长度和解出的
+  /// 点数都吐出来，一眼分得清是哪一种。
+  ///
+  /// 返回**按指标分组**的一句话，例如
+  /// `waterLevel → 日 DP131 99字符/96点 · 周 DP132 无 · 月 DP133 无`。
+  Future<Map<String, String>> historyDiagnostics(String deviceId);
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
@@ -378,17 +389,23 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     final device = event['device'];
     if (device is Map) merged.addAll(device);
     final dps = event['dps'];
+    // 本次报文带了哪几个 DP。合并之后就分不出来了，所以在合并前先记下来。
+    var changed = const <int>{};
     if (dps is Map) {
       final known = merged['dps'];
       merged['dps'] = <Object?, Object?>{
         if (known is Map) ...known,
         ...dps,
       };
+      changed = dps.keys
+          .map((key) => int.tryParse('$key'))
+          .whereType<int>()
+          .toSet();
     }
     final online = event['online'];
     if (online is bool) merged['online'] = online;
 
-    return DeviceUpdate.changed(_device(merged));
+    return DeviceUpdate.changed(_device(merged), changedDps: changed);
   }
 
   Future<T?> _invoke<T>(
@@ -683,6 +700,48 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     SensorMetric metric,
     ReportRange range,
   ) async => _history[deviceId]?.series(metric, range) ?? const <double>[];
+
+  @override
+  Future<Map<String, String>> historyDiagnostics(String deviceId) async {
+    final snapshot = _snapshots[deviceId];
+    if (snapshot == null) {
+      return <String, String>{'设备': '本次会话还没拉到这台设备的快照'};
+    }
+    final dps = (snapshot['dps'] as Map<Object?, Object?>?) ??
+        <Object?, Object?>{};
+    const rangeLabels = <String, String>{
+      'day': '日',
+      'week': '周',
+      'month': '月',
+    };
+    final report = <String, String>{};
+    TuyaConfig.history.forEach((metricKey, ranges) {
+      final sampleBytes = TuyaConfig.historySampleBytes[metricKey] ?? 1;
+      final parts = <String>[];
+      ranges.forEach((rangeName, identifier) {
+        final label = rangeLabels[rangeName] ?? rangeName;
+        final id = TuyaConfig.dp[identifier];
+        final raw = dps['$id'] ?? dps[id];
+        if (raw == null) {
+          parts.add('$label DP$id 无');
+          return;
+        }
+        final decoded = TuyaHistoryCodec.decode(
+          raw,
+          range: ReportRange.values.byName(rangeName),
+          sampleBytes: sampleBytes,
+        );
+        final size = raw is String
+            ? '${raw.length}字符'
+            : raw is List
+            ? '${raw.length}字节'
+            : '${raw.runtimeType}';
+        parts.add('$label DP$id $size/${decoded.length}点');
+      });
+      report[metricKey] = parts.join(' · ');
+    });
+    return report;
+  }
 
   @override
   Future<String> createShareLink(String deviceId) async =>

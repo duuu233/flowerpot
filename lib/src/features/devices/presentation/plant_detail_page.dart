@@ -8,10 +8,26 @@ import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
 
 class PlantDetailArguments {
-  const PlantDetailArguments({required this.plant, this.bound = false});
+  const PlantDetailArguments({
+    required this.plant,
+    this.bound = false,
+    this.selectable = false,
+    this.addingPlant = false,
+  });
 
   final PlantProfile plant;
   final bool bound;
+
+  /// 从「选择植物」页进来的：详情页底部也要画一个确认按钮
+  /// （2026-09-12 产品：「选择植物下面的确认选择按钮，在植物详情也需要」）。
+  ///
+  /// ⚠️ 按钮**自己不下发**，只是带着「用户选了这株」的结果 `pop` 回选择植物页，
+  /// 由那一页统一执行 `selectPlant` 和随后的跳转。选择流程只有一份实现，两个入口
+  /// 的行为就不会分叉。
+  final bool selectable;
+
+  /// 只影响按钮文案：添加植物时是「确认添加」，更换时是「确认选择」。
+  final bool addingPlant;
 }
 
 /// 详情页。
@@ -50,12 +66,21 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
     super.didChangeDependencies();
     if (_requested) return;
     _requested = true;
-    final id = widget.arguments.plant.productPlantId;
-    if (id == null) return;
+    // 2026-09-12 接口加了 `tuYaRemark`，和原来的 `id` 二选一。**优先涂鸦标识**：
+    // 它是 DP 116 报上来的那个值，后台也保证不重复；自增 id 只做兜底。
+    final source = widget.arguments.plant;
+    final remark = source.tuyaIdentifier.trim();
+    final id = source.productPlantId;
+    if (remark.isEmpty && id == null) return;
     setState(() => _loading = true);
     final state = FlowerpotScope.of(context);
     unawaited(
-      state.loadPlantDetail(id).then((value) {
+      state
+          .loadPlantDetail(
+            productPlantId: id,
+            tuyaRemark: remark.isEmpty ? null : remark,
+          )
+          .then((value) {
         if (!mounted) return;
         setState(() {
           if (value != null) _detail = value;
@@ -71,36 +96,77 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '植物详情', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: SingleChildScrollView(
-        key: const Key('plant-detail-scroll-view'),
-        child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageMargin,
-            32,
-            AppSpacing.pageMargin,
-            28,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              _PlantSummaryCard(
-                plant: plant,
-                data: data,
-                bound: arguments.bound,
+      body: Stack(
+        children: <Widget>[
+          SingleChildScrollView(
+            key: const Key('plant-detail-scroll-view'),
+            child: ResponsiveContent(
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.pageMargin,
+                32,
+                AppSpacing.pageMargin,
+                // 有确认按钮时给它让出位置，免得最后一张卡被压在按钮底下。
+                arguments.selectable ? 96 : 28,
               ),
-              const SizedBox(height: 12),
-              _PlantBasicInfoCard(
-                plant: plant,
-                data: data,
-                detailLoading: _loading,
-                detailLoaded: _detail != null,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  _PlantSummaryCard(
+                    plant: plant,
+                    data: data,
+                    bound: arguments.bound,
+                  ),
+                  const SizedBox(height: 12),
+                  _PlantBasicInfoCard(
+                    plant: plant,
+                    data: data,
+                    detailLoading: _loading,
+                    detailLoaded: _detail != null,
+                  ),
+                  const SizedBox(height: 12),
+                  _PlantCareAdviceCard(items: data.careAdvice),
+                ],
               ),
-              const SizedBox(height: 12),
-              _PlantCareAdviceCard(items: data.careAdvice),
-            ],
+            ),
           ),
-        ),
+          if (arguments.selectable)
+            Positioned(
+              left: AppSpacing.pageMargin,
+              right: AppSpacing.pageMargin,
+              bottom: 8,
+              child: _ConfirmPlantButton(addingPlant: arguments.addingPlant),
+            ),
+        ],
       ),
+    );
+  }
+}
+
+/// 详情页底部的「确认选择 / 确认添加」，样式照搬选择植物页那一颗。
+///
+/// ⚠️ **它不下发任何东西**，只是 `pop(true)` 回选择植物页，由那一页执行
+/// `selectPlant` 和随后的跳转——选择流程只有一份实现，两个入口不会走岔。
+class _ConfirmPlantButton extends StatelessWidget {
+  const _ConfirmPlantButton({required this.addingPlant});
+
+  final bool addingPlant;
+
+  @override
+  Widget build(BuildContext context) {
+    final busy = FlowerpotScope.of(context).busy;
+    return FilledButton(
+      key: const Key('confirm-plant-from-detail'),
+      onPressed: busy ? null : () => Navigator.pop(context, true),
+      style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(50),
+        backgroundColor: AppColors.brandPrimary,
+        foregroundColor: AppColors.surface,
+        elevation: 2,
+        shadowColor: AppColors.brandPrimary.withValues(alpha: .35),
+        shape: const StadiumBorder(),
+        textStyle: AppTypography.pageTitle.copyWith(color: AppColors.surface),
+      ),
+      child: Text(addingPlant ? '确认添加' : '确认选择'),
     );
   }
 }

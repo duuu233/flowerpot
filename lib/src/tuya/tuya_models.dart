@@ -153,13 +153,28 @@ class DeviceHistory {
 class DeviceUpdate {
   /// The device as it now stands, with the reported DPs already merged into
   /// the last known snapshot.
-  const DeviceUpdate.changed(SmartPlanterDevice this.device) : removedId = null;
+  const DeviceUpdate.changed(
+    SmartPlanterDevice this.device, {
+    this.changedDps = const <int>{},
+  }) : removedId = null;
 
   /// The device left the account — unbound from another phone, or reset.
-  const DeviceUpdate.removed(String this.removedId) : device = null;
+  const DeviceUpdate.removed(String this.removedId)
+    : device = null,
+      changedDps = const <int>{};
 
   final SmartPlanterDevice? device;
   final String? removedId;
+
+  /// **这一条上报里真正带了哪几个 DP**，不是设备当前的全部 DP。
+  ///
+  /// 设备快照是「历史 DP 合并后的样子」，所以光看 [device] 分不出「162 这次报了
+  /// true」和「162 上次报过 true、这次报的是温度」。植物确认弹窗要的就是前者
+  /// （2026-09-12 产品：「再次接收到 DP162 true 的时候……就需要再次弹框」），
+  /// 所以把本次报文的 DP 号原样带上来。
+  ///
+  /// 桥接没给 `dps` 时（例如只有在线状态变化）是空集合。
+  final Set<int> changedDps;
 }
 
 /// 固件升级的实时状态。

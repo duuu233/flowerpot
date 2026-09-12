@@ -22,9 +22,14 @@ abstract final class TuyaConfig {
   /// | [productId] `yciq4kssu1fv8umn` | 涂鸦 IoT 平台上那个**产品**的 ID | 配网、绑定、DP 表——**云端一律以它为准** |
   /// | [broadcastId] `ehbx83xdh9jkmxvz` | 设备**广播**时放进 BLE 包里的标识 | 只用于本地判断「这条广播是不是这款产品」 |
   ///
-  /// 后台接口返回的 `broadcastId` 就是它。BLE 扫描回来的 `ScanDeviceBean.getProductId()`
-  /// 拿到的是**广播里那个**，所以认设备时两个都要比——只比 [productId] 会永远认不出来
-  /// （2026-09-11 真机上扫到 -32dBm 的花盆却没被标成"本产品"，就是这个原因）。
+  /// BLE 扫描回来的 `ScanDeviceBean.getProductId()` 拿到的是**广播里那个**，所以认
+  /// 设备时两个都要比——只比 [productId] 会永远认不出来（2026-09-11 真机上扫到
+  /// -32dBm 的花盆却没被标成"本产品"，就是这个原因）。
+  ///
+  /// ⚠️ **2026-09-12：后台那个 `broadcastId` 字段改存平台产品 ID 了**
+  /// （后台界面上的文案也从「广播ID」改成了「涂鸦产品ID」）。也就是说后台清单里
+  /// 拿到的不再是广播标识，`FlowerpotState._isOurProduct` 认这款花盆靠的就是下面
+  /// 这个本地常量。**这一行不能删**，删了搜索页就再也认不出设备。
   static const broadcastId = 'ehbx83xdh9jkmxvz';
 
   /// Product DP table, keyed by the Tuya *identifier* rather than by an app

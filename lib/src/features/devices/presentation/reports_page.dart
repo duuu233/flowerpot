@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/app_theme.dart';
@@ -40,6 +42,12 @@ class _ReportsPageState extends State<ReportsPage> {
     if (!historyInitialized) {
       history = _load();
       historyInitialized = true;
+      // 同需水状态页：把九条历史 DP 的到货情况打进联调日志框。
+      unawaited(
+        FlowerpotScope.of(
+          context,
+        ).logHistoryDiagnostics(widget.arguments.deviceId, '报表'),
+      );
     }
   }
 

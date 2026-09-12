@@ -228,6 +228,21 @@ class FlowerpotState extends ChangeNotifier {
   bool plantGuidePending(String? deviceId) =>
       plantConfirmState(deviceId) == PlantConfirmState.prompt;
 
+  /// **设备报了多少次「162 = true」**，每收到一条就 +1。
+  ///
+  /// 详情页靠它决定要不要再弹一次引导窗（2026-09-12 产品：「点了确认以后，再次
+  /// 接收到 DP162 true 的时候，页面只要没有弹框了，就需要再次弹框，而不是只弹框
+  /// 一次」）。
+  ///
+  /// ⚠️ **为什么不直接看 [plantGuidePending]**：162 在用户处置之前一直是 true，
+  /// 而页面每次 `notifyListeners` 都会重建——按状态触发的话，点任何一个下发按钮都
+  /// 会重新冒出这个弹窗（2026-09-12 修过的那个回归）。按「收到上报」触发就两头都
+  /// 顾上了：重建不会误触发，设备再报一次就会再弹。
+  int plantGuideSignal(String? deviceId) =>
+      deviceId == null ? 0 : (_plantGuideSignals[deviceId] ?? 0);
+
+  final Map<String, int> _plantGuideSignals = <String, int>{};
+
   /// 设备当前上报的植物 id（DP 116）。老固件报字符串标识符时返回 null。
   int? reportedPlantId(String? deviceId) {
     if (deviceId == null) return null;
@@ -592,29 +607,40 @@ class FlowerpotState extends ChangeNotifier {
     if (id.isEmpty) return false;
     // ① 本地兜底：平台产品 ID 与广播 ID（`TuyaConfig`）。后台没拉到时也能认。
     if (id == TuyaConfig.productId || id == TuyaConfig.broadcastId) return true;
-    // ② **以后台产品清单为准**（2026-09-11 产品口径「根据后台的接口配对一下」）。
-    //    后台 `/Client/Product/getProductList` 的每一条都带 `broadcastId`——那正是设备
-    //    BLE 广播里的标识，也就是 `ScanDeviceBean.getProductId()` 拿到的值。这样以后
-    //    后台新增产品，App 不用改代码、也不用发版就能认出来。
+    // ② 后台产品清单里的值也认（2026-09-11 产品口径「根据后台的接口配对一下」）。
+    //
+    //    ⚠️ **2026-09-12 起这一条基本不顶用了**：后台把 `broadcastId` 字段改成存
+    //    平台产品 ID（界面文案也改叫「涂鸦产品ID」），而 BLE 广播里带的仍然是广播
+    //    标识 `ehbx83xdh9jkmxvz`，两者对不上。现在认出这款花盆靠的是上面 ① 的本地
+    //    常量。留着这一条只是兜底——万一以后哪个产品在后台填的就是广播标识。
+    //
+    //    要让「后台新增产品、App 不发版就能认」重新成立，得让后端把广播标识单独
+    //    存一个字段，App 这边再把它并进这个集合。
     return _backendBroadcastIds.contains(id);
   }
 
   /// 后台产品清单里的 `broadcastId` 集合。拉不到就是空的，只走上面的本地兜底。
   final Set<String> _backendBroadcastIds = <String>{};
 
-  /// 拉一次后台产品清单，把 `broadcastId` 记下来给搜索页配对用。
-  ///
-  /// 尽力而为：拉不到不拦路——本地兜底那两个常量仍然认得出当前这款。
   /// 拉一株植物的**完整**资料（`/Client/UserProduct/getUserProductPlantDetail`）。
   ///
   /// ⚠️ 详情页必须调它：列表接口 `getProductPlantList` 的返回体只有五个字段
   /// （id/名称/图片/涂鸦标识/分类），**学名、别名、简介、温湿度、养护建议都不在里面**
-  /// （2026-09-12 按 swagger 核实）。
+  /// （2026-09-12 按 swagger 核实）。产品口径「植物相关的信息都调这个接口拿」。
+  ///
+  /// 查询键二选一，**优先涂鸦标识**（[tuyaRemark]）：它是 DP 116 报上来的那个值，
+  /// 后台也保证不重复；自增 id 只在拿不到标识符时兜底。
   ///
   /// 拉不到就返回 null，页面继续用列表那份——空着总比编一份假的强。
-  Future<PlantProfile?> loadPlantDetail(int productPlantId) async {
+  Future<PlantProfile?> loadPlantDetail({
+    int? productPlantId,
+    String? tuyaRemark,
+  }) async {
     try {
-      final plant = await _backend.getProductPlantDetail(productPlantId);
+      final plant = await _backend.getProductPlantDetail(
+        productPlantId: productPlantId,
+        tuyaRemark: tuyaRemark,
+      );
       // 详情里也带涂鸦标识，顺手并进目录：下次按 DP 116 匹配就不用再拉一次。
       _rememberPlants(<PlantProfile>[plant]);
       return plant;
@@ -623,6 +649,9 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
+  /// 拉一次后台产品清单，把 `broadcastId` 记下来给搜索页配对用。
+  ///
+  /// 尽力而为：拉不到不拦路——本地兜底那两个常量仍然认得出当前这款。
   Future<void> refreshProductCatalog() async {
     try {
       final products = await _backend.getProducts();
@@ -1771,6 +1800,33 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '设置已同步');
   });
 
+  /// 把历史 DP 的到货情况打进联调日志框。
+  ///
+  /// 产品 2026-09-12 反馈「需水状态页没有历史记录，同一台设备在智能生活 APP 上有」。
+  /// 两边的数据源不是一回事：
+  ///
+  /// - 智能生活 APP 走的是**涂鸦云端统计服务**，云端自己按天/周/月聚合。
+  /// - 本 App 走的是**设备自己上报的 131–139 九条 raw DP**——当初改成这样，就是因为
+  ///   云端统计要付费订阅，这个账号没有。
+  ///
+  /// 所以"那边有、这边没有"完全可能同时成立：设备没把历史 DP 报上来，云端却有。
+  /// 这个方法不修数据，只是把每条历史 DP 的原始长度和解出的点数打到页面上，
+  /// 好分清是**设备没报**还是**报了解不出来**。
+  Future<void> logHistoryDiagnostics(String deviceId, String page) async {
+    try {
+      final report = await _repository.historyDiagnostics(deviceId);
+      if (report.isEmpty) {
+        _logInteraction('读取 ← [$page] 历史 DP：一条都没有');
+        return;
+      }
+      report.forEach((metricKey, line) {
+        _logInteraction('读取 ← [$page] 历史 $metricKey：$line');
+      });
+    } catch (error) {
+      _logInteraction('读取 ← [$page] 历史 DP 体检失败 ✗ $error');
+    }
+  }
+
   Future<List<double>> historyFor(
     String id,
     SensorMetric metric,
@@ -2433,14 +2489,36 @@ class FlowerpotState extends ChangeNotifier {
     return _basicData;
   }
 
-  /// 帮助中心的常见问题。拉不到返回空，页面回落到内置的几条。
+  /// 帮助中心的常见问题。拉不到就返回空，页面画空态。
+  ///
+  /// 2026-09-12 接口加了 `broadcastId` 筛选（后台产品表那个字段，界面上现在叫
+  /// 「涂鸦产品ID」）。App 这边用 [faqBroadcastId] 解析出来的值带上去，让常见问题
+  /// 只出本产品的那几条。
   Future<List<BackendFaq>> loadFaqs() async {
     if (!_backend.enabled || !_backend.hasSession) return const <BackendFaq>[];
     try {
-      return await _backend.getFaqs();
+      return await _backend.getFaqs(broadcastId: faqBroadcastId);
     } catch (_) {
       return const <BackendFaq>[];
     }
+  }
+
+  /// 常见问题筛选用的产品标识。
+  ///
+  /// 取值顺序：当前选中设备的涂鸦产品 ID（SDK 给的，最准）→ 任意一台已绑定设备的
+  /// → [TuyaConfig.productId]（还没绑设备时的兜底，本 App 只有这一款产品）。
+  ///
+  /// ⚠️ 这里要的是**涂鸦平台产品 ID**，不是 BLE 广播里那个标识
+  /// （[TuyaConfig.broadcastId]）。后台那个字段名虽然还叫 `broadcastId`，2026-09-12
+  /// 起存的是平台产品 ID，界面文案也改成了「涂鸦产品ID」。
+  String get faqBroadcastId {
+    final selected = selectedDevice?.productId.trim() ?? '';
+    if (selected.isNotEmpty) return selected;
+    for (final device in devices) {
+      final id = device.productId.trim();
+      if (id.isNotEmpty) return id;
+    }
+    return TuyaConfig.productId;
   }
 
   Future<void> setLanguage(String code) async {
@@ -2533,9 +2611,26 @@ class FlowerpotState extends ChangeNotifier {
         _logInteraction('上报 ← 设备被解绑 ${update.removedId}');
       }
       _applyDeviceUpdate(update);
+      // ⚠️ **必须放在 [_applyDeviceUpdate] 之后**：计数一变页面就会重建并去读
+      // `plantGuidePending`，而那个读的是合并后的设备快照。先记数的话，页面会拿
+      // 着**上一版**状态判定「不用弹」，把这次上报白白消耗掉。
+      if (device != null) _notePlantGuideReport(device, update.changedDps);
     });
     _otaUpdates?.cancel();
     _otaUpdates = _repository.otaUpdates.listen(_applyOtaProgress);
+  }
+
+  /// 这条上报里如果真的带了 162 且值为 true，就把计数 +1。
+  ///
+  /// **必须看 [DeviceUpdate.changedDps]**：设备快照是历史 DP 合并后的样子，只看
+  /// `device.plantConfirm` 的话，温度、电量那些无关上报也会被当成"162 又报了一次"。
+  void _notePlantGuideReport(SmartPlanterDevice device, Set<int> changedDps) {
+    final dpId = TuyaConfig.dp['plant_present'];
+    if (dpId == null || !changedDps.contains(dpId)) return;
+    if (device.plantConfirm != PlantConfirmState.prompt) return;
+    final count = (_plantGuideSignals[device.id] ?? 0) + 1;
+    _plantGuideSignals[device.id] = count;
+    _logInteraction('上报 ← DP$dpId 植物确认=true（第 $count 次）');
   }
 
   /// 固件升级的实时进度。

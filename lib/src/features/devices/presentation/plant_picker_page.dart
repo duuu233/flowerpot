@@ -127,6 +127,28 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
   PlantProfile? get selected =>
       plants.where((item) => item.id == selectedId).firstOrNull;
 
+  /// 打开植物详情页。
+  ///
+  /// 详情页底部也有「确认选择 / 确认添加」（2026-09-12 产品要求），按了之后它
+  /// `pop(true)` 回来——**下发和跳转仍然在这里做**，选择流程只有 [_confirmSelection]
+  /// 一份实现，两个入口不会走岔。
+  Future<void> _openDetails(PlantProfile plant) async {
+    final state = FlowerpotScope.of(context);
+    final confirmed = await Navigator.pushNamed(
+      context,
+      AppRoutes.plantDetail,
+      arguments: PlantDetailArguments(
+        plant: plant,
+        bound: state.deviceById(widget.deviceId)?.plant.id == plant.id,
+        selectable: true,
+        addingPlant: addingPlant,
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() => selectedId = plant.id);
+    await _confirmSelection();
+  }
+
   Future<void> _confirmSelection() async {
     final selectedPlant = selected;
     if (selectedPlant == null) {
@@ -220,16 +242,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
                         plant: plant,
                         selected: selectedId == plant.id,
                         onTap: () => setState(() => selectedId = plant.id),
-                        onDetails: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.plantDetail,
-                          arguments: PlantDetailArguments(
-                            plant: plant,
-                            bound:
-                                state.deviceById(widget.deviceId)?.plant.id ==
-                                plant.id,
-                          ),
-                        ),
+                        onDetails: () => _openDetails(plant),
                       );
                     },
                   ),

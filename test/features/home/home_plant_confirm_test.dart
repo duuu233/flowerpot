@@ -95,6 +95,71 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('设备再报一次 162=true 就再弹一次，不是只弹一次', (tester) async {
+    final repository = _HomeRepository(<SmartPlanterDevice>[
+      _device(plantConfirm: PlantConfirmState.hidden),
+    ]);
+    await _pumpDeviceHome(tester, repository);
+    expect(find.text('发现新植物'), findsNothing);
+
+    // 第一次上报：弹。
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _device(plantConfirm: PlantConfirmState.prompt),
+        changedDps: const <int>{162},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('发现新植物'), findsOneWidget);
+
+    // 处置掉弹窗。固件没把 162 改回 0（这里的设备快照仍是 prompt），按旧的
+    // 「跳变触发」写法，之后就再也不会弹了。
+    await tester.tap(find.byKey(_confirmKey));
+    await tester.pumpAndSettle();
+    expect(find.text('发现新植物'), findsNothing);
+
+    // 第二次上报：**还要再弹**。
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _device(plantConfirm: PlantConfirmState.prompt),
+        changedDps: const <int>{162},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('发现新植物'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('162 还是 true 但这条上报没带 162，不重复弹窗', (tester) async {
+    final repository = _HomeRepository(<SmartPlanterDevice>[
+      _device(plantConfirm: PlantConfirmState.hidden),
+    ]);
+    await _pumpDeviceHome(tester, repository);
+
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _device(plantConfirm: PlantConfirmState.prompt),
+        changedDps: const <int>{162},
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(_confirmKey));
+    await tester.pumpAndSettle();
+    expect(find.text('发现新植物'), findsNothing);
+
+    // 只报了电量。设备快照里 162 仍是 prompt，但这条报文没带它——不能因此重弹，
+    // 否则就退回 2026-09-12 修过的那个回归（点任何按钮都冒弹窗）。
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _device(plantConfirm: PlantConfirmState.prompt),
+        changedDps: const <int>{103},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('发现新植物'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('116 报 -1：画未种植物的花盆，今日养护换成提示，也不弹窗', (tester) async {
     final repository = _HomeRepository(<SmartPlanterDevice>[
       _device(plantVariety: '-1'),

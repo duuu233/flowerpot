@@ -65,9 +65,12 @@ class _HomePageState extends State<HomePage> {
     super.didChangeDependencies();
     if (_entryChecked) return;
     _entryChecked = true;
-    // 进页面那一次由 `_runEntryChecks` 负责；把基线置上，免得首帧的跳变判定
-    // 和它撞车、弹两次。
-    _lastGuidePending = true;
+    // 进页面那一次由 `_runEntryChecks` 负责；把计数基线对齐到当前值，免得首帧
+    // 的上报判定和它撞车、弹两次。
+    final state = FlowerpotScope.of(context);
+    _lastGuideSignal = state.plantGuideSignal(
+      widget.deviceId ?? state.selectedDevice?.id,
+    );
     // 首帧之后再跑：这一步要 showDialog，build 过程中推路由是非法的。
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => unawaited(_runEntryChecks()),
@@ -96,9 +99,10 @@ class _HomePageState extends State<HomePage> {
   /// 引导窗正在显示。防止 DP 连续上报时叠出好几个。
   bool _guideShowing = false;
 
-  /// 上一次 build 时 162 是不是「要弹」。**按跳变触发**的依据，见 build 里的说明：
-  /// 162 在用户处置之前一直是 true，不记住上一次就会每次重建都重弹。
-  bool _lastGuidePending = false;
+  /// 上一次处理到的 162 上报计数（[FlowerpotState.plantGuideSignal]）。
+  ///
+  /// **按「收到上报」触发**的依据，见 build 里的说明。
+  int _lastGuideSignal = 0;
 
   /// **设备在页面打开期间把 162 改成「要弹」时，也要弹。**
   ///
@@ -218,20 +222,30 @@ class _HomePageState extends State<HomePage> {
     final device = widget.deviceId == null
         ? state.selectedDevice
         : state.deviceById(widget.deviceId!);
-    // **只在 162 由「不弹」翻成「要弹」的那一刻补引导窗**（见 [_maybeShowPlantGuide]）。
+    // **每收到一条「162 = true」的上报就补一次引导窗**（见 [_maybeShowPlantGuide]）。
     //
-    // ⚠️ 2026-09-12 修回归：上一版写成「只要 pending 就弹」，而 162 在用户处置之前
-    // **一直是 true**，于是本页每重建一次就重弹一次——点任何一个下发指令的按钮
-    // （那些都会 `notifyListeners` 触发重建）都会冒出这个弹窗。
-    // 现在按**跳变**触发：记住上一次看到的值，false → true 才弹。
+    // 这里的触发依据前后换过两次，两个坑都要记住：
+    //
+    // 1. 最早写成「只要 pending 就弹」。162 在用户处置之前**一直是 true**，于是本页
+    //    每重建一次就重弹一次——点任何一个下发按钮（都会 `notifyListeners`）都会冒出
+    //    这个弹窗。
+    // 2. 改成「false → true 跳变才弹」解决了上面那条，但又太紧：用户用返回键关掉
+    //    弹窗时不写 DP，162 一直是 true，于是**再也不会弹第二次**，哪怕设备一直在报。
+    //
+    // 现在按**上报次数**触发（2026-09-12 产品：「点了确认以后，再次接收到 DP162
+    // true 的时候，页面只要没有弹框了，就需要再次弹框，而不是只弹框一次」）：
+    // 计数只在设备真的报了一次 162=true 时才 +1，所以重建不会误触发；而设备每报
+    // 一次就会再弹一次，`_guideShowing` 保证同一时刻只有一个弹窗。
     final watchedId = widget.deviceId ?? device?.id;
-    final pending = watchedId != null && state.plantGuidePending(watchedId);
-    if (pending && !_lastGuidePending && watchedId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_maybeShowPlantGuide(state, watchedId));
-      });
+    final signal = state.plantGuideSignal(watchedId);
+    if (signal != _lastGuideSignal) {
+      _lastGuideSignal = signal;
+      if (watchedId != null && state.plantGuidePending(watchedId)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_maybeShowPlantGuide(state, watchedId));
+        });
+      }
     }
-    _lastGuidePending = pending;
     final model =
         widget.dashboard ??
         HomeDashboardModel.fromDevice(

@@ -362,6 +362,12 @@ class MockTuyaRepository implements TuyaRepository {
   }
 
   @override
+  Future<Map<String, String>> historyDiagnostics(String deviceId) async {
+    await _wait();
+    return const <String, String>{'mock': '演示仓库直接造数据，没有原始历史 DP'};
+  }
+
+  @override
   Future<List<double>> getHistory(
     String deviceId,
     SensorMetric metric,
