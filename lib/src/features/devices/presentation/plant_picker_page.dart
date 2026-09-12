@@ -37,6 +37,10 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
   String query = '';
   String? selectedId;
   bool initialized = false;
+
+  /// 植物目录还在路上。改之前这一页在等接口的那几秒里画的是「没有搜到植物」的
+  /// 空态——看着像后台一株都没配，其实只是还没回来（2026-09-12 产品：加个 loading）。
+  bool loadingPlants = false;
   bool addingPlant = true;
   List<PlantProfile> plants = const <PlantProfile>[];
 
@@ -53,6 +57,8 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
     if (state.usingAppBackend) plants = const <PlantProfile>[];
     selectedId = current?.id ?? plants.firstOrNull?.id;
     initialized = true;
+    // 首帧之前赋值，不用 setState——build 还没跑过。
+    loadingPlants = true;
     unawaited(_loadPlants(current));
   }
 
@@ -89,6 +95,9 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
         _loadErrorText(error),
         tone: AppMessageTone.error,
       );
+    } finally {
+      // 成功、失败、后端没开——都要把 loading 收掉，否则页面会一直转圈。
+      if (mounted) setState(() => loadingPlants = false);
     }
   }
 
@@ -216,7 +225,9 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
                   ),
                 ),
               ),
-              if (plants.isEmpty)
+              if (loadingPlants)
+                const SliverToBoxAdapter(child: _PlantCatalogLoading())
+              else if (plants.isEmpty)
                 const SliverToBoxAdapter(child: _EmptySearchResult())
               else
                 SliverPadding(
@@ -255,7 +266,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
             bottom: 8,
             child: FilledButton(
               key: const Key('confirm-plant-selection'),
-              onPressed: state.busy || plants.isEmpty
+              onPressed: state.busy || loadingPlants || plants.isEmpty
                   ? null
                   : _confirmSelection,
               style: FilledButton.styleFrom(
@@ -534,6 +545,20 @@ class _PlantArtwork extends StatelessWidget {
       filterQuality: FilterQuality.high,
       semanticLabel: plant.name,
       errorBuilder: (_, _, _) => const SizedBox.shrink(),
+    );
+  }
+}
+
+/// 植物目录加载中。占的高度和两行卡片差不多，免得 loading 一消失页面猛跳一下。
+class _PlantCatalogLoading extends StatelessWidget {
+  const _PlantCatalogLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      key: Key('plant-catalog-loading'),
+      height: 316,
+      child: AppLoading(label: '正在加载植物…'),
     );
   }
 }

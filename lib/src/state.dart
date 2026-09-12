@@ -1700,6 +1700,13 @@ class FlowerpotState extends ChangeNotifier {
       throw const TuyaException('plant_missing', '设备当前没有上报植物，无法确认');
     }
     final plant = _plantForIdentifier(reported);
+    // 产品要求「点确定也在日志中看到下发的植物ID」。下面的 `_publishDps` 本来就会
+    // 打出整个 DP map，但那一行读起来是 `{116: xxx, 161: y}`，不够直白；这里先单独
+    // 写一条，说清这次确认下发的是哪一株。
+    _logInteraction(
+      '确认植物 → DP116=$reported'
+      '${plant == null ? '（目录里没有这一株，只下发 116）' : '，${plant.name}'}',
+    );
     final withType = await _publishPlantSelection(
       id,
       reported,
@@ -2627,12 +2634,33 @@ class FlowerpotState extends ChangeNotifier {
   /// `device.plantConfirm` 的话，温度、电量那些无关上报也会被当成"162 又报了一次"。
   void _notePlantGuideReport(SmartPlanterDevice device, Set<int> changedDps) {
     final dpId = TuyaConfig.dp['plant_present'];
-    if (dpId == null || !changedDps.contains(dpId)) return;
+    final previous = _lastPlantConfirm[device.id];
+    _lastPlantConfirm[device.id] = device.plantConfirm;
     if (device.plantConfirm != PlantConfirmState.prompt) return;
+
+    // 「设备又要求弹一次」有两条到货路径，都要认：
+    //
+    // ① 这条报文里确实带了 162——`onDpUpdate` 那条路，`dps` 里能看到 DP 号。
+    // ② 162 由别的值翻成 prompt——`onDevInfoUpdate` 那条路整包快照下来，事件里
+    //    没有逐条 DP，`changedDps` 是空的，只能靠前后值对比看出来。
+    //
+    // 反过来，**整包快照里 162 本来就是 true** 的情况不算（例如设备列表刚拉回来）：
+    // 那不是一次新的上报，进页面那次检查已经负责弹了。
+    final carried = dpId != null && changedDps.contains(dpId);
+    final flipped = previous != null && previous != PlantConfirmState.prompt;
+    if (!carried && !flipped) return;
+
     final count = (_plantGuideSignals[device.id] ?? 0) + 1;
     _plantGuideSignals[device.id] = count;
-    _logInteraction('上报 ← DP$dpId 植物确认=true（第 $count 次）');
+    _logInteraction(
+      '上报 ← DP${dpId ?? 162} 植物确认=true（第 $count 次，'
+      '${carried ? '报文带了该 DP' : '整包快照翻转'}）',
+    );
   }
+
+  /// 上一次看到的 162 值，用来认出「整包快照里 162 翻成了 true」。
+  final Map<String, PlantConfirmState> _lastPlantConfirm =
+      <String, PlantConfirmState>{};
 
   /// 固件升级的实时进度。
   ///
