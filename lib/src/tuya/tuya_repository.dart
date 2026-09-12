@@ -990,6 +990,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       id: deviceId,
       productId: '${raw['productId'] ?? raw['pid'] ?? ''}',
       name: '${raw['name'] ?? '智能花盆'}',
+      iconUrl: '${raw['iconUrl'] ?? ''}',
       online: boolean(raw['online'], false),
       signal: integer(raw['signal'], 0),
       battery: integer(dp('battery_level'), 0),

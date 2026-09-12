@@ -2780,6 +2780,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         "signal" to (optionalGetter(device, "getSignal") ?: 0),
         "activeTime" to (optionalGetter(device, "getActiveTime") ?: 0),
         "mac" to (optionalGetter(device, "getMac") ?: optionalGetter(device, "getUuid")),
+        // 涂鸦平台上给这个产品配的图。设备列表那一列画的就是它——那一页的数据
+        // 全来自涂鸦，和 APP 后端没有交集。
+        "iconUrl" to optionalGetter(device, "getIconUrl"),
         // getPv 是通信协议版本（"2.2" 这种），不是固件版本——之前取它，
         // 「当前版本」显示的一直是协议号。固件版本在 DeviceBean.verSw 上。
         "firmwareVersion" to (

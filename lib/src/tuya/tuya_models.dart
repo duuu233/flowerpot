@@ -564,6 +564,7 @@ class SmartPlanterDevice {
     required this.productId,
     required this.name,
     required this.online,
+    this.iconUrl = '',
     required this.signal,
     required this.battery,
     required this.charging,
@@ -589,6 +590,12 @@ class SmartPlanterDevice {
   final String id;
   final String productId;
   final String name;
+
+  /// 涂鸦平台上给这个产品配的图（`DeviceBean.getIconUrl`）。
+  ///
+  /// 设备列表那一列画的就是它——那一页的数据全部来自涂鸦，和 APP 后端的植物图
+  /// 是两回事（2026-09-12 产品口径）。没配就是空串，页面留空。
+  final String iconUrl;
   final bool online;
   final int signal;
   final int battery;
@@ -656,6 +663,7 @@ class SmartPlanterDevice {
 
   SmartPlanterDevice copyWith({
     String? name,
+    String? iconUrl,
     bool? online,
     int? signal,
     int? battery,
@@ -678,6 +686,7 @@ class SmartPlanterDevice {
     id: id,
     productId: productId,
     name: name ?? this.name,
+    iconUrl: iconUrl ?? this.iconUrl,
     online: online ?? this.online,
     signal: signal ?? this.signal,
     battery: battery ?? this.battery,
