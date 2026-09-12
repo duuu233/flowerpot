@@ -130,9 +130,14 @@ class _HomePageState extends State<HomePage> {
 
   /// 「发现新植物」引导窗。
   ///
-  /// 两个按钮都会让固件把 162 改回 0：「确认」直接把设备当前上报的植物 DPID 原样
-  /// 回写，「选择植物」跳到选择流程、选完由那条流程下发。用返回键关掉则什么都不
-  /// 发，下次进详情页设备还会要求弹。
+  /// **两个按钮都会显式把 162 写回 false**（2026-09-12 产品要求，见
+  /// [FlowerpotState.resetPlantGuideFlag]）：涂鸦只推 DP 变化，162 一直停在 true 的话
+  /// 设备再要求弹窗也推不上来，弹窗就只出现一次。
+  ///
+  /// - 「确认」：把设备当前上报的植物 DPID 原样回写，162 随那一帧一起发。
+  /// - 「选择植物」：先单独写一次 162=false，再跳到选择流程；选完由那条流程下发 116。
+  ///
+  /// 用返回键关掉则什么都不发，下次设备再报 162 还会弹。
   ///
   /// **植物 id 为 0（通用植物）是单独一支**：固件只识别出「有植物」但认不出品种，
   /// 后台也不再为 0 建植物数据，所以没有可确认的对象——文案改成「请选择并确认
@@ -182,6 +187,11 @@ class _HomePageState extends State<HomePage> {
       showDeviceActionResult(context, result, announceSuccess: true);
       return;
     }
+    // 去选植物之前也把 162 写回 false（2026-09-12 产品要求）。涂鸦只推 DP 变化，
+    // 不主动翻转的话，设备下一次再要求弹窗时推不上来，弹窗就只出现一次。
+    // 用同一层 loading 挡住：这一步也是云端往返。
+    await _withBlockingProgress(() => state.resetPlantGuideFlag(deviceId));
+    if (!mounted) return;
     _openAddPlant(context, deviceId);
   }
 

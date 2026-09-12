@@ -2332,8 +2332,53 @@ class FlowerpotState extends ChangeNotifier {
     final typeDp = TuyaConfig.dp['plant_type'];
     final typeValue = TuyaConfig.plantTypeValue(category);
     if (typeDp != null && typeValue != null) dps[typeDp] = typeValue;
+    // 顺带把 162 显式写回 false（2026-09-12 产品要求，见 [resetPlantGuideFlag]）。
+    final confirmDp = TuyaConfig.dp['plant_present'];
+    if (confirmDp != null) dps[confirmDp] = false;
     await _publishDps(id, dps);
-    return dps.length > 1;
+    _notePlantGuideReset(id);
+    // 只有 161 才算"带上了分类"，162 是每次都发的，不能把它算进去。
+    return typeDp != null && typeValue != null;
+  }
+
+  /// **把 162 显式写回 false。**
+  ///
+  /// 产品口径（2026-09-12）：「涂鸦那边会有延迟，每次点击『选择植物』和『确认』的
+  /// 时候，都多传一个 dpid=162 改为 false，帮它这个值初始化一下。」
+  ///
+  /// 为什么要这么干：涂鸦**只推 DP 变化**。162 一直停在 true 的话，固件再写一次 true
+  /// 不会产生新的上报，App 也就无从知道设备又要求弹窗了——弹窗于是只出现一次。
+  /// 由 App 主动写回 false，下一次 true 就是一次真正的翻转，能推上来。
+  ///
+  /// 162 在 09-12 的功能点表里是 `可下发可上报（rw）`，App 写它是合法的。
+  ///
+  /// 写完顺手把本地状态也置成 hidden：固件通常会回一条 162=0，但不指望它——本地
+  /// 先落定，弹窗就不会因为读到旧快照再冒一次。
+  Future<void> resetPlantGuideFlag(String id) async {
+    final confirmDp = TuyaConfig.dp['plant_present'];
+    if (confirmDp == null) return;
+    try {
+      await _publishDps(id, <int, Object>{confirmDp: false});
+      _notePlantGuideReset(id);
+    } catch (_) {
+      // 初始化失败不该拦住用户去选植物——下一次上报照常能弹。
+    }
+  }
+
+  /// 162 已经被写回 false：把**本地设备状态**落定，弹窗不会因为读到旧快照再冒一次。
+  ///
+  /// ⚠️ **不动 [_lastPlantConfirm]**。那个 map 记的是「上一次**从设备收到**的 162」，
+  /// 专门用来认出整包快照里的翻转；把 App 自己写下去的值也记进去，就会出现这种误判：
+  /// 写完 false 之后、固件还没回 162=0 之前，随便来一条电量上报（整包快照里 162 仍是
+  /// true）都会被当成「设备又要求弹一次」——那就退回「点任何按钮都冒弹窗」的老毛病了。
+  void _notePlantGuideReset(String id) {
+    _replaceDevice(
+      id,
+      (device) => device.copyWith(
+        plantConfirm: PlantConfirmState.hidden,
+        plantConfirmRaw: 'false',
+      ),
+    );
   }
 
   Future<ActionResult> removeDevice(String id, {required bool resetFactory}) =>
@@ -2658,7 +2703,10 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
-  /// 上一次看到的 162 值，用来认出「整包快照里 162 翻成了 true」。
+  /// 上一次**从设备收到的** 162 值，用来认出「整包快照里 162 翻成了 true」。
+  ///
+  /// 只由 [_notePlantGuideReport] 写——App 自己下发的 false 不进这里，理由见
+  /// [_notePlantGuideReset]。
   final Map<String, PlantConfirmState> _lastPlantConfirm =
       <String, PlantConfirmState>{};
 

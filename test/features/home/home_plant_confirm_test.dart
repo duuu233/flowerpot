@@ -40,9 +40,10 @@ void main() {
     await tester.tap(find.byKey(_confirmKey));
     await tester.pumpAndSettle();
 
-    // 116 写回设备刚报上来的那一株；不再写 162——固件收到 116 自己改回 0。
+    // 116 写回设备刚报上来的那一株，**162 显式写回 false**（2026-09-12 产品要求：
+    // 涂鸦只推 DP 变化，不主动翻转的话下一次 true 推不上来）。
     expect(repository.published.single[116], 'pothos');
-    expect(repository.published.single.containsKey(162), isFalse);
+    expect(repository.published.single[162], false);
     expect(tester.takeException(), isNull);
   });
 
@@ -56,7 +57,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('plant-picker-target'), findsOneWidget);
-    expect(repository.published, isEmpty);
+    // 「选择植物」不下发 116，但**会单独把 162 写回 false**。
+    expect(repository.published.single, <int, Object>{162: false});
     expect(tester.takeException(), isNull);
   });
 
@@ -78,9 +80,10 @@ void main() {
     await tester.tap(find.byKey(_confirmKey));
     await tester.pumpAndSettle();
 
-    // 唯一那个按钮走的是「去选植物」，不能把 0 当成确认下发。
+    // 唯一那个按钮走的是「去选植物」：**不能把 0 当成确认下发 116**，
+    // 但和另一支一样要把 162 写回 false。
     expect(find.text('plant-picker-target'), findsOneWidget);
-    expect(repository.published, isEmpty);
+    expect(repository.published.single, <int, Object>{162: false});
     expect(tester.takeException(), isNull);
   });
 
