@@ -11,7 +11,6 @@ import 'package:flowerpot/src/state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/asset_finder.dart';
 
 void main() {
   testWidgets('plant picker exposes the Figma content', (tester) async {
@@ -31,9 +30,14 @@ void main() {
     expect(find.text('豆瓣绿'), findsNothing);
     expect(find.text('春羽'), findsNothing);
     expect(find.byKey(const Key('plant-image-monstera')), findsOneWidget);
+    // 卡片位还在，但后端没配图就不画图——不再回落到本地静态图
+    // （2026-09-12「没有就为空」）。
     expect(
-      findAssetImage(AppAssets.plantImage('monstera')),
-      findsOneWidget,
+      find.descendant(
+        of: find.byKey(const Key('plant-image-monstera')),
+        matching: find.byType(Image),
+      ),
+      findsNothing,
     );
     expect(tester.takeException(), isNull);
   });

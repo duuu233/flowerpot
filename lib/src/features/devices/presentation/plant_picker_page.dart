@@ -513,6 +513,12 @@ class _PlantCard extends StatelessWidget {
   }
 }
 
+/// 列表卡片里那株植物的图，只认后端配的 `plantImg`。
+///
+/// ⚠️ **没有就留空**（2026-09-12 产品口径：「去掉一切兜底、静态假数据，没有就为空」）。
+/// 原来会回落到 `AppAssets.plantImage(plant.id)`：那是一张按 id 查的本地图片表，后台
+/// 配的植物 id 不在表里，最后统一退成一个通用图标——**整页每一株看起来都"有图"，
+/// 其实一张都没取到**，产品反馈的「选择植物列表读不到图片」就是这么被盖住的。
 class _PlantArtwork extends StatelessWidget {
   const _PlantArtwork({required this.plant, super.key});
 
@@ -521,24 +527,13 @@ class _PlantArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = plant.imageUrl?.trim();
-    if (imageUrl != null && imageUrl.isNotEmpty) {
-      return Image.network(
-        imageUrl,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.high,
-        semanticLabel: plant.name,
-        errorBuilder: (_, _, _) => Image.asset(
-          AppAssets.plantImage(plant.id),
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
-        ),
-      );
-    }
-    return Image.asset(
-      AppAssets.plantImage(plant.id),
+    if (imageUrl == null || imageUrl.isEmpty) return const SizedBox.shrink();
+    return Image.network(
+      imageUrl,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       semanticLabel: plant.name,
+      errorBuilder: (_, _, _) => const SizedBox.shrink(),
     );
   }
 }

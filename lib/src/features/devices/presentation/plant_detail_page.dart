@@ -685,6 +685,14 @@ class _RatingStars extends StatelessWidget {
   }
 }
 
+/// 详情页那株植物的图，只认后端配的 `plantImg`。
+///
+/// ⚠️ **没有就留空**（2026-09-12 产品口径：「去掉一切兜底、静态假数据，没有就为空」）。
+/// 这里原来会回落到 `AppAssets.plantImage(plant.id)` ——一张按 id 查本地图片表的静态图。
+/// 后台配的植物 id 根本不在那张表里，查不到还会再退成一个通用图标，等于**给每一株
+/// 认不出来的植物都画上同一张图**，看着像数据齐了，其实什么都没有。
+///
+/// 背后的浅色圆底还在（画在外层 Stack 里），所以留空不会塌成一条缝。
 class _PlantDetailArtwork extends StatelessWidget {
   const _PlantDetailArtwork({required this.plant, super.key});
 
@@ -693,24 +701,13 @@ class _PlantDetailArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = plant.imageUrl?.trim();
-    if (imageUrl != null && imageUrl.isNotEmpty) {
-      return Image.network(
-        imageUrl,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.high,
-        semanticLabel: plant.name,
-        errorBuilder: (_, _, _) => Image.asset(
-          AppAssets.plantImage(plant.id),
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
-        ),
-      );
-    }
-    return Image.asset(
-      AppAssets.plantImage(plant.id),
+    if (imageUrl == null || imageUrl.isEmpty) return const SizedBox.shrink();
+    return Image.network(
+      imageUrl,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       semanticLabel: plant.name,
+      errorBuilder: (_, _, _) => const SizedBox.shrink(),
     );
   }
 }

@@ -23,7 +23,15 @@ void main() {
     expect(find.text('银脉冷水花'), findsOneWidget);
     expect(find.text('养护建议'), findsOneWidget);
     expect(find.byKey(const Key('plant-detail-image')), findsOneWidget);
-    expect(findAssetImage(AppAssets.plantImage('pilea_cadierei')), findsOneWidget);
+    // 图只认后端配的 `plantImg`；这份夹具没配，所以位子在、图不画——不再回落到
+    // 本地那张按 id 查的静态图（2026-09-12「没有就为空」）。
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('plant-detail-image')),
+        matching: find.byType(Image),
+      ),
+      findsNothing,
+    );
     expect(findAssetImage(AppAssets.selectPlantIcon), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
