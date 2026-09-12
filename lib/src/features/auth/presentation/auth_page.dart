@@ -640,7 +640,7 @@ class _LoginField extends StatelessWidget {
           ),
           suffixIcon: suffix,
           filled: true,
-          fillColor: const Color(0xFFF7F7F7),
+          fillColor: AppColors.fieldFill,
           contentPadding: const EdgeInsets.symmetric(vertical: 17),
           border: const OutlineInputBorder(
             borderSide: BorderSide.none,

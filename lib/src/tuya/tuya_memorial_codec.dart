@@ -34,6 +34,13 @@ abstract final class TuyaMemorialCodec {
   /// The export's cap on custom text: 15 CJK characters, 45 bytes.
   static const int maxTextCharacters = 15;
 
+  /// 同一条上限的**字节**那一半：`最多 15 个汉字(45 字节)`。
+  ///
+  /// ⚠️ 两个都要挡。15 个汉字正好 45 字节，但 15 个 emoji 是 60 字节——只按字数
+  /// 挡的话，帧超长、固件那边会截断，用户看到的是一条被砍一半的祝福语。
+  /// 反过来 15 个 ASCII 才 15 字节，也不该因为字节没到 45 就放宽到 45 个字符。
+  static const int maxTextBytes = 45;
+
   /// Custom entries the device accepts on top of the two fixed dates.
   static const int maxCustomEntries = 10;
 
@@ -52,8 +59,18 @@ abstract final class TuyaMemorialCodec {
     bool enabled = true,
   }) {
     final body = utf8.encode(content);
+    // 内容长度是 1 个字节，物理上限 255；文字还另有 45 字节的产品上限。
     if (body.length > 255) {
       throw ArgumentError.value(content, 'content', '纪念日内容超过 255 字节');
+    }
+    if (enabled &&
+        type == MemorialContentType.text &&
+        body.length > maxTextBytes) {
+      throw ArgumentError.value(
+        content,
+        'content',
+        '纪念日文字超过 $maxTextBytes 字节（约 $maxTextCharacters 个汉字）',
+      );
     }
     return _frame(
       id: id,
