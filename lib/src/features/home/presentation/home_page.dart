@@ -144,6 +144,12 @@ class _HomePageState extends State<HomePage> {
   /// 后台也不再为 0 建植物数据，所以没有可确认的对象——文案改成「请选择并确认
   /// 植物」，按钮只留「选择植物」。
   Future<void> _showPlantGuide(FlowerpotState state, String deviceId) async {
+    // 116 = -1 且 162 = true：设备在说「我没检测到植物」，不是「发现新植物」。
+    // 这一支没有可确认的对象，只提示一句，用户点掉之后把 162 写回 false。
+    if (state.plantMissing(deviceId)) {
+      await _showPlantMissingNotice(state, deviceId);
+      return;
+    }
     final generic = state.reportedPlantId(deviceId) == PlantVariety.generic;
     final name = state.reportedPlantName(deviceId);
     final picked = await showAppDialog(
@@ -198,6 +204,39 @@ class _HomePageState extends State<HomePage> {
     );
     if (!mounted) return;
     _openAddPlant(context, deviceId);
+  }
+
+  /// 「未检测到植物」提示窗（2026-09-12 产品新增）。
+  ///
+  /// 触发条件是 **DP 116 = -1 且 DP 162 = true**：设备报的是「盆里没东西」，不是
+  /// 「发现新植物」，所以既不能确认、也没什么可选——只有一颗「我知道了」。
+  ///
+  /// 点掉之后**下发 162 = false**：不主动写回去的话，涂鸦只推 DP 变化，设备下次再
+  /// 报 true 也推不上来（同「发现新植物」那两个按钮的处理，见
+  /// [FlowerpotState.resetPlantGuideFlag]）。用返回键关掉则什么都不发。
+  Future<void> _showPlantMissingNotice(
+    FlowerpotState state,
+    String deviceId,
+  ) async {
+    final acknowledged = await showAppDialog(
+      context,
+      title: '未检测到植物',
+      message: '请将植物种入花盆',
+      confirmLabel: '我知道了',
+      showCancel: false,
+      barrierDismissible: false,
+      icon: Icons.local_florist_outlined,
+      // 提示文案按产品要求摆在**按钮下面**。
+      footer: const Text(
+        '忽略检测结果，可前往设置关闭植物自动检测',
+        style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+      ),
+    );
+    if (!mounted || acknowledged != true) return;
+    await withBlockingProgress(
+      context,
+      () => state.resetPlantGuideFlag(deviceId),
+    );
   }
 
 
