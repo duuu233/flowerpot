@@ -6,6 +6,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/user_avatar.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../devices/models/water_status_page_model.dart';
@@ -180,7 +181,8 @@ class _HomePageState extends State<HomePage> {
       // ⚠️ **下发要走云端往返，这段必须挡住**（2026-09-12 产品要求"给个 loading，
       // 防止重复点击"）。状态层的 `_guard` 已经拦得住并发调用，但用户看不到反馈：
       // 弹窗一关、页面又能点，容易以为没生效而反复触发。
-      final result = await _withBlockingProgress(
+      final result = await withBlockingProgress(
+        context,
         () => state.confirmDetectedPlant(deviceId),
       );
       if (!mounted || result == null) return;
@@ -190,41 +192,14 @@ class _HomePageState extends State<HomePage> {
     // 去选植物之前也把 162 写回 false（2026-09-12 产品要求）。涂鸦只推 DP 变化，
     // 不主动翻转的话，设备下一次再要求弹窗时推不上来，弹窗就只出现一次。
     // 用同一层 loading 挡住：这一步也是云端往返。
-    await _withBlockingProgress(() => state.resetPlantGuideFlag(deviceId));
+    await withBlockingProgress(
+      context,
+      () => state.resetPlantGuideFlag(deviceId),
+    );
     if (!mounted) return;
     _openAddPlant(context, deviceId);
   }
 
-  /// 跑一件要等的事，期间盖一层不可点穿的进度圈。
-  ///
-  /// 只服务本页这类「点完要等云端往返」的操作。返回 null 表示页面已经不在了。
-  Future<T?> _withBlockingProgress<T>(Future<T> Function() action) async {
-    if (!mounted) return null;
-    final navigator = Navigator.of(context, rootNavigator: true);
-    unawaited(
-      showDialog<void>(
-        context: context,
-        // 不可关闭：这段时间点什么都不该生效。
-        barrierDismissible: false,
-        barrierColor: Colors.black.withValues(alpha: .18),
-        builder: (_) => const PopScope(
-          canPop: false,
-          child: Center(
-            child: SizedBox.square(
-              dimension: 44,
-              child: CircularProgressIndicator(strokeWidth: 3),
-            ),
-          ),
-        ),
-      ),
-    );
-    try {
-      return await action();
-    } finally {
-      // 用拿到的 navigator，不再查 context——这一刻页面可能已经被弹走了。
-      if (navigator.canPop()) navigator.pop();
-    }
-  }
 
   @override
   Widget build(BuildContext context) {

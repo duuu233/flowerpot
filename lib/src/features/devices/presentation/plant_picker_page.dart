@@ -7,6 +7,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../home/models/home_dashboard_model.dart';
 import '../../home/presentation/home_page.dart';
@@ -164,10 +165,15 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
       showAppMessage(context, '暂无可添加的植物', tone: AppMessageTone.info);
       return;
     }
-    final result = await FlowerpotScope.of(
+    final state = FlowerpotScope.of(context);
+    // 底部按钮虽然按 `state.busy` 禁用，但那一位要等状态层 `_guard` 翻起来才生效；
+    // 而且详情页的「确认选择」是**程序化**调到这里的，根本不经过那颗按钮。盖一层
+    // 进度圈把这两个缝隙一起堵上（2026-09-12 产品：所有可能重复点击的地方都要有）。
+    final result = await withBlockingProgress(
       context,
-    ).selectPlant(widget.deviceId, selectedPlant);
-    if (!mounted) return;
+      () => state.selectPlant(widget.deviceId, selectedPlant),
+    );
+    if (!mounted || result == null) return;
     showDeviceActionResult(context, result, announceSuccess: true);
     if (result.success) {
       if (addingPlant) {

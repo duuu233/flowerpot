@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../../tuya/tuya_repository.dart' show TuyaException;
 import 'device_online_guard.dart';
@@ -110,9 +111,13 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
   }
 
   Future<void> _updateSetting(String key, Object value) async {
-    final result = await FlowerpotScope.of(
+    // 下发要走云端往返，这段盖住不让点第二次（2026-09-12 产品：所有可能重复
+    // 点击的地方都要有 loading）。
+    final state = FlowerpotScope.of(context);
+    final result = await withBlockingProgress(
       context,
-    ).updateSetting(widget.deviceId, key, value);
+      () => state.updateSetting(widget.deviceId, key, value),
+    );
     if (!mounted) return;
     showDeviceActionResult(context, result, announceSuccess: true);
   }
@@ -239,10 +244,13 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       destructive: true,
     );
     if (!confirmed || !mounted) return;
-    final result = await FlowerpotScope.of(
+    final state = FlowerpotScope.of(context);
+    // 解绑是不可逆动作，更不能点两次。
+    final result = await withBlockingProgress(
       context,
-    ).removeDevice(widget.deviceId, resetFactory: true);
-    if (!mounted) return;
+      () => state.removeDevice(widget.deviceId, resetFactory: true),
+    );
+    if (!mounted || result == null) return;
     if (!result.success) {
       showDeviceActionResult(context, result);
       return;
@@ -269,10 +277,13 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       destructive: true,
     );
     if (!confirmed || !mounted) return;
-    final result = await FlowerpotScope.of(
+    final state = FlowerpotScope.of(context);
+    // 同上：不可逆，点一次就够。
+    final result = await withBlockingProgress(
       context,
-    ).removeDevice(widget.deviceId, resetFactory: resetFactory);
-    if (!mounted) return;
+      () => state.removeDevice(widget.deviceId, resetFactory: resetFactory),
+    );
+    if (!mounted || result == null) return;
     if (!result.success) {
       showDeviceActionResult(context, result);
       return;

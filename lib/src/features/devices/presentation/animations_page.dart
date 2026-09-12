@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
 import 'device_online_guard.dart';
 
@@ -27,6 +28,25 @@ class _AnimationsPageState extends State<AnimationsPage> {
   /// Files ticked in the gallery. 图库管理（v2）是多选删除，所以选中态属于页面
   /// 而不是每个格子。
   final Set<String> _selected = <String>{};
+
+  /// 本页正在跑一件要等的事。
+  ///
+  /// ⚠️ **不能只看 `FlowerpotState.busy`**：删除是**一串**请求（逐张删云端 + 逐张
+  /// 下发 DP155），两次请求之间 `busy` 会掉回 false，按钮闪回可点；上传前面还夹着
+  /// 系统选图器，那一段也不在 `busy` 里。所以本页自己再记一道
+  /// （2026-09-12 产品：所有可能重复点击的地方都要有 loading）。
+  bool _busy = false;
+
+  /// 跑一件要等的事：本页置忙 + 盖一层不可点穿的进度圈。
+  Future<T?> _run<T>(Future<T> Function() action) async {
+    if (_busy || !mounted) return null;
+    setState(() => _busy = true);
+    try {
+      return await withBlockingProgress(context, action);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -105,14 +125,18 @@ class _AnimationsPageState extends State<AnimationsPage> {
             right: 0,
             bottom: 0,
             child: _GalleryActionBar(
-              hasFiles: files.isNotEmpty,
-              onUpload: state.busy || files.length >= 10
+              hasSelection: _selected.isNotEmpty,
+              onUpload: state.busy || _busy || files.length >= 10
                   ? null
                   : () => _pickFile(context),
-              onDeleteSelected: state.busy || _selected.isEmpty
+              // DP 157 一次只认一个文件名，所以只在**恰好选中一张**时可用。
+              onPinSelected: state.busy || _busy || _selected.length != 1
+                  ? null
+                  : () => _pinSelected(context, files),
+              onDeleteSelected: state.busy || _busy || _selected.isEmpty
                   ? null
                   : () => _deleteSelected(context, files),
-              onClearSelection: _selected.isEmpty
+              onClearSelection: _busy || _selected.isEmpty
                   ? null
                   : () => setState(_selected.clear),
             ),
@@ -137,12 +161,15 @@ class _AnimationsPageState extends State<AnimationsPage> {
       imageQuality: 88,
     );
     if (file == null || !context.mounted) return;
-    final result = await state.addAnimation(
-      widget.deviceId,
-      name: file.name,
-      path: file.path,
+    // 上传要走一次文件上传 + 一次下发，最慢的一步，必须挡住重复点击。
+    final result = await _run(
+      () => state.addAnimation(
+        widget.deviceId,
+        name: file.name,
+        path: file.path,
+      ),
     );
-    if (!context.mounted) return;
+    if (result == null || !context.mounted) return;
     showDeviceActionResult(context, result, announceSuccess: true);
   }
 
@@ -181,27 +208,32 @@ class _AnimationsPageState extends State<AnimationsPage> {
     );
     if (!confirmed || !context.mounted) return;
     final state = FlowerpotScope.of(context);
-    if (all) {
-      final cleared = await state.deleteAllDevicePhotos(widget.deviceId);
-      if (!context.mounted) return;
-      if (!cleared.success) {
-        showAppMessage(context, cleared.message, tone: AppMessageTone.error);
-        return;
+    // ⚠️ **整串请求一起罩住**：下面是逐张删（云端 + DP155），两次请求之间
+    // `FlowerpotState.busy` 会掉回 false，按钮闪回可点，用户再点一次就会删两遍。
+    final failed = await _run(() async {
+      if (all) {
+        final cleared = await state.deleteAllDevicePhotos(widget.deviceId);
+        if (!cleared.success) return -1;
       }
-    }
-    var failed = 0;
-    for (final file in targets) {
-      if (!all) {
-        final removed = await state.deleteDevicePhoto(
-          widget.deviceId,
-          file.name,
-        );
-        if (!removed.success) failed++;
+      var count = 0;
+      for (final file in targets) {
+        if (!all) {
+          final removed = await state.deleteDevicePhoto(
+            widget.deviceId,
+            file.name,
+          );
+          if (!removed.success) count++;
+        }
+        final result = await state.deleteAnimation(widget.deviceId, file.id);
+        if (!result.success) count++;
       }
-      final result = await state.deleteAnimation(widget.deviceId, file.id);
-      if (!result.success) failed++;
+      return count;
+    });
+    if (failed == null || !context.mounted) return;
+    if (failed < 0) {
+      showAppMessage(context, '清空设备图片失败，请重试', tone: AppMessageTone.error);
+      return;
     }
-    if (!context.mounted) return;
     setState(_selected.clear);
     showAppMessage(
       context,
@@ -210,12 +242,32 @@ class _AnimationsPageState extends State<AnimationsPage> {
     );
   }
 
+  /// 底部第一颗钮：把**当前选中的那一张**置顶。
+  ///
+  /// DP 157 `pin_photo` 一次只带一个文件名，所以按钮只在恰好选中一张时可用；
+  /// 这里再兜一次，防止状态和界面对不上时误发。
+  Future<void> _pinSelected(
+    BuildContext context,
+    List<AnimationAsset> files,
+  ) async {
+    final targets = files
+        .where((item) => _selected.contains(item.id))
+        .toList(growable: false);
+    if (targets.length != 1) {
+      showAppMessage(context, '一次只能置顶一张图片', tone: AppMessageTone.info);
+      return;
+    }
+    await _pinFile(context, targets.single);
+  }
+
   /// DP 157：让设备优先显示这张图。云端列表的顺序也跟着挪，两边看到的第一张
   /// 才是同一张。
   Future<void> _pinFile(BuildContext context, AnimationAsset file) async {
     final state = FlowerpotScope.of(context);
-    final result = await state.pinDevicePhoto(widget.deviceId, file.name);
-    if (!context.mounted) return;
+    final result = await _run(
+      () => state.pinDevicePhoto(widget.deviceId, file.name),
+    );
+    if (result == null || !context.mounted) return;
     if (result.success) state.pinAnimation(file.id);
     showDeviceActionResult(context, result, announceSuccess: true);
   }
@@ -493,25 +545,40 @@ class _UploadedFilesCard extends StatelessWidget {
 /// 上传按钮常驻，不跟着网格一起消失：图库空着的时候页面上只剩虚线上传位，这颗
 /// 按钮是随手就能点到的那个入口。「删除选中」「取消选择」只在已经有上传的图片时
 /// 才画——没有图的时候这两个按钮永远点不动，画出来只是两个灰圈。
+/// 底部悬浮操作区。**按有没有选中图片切两副面孔**（2026-09-12 产品要求）：
+///
+/// - **没选中**：一条长按钮「上传图片」，宽度约 80%，圆角胶囊——和全站其它页面
+///   底部那颗主按钮（选择植物页的「确认选择」）同一个样式。原来这里是一颗 56 的
+///   小圆钮，产品反馈「太小了」。
+/// - **选中了**：换成一排圆形功能钮——**置顶**、上传、删除、取消选择。上传在两种
+///   状态下都在（产品：「原来的上传你也可以保留」），只是形态不同。
+///
+/// ⚠️ **最左边那颗是「置顶」（DP 157 `pin_photo`）**，不是上传。产品 2026-09-12
+/// 指出原来这一颗挂的是上传，DPID 对不上；上传现在是没选中时那条长按钮。
 class _GalleryActionBar extends StatelessWidget {
   const _GalleryActionBar({
-    required this.hasFiles,
+    required this.hasSelection,
     required this.onUpload,
+    required this.onPinSelected,
     required this.onDeleteSelected,
     required this.onClearSelection,
   });
 
-  /// 条子的高度，滚动内容按它留底部内边距。
+  /// 条子的高度，滚动内容按它留底部内边距。两副面孔里高的那个说了算。
   static const double height = _GalleryAction.diameter + AppSpacing.md * 2;
 
-  final bool hasFiles;
+  /// 长按钮占屏宽的比例。产品说「大概 80vw」。
+  static const double _uploadWidthFactor = .8;
+
+  final bool hasSelection;
   final VoidCallback? onUpload;
+  final VoidCallback? onPinSelected;
   final VoidCallback? onDeleteSelected;
   final VoidCallback? onClearSelection;
 
   @override
   Widget build(BuildContext context) {
-    // 缩略图会从按钮下面滚过去，底部渐变把它压淡，圆按钮才始终看得清。空白处不
+    // 缩略图会从按钮下面滚过去，底部渐变把它压淡，按钮才始终看得清。空白处不
     // 吃点击（DecoratedBox 自己不参与命中测试），贴边滚动仍然滚得动。
     return DecoratedBox(
       decoration: const BoxDecoration(
@@ -527,37 +594,78 @@ class _GalleryActionBar extends StatelessWidget {
           horizontal: AppSpacing.pageMargin,
           vertical: AppSpacing.md,
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            _GalleryAction(
-              actionKey: const Key('animation-upload-action'),
-              icon: Icons.file_upload_outlined,
-              color: AppColors.brandPrimary,
-              tooltip: '上传文件',
-              onTap: onUpload,
-            ),
-            if (hasFiles) ...<Widget>[
-              const SizedBox(width: AppSpacing.xl),
-              _GalleryAction(
-                actionKey: const Key('animation-delete-action'),
-                icon: Icons.delete_outline,
-                color: AppColors.danger,
-                tooltip: '删除选中',
-                onTap: onDeleteSelected,
-              ),
-              const SizedBox(width: AppSpacing.xl),
-              _GalleryAction(
-                actionKey: const Key('animation-clear-selection-action'),
-                icon: Icons.close,
-                color: AppColors.textSecondary,
-                tooltip: '取消选择',
-                onTap: onClearSelection,
-              ),
-            ],
-          ],
+        child: SizedBox(
+          height: _GalleryAction.diameter,
+          child: Center(
+            child: hasSelection ? _selectionActions() : _uploadButton(context),
+          ),
         ),
       ),
+    );
+  }
+
+  /// 没选中图片时的那条长按钮。样式照搬选择植物页底部那一颗。
+  Widget _uploadButton(BuildContext context) {
+    return FractionallySizedBox(
+      widthFactor: _uploadWidthFactor,
+      child: FilledButton(
+        key: const Key('animation-upload-action'),
+        onPressed: onUpload,
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(50),
+          backgroundColor: AppColors.brandPrimary,
+          foregroundColor: AppColors.surface,
+          disabledBackgroundColor: AppColors.disabled,
+          disabledForegroundColor: AppColors.surface,
+          elevation: 2,
+          shadowColor: AppColors.brandPrimary.withValues(alpha: .35),
+          shape: const StadiumBorder(),
+          textStyle: AppTypography.pageTitle.copyWith(color: AppColors.surface),
+        ),
+        child: const Text('上传图片'),
+      ),
+    );
+  }
+
+  /// 选中图片之后的几颗功能钮。**第一颗是置顶（DP 157）**，上传照旧保留。
+  Widget _selectionActions() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
+        _GalleryAction(
+          actionKey: const Key('animation-pin-action'),
+          icon: Icons.vertical_align_top,
+          color: AppColors.brandPrimary,
+          tooltip: '置顶显示',
+          onTap: onPinSelected,
+        ),
+        const SizedBox(width: AppSpacing.lg),
+        // 选中状态下上传入口也留着（产品 2026-09-12：「原来的上传你也可以保留」），
+        // 用户不必先取消选择才能再传一张。
+        _GalleryAction(
+          actionKey: const Key('animation-upload-icon-action'),
+          icon: Icons.file_upload_outlined,
+          color: AppColors.brandDark,
+          tooltip: '上传图片',
+          onTap: onUpload,
+        ),
+        const SizedBox(width: AppSpacing.lg),
+        _GalleryAction(
+          actionKey: const Key('animation-delete-action'),
+          icon: Icons.delete_outline,
+          color: AppColors.danger,
+          tooltip: '删除选中',
+          onTap: onDeleteSelected,
+        ),
+        const SizedBox(width: AppSpacing.lg),
+        _GalleryAction(
+          actionKey: const Key('animation-clear-selection-action'),
+          icon: Icons.close,
+          color: AppColors.textSecondary,
+          tooltip: '取消选择',
+          onTap: onClearSelection,
+        ),
+      ],
     );
   }
 }

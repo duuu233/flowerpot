@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_memorial_codec.dart';
 import 'device_online_guard.dart';
 import 'memorial_edit_page.dart';
@@ -127,10 +128,13 @@ class _MemorialPageState extends State<MemorialPage> {
       icon: Icons.delete_outline,
     );
     if (!confirmed || !context.mounted) return;
-    final result = await FlowerpotScope.of(
+    final state = FlowerpotScope.of(context);
+    // 删除要下发 DP154，点两次会发两帧。
+    final result = await withBlockingProgress(
       context,
-    ).deleteMemorial(deviceId, entry.id);
-    if (!context.mounted) return;
+      () => state.deleteMemorial(deviceId, entry.id),
+    );
+    if (result == null || !context.mounted) return;
     showDeviceActionResult(context, result, announceSuccess: true);
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
 import 'device_online_guard.dart';
 import 'widgets/device_plant_artwork.dart';
@@ -18,10 +19,13 @@ class DeviceInfoPage extends StatelessWidget {
       builder: (_) => _RenameDeviceDialog(initialName: device.name),
     );
     if (name == null || !context.mounted) return;
-    final result = await FlowerpotScope.of(
+    final state = FlowerpotScope.of(context);
+    // 改名走云端，点两次会提交两回。
+    final result = await withBlockingProgress(
       context,
-    ).renameDevice(device.id, name);
-    if (context.mounted) {
+      () => state.renameDevice(device.id, name),
+    );
+    if (result != null && context.mounted) {
       showDeviceActionResult(context, result, announceSuccess: true);
     }
   }
