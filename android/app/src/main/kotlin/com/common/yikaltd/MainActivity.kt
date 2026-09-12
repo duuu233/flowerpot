@@ -380,6 +380,24 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "logout" -> userAction("logout", result)
                 "cancelAccount" -> userAction("cancelAccount", result)
                 "getDevices" -> withHome(result) { home -> loadHomeDevices(home, result) }
+                // 只读 SDK 本地缓存里的在线标志，**不发网络请求**。
+                //
+                // 在线/离线是 SDK 的 MQTT 心跳在维护的：设备掉线，云端判定之后把
+                // 状态推给 SDK，SDK 更新 DeviceBean 并回调 onStatusChanged。回调这
+                // 一路会漏——App 被切后台、MQTT 断开重连期间的变化不会补发。但
+                // **bean 本身是准的**，所以 Dart 侧在前台按秒级把它读回来兜底。
+                "deviceOnlineStates" -> {
+                    val ids = (call.argument<List<*>>("deviceIds") ?: emptyList<Any?>())
+                        .mapNotNull { it?.toString()?.takeIf { id -> id.isNotEmpty() } }
+                    val states = HashMap<String, Any?>()
+                    for (id in ids) {
+                        val bean = deviceBean(id) ?: continue
+                        val online = optionalGetter(bean, "getIsOnline")
+                            ?: optionalGetter(bean, "isOnline")
+                        if (online is Boolean) states[id] = online
+                    }
+                    success(result, states)
+                }
                 "prepareActivatorToken" -> prepareActivatorToken(result)
                  "pairWifiDevice" -> pairWifi(call, result)
                  // 设备列表是按家庭查的，家庭对不上就是 0 台，而这在 Dart 侧完全

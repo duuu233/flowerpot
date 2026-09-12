@@ -2605,7 +2605,8 @@ class FlowerpotState extends ChangeNotifier {
         _logInteraction(
           '上报 ← 116=${device.plantVariety.isEmpty ? '-' : device.plantVariety}'
           ' 162=${device.plantConfirmRaw.isEmpty ? '-' : device.plantConfirmRaw}'
-          ' 电量=${device.battery}%',
+          ' 电量=${device.battery}%'
+          ' 在线=${device.online ? '是' : '否'}',
         );
       } else if (update.removedId != null) {
         _logInteraction('上报 ← 设备被解绑 ${update.removedId}');
@@ -2718,6 +2719,8 @@ class FlowerpotState extends ChangeNotifier {
   @override
   void dispose() {
     _sessionEpoch++;
+    _onlinePoll?.cancel();
+    _onlinePoll = null;
     _deviceUpdates?.cancel();
     _otaUpdates?.cancel();
     // BLE 扫描在原生侧握着 Activity、还在耗电，状态对象没了更没人去停它。
@@ -2979,6 +2982,83 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
+  // ══════════════ 在线状态：心跳推送 + 前台轮询兜底 ══════════════
+  //
+  // 在线/离线的**第一来源是涂鸦 SDK 的 MQTT 心跳**：设备掉线 → 云端按心跳超时判定
+  // → 推给 SDK → SDK 更新 `DeviceBean` 并回调 `IDevListener.onStatusChanged`，原生侧
+  // 的 `devListenerProxy` 把它转成 `{deviceId, online}` 事件送上来。这条路本身没问题。
+  //
+  // ⚠️ **但它会漏**（2026-09-12 产品反馈「设备关机了，App 还显示在线」）：
+  //
+  // 1. App 切到后台、或 MQTT 断开重连期间发生的状态变化**不会补发**，重连之后
+  //    SDK 只是把 bean 更新到最新，不会再回放一次 `onStatusChanged`。
+  // 2. 在这次改动之前，App **没有任何主动刷新**——设备清单只有下拉刷新会重拉。
+  //    所以只要漏掉那一次回调，页面就一直停在「在线」。
+  //
+  // 云端判定本身的延迟（心跳超时，通常几十秒）是设备和云侧的事，App 改不了；
+  // 能改的是别再漏。所以前台每 [onlinePollInterval] 读一次 SDK 的设备缓存
+  // （[TuyaRepository.deviceOnlineStates]，**不发网络请求**），发现和本地不一致就更正。
+
+  /// 前台轮询在线状态的间隔。读的是 SDK 本地缓存，没有网络开销。
+  static const Duration onlinePollInterval = Duration(seconds: 8);
+
+  Timer? _onlinePoll;
+
+  /// App 回到前台：立刻对一次在线状态，再把设备清单整体刷一遍，然后开始轮询。
+  void resumeDeviceWatch() {
+    if (!authenticated) return;
+    unawaited(_pollOnlineStates());
+    unawaited(_refreshDevicesForSession(ignoreErrors: true));
+    _ensureOnlinePolling();
+  }
+
+  /// App 进后台：停轮询。后台读缓存没意义，回前台时会立刻补一次。
+  void pauseDeviceWatch() {
+    _onlinePoll?.cancel();
+    _onlinePoll = null;
+  }
+
+  void _ensureOnlinePolling() {
+    if (_onlinePoll != null || !authenticated) return;
+    _onlinePoll = Timer.periodic(onlinePollInterval, (timer) {
+      if (!authenticated) {
+        timer.cancel();
+        _onlinePoll = null;
+        return;
+      }
+      unawaited(_pollOnlineStates());
+    });
+  }
+
+  /// 把 SDK 缓存里的在线标志对一遍，不一致就更正并记一条日志。
+  Future<void> _pollOnlineStates() async {
+    if (!authenticated || _devices.isEmpty) return;
+    final ids = _devices.map((device) => device.id).toList(growable: false);
+    Map<String, bool> states;
+    try {
+      states = await _repository.deviceOnlineStates(ids);
+    } catch (_) {
+      // 读不到就算了，下一轮再说——这只是兜底，不该把任何东西拦下来。
+      return;
+    }
+    if (states.isEmpty) return;
+    var changed = false;
+    final next = <SmartPlanterDevice>[];
+    for (final device in _devices) {
+      final online = states[device.id];
+      if (online == null || online == device.online) {
+        next.add(device);
+        continue;
+      }
+      changed = true;
+      _logInteraction('心跳 ← ${device.name} 变为${online ? '在线' : '离线'}');
+      next.add(device.copyWith(online: online));
+    }
+    if (!changed) return;
+    _devices = next;
+    notifyListeners();
+  }
+
   Future<void> _refreshDevicesForSession({required bool ignoreErrors}) async {
     final epoch = _sessionEpoch;
     try {
@@ -3008,6 +3088,7 @@ class FlowerpotState extends ChangeNotifier {
         _selectedDeviceId = _devices.first.id;
       }
       _logDevices();
+      _ensureOnlinePolling();
       notifyListeners();
     } catch (error) {
       if (epoch != _sessionEpoch) return;

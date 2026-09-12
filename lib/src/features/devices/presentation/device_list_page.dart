@@ -9,6 +9,7 @@ import '../../../tuya/tuya_models.dart';
 import '../../home/models/home_dashboard_model.dart';
 import '../../home/presentation/home_page.dart';
 import 'device_online_guard.dart';
+import 'widgets/device_plant_artwork.dart';
 
 class DeviceListPage extends StatelessWidget {
   const DeviceListPage({super.key, this.devices, this.onOpenProfile});
@@ -204,15 +205,10 @@ class _DeviceListCard extends StatelessWidget {
               children: <Widget>[
                 SizedBox(
                   width: 52,
+                  // 原来这里写死一张「带植物的花盆」，和这台设备实际种的东西没有
+                  // 任何关系（2026-09-12 产品口径：去掉一切静态假数据，没有就为空）。
                   child: Center(
-                    child: Image.asset(
-                      AppAssets.smartPlanterWithPlant,
-                      width: 48,
-                      height: 62,
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.high,
-                      semanticLabel: '带植物的 YSplanter',
-                    ),
+                    child: DevicePlantArtwork(deviceId: device.id, width: 48),
                   ),
                 ),
                 const SizedBox(width: 15),

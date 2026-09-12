@@ -106,7 +106,8 @@ class FlowerpotApp extends StatefulWidget {
   State<FlowerpotApp> createState() => _FlowerpotAppState();
 }
 
-class _FlowerpotAppState extends State<FlowerpotApp> {
+class _FlowerpotAppState extends State<FlowerpotApp>
+    with WidgetsBindingObserver {
   late final FlowerpotState state = FlowerpotState(
     repository:
         widget.repository ??
@@ -129,8 +130,23 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Start with the real SDK session; no demo session is created.
     unawaited(_dismissSplashWhenReady());
+  }
+
+  /// 回前台就把在线状态对一次。
+  ///
+  /// 涂鸦 SDK 的 MQTT 心跳在后台会断，**断线期间的上下线不会补发**——不在这里补一次，
+  /// 页面就会一直停在切后台之前的状态（2026-09-12「设备关机了还显示在线」）。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
+    super.didChangeAppLifecycleState(lifecycleState);
+    if (lifecycleState == AppLifecycleState.resumed) {
+      state.resumeDeviceWatch();
+    } else {
+      state.pauseDeviceWatch();
+    }
   }
 
   Future<void> _dismissSplashWhenReady() async {
@@ -159,6 +175,7 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     state.dispose();
     super.dispose();
   }

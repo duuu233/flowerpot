@@ -92,6 +92,16 @@ abstract class TuyaRepository {
   /// 当前使用的涂鸦家庭 id。设备列表按家庭查，家庭对不上就会是空的。
   Future<String> currentHomeId();
 
+  /// 这几台设备此刻的在线标志，**读 SDK 本地缓存，不发网络请求**。
+  ///
+  /// 在线状态由涂鸦 SDK 的 MQTT 心跳维护：设备掉线 → 云端判定 → 推给 SDK →
+  /// SDK 更新 `DeviceBean` 并回调 `onStatusChanged`。**回调那一路会漏**——App 切到
+  /// 后台、MQTT 断开重连期间发生的变化不会补发，于是页面就停在上一次的状态
+  /// （2026-09-12 产品反馈「设备关机了，App 还显示在线」）。
+  ///
+  /// bean 本身是准的，所以前台按秒级把它读回来兜底。查不到的设备不出现在返回值里。
+  Future<Map<String, bool>> deviceOnlineStates(List<String> deviceIds);
+
   /// 固定这次会话使用的家庭 id。
   ///
   /// 家庭是涂鸦账号下的东西，和设备、和 APP 后端都没有关系：只要账号没变，就该
@@ -570,6 +580,19 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<String> currentHomeId() async =>
       await _invoke<String>('currentHomeId') ?? '';
+
+  @override
+  Future<Map<String, bool>> deviceOnlineStates(List<String> deviceIds) async {
+    if (deviceIds.isEmpty) return const <String, bool>{};
+    final raw = await _invoke<Map<Object?, Object?>>('deviceOnlineStates', {
+      'deviceIds': deviceIds,
+    });
+    if (raw == null) return const <String, bool>{};
+    return <String, bool>{
+      for (final entry in raw.entries)
+        if (entry.value is bool) '${entry.key}': entry.value! as bool,
+    };
+  }
 
   @override
   Future<void> useHome(String homeId) =>

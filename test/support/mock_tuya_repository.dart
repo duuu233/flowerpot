@@ -362,6 +362,15 @@ class MockTuyaRepository implements TuyaRepository {
   }
 
   @override
+  Future<Map<String, bool>> deviceOnlineStates(List<String> deviceIds) async {
+    await _wait();
+    return <String, bool>{
+      for (final device in _devices)
+        if (deviceIds.contains(device.id)) device.id: device.online,
+    };
+  }
+
+  @override
   Future<Map<String, String>> historyDiagnostics(String deviceId) async {
     await _wait();
     return const <String, String>{'mock': '演示仓库直接造数据，没有原始历史 DP'};

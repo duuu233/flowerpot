@@ -512,16 +512,12 @@ Future<bool> showFirmwareUpdateDialog(
         barrierColor: Colors.black.withValues(alpha: .42),
         builder: (dialogContext) => Dialog(
           key: const Key('firmware-update-dialog'),
-          // **贴底，不居中**（产品 2026-09-11：「OTA 升级的弹框底部定位就行不要在
-          // 中间」）。整条升级动线两个弹框一起改，否则点完「立即更新」会从居中跳到
-          // 底部。只改位置：卡片样式、327 的最大宽度都没动。
-          alignment: Alignment.bottomCenter,
-          insetPadding: EdgeInsets.fromLTRB(
-            24,
-            24,
-            24,
-            MediaQuery.viewPaddingOf(dialogContext).bottom + 16,
-          ),
+          // **居中**（产品 2026-09-12：「检查更新弹框要居中」）。
+          //
+          // 这里推翻了 2026-09-11 的口径——那次两个弹框一起贴了底。现在两个各归各位：
+          // 「检查更新」是个要看清版本号、需要做决定的框，居中；点了「立即更新」之后
+          // 的进度层才是底部弹层（见 `showOtaProgressDialog`）。alignment 不写就是
+          // Flutter 默认的居中，insetPadding 也回到默认的左右 40 / 上下 24。
           shape: const RoundedRectangleBorder(borderRadius: AppRadius.dialog),
           clipBehavior: Clip.antiAlias,
           child: ConstrainedBox(
