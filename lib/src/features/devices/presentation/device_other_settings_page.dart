@@ -118,7 +118,8 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       context,
       () => state.updateSetting(widget.deviceId, key, value),
     );
-    if (!mounted) return;
+    // `withBlockingProgress` 返回可空：null 表示页面已经不在了，动作压根没发起。
+    if (!mounted || result == null) return;
     showDeviceActionResult(context, result, announceSuccess: true);
   }
 

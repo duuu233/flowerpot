@@ -391,6 +391,15 @@ strings -a -n 2 cls/path/To/Class.class | grep -E '^(on|get|set|is)?[A-Z_]'
     `The getter '_loading' isn't defined for the type '_PlantBasicInfoCard'`。
     检查器已用那一版坏代码自测过：报出的行号（380、382）与编译器完全一致，全库 281 个文件
     零误报。
+  - ⚠️ **改完 Dart 还要跑 `python3 tools/dart_nullable_await_check.py`**（2026-09-12
+    第二次打包失败之后加的）。它只盯**已知返回可空的辅助函数**（名单在脚本里的
+    `NULLABLE_HELPERS`，目前是 `withBlockingProgress` 和定制动画页的 `_run`），检查
+    它们的返回值赋给变量之后**第一次被用到时有没有判空**。
+    那次的具体死法：`withBlockingProgress` 返回 `T?`（null = 页面已经不在了），八个
+    调用点里漏了一个，编译期报 `The argument type 'ActionResult?' can't be assigned to
+    the parameter type 'ActionResult'`。检查器已用那一版坏代码自测过：报出的行号
+    （122）与编译器完全一致，全库 282 个文件零误报。**新增同类辅助函数时把名字加进
+    那个名单**，否则这条防线对它无效。
   - ⚠️ **这三个脚本都查不出类型错误。** 同一次打包还炸了两处类型问题，只能靠人看：
     ① `ApiClient.getJson` **已经拆过信封**（`retCode` 非 200 直接抛，返回的就是 `retData`
     本身），不要再 `json['retData']`——它的静态类型是 `Object?`，`[]` 根本没定义；
