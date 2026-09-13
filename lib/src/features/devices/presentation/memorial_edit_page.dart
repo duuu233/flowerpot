@@ -211,16 +211,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                             color: AppColors.textPrimary,
                             fontSize: 17,
                           ),
-                          decoration: const InputDecoration(
-                            isCollapsed: true,
-                            border: InputBorder.none,
-                            counterText: '',
-                            hintText: '请输入纪念日标题',
-                            hintStyle: TextStyle(
-                              color: AppColors.textTertiary,
-                              fontSize: 17,
-                            ),
-                          ),
+                          decoration: _bareFieldDecoration('请输入纪念日标题'),
                         ),
                       ),
                     const SizedBox(height: 26),
@@ -350,6 +341,26 @@ const double _contentFieldHeight = 109;
 /// 文字输入区本身的高度：总高减去上下内边距、计数行和它上面那点间距。
 /// 12 + 输入区 + 4 + 16(计数行 13×1.2 取整) + 10 = 109。
 const double _contentInputHeight = _contentFieldHeight - 12 - 4 - 16 - 10;
+
+/// 灰底框里的输入框：只画文字和光标，不画自己的底色和边框。
+///
+/// ⚠️ 只写 `border: InputBorder.none` 不够。全局 `inputDecorationTheme`
+/// （`app_theme.dart`）是 `filled: true` + 白色 `fillColor` + 胶囊形
+/// `enabledBorder` / `focusedBorder`（圆角 999），`InputDecoration` 里没写的这几项
+/// 会从主题补回来。结果是灰框里又套了一个紧贴文字的白色胶囊：圆角过大、左右离灰框
+/// 16px、上下完全没有留白——2026-09-13 产品反馈的就是这个，标题框和文字内容框都中招。
+/// 所以这里把底色和三种状态的边框都显式关掉，灰底和内边距只由外面那层框负责。
+InputDecoration _bareFieldDecoration(String hintText) => InputDecoration(
+  isCollapsed: true,
+  filled: false,
+  border: InputBorder.none,
+  enabledBorder: InputBorder.none,
+  focusedBorder: InputBorder.none,
+  disabledBorder: InputBorder.none,
+  counterText: '',
+  hintText: hintText,
+  hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 17),
+);
 
 class _FilledField extends StatelessWidget {
   const _FilledField({required this.child});
@@ -576,16 +587,7 @@ class _TextContentFieldState extends State<_TextContentField> {
                   fontSize: 17,
                   height: 1.5,
                 ),
-                decoration: const InputDecoration(
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  counterText: '',
-                  hintText: '请输入纪念日文字内容...',
-                  hintStyle: TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 17,
-                  ),
-                ),
+                decoration: _bareFieldDecoration('请输入纪念日文字内容...'),
               ),
             ),
             const SizedBox(height: 4),

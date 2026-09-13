@@ -65,6 +65,34 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('custom fields paint no theme fill inside the grey box', (
+    tester,
+  ) async {
+    // 全局 inputDecorationTheme 是白底 + 胶囊边框，漏进来就是灰框里套一个紧贴文字的
+    // 白胶囊（2026-09-13 产品反馈）。两个输入框都必须把底色和边框显式关掉。
+    await _pumpEditPage(
+      tester,
+      MemorialEntry(
+        id: 7,
+        date: DateTime(2026, 8, 31),
+        type: MemorialContentType.text,
+        content: '',
+      ),
+    );
+
+    for (final key in const <Key>[
+      Key('memorial-title-field'),
+      Key('memorial-text-field'),
+    ]) {
+      final decoration = tester.widget<TextField>(find.byKey(key)).decoration!;
+      expect(decoration.filled, isFalse, reason: '$key');
+      expect(decoration.border, InputBorder.none, reason: '$key');
+      expect(decoration.enabledBorder, InputBorder.none, reason: '$key');
+      expect(decoration.focusedBorder, InputBorder.none, reason: '$key');
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a custom entry writes one 154 upsert frame', (tester) async {
     final result = await _pumpEditPage(
       tester,
