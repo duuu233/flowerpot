@@ -77,6 +77,7 @@ class WaterTrendChartCard extends StatelessWidget {
               values: values,
               labels: labels,
               unit: metric.unit,
+              maxValue: metric.chartMax,
             ),
           ),
         ],

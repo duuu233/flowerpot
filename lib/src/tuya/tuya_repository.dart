@@ -6,6 +6,7 @@ import 'tuya_config.dart';
 import 'tuya_history_codec.dart';
 import 'tuya_memorial_codec.dart';
 import 'tuya_models.dart';
+import 'tuya_raw.dart';
 
 /// 显式国家码优先；缺省时按区域回落到国内 86 / 海外 1。
 String _resolveCountryCode(LoginRegion region, String? override) {
@@ -144,7 +145,7 @@ abstract class TuyaRepository {
   /// 点数都吐出来，一眼分得清是哪一种。
   ///
   /// 返回**按指标分组**的一句话，例如
-  /// `waterLevel → 日 DP131 99字符/96点 · 周 DP132 无 · 月 DP133 无`。
+  /// `waterLevel → 日 DP131 hex 99字节/96点 · 周 DP132 无 · 月 DP133 无`。
   Future<Map<String, String>> historyDiagnostics(String deviceId);
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
@@ -754,10 +755,11 @@ class MethodChannelTuyaRepository implements TuyaRepository {
           range: ReportRange.values.byName(rangeName),
           sampleBytes: sampleBytes,
         );
-        final size = raw is String
-            ? '${raw.length}字符'
-            : raw is List
-            ? '${raw.length}字节'
+        // 编码和字节数一起打：SDK 交上来的是十六进制串（见 TuyaRaw），这里
+        // 一眼能看出是不是又按错编码解了——`hex 99字节/96点` 才是日包的正常样子。
+        final bytes = TuyaRaw.bytes(raw);
+        final size = raw is String || raw is List
+            ? '${TuyaRaw.encodingOf(raw)} ${bytes?.length ?? 0}字节'
             : '${raw.runtimeType}';
         parts.add('$label DP$id $size/${decoded.length}点');
       });

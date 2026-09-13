@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'tuya_raw.dart';
+
 /// Codec for the memorial-day DPs added by the 2026-09-03 export: the custom
 /// entries on `memorial_set` (154) and the two fixed dates on
 /// `memorial_birthday` (158) and `memorial_wedding` (159).
@@ -151,27 +153,15 @@ abstract final class TuyaMemorialCodec {
     return number == null ? null : dateFromValue(number);
   }
 
-  /// Raw DP payloads arrive base64 encoded over the method channel, the same
-  /// as the history DPs; a byte list is accepted so tests and any future
-  /// binary channel work unchanged.
-  static List<int>? decodeRaw(Object? value) {
-    if (value is List<int>) return value;
-    if (value is String && value.isNotEmpty) {
-      try {
-        return base64.decode(value);
-      } on FormatException {
-        return null;
-      }
-    }
-    return null;
-  }
+  /// 上报值还原成字节。SDK 交上来的是十六进制串（兼容 base64），见 [TuyaRaw]。
+  static List<int>? decodeRaw(Object? value) => TuyaRaw.bytes(value);
 
   /// Writes go out as an upper-case hex string.
   ///
-  /// Reports come back base64 but the SDK's `publishDps` takes raw values as
-  /// hex — the two directions genuinely differ. Nothing in this project has
-  /// written a raw DP against real hardware yet, so this is the documented
-  /// convention rather than a verified one.
+  /// 2026-09-13 解包 SDK 7.5.1 核对：`publishDps` 里 `DevUtil.encodeRaw` 对 raw
+  /// 类型做 `hexStringToBytes` → `encodeBase64`，所以写十六进制是对的；上报方向
+  /// SDK 也先转成了十六进制（见 [TuyaRaw]），两个方向在 App 侧是同一种编码。
+  /// 仍未在真机上写过 raw DP。
   static String encodeRaw(List<int> bytes) => <String>[
     for (final byte in bytes) byte.toRadixString(16).padLeft(2, '0'),
   ].join().toUpperCase();

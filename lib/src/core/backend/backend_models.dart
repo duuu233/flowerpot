@@ -219,7 +219,7 @@ class BackendFaq {
 class BackendAnniversary {
   const BackendAnniversary({
     required this.anniversaryId,
-    required this.userProductId,
+    required this.deviceId,
     required this.title,
     required this.content,
     required this.imageContent,
@@ -228,7 +228,10 @@ class BackendAnniversary {
   });
 
   final int anniversaryId;
-  final int userProductId;
+
+  /// 涂鸦 `deviceId`。2026-09-13 核对的 swagger 里，纪念日这组接口已经不再用后端的
+  /// `userProductId`，入参和返回体都按涂鸦设备 id 关联。
+  final String deviceId;
   final String title;
   final String content;
 

@@ -126,12 +126,16 @@ abstract class AppBackendRepository {
   });
 
   // ── 纪念日 ────────────────────────────────────────────────────────
-  Future<List<BackendAnniversary>> getAnniversaries(int userProductId);
+  //
+  // 整组按涂鸦 `deviceId` 走（swagger `ClientProductAnniversaryAddApiIn.deviceId`），
+  // 不再先用 `getUserProductList` 换后端的 `userProductId`：那几个用户产品接口
+  // 已经从 swagger 下线，打过去就是 404，纪念日保存会在第一步就失败。
+  Future<List<BackendAnniversary>> getAnniversaries(String deviceId);
   Future<BackendAnniversary?> getAnniversaryDetail(int anniversaryId);
 
   /// 返回后端分配的 `anniversaryId`，它同时也是写进 DP 154 的帧 id。
   Future<int> addAnniversary({
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -139,7 +143,7 @@ abstract class AppBackendRepository {
   });
   Future<void> editAnniversary({
     required int anniversaryId,
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -300,7 +304,7 @@ class DisabledAppBackendRepository implements AppBackendRepository {
   }) async => _disabled();
 
   @override
-  Future<List<BackendAnniversary>> getAnniversaries(int userProductId) async =>
+  Future<List<BackendAnniversary>> getAnniversaries(String deviceId) async =>
       const <BackendAnniversary>[];
 
   @override
@@ -309,7 +313,7 @@ class DisabledAppBackendRepository implements AppBackendRepository {
 
   @override
   Future<int> addAnniversary({
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -319,7 +323,7 @@ class DisabledAppBackendRepository implements AppBackendRepository {
   @override
   Future<void> editAnniversary({
     required int anniversaryId,
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -847,14 +851,14 @@ class HttpAppBackendRepository implements AppBackendRepository {
   }
 
   @override
-  Future<List<BackendAnniversary>> getAnniversaries(int userProductId) async =>
+  Future<List<BackendAnniversary>> getAnniversaries(String deviceId) async =>
       extractApiRows(
             await _client.getJson(
               '/Client/UserProduct/getProductAnniversaryList',
               query: <String, Object?>{
                 'pageIndex': 1,
                 'pageSize': 100,
-                'userProductId': userProductId,
+                'deviceId': deviceId,
               },
             ),
           )
@@ -862,12 +866,11 @@ class HttpAppBackendRepository implements AppBackendRepository {
           .where(
             (item) =>
                 item.anniversaryId > 0 &&
-                // 列表接口的 userProductId 过滤是后加的。旧版本会忽略它、把
-                // 账号下所有设备的纪念日一起返回，所以这里再滤一次；返回体没
-                // 带这个字段（解析成 0）时按「就是这台设备的」处理，否则会把
-                // 整份列表滤空。
-                (item.userProductId == 0 ||
-                    item.userProductId == userProductId),
+                // swagger 的列表入参里没有设备过滤（只有分页、关键词、日期），
+                // 返回行却带 deviceId：账号下几台花盆的纪念日会一起回来，所以
+                // `deviceId` 照带、这里再按返回行滤一次。返回体没带这个字段时
+                // 按「就是这台设备的」处理，否则会把整份列表滤空。
+                (item.deviceId.isEmpty || item.deviceId == deviceId),
           )
           .toList(growable: false);
 
@@ -884,7 +887,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
 
   @override
   Future<int> addAnniversary({
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -895,7 +898,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
         '/Client/UserProduct/addUserProductAnniversary',
         retryTransportErrors: false,
         body: _anniversaryBody(
-          userProductId: userProductId,
+          deviceId: deviceId,
           title: title,
           content: content,
           imageContent: imageContent,
@@ -906,7 +909,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
     if (id > 0) return id;
     // 新增接口没有 swagger 模型，返回体里不一定带 id。DP 154 的帧必须带 id，
     // 拿不到就回列表里按标题 + 日期找回刚写进去的那条，取 id 最大的一条。
-    final candidates = (await getAnniversaries(userProductId))
+    final candidates = (await getAnniversaries(deviceId))
         .where(
           (row) => row.title == title && _isoDate(row.date) == _isoDate(date),
         )
@@ -921,7 +924,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
   @override
   Future<void> editAnniversary({
     required int anniversaryId,
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -933,7 +936,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
       body: <String, Object?>{
         'anniversaryId': anniversaryId,
         ..._anniversaryBody(
-          userProductId: userProductId,
+          deviceId: deviceId,
           title: title,
           content: content,
           imageContent: imageContent,
@@ -968,14 +971,17 @@ class HttpAppBackendRepository implements AppBackendRepository {
     );
   }
 
+  /// 新增与编辑共用 `ClientProductAnniversaryAddApiIn`；编辑时调用方再补
+  /// `anniversaryId`。`terminal` / `language` / `userToken` 由 [ApiClient] 走
+  /// headers 与公共 query 带上，不进 body（`device` 手机机型全站都没传）。
   static Map<String, Object?> _anniversaryBody({
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
     required DateTime date,
   }) => <String, Object?>{
-    'userProductId': userProductId,
+    'deviceId': deviceId,
     'title': title,
     'content': content,
     'contentType': imageContent ? 1 : 0,
@@ -1017,7 +1023,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
       anniversaryId: _integer(
         row['anniversaryId'] ?? row['userProductAnniversaryId'] ?? row['id'],
       ),
-      userProductId: _integer(row['userProductId']),
+      deviceId: _text(row, 'deviceId'),
       title: _text(row, 'title'),
       content: _text(row, 'content'),
       imageContent: _integer(row['contentType']) == 1,

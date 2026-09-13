@@ -95,6 +95,27 @@ void main() {
     expect(TuyaMemorialCodec.encodeRaw(<int>[0x00, 0x0A, 0xFF]), '000AFF');
   });
 
+  test('reports arrive as hex from the SDK', () {
+    String hex(List<int> bytes) =>
+        bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+    final frame = TuyaMemorialCodec.encodeEntry(
+      id: 9,
+      date: DateTime(2026, 1, 2),
+      type: MemorialContentType.text,
+      content: '生日快乐',
+    );
+
+    final decoded = TuyaMemorialCodec.decodeEntry(hex(frame))!;
+    expect(decoded.id, 9);
+    expect(decoded.content, '生日快乐');
+    expect(decoded.date, DateTime(2026, 1, 2));
+    // 158/159 的 8 字节 ASCII 日期按 base64 解会变成 12 个乱码字节，生日就读成「未设置」。
+    expect(
+      TuyaMemorialCodec.decodeFixedDate(hex(ascii.encode('20260829'))),
+      DateTime(2026, 8, 29),
+    );
+  });
+
   test('reports arrive base64 encoded', () {
     final frame = TuyaMemorialCodec.encodeEntry(
       id: 9,

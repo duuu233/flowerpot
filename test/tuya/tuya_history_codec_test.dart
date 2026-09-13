@@ -82,6 +82,41 @@ void main() {
     }
   });
 
+  test('SDK hex payloads decode the same as base64 ones', () {
+    // 真机上 SDK 交给 App 的是十六进制串（DevUtil.decodeRaw），不是 base64。
+    String hex(List<int> bytes) =>
+        bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+    final day = <int>[
+      ..._dayHeader,
+      for (var i = 0; i < TuyaHistoryCodec.dailySamples; i++) i % 201,
+    ];
+    final lightWeek = <int>[
+      26, 8, 14, 7, //
+      0x23, 0x28, 0x00, 0x64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    ];
+
+    expect(
+      TuyaHistoryCodec.decode(
+        hex(day),
+        range: ReportRange.day,
+        sampleBytes: 1,
+      ),
+      TuyaHistoryCodec.decode(
+        _payload(day),
+        range: ReportRange.day,
+        sampleBytes: 1,
+      ),
+    );
+    expect(
+      TuyaHistoryCodec.decode(
+        hex(lightWeek),
+        range: ReportRange.week,
+        sampleBytes: 2,
+      ),
+      <double>[9000, 100, 0, 0, 0, 0, 1],
+    );
+  });
+
   test('a raw byte list decodes the same as its base64 form', () {
     final bytes = <int>[26, 8, 14, 7, 1, 2, 3, 4, 5, 6, 7];
 

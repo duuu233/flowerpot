@@ -1994,8 +1994,7 @@ class FlowerpotState extends ChangeNotifier {
   Future<void> refreshMemorials(String deviceId) async {
     if (!_backendReady) return;
     try {
-      final backendDevice = await _ensureBackendDevice(deviceId);
-      final rows = await _backend.getAnniversaries(backendDevice.userProductId);
+      final rows = await _backend.getAnniversaries(deviceId);
       _memorials[deviceId] = rows
           .map(_memorialFromBackend)
           .toList(growable: true);
@@ -2012,7 +2011,10 @@ class FlowerpotState extends ChangeNotifier {
     MemorialEntry entry, {
     required bool isNew,
   }) async {
-    final backendDevice = await _ensureBackendDevice(deviceId);
+    // 纪念日接口直接吃涂鸦 deviceId。以前这里先按 deviceId 去 getUserProductList
+    // 换后端的 userProductId（查不到还会 addUserProduct 建一条），那几个用户产品
+    // 接口已经下线，保存在第一步就 404 了。
+    _requireBackendSession();
     var content = entry.content.trim();
     if (entry.type == MemorialContentType.image &&
         content.isNotEmpty &&
@@ -2023,7 +2025,7 @@ class FlowerpotState extends ChangeNotifier {
     final date = entry.date ?? DateTime.now();
     final id = isNew
         ? await _backend.addAnniversary(
-            userProductId: backendDevice.userProductId,
+            deviceId: deviceId,
             title: entry.title,
             content: content,
             imageContent: imageContent,
@@ -2033,7 +2035,7 @@ class FlowerpotState extends ChangeNotifier {
     if (!isNew) {
       await _backend.editAnniversary(
         anniversaryId: id,
-        userProductId: backendDevice.userProductId,
+        deviceId: deviceId,
         title: entry.title,
         content: content,
         imageContent: imageContent,
@@ -3243,7 +3245,7 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
-  /// 没有后端会话时按「登录失效」报错，图库上传和 [_ensureBackendDevice] 共用
+  /// 没有后端会话时按「登录失效」报错，图库上传和纪念日保存共用
   /// 这一句，避免无 token 的请求打出去再靠 401 兜回来。
   void _requireBackendSession() {
     if (_backend.enabled && _backend.hasSession) return;
@@ -3251,55 +3253,6 @@ class FlowerpotState extends ChangeNotifier {
       'BACKEND_SESSION_REQUIRED',
       'APP 后端登录状态已失效，请重新登录',
     );
-  }
-
-  Future<BackendUserProduct> _ensureBackendDevice(String deviceId) async {
-    _requireBackendSession();
-    final cached = _backendDevices[deviceId];
-    if (cached != null && cached.productId != null) return cached;
-
-    final rows = await _backend.getUserProducts();
-    final summary = rows.where((row) => row.deviceId == deviceId).firstOrNull;
-    if (summary != null) {
-      final detail = summary.productId == null
-          ? await _backend.getUserProductDetail(summary.userProductId)
-          : summary;
-      _backendDevices[deviceId] = detail;
-      return detail;
-    }
-
-    final device = deviceById(deviceId);
-    if (device == null) {
-      throw const ApiException('DEVICE_NOT_FOUND', '未找到需要关联的设备');
-    }
-    final products = await _backend.getProducts();
-    final normalizedProductId = device.productId.trim().toLowerCase();
-    final matches = products
-        .where(
-          (product) =>
-              product.broadcastId.trim().toLowerCase() == normalizedProductId,
-        )
-        .toList(growable: false);
-    final product = matches.length == 1
-        ? matches.single
-        : products.length == 1
-        ? products.single
-        : null;
-    if (product == null) {
-      throw ApiException(
-        'PRODUCT_MAPPING_NOT_FOUND',
-        '后台未找到涂鸦产品 ${device.productId} 对应的产品，请先配置 broadcastId',
-      );
-    }
-    var created = await _backend.addUserProduct(
-      deviceId: device.id,
-      product: product,
-    );
-    if (created.productId == null) {
-      created = created.copyWith(productId: product.productId);
-    }
-    _backendDevices[deviceId] = created;
-    return created;
   }
 
   Future<void> _refreshBackendImages(String deviceId) async {
