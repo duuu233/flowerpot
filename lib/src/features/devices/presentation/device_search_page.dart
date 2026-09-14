@@ -446,9 +446,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 才去取。只取一次：令牌有效期比一轮搜索窗口长得多，重新扫描不必重取。
     // 它不在原生的权限门禁名单里，和下面的授权互不影响。
     _prepared ??= state.prepareForPairing();
-    // 后台产品清单里带 `broadcastId`，搜索页据此认「这台是不是本产品」。
-    // 尽力而为、不 await：拉不到时本地那两个常量仍然认得出当前这款。
-    unawaited(state.refreshProductCatalog());
     // **并行开一条 BLE 发现通道**（2026-09-11 起）。
     //
     // Wi-Fi 那条的慢是系统给的：前台每 2 分钟只有 4 次 `startScan`，而设备上电到

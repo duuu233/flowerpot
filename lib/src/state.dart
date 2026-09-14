@@ -623,22 +623,12 @@ class FlowerpotState extends ChangeNotifier {
   bool _isOurProduct(BleDevice device) {
     final id = device.productId.trim();
     if (id.isEmpty) return false;
-    // ① 本地兜底：平台产品 ID 与广播 ID（`TuyaConfig`）。后台没拉到时也能认。
-    if (id == TuyaConfig.productId || id == TuyaConfig.broadcastId) return true;
-    // ② 后台产品清单里的值也认（2026-09-11 产品口径「根据后台的接口配对一下」）。
+    // 平台产品 ID 与广播 ID（`TuyaConfig`）。
     //
-    //    ⚠️ **2026-09-12 起这一条基本不顶用了**：后台把 `broadcastId` 字段改成存
-    //    平台产品 ID（界面文案也改叫「涂鸦产品ID」），而 BLE 广播里带的仍然是广播
-    //    标识 `ehbx83xdh9jkmxvz`，两者对不上。现在认出这款花盆靠的是上面 ① 的本地
-    //    常量。留着这一条只是兜底——万一以后哪个产品在后台填的就是广播标识。
-    //
-    //    要让「后台新增产品、App 不发版就能认」重新成立，得让后端把广播标识单独
-    //    存一个字段，App 这边再把它并进这个集合。
-    return _backendBroadcastIds.contains(id);
+    // ⚠️ 2026-09-14 起不再拉后台产品清单来补充：App 调的 `/Client/Product/getProductList`
+    // 线上不存在（与乱写的路径同样 500），这一支从来没拿到过数据，按产品要求整条删掉。
+    return id == TuyaConfig.productId || id == TuyaConfig.broadcastId;
   }
-
-  /// 后台产品清单里的 `broadcastId` 集合。拉不到就是空的，只走上面的本地兜底。
-  final Set<String> _backendBroadcastIds = <String>{};
 
   /// 拉一株植物的**完整**资料（`/Client/UserProduct/getUserProductPlantDetail`）。
   ///
@@ -664,25 +654,6 @@ class FlowerpotState extends ChangeNotifier {
       return plant;
     } catch (_) {
       return null;
-    }
-  }
-
-  /// 拉一次后台产品清单，把 `broadcastId` 记下来给搜索页配对用。
-  ///
-  /// 尽力而为：拉不到不拦路——本地兜底那两个常量仍然认得出当前这款。
-  Future<void> refreshProductCatalog() async {
-    try {
-      final products = await _backend.getProducts();
-      final ids = products
-          .map((item) => item.broadcastId.trim())
-          .where((id) => id.isNotEmpty);
-      if (ids.isEmpty) return;
-      _backendBroadcastIds
-        ..clear()
-        ..addAll(ids);
-      notifyListeners();
-    } catch (_) {
-      // 后端没配、没登录、网络不好都可能失败，不该拦住配网。
     }
   }
 
@@ -2727,11 +2698,6 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// 请求本身只打在 debug 控制台，产品在真机上看不到——所以带了什么参数、回来几条，
   /// 在联调日志里记一行（2026-09-14 产品要核对「接口是不是传了产品 ID」）。
-  /// 帮助中心最近一次拉常见问题的完整记录：调了哪个接口、请求参数、请求头、返回了什么、
-  /// App 解析出几条。帮助中心页面把它原样打印在列表下方（2026-09-14 产品要求）。
-  String get faqTrace => _faqTrace;
-  String _faqTrace = '';
-
   Future<List<BackendFaq>> loadFaqs() async {
     if (!_backend.enabled || !_backend.hasSession) {
       // 以前这一支静默返回空：页面画「暂无常见问题」，联调日志里什么都没有，看起来
@@ -2743,201 +2709,30 @@ class FlowerpotState extends ChangeNotifier {
       final reason = _backend.enabled
           ? 'APP 后端登录态已失效（userToken 为空）'
           : 'APP 后端未启用';
-      _faqTrace =
-          '【接口】GET ${AppBackendRepository.faqListPath}\n'
-          '【结果】没有发请求：$reason\n'
-          '（APP 后端启用=${_backend.enabled}，有登录态=${_backend.hasSession}）';
       _logInteraction('帮助中心 ✗ 未请求 getProductFaqList：$reason');
       return const <BackendFaq>[];
     }
     // 产品 ID：每次进帮助中心先拉一次基础数据，取 `deviceIdList` 第一个（见 [_faqProductId]）。
-    // **不写死兜底**（2026-09-14 产品：「不要写死数据」）：拿不到就不带 broadcastId，
-    // 调试信息里写明原因。
-    final basicStartedAt = DateTime.now();
+    // **不写死兜底**（2026-09-14 产品：「不要写死数据」）：拿不到就不带 broadcastId。
     Object? basicError;
     try {
       _basicData = await _backend.getBasicData();
     } catch (error) {
       basicError = error;
     }
-    final basicTrace = _describeBasicDataExchange(
-      startedAt: basicStartedAt,
-      error: basicError,
-    );
     final (productId, source) = _faqProductId(basicError);
     final request = productId.isEmpty
         ? 'getProductFaqList 未带 broadcastId（$source）'
         : 'getProductFaqList broadcastId=$productId（取自$source）';
-    final startedAt = DateTime.now();
     try {
       final faqs = await _backend.getFaqs(broadcastId: productId);
-      final faqTrace = _describeFaqExchange(
-        startedAt: startedAt,
-        productId: productId,
-        productIdSource: source,
-        shown: faqs.length,
-      );
-      _faqTrace = '$basicTrace\n\n$faqTrace';
       _logInteraction('帮助中心 ← $request，返回 ${faqs.length} 条');
       return faqs;
     } catch (error) {
-      final faqTrace = _describeFaqExchange(
-        startedAt: startedAt,
-        productId: productId,
-        productIdSource: source,
-        error: error,
-      );
-      _faqTrace = '$basicTrace\n\n$faqTrace';
       _logInteraction('帮助中心 ✗ $request：$error');
       return const <BackendFaq>[];
     }
   }
-
-  /// 把 [AppBackendRepository.lastExchange] 那份原始记录排成人读得懂的一段。
-  ///
-  /// userToken 只露头尾（页面会被截图转发）；其余参数、请求头、响应体原样。
-  /// 基础数据那一次请求：地址、状态、返回体、解析出的 `deviceIdList`。
-  String _describeBasicDataExchange({
-    required DateTime startedAt,
-    Object? error,
-  }) {
-    final lines = <String>['【接口】GET ${AppBackendRepository.basicDataPath}（取产品 ID）'];
-    final exchange = _backend.lastExchange(AppBackendRepository.basicDataPath);
-    final current =
-        exchange != null &&
-        !exchange.at.isBefore(startedAt.subtract(const Duration(seconds: 1)));
-    if (current) {
-      final status = exchange.statusCode;
-      final statusText = status == null ? '没有拿到响应' : 'HTTP $status';
-      lines
-        ..add(
-          '【结果】耗时 ${exchange.elapsed.inMilliseconds}ms · $statusText',
-        )
-        ..add('【完整地址】${_maskedUrl(exchange.url)}');
-      final failure = exchange.error;
-      if (failure != null) lines.add('【网络错误】$failure');
-      lines
-        ..add('【返回】')
-        ..add(exchange.responseBody.isEmpty ? '（空）' : exchange.responseBody);
-    } else {
-      lines.add('【结果】没有拿到本次请求的记录（请求可能没有发出去）');
-    }
-    if (error != null) lines.add('【错误】$error');
-    final ids = _basicData.deviceIdList;
-    final idsText = ids.isEmpty ? '（空）' : ids.join(', ');
-    lines.add('【App 解析】deviceIdList = $idsText');
-    return lines.join('\n');
-  }
-
-  String _describeFaqExchange({
-    required DateTime startedAt,
-    required String productId,
-    required String productIdSource,
-    int? shown,
-    Object? error,
-  }) {
-    final lines = <String>['【接口】GET ${AppBackendRepository.faqListPath}'];
-    final exchange = _backend.lastExchange(AppBackendRepository.faqListPath);
-    // 请求在发出之前就失败了（例如会话刚切换），记录里留的还是上一次的，不能拿来说事。
-    final current =
-        exchange != null &&
-        !exchange.at.isBefore(startedAt.subtract(const Duration(seconds: 1)));
-    if (!current) {
-      lines.add('【结果】没有拿到本次请求的记录（请求可能没有发出去）');
-      if (error != null) lines.add('【错误】$error');
-      return lines.join('\n');
-    }
-    String two(int value) => value.toString().padLeft(2, '0');
-    final at = exchange.at;
-    final status = exchange.statusCode;
-    final statusText = status == null ? '没有拿到响应' : 'HTTP $status';
-    lines
-      ..add(
-        '【时间】${two(at.hour)}:${two(at.minute)}:${two(at.second)}'
-        ' · 耗时 ${exchange.elapsed.inMilliseconds}ms · $statusText',
-      )
-      ..add('【完整地址】${_maskedUrl(exchange.url)}')
-      ..add('【请求参数】');
-    exchange.url.queryParameters.forEach((key, value) {
-      lines.add('  $key = ${_describeFaqParam(key, value, productIdSource)}');
-    });
-    if (productId.isEmpty) {
-      lines.add('  （没有带 broadcastId：$productIdSource）');
-    }
-    lines.add('【请求头】');
-    exchange.headers.forEach((key, value) {
-      final bearer = value.startsWith('Bearer ') ? value.substring(7) : value;
-      final shownValue = switch (key.toLowerCase()) {
-        'usertoken' => _maskToken(value),
-        'authorization' => 'Bearer ${_maskToken(bearer)}',
-        _ => value,
-      };
-      lines.add('  $key: $shownValue');
-    });
-    final failure = exchange.error;
-    if (failure != null) lines.add('【网络错误】$failure');
-    lines.add('【返回】');
-    lines.add(
-      exchange.responseBody.isEmpty ? '（空）' : exchange.responseBody,
-    );
-    if (error != null) {
-      lines.add('【App 处理】请求失败：$error');
-    } else {
-      final rows = _faqRowsSummary(exchange.responseBody);
-      lines.add('【App 处理】$rows，页面显示 $shown 条（标题为空的行不显示）');
-    }
-    return lines.join('\n');
-  }
-
-  /// 响应里 `retData.pageData` 有几行、`recordCount` 是多少。解析不了就说解析不了。
-  static String _faqRowsSummary(String body) {
-    try {
-      final decoded = jsonDecode(body);
-      final data = decoded is Map ? decoded['retData'] : null;
-      final rows = data is Map ? data['pageData'] : null;
-      final count = rows is List ? rows.length : 0;
-      final total = data is Map ? data['recordCount'] : null;
-      return '接口返回 pageData $count 条（recordCount ${total ?? '-'}）';
-    } catch (_) {
-      return '返回体不是 JSON，无法统计条数';
-    }
-  }
-
-  static String _describeFaqParam(String key, String value, String source) {
-    final languageLabel = switch (value) {
-      '0' || '1' => '英语',
-      '2' => '简中',
-      '3' => '繁中',
-      '4' => '日文',
-      _ => '未知',
-    };
-    final terminalLabel = switch (value) {
-      '1' => '安卓',
-      '2' => '苹果',
-      '3' => '小程序',
-      _ => '未知',
-    };
-    return switch (key) {
-      'userToken' => _maskToken(value),
-      'language' => '$value（$languageLabel）',
-      'terminal' => '$value（$terminalLabel）',
-      'broadcastId' => '$value（取自$source）',
-      _ => value,
-    };
-  }
-
-  /// 完整地址里的令牌打码。按字符串替换而不是 `Uri.replace`：后者会把「…」转成
-  /// `%E2%80%A6`，截图里就看不清了。
-  static String _maskedUrl(Uri url) {
-    final text = url.toString();
-    final token = url.queryParameters['userToken'] ?? '';
-    return token.isEmpty ? text : text.replaceAll(token, _maskToken(token));
-  }
-
-  /// 令牌只露前 6 后 4，够对出是哪个账号，截图转发也不至于泄露会话。
-  static String _maskToken(String token) => token.length <= 10
-      ? '***'
-      : '${token.substring(0, 6)}…${token.substring(token.length - 4)}';
 
   /// 常见问题筛选用的产品 ID，即请求参数 `broadcastId` 的值；拿不到为空串（不带这个参数）。
   ///
@@ -2945,14 +2740,14 @@ class FlowerpotState extends ChangeNotifier {
   /// （「平台设备id集合」）的**第一个**——「取第一个，目前是，后面再说」。
   ///
   /// ⛔ **不写死兜底**（产品：「不要写死数据」）。拿不到（接口失败、列表为空）就不带
-  /// broadcastId，原因写进帮助中心的调试信息。
+  /// broadcastId，原因记进联调日志。
   ///
   /// ⛔ **不取设备的 `productId`**：涂鸦 SDK `DeviceBean.getProductId()` 对这台花盆报的是
   /// `ehbx83xdh9jkmxvz`（BLE 广播标识），和后台的产品 ID `yciq4kssu1fv8umn` 不是一个值。
   /// 2026-09-12～14 这里一直优先取设备值，后台那条常见问题就筛不出来。
   ///
-  /// ⛔ 也不走 `/Client/Product/getProductList`（[refreshProductCatalog]）：那条路径在
-  /// swagger 里没有，线上返回和不存在的路径一模一样的 500。
+  /// ⛔ 也不走 `/Client/Product/getProductList`：那条路径在 swagger 里没有，线上返回和
+  /// 不存在的路径一模一样的 500（2026-09-14 已从 App 里整条删掉）。
   String get faqBroadcastId => _faqProductId().$1;
 
   /// [faqBroadcastId] 连同它是从哪来的，调试信息里要把来源一起打出来。

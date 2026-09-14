@@ -342,9 +342,6 @@ class _RecordingBackend extends DisabledAppBackendRepository {
   }
 
   @override
-  Future<List<BackendProduct>> getProducts() async => _forbidden('getProducts');
-
-  @override
   Future<List<BackendUserProduct>> getUserProducts() async =>
       _forbidden('getUserProducts');
 

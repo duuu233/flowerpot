@@ -346,9 +346,6 @@ Android 10+ 上「把手机连到设备热点」这一步会弹一次系统入�
 - 帮助中心的常见问题接口 `getProductFaqList` **要传产品 ID**，入参名 `broadcastId`。
   App 传的是 **`/Client/Basic/getBasicData` 返回的 `deviceIdList` 第一个**（2026-09-14 产品指定，「取第一个，后面再说」），
   联调日志里有一行带参数和返回条数。（2026-09-14 核对）产品 ID 的口径见 §4.4。
-- **联调期：帮助中心列表下方直接打印接口调试信息**（2026-09-14 产品：「直接在下方打印调了哪个接口、
-  请求参数、接口返回什么」）——接口、完整地址、每个参数及含义、请求头、HTTP 状态、返回体、App 解析条数；
-  没发请求时写明原因。userToken 只露头尾。数据问题查清后把 `help_page.dart` 的 `_showApiTrace` 改成 false。
 
 ## 4.4 后端「产品ID」＝产品列表返回的 `broadcastId` 字段
 
@@ -366,12 +363,13 @@ Android 10+ 上「把手机连到设备热点」这一步会弹一次系统入�
   只用于搜索页本地判断「扫到的是不是这款花盆」，名字撞了、含义完全不同。
 - **App 侧取值：`/Client/Basic/getBasicData` 返回的 `deviceIdList`（「平台设备id集合」）的第一个**
   （2026-09-14 产品指定：「取第一个，目前是，后面再说」）。每次进帮助中心先拉一次。
-  - ⛔ **不写死兜底**（产品：「不要写死数据」）：拿不到就不带 `broadcastId`，原因写进页面调试信息。
+  - ⛔ **不写死兜底**（产品：「不要写死数据」）：拿不到就不带 `broadcastId`，原因记进联调日志。
   - ⛔ **不要取设备的 `productId`**：涂鸦 SDK `DeviceBean.getProductId()` 对这台花盆报的是
     `ehbx83xdh9jkmxvz`（BLE 广播标识），和后台的产品 ID 不是一个值。2026-09-12～14 帮助中心一直优先取设备值，
     后台挂在 `yciq4kssu1fv8umn` 下的常见问题整条筛不出来（页面调试信息里发现）。
   - ⛔ App 调不了管理端 `/ZoneAdmin/Product/getProductList`（要管理员登录态和签名）；客户端的
-    `/Client/Product/getProductList` 在 swagger 里没有，线上返回与不存在的路径相同的 500。
+    `/Client/Product/getProductList` 在 swagger 里没有，线上返回与不存在的路径相同的 500——
+    **App 里已整条删掉**（搜索页原来也在调它，2026-09-14 按产品要求去掉），不要再加回来。
 
 ---
 

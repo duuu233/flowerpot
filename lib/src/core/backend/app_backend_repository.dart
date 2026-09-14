@@ -22,10 +22,6 @@ abstract class AppBackendRepository {
   bool get enabled;
   bool get hasSession;
 
-  /// [path] 最近一次请求的原样记录（地址、请求头、状态码、响应体），联调时画到页面上用。
-  /// 没请求过、或没有 HTTP 客户端时为 null。
-  ApiExchange? lastExchange(String path);
-
   Future<bool> initialize({required String languageCode});
   void setLanguage(String languageCode);
   void clearSession();
@@ -50,7 +46,6 @@ abstract class AppBackendRepository {
     required String password,
   });
 
-  Future<List<BackendProduct>> getProducts();
   Future<List<BackendUserProduct>> getUserProducts();
   Future<BackendUserProduct> getUserProductDetail(int userProductId);
   Future<BackendUserProduct> addUserProduct({
@@ -179,9 +174,6 @@ class DisabledAppBackendRepository implements AppBackendRepository {
   @override
   bool get hasSession => false;
 
-  @override
-  ApiExchange? lastExchange(String path) => null;
-
   Never _disabled() => throw const ApiException(
     'API_NOT_CONFIGURED',
     '未配置 APP 后端地址，请通过 API_BASE_URL 提供服务地址',
@@ -221,9 +213,6 @@ class DisabledAppBackendRepository implements AppBackendRepository {
     required String code,
     required String password,
   }) async => _disabled();
-
-  @override
-  Future<List<BackendProduct>> getProducts() async => _disabled();
 
   @override
   Future<List<BackendUserProduct>> getUserProducts() async => _disabled();
@@ -367,9 +356,6 @@ class HttpAppBackendRepository implements AppBackendRepository {
       HttpAppBackendRepository(client: ApiClient.fromEnvironment());
 
   final ApiClient _client;
-
-  @override
-  ApiExchange? lastExchange(String path) => _client.lastExchange(path);
   final ApiSession _session;
 
   @override
@@ -491,14 +477,6 @@ class HttpAppBackendRepository implements AppBackendRepository {
     _session.setToken(result.userToken);
     return result;
   }
-
-  @override
-  Future<List<BackendProduct>> getProducts() async => extractApiRows(
-    await _client.getJson(
-      '/Client/Product/getProductList',
-      query: const <String, Object?>{'pageIndex': 1, 'pageSize': 200},
-    ),
-  ).map(_product).where((item) => item.productId > 0).toList(growable: false);
 
   @override
   Future<List<BackendUserProduct>> getUserProducts() async => extractApiRows(
@@ -1164,12 +1142,6 @@ class HttpAppBackendRepository implements AppBackendRepository {
 
   static String _md5(String input) =>
       md5.convert(utf8.encode(input)).toString();
-
-  static BackendProduct _product(Map<String, dynamic> row) => BackendProduct(
-    productId: _integer(row['productId']),
-    productName: _text(row, 'productName', fallback: '智能花盆'),
-    broadcastId: _text(row, 'broadcastId'),
-  );
 
   static BackendUserProduct _userProduct(Map<String, dynamic> row) =>
       BackendUserProduct(
