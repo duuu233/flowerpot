@@ -3,6 +3,7 @@ import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/home/models/home_dashboard_model.dart';
 import 'package:flowerpot/src/features/home/presentation/widgets/home_care_banner.dart';
 import 'package:flowerpot/src/features/home/presentation/widgets/home_header.dart';
+import 'package:flowerpot/src/features/home/presentation/widgets/home_help_card.dart';
 import 'package:flowerpot/src/features/home/presentation/widgets/home_plant_overview.dart';
 import 'package:flowerpot/src/features/home/presentation/widgets/home_quick_actions.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -52,8 +53,10 @@ void main() {
 
     expect(findAssetImage(AppAssets.selectPlantIcon), findsOneWidget);
     expect(findAssetImage(AppAssets.plantIcon), findsNothing);
+    // 2026-09-14 起四项：定制动画 / 电池状态 / 帮助中心 / 设置。
     final chevrons = findAssetImage(AppAssets.chevronRightIcon);
-    expect(chevrons, findsNWidgets(3));
+    expect(chevrons, findsNWidgets(4));
+    expect(findAssetImage(AppAssets.helpCenterIcon), findsOneWidget);
     for (final image in tester.widgetList<Image>(chevrons)) {
       expect(image.width, AppTrailingChevron.dimension);
       expect(image.height, AppTrailingChevron.dimension);
@@ -96,6 +99,70 @@ void main() {
     await tester.pump(const Duration(seconds: 8));
     await tester.pumpAndSettle();
     expect(find.text(model.careMessages[0]), findsOneWidget);
+  });
+
+  test('帮助中心排在电池状态下方', () {
+    final model = HomeDashboardModel.fromDevice(device: _fixture, userLabel: '用户');
+    expect(model.actions.map((item) => item.kind), <HomeActionKind>[
+      HomeActionKind.animation,
+      HomeActionKind.battery,
+      HomeActionKind.help,
+      HomeActionKind.settings,
+    ]);
+    expect(model.actions[2].label, '帮助中心');
+  });
+
+  testWidgets('首次使用指南那张卡只是纯文本，点了不跳转', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: const Scaffold(
+          body: HomeHelpCard(topics: <String>['首次使用指南', '如何设定YSplanter的表情']),
+        ),
+      ),
+    );
+
+    expect(find.text('1. 首次使用指南'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(HomeHelpCard),
+        matching: find.byType(InkWell),
+      ),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('今日养护换条是上下滚动，不是渐变', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: const Scaffold(
+          body: HomeCareBanner(messages: <String>['第一条建议', '第二条建议']),
+        ),
+      ),
+    );
+    final banner = find.byType(HomeCareBanner);
+    expect(
+      find.descendant(of: banner, matching: find.byType(FadeTransition)),
+      findsNothing,
+    );
+
+    // 到点开始换条，停在动画中间：两句同时在，旧的已经往上走、新的还在下面。
+    await tester.pump(const Duration(seconds: 8));
+    await tester.pump(const Duration(milliseconds: 450));
+    final oldTop = tester.getTopLeft(find.text('第一条建议')).dy;
+    final newTop = tester.getTopLeft(find.text('第二条建议')).dy;
+    expect(newTop, greaterThan(oldTop));
+    expect(
+      find.descendant(of: banner, matching: find.byType(FadeTransition)),
+      findsNothing,
+    );
+
+    await tester.pumpAndSettle();
+    expect(find.text('第一条建议'), findsNothing);
+    expect(find.text('第二条建议'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('顶栏正中显示设备名称，没有设备时仍是品牌标识', (tester) async {

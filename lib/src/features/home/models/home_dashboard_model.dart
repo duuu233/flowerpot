@@ -3,7 +3,7 @@ import '../../../tuya/tuya_status_copy.dart';
 
 enum HomeMetricKind { water, light, temperature, humidity }
 
-enum HomeActionKind { animation, battery, settings }
+enum HomeActionKind { animation, battery, help, settings }
 
 enum HomeDashboardScene {
   withCompanionSummary,
@@ -136,6 +136,8 @@ class HomeDashboardModel {
       actions: const <HomeActionData>[
         HomeActionData(kind: HomeActionKind.animation, label: '定制动画'),
         HomeActionData(kind: HomeActionKind.battery, label: '电池状态'),
+        // 2026-09-14 产品：帮助中心从设备设置页挪到首页，排在电池状态下方。
+        HomeActionData(kind: HomeActionKind.help, label: '帮助中心'),
         HomeActionData(kind: HomeActionKind.settings, label: '设置'),
       ],
       helpTopics: const <String>[

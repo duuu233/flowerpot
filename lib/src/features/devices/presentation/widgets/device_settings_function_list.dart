@@ -120,7 +120,6 @@ class _LeadingIcon extends StatelessWidget {
     DeviceSettingsMenuKind.vibration => AppAssets.settingsVibrationIcon,
     DeviceSettingsMenuKind.behavior => AppAssets.settingsBehaviorIcon,
     DeviceSettingsMenuKind.other => AppAssets.settingsOtherIcon,
-    DeviceSettingsMenuKind.helpCenter => AppAssets.profileMenuHelpIcon,
     DeviceSettingsMenuKind.led ||
     DeviceSettingsMenuKind.memorial ||
     DeviceSettingsMenuKind.plantDetection => null,

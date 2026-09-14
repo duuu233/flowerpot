@@ -43,6 +43,8 @@ class HomeQuickActions extends StatelessWidget {
   String _assetFor(HomeActionKind kind) => switch (kind) {
     HomeActionKind.animation => AppAssets.customAnimationIcon,
     HomeActionKind.battery => AppAssets.batteryStatusIcon,
+    // 与另外三张同风格的一张，不用设置页那枚描边问号（风格对不上）。
+    HomeActionKind.help => AppAssets.helpCenterIcon,
     HomeActionKind.settings => AppAssets.deviceSettingsIcon,
   };
 }

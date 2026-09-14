@@ -373,13 +373,8 @@ class _HomePageState extends State<HomePage> {
                                     _openAction(context, model.deviceId, kind),
                               ),
                               const SizedBox(height: 12),
-                              HomeHelpCard(
-                                topics: model.helpTopics,
-                                onTap: () => Navigator.pushNamed(
-                                  context,
-                                  AppRoutes.help,
-                                ),
-                              ),
+                              // 2026-09-14 起纯文本展示、不可点；帮助中心入口在上面的快捷列表里。
+                              HomeHelpCard(topics: model.helpTopics),
                             ],
                           ),
                         ),
@@ -413,10 +408,16 @@ class _HomePageState extends State<HomePage> {
     String? deviceId,
     HomeActionKind kind,
   ) {
+    // 帮助中心和设备无关：不要求有设备、也不过在线门禁（设备离线时恰恰最需要看帮助）。
+    if (kind == HomeActionKind.help) {
+      Navigator.pushNamed(context, AppRoutes.help);
+      return;
+    }
     final route = switch (kind) {
       HomeActionKind.animation => AppRoutes.animations,
       HomeActionKind.battery => AppRoutes.batteryStatus,
       HomeActionKind.settings => AppRoutes.deviceSettings,
+      HomeActionKind.help => AppRoutes.help,
     };
     _openDevice(context, deviceId, route);
   }

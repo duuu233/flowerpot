@@ -1097,6 +1097,13 @@ class FlowerpotState extends ChangeNotifier {
   /// 进到某个页面时记一条。
   void logPageEntry(String page) => _logInteraction('进入 ← [$page]');
 
+  /// 配网失败的完整原因（提示 + 失败码 + 各步耗时）记一条。
+  ///
+  /// 失败页 2026-09-14 起只画一句「设备未能成功连接到当前Wi-Fi网络」（产品要求删掉原因那段），
+  /// 真机排查要的原文改到这里看。
+  void logPairingFailure(String detail) =>
+      _logInteraction(detail.isEmpty ? '配网失败 ✗' : '配网失败 ✗ $detail');
+
   /// 进页面时把这一页的功能点连同当前取到的值一起记下来。
   ///
   /// 产品要的是「刚进来的时候就要读取功能设置对应的 DPID 是什么、接收到的值是
@@ -2721,7 +2728,19 @@ class FlowerpotState extends ChangeNotifier {
   /// 请求本身只打在 debug 控制台，产品在真机上看不到——所以带了什么参数、回来几条，
   /// 在联调日志里记一行（2026-09-14 产品要核对「接口是不是传了产品 ID」）。
   Future<List<BackendFaq>> loadFaqs() async {
-    if (!_backend.enabled || !_backend.hasSession) return const <BackendFaq>[];
+    if (!_backend.enabled || !_backend.hasSession) {
+      // 以前这一支静默返回空：页面画「暂无常见问题」，联调日志里什么都没有，看起来
+      // 就像「后台配了数据却不显示」。没发请求要说出来（2026-09-14）。
+      //
+      // ⚠️ 先让出一次：帮助中心是在 `didChangeDependencies` 里调进来的，这一支没有别的
+      // await，直接记日志会在 build 期间 notifyListeners 而抛异常。
+      await Future<void>.value();
+      _logInteraction(
+        '帮助中心 ✗ 未请求 getProductFaqList：'
+        '${_backend.enabled ? 'APP 后端登录态已失效' : 'APP 后端未启用'}',
+      );
+      return const <BackendFaq>[];
+    }
     final (productId, source) = _faqProductId();
     final request =
         'getProductFaqList broadcastId=$productId（涂鸦产品ID，取自$source）';
