@@ -425,8 +425,9 @@ class _UploadCard extends StatelessWidget {
                       style: AppTypography.deviceTitle.copyWith(fontSize: 18),
                     ),
                     const SizedBox(height: AppSpacing.sm),
+                    // 2026-09-14 产品：去掉「或拖拽」——手机端没有拖拽上传。
                     Text(
-                      '点击或拖拽文件到这里上传',
+                      '点击文件到这里上传',
                       style: AppTypography.body.copyWith(
                         color: AppColors.textSecondary,
                       ),

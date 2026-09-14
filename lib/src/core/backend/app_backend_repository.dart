@@ -80,7 +80,12 @@ abstract class AppBackendRepository {
   /// `userProductId`：设备档案由涂鸦提供，看一眼图片不该先在后端建一条用户产品
   /// 记录，那条链路上任何一个接口不可用（例如 404）都会把图库整页顶掉。
   Future<List<BackendImage>> getImages(String deviceId);
-  Future<void> uploadImage({
+
+  /// 上传一张设备图片，返回后端给的图片 URL（swagger `BaseUploadApiOut.url`）；
+  /// 接口没回地址时为 null。
+  ///
+  /// 这个 URL 要原样经 DP 142 `dl_url` 发给设备去下载，所以不能只上传不取返回。
+  Future<String?> uploadImage({
     required String deviceId,
     required String filePath,
   });
@@ -237,7 +242,7 @@ class DisabledAppBackendRepository implements AppBackendRepository {
   Future<List<BackendImage>> getImages(String deviceId) async => _disabled();
 
   @override
-  Future<void> uploadImage({
+  Future<String?> uploadImage({
     required String deviceId,
     required String filePath,
   }) async => _disabled();
@@ -580,16 +585,16 @@ class HttpAppBackendRepository implements AppBackendRepository {
       ).map(_image).where((item) => item.id > 0).toList(growable: false);
 
   @override
-  Future<void> uploadImage({
+  Future<String?> uploadImage({
     required String deviceId,
     required String filePath,
-  }) async {
+  }) async => _uploadedUrl(
     await _client.upload(
       '/Client/Basic/setUserProductUpload',
       filePaths: <String>[filePath],
       query: <String, Object?>{'deviceId': deviceId},
-    );
-  }
+    ),
+  );
 
   @override
   Future<void> deleteImages(List<int> imageIds) async {
@@ -1210,10 +1215,8 @@ class HttpAppBackendRepository implements AppBackendRepository {
 
   static BackendImage _image(Map<String, dynamic> row) {
     final url = _text(row, 'img');
-    final uri = Uri.tryParse(url);
-    final pathName = uri == null || uri.pathSegments.isEmpty
-        ? ''
-        : Uri.decodeComponent(uri.pathSegments.last);
+    // 和 DP 142 下发时带的文件名同一种取法，删除（155）/ 置顶（157）才对得上。
+    final pathName = BackendImage.fileNameOf(url);
     return BackendImage(
       id: _integer(row['uProductImgId'] ?? row['uproductImgId']),
       userProductId: _integer(row['userProductId']),

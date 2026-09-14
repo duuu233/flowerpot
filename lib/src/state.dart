@@ -11,6 +11,7 @@ import 'features/auth/domain/auth_validator.dart';
 import 'features/devices/pairing_gate.dart';
 import 'shared/l10n/app_language.dart';
 import 'tuya/tuya_config.dart';
+import 'tuya/tuya_gallery_codec.dart';
 import 'tuya/tuya_memorial_codec.dart';
 import 'tuya/tuya_models.dart';
 import 'tuya/tuya_repository.dart';
@@ -2205,6 +2206,15 @@ class FlowerpotState extends ChangeNotifier {
     });
   }
 
+  /// 定制动画上传一张图：**先传后端，再经 DP 142 `dl_url` 通知设备去下载**。
+  ///
+  /// ⚠️ 2026-09-14 之前这里只传了后端、刷新了列表就返回「图片已上传」，**一条 DP 都没发**
+  /// ——设备根本不知道有新图，联调日志里也看不到任何下发（产品反馈）。当时的理由是
+  /// 142 的协议还没给；09-12 那版功能点表已经写明格式
+  /// `url_len(1B) + url + name_len(1B) + name`，见 [TuyaGalleryCodec.downloadFrame]。
+  ///
+  /// 帧里的 name 与删除（155）、置顶（157）发的是同一个文件名（[BackendImage.fileNameOf]），
+  /// 设备按它存、按它删、按它置顶。
   Future<ActionResult> addAnimation(
     String deviceId, {
     required String name,
@@ -2212,9 +2222,36 @@ class FlowerpotState extends ChangeNotifier {
   }) => _guard(() async {
     if (_backend.enabled) {
       _requireBackendSession();
-      await _backend.uploadImage(deviceId: deviceId, filePath: path);
+      final before = <String>{
+        for (final item
+            in _backendAnimations[deviceId] ?? const <AnimationAsset>[])
+          item.id,
+      };
+      final uploadedUrl = await _backend.uploadImage(
+        deviceId: deviceId,
+        filePath: path,
+      );
       await _refreshBackendImages(deviceId);
-      return const ActionResult(true, '图片已上传');
+      // 接口按 swagger 会回 `{name, url}`；万一没回，退到列表里新多出来的那一张。
+      final url = (uploadedUrl?.trim().isNotEmpty ?? false)
+          ? uploadedUrl!.trim()
+          : _newestBackendImageUrl(deviceId, before);
+      if (url == null || url.isEmpty) {
+        _logInteraction('定制动画 ✗ 图片已上传，但拿不到图片地址，DP142 dl_url 未下发');
+        throw const ApiException(
+          'UPLOAD_URL_MISSING',
+          '图片已上传，但接口没有返回图片地址，未能通知设备下载',
+        );
+      }
+      final fileName = BackendImage.fileNameOf(url);
+      // 下发那一行打的是十六进制帧，人读不了；先把帧里装了什么摆出来。
+      _logInteraction('定制动画 DP142 dl_url：name=$fileName url=$url');
+      await _publishRawDp(
+        deviceId,
+        'dl_url',
+        TuyaGalleryCodec.downloadFrame(url: url, name: fileName),
+      );
+      return const ActionResult(true, '图片已上传，已通知设备下载');
     }
     final asset = AnimationAsset(
       id: '${DateTime.now().microsecondsSinceEpoch}',
@@ -2228,6 +2265,20 @@ class FlowerpotState extends ChangeNotifier {
     if (index >= 0) _animations[index] = asset.copyWith(synced: true);
     return const ActionResult(true, '图片已上传并同步');
   });
+
+  /// 上传前没有、上传后多出来的那一张（id 最大的）的地址。上传接口没回地址时兜底用。
+  String? _newestBackendImageUrl(String deviceId, Set<String> before) {
+    AnimationAsset? newest;
+    for (final item
+        in _backendAnimations[deviceId] ?? const <AnimationAsset>[]) {
+      if (before.contains(item.id)) continue;
+      if (newest == null ||
+          (int.tryParse(item.id) ?? 0) > (int.tryParse(newest.id) ?? 0)) {
+        newest = item;
+      }
+    }
+    return newest?.path;
+  }
 
   void pinAnimation(String id) {
     final index = _animations.indexWhere((item) => item.id == id);
@@ -2647,11 +2698,20 @@ class FlowerpotState extends ChangeNotifier {
   /// 2026-09-12 接口加了 `broadcastId` 筛选（后台产品表那个字段，界面上现在叫
   /// 「涂鸦产品ID」）。App 这边用 [faqBroadcastId] 解析出来的值带上去，让常见问题
   /// 只出本产品的那几条。
+  ///
+  /// 请求本身只打在 debug 控制台，产品在真机上看不到——所以带了什么参数、回来几条，
+  /// 在联调日志里记一行（2026-09-14 产品要核对「接口是不是传了产品 ID」）。
   Future<List<BackendFaq>> loadFaqs() async {
     if (!_backend.enabled || !_backend.hasSession) return const <BackendFaq>[];
+    final (productId, source) = _faqProductId();
+    final request =
+        'getProductFaqList broadcastId=$productId（涂鸦产品ID，取自$source）';
     try {
-      return await _backend.getFaqs(broadcastId: faqBroadcastId);
-    } catch (_) {
+      final faqs = await _backend.getFaqs(broadcastId: productId);
+      _logInteraction('帮助中心 ← $request，返回 ${faqs.length} 条');
+      return faqs;
+    } catch (error) {
+      _logInteraction('帮助中心 ✗ $request：$error');
       return const <BackendFaq>[];
     }
   }
@@ -2664,14 +2724,17 @@ class FlowerpotState extends ChangeNotifier {
   /// ⚠️ 这里要的是**涂鸦平台产品 ID**，不是 BLE 广播里那个标识
   /// （[TuyaConfig.broadcastId]）。后台那个字段名虽然还叫 `broadcastId`，2026-09-12
   /// 起存的是平台产品 ID，界面文案也改成了「涂鸦产品ID」。
-  String get faqBroadcastId {
+  String get faqBroadcastId => _faqProductId().$1;
+
+  /// [faqBroadcastId] 连同它是从哪来的，联调日志要把来源一起打出来。
+  (String, String) _faqProductId() {
     final selected = selectedDevice?.productId.trim() ?? '';
-    if (selected.isNotEmpty) return selected;
+    if (selected.isNotEmpty) return (selected, '当前设备');
     for (final device in devices) {
       final id = device.productId.trim();
-      if (id.isNotEmpty) return id;
+      if (id.isNotEmpty) return (id, '已绑定设备');
     }
-    return TuyaConfig.productId;
+    return (TuyaConfig.productId, '本地常量 TuyaConfig.productId');
   }
 
   Future<void> setLanguage(String code) async {
