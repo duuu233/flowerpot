@@ -13,8 +13,15 @@ import 'backend_models.dart';
 /// UI pages never call this directly; [FlowerpotState] coordinates it with the
 /// Tuya session and device DP writes.
 abstract class AppBackendRepository {
+  /// 帮助中心常见问题列表接口。
+  static const String faqListPath = '/Client/Product/getProductFaqList';
+
   bool get enabled;
   bool get hasSession;
+
+  /// [path] 最近一次请求的原样记录（地址、请求头、状态码、响应体），联调时画到页面上用。
+  /// 没请求过、或没有 HTTP 客户端时为 null。
+  ApiExchange? lastExchange(String path);
 
   Future<bool> initialize({required String languageCode});
   void setLanguage(String languageCode);
@@ -168,6 +175,9 @@ class DisabledAppBackendRepository implements AppBackendRepository {
 
   @override
   bool get hasSession => false;
+
+  @override
+  ApiExchange? lastExchange(String path) => null;
 
   Never _disabled() => throw const ApiException(
     'API_NOT_CONFIGURED',
@@ -354,6 +364,9 @@ class HttpAppBackendRepository implements AppBackendRepository {
       HttpAppBackendRepository(client: ApiClient.fromEnvironment());
 
   final ApiClient _client;
+
+  @override
+  ApiExchange? lastExchange(String path) => _client.lastExchange(path);
   final ApiSession _session;
 
   @override
@@ -797,7 +810,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
   }) async =>
       extractApiRows(
             await _client.getJson(
-              '/Client/Product/getProductFaqList',
+              AppBackendRepository.faqListPath,
               query: <String, Object?>{
                 'pageIndex': 1,
                 'pageSize': 50,

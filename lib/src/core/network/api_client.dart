@@ -61,6 +61,15 @@ class ApiClient {
 
   http.Client get httpClient => _http;
 
+  /// 每个接口路径最近一次请求的原样记录（联调用，界面可以直接画出来）。
+  ///
+  /// 只留每个路径最后一次、只在内存里；响应体按 [_redact] 那套规则把凭证字段打码。
+  /// 目前帮助中心在页面下方打印它（2026-09-14 产品：「直接打印调了哪个接口、请求参数、返回什么」）。
+  final Map<String, ApiExchange> _lastExchanges = <String, ApiExchange>{};
+
+  /// [path] 最近一次请求的记录；还没请求过为 null。
+  ApiExchange? lastExchange(String path) => _lastExchanges[path];
+
   Future<Object?> getJson(
     String path, {
     Map<String, Object?>? query,
@@ -78,6 +87,7 @@ class ApiClient {
       uri,
       () => _http.get(uri, headers: headers).timeout(timeout),
       revision: revision,
+      headers: headers,
     );
   }
 
@@ -107,6 +117,8 @@ class ApiClient {
           .timeout(timeout),
       revision: revision,
       retryTransportErrors: retryTransportErrors,
+      headers: headers,
+      requestBody: payload,
     );
   }
 
@@ -207,12 +219,34 @@ class ApiClient {
     Future<http.Response> Function() send, {
     required int revision,
     bool retryTransportErrors = true,
+    Map<String, String> headers = const <String, String>{},
+    Object? requestBody,
   }) async {
     var attempt = 0;
+    final watch = Stopwatch()..start();
+    void remember({http.Response? response, String? error}) {
+      _lastExchanges[uri.path] = ApiExchange(
+        method: method,
+        url: uri,
+        headers: headers,
+        requestBody: requestBody == null ? null : jsonEncode(_redact(requestBody)),
+        statusCode: response?.statusCode,
+        responseBody: response == null
+            ? ''
+            : _exchangeBody(
+                utf8.decode(response.bodyBytes, allowMalformed: true),
+              ),
+        error: error,
+        elapsed: watch.elapsed,
+        at: DateTime.now(),
+      );
+    }
+
     while (true) {
       try {
         _ensureSession(revision);
         final response = await send();
+        remember(response: response);
         _ensureSession(revision);
         _logResponse(method, uri, response);
         return _parse(response);
@@ -224,25 +258,47 @@ class ApiClient {
           await Future<void>.delayed(networkRetryDelay);
           continue;
         }
+        remember(error: '请求超时（已重试 $attempt 次）');
         throw const ApiException('NETWORK_TIMEOUT', '网络请求超时，请稍后重试');
-      } on http.ClientException {
+      } on http.ClientException catch (error) {
         if (retryTransportErrors && attempt < networkRetryMax) {
           attempt++;
           await Future<void>.delayed(networkRetryDelay);
           continue;
         }
+        remember(error: '网络连接失败：${error.message}');
         throw const ApiException('NETWORK_UNREACHABLE', '网络连接失败，请稍后重试');
-      } on IOException {
+      } on IOException catch (error) {
         if (retryTransportErrors && attempt < networkRetryMax) {
           attempt++;
           await Future<void>.delayed(networkRetryDelay);
           continue;
         }
+        remember(error: '网络连接失败：$error');
         throw const ApiException('NETWORK_UNREACHABLE', '网络连接失败，请稍后重试');
-      } on Exception {
+      } on Exception catch (error) {
+        remember(error: '请求处理失败：$error');
         throw const ApiException('CLIENT_ERROR', '请求处理失败，请稍后重试');
       }
     }
+  }
+
+  /// 记录用的响应体：能解析成 JSON 就按 [_redact] 打码后缩进排版，否则原文；过长截断。
+  String _exchangeBody(String text) {
+    const limit = 20000;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return '';
+    String rendered;
+    try {
+      rendered = const JsonEncoder.withIndent('  ').convert(
+        _redact(jsonDecode(trimmed)),
+      );
+    } catch (_) {
+      rendered = trimmed;
+    }
+    return rendered.length <= limit
+        ? rendered
+        : '${rendered.substring(0, limit)}…（共 ${rendered.length} 字符，已截断）';
   }
 
   void _ensureSession(int revision) {
@@ -382,4 +438,42 @@ class ApiClient {
     if (value is Iterable) return value.map((item) => _redact(item)).toList();
     return value;
   }
+}
+
+/// 一次 HTTP 请求的原样记录，见 [ApiClient.lastExchange]。
+class ApiExchange {
+  const ApiExchange({
+    required this.method,
+    required this.url,
+    required this.headers,
+    required this.elapsed,
+    required this.at,
+    this.requestBody,
+    this.statusCode,
+    this.responseBody = '',
+    this.error,
+  });
+
+  final String method;
+
+  /// 实际请求的完整地址（含 query，**未打码**——展示前自己遮 userToken）。
+  final Uri url;
+
+  /// 实际发出的请求头（**未打码**）。
+  final Map<String, String> headers;
+
+  /// POST 的 JSON 请求体（已打码）；GET 为 null。
+  final String? requestBody;
+
+  /// HTTP 状态码；没拿到响应（超时 / 断网）时为 null。
+  final int? statusCode;
+
+  /// 响应体（已打码、JSON 已缩进）。
+  final String responseBody;
+
+  /// 没拿到响应时的原因。
+  final String? error;
+
+  final Duration elapsed;
+  final DateTime at;
 }

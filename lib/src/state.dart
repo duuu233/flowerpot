@@ -2727,6 +2727,11 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// 请求本身只打在 debug 控制台，产品在真机上看不到——所以带了什么参数、回来几条，
   /// 在联调日志里记一行（2026-09-14 产品要核对「接口是不是传了产品 ID」）。
+  /// 帮助中心最近一次拉常见问题的完整记录：调了哪个接口、请求参数、请求头、返回了什么、
+  /// App 解析出几条。帮助中心页面把它原样打印在列表下方（2026-09-14 产品要求）。
+  String get faqTrace => _faqTrace;
+  String _faqTrace = '';
+
   Future<List<BackendFaq>> loadFaqs() async {
     if (!_backend.enabled || !_backend.hasSession) {
       // 以前这一支静默返回空：页面画「暂无常见问题」，联调日志里什么都没有，看起来
@@ -2735,24 +2740,148 @@ class FlowerpotState extends ChangeNotifier {
       // ⚠️ 先让出一次：帮助中心是在 `didChangeDependencies` 里调进来的，这一支没有别的
       // await，直接记日志会在 build 期间 notifyListeners 而抛异常。
       await Future<void>.value();
-      _logInteraction(
-        '帮助中心 ✗ 未请求 getProductFaqList：'
-        '${_backend.enabled ? 'APP 后端登录态已失效' : 'APP 后端未启用'}',
-      );
+      final reason = _backend.enabled
+          ? 'APP 后端登录态已失效（userToken 为空）'
+          : 'APP 后端未启用';
+      _faqTrace =
+          '【接口】GET ${AppBackendRepository.faqListPath}\n'
+          '【结果】没有发请求：$reason\n'
+          '（APP 后端启用=${_backend.enabled}，有登录态=${_backend.hasSession}）';
+      _logInteraction('帮助中心 ✗ 未请求 getProductFaqList：$reason');
       return const <BackendFaq>[];
     }
     final (productId, source) = _faqProductId();
     final request =
         'getProductFaqList broadcastId=$productId（涂鸦产品ID，取自$source）';
+    final startedAt = DateTime.now();
     try {
       final faqs = await _backend.getFaqs(broadcastId: productId);
+      _faqTrace = _describeFaqExchange(
+        startedAt: startedAt,
+        productIdSource: source,
+        shown: faqs.length,
+      );
       _logInteraction('帮助中心 ← $request，返回 ${faqs.length} 条');
       return faqs;
     } catch (error) {
+      _faqTrace = _describeFaqExchange(
+        startedAt: startedAt,
+        productIdSource: source,
+        error: error,
+      );
       _logInteraction('帮助中心 ✗ $request：$error');
       return const <BackendFaq>[];
     }
   }
+
+  /// 把 [AppBackendRepository.lastExchange] 那份原始记录排成人读得懂的一段。
+  ///
+  /// userToken 只露头尾（页面会被截图转发）；其余参数、请求头、响应体原样。
+  String _describeFaqExchange({
+    required DateTime startedAt,
+    required String productIdSource,
+    int? shown,
+    Object? error,
+  }) {
+    final lines = <String>['【接口】GET ${AppBackendRepository.faqListPath}'];
+    final exchange = _backend.lastExchange(AppBackendRepository.faqListPath);
+    // 请求在发出之前就失败了（例如会话刚切换），记录里留的还是上一次的，不能拿来说事。
+    final current =
+        exchange != null &&
+        !exchange.at.isBefore(startedAt.subtract(const Duration(seconds: 1)));
+    if (!current) {
+      lines.add('【结果】没有拿到本次请求的记录（请求可能没有发出去）');
+      if (error != null) lines.add('【错误】$error');
+      return lines.join('\n');
+    }
+    String two(int value) => value.toString().padLeft(2, '0');
+    final at = exchange.at;
+    final status = exchange.statusCode;
+    final statusText = status == null ? '没有拿到响应' : 'HTTP $status';
+    lines
+      ..add(
+        '【时间】${two(at.hour)}:${two(at.minute)}:${two(at.second)}'
+        ' · 耗时 ${exchange.elapsed.inMilliseconds}ms · $statusText',
+      )
+      ..add('【完整地址】${_maskedUrl(exchange.url)}')
+      ..add('【请求参数】');
+    exchange.url.queryParameters.forEach((key, value) {
+      lines.add('  $key = ${_describeFaqParam(key, value, productIdSource)}');
+    });
+    lines.add('【请求头】');
+    exchange.headers.forEach((key, value) {
+      final bearer = value.startsWith('Bearer ') ? value.substring(7) : value;
+      final shownValue = switch (key.toLowerCase()) {
+        'usertoken' => _maskToken(value),
+        'authorization' => 'Bearer ${_maskToken(bearer)}',
+        _ => value,
+      };
+      lines.add('  $key: $shownValue');
+    });
+    final failure = exchange.error;
+    if (failure != null) lines.add('【网络错误】$failure');
+    lines.add('【返回】');
+    lines.add(
+      exchange.responseBody.isEmpty ? '（空）' : exchange.responseBody,
+    );
+    if (error != null) {
+      lines.add('【App 处理】请求失败：$error');
+    } else {
+      final rows = _faqRowsSummary(exchange.responseBody);
+      lines.add('【App 处理】$rows，页面显示 $shown 条（标题为空的行不显示）');
+    }
+    return lines.join('\n');
+  }
+
+  /// 响应里 `retData.pageData` 有几行、`recordCount` 是多少。解析不了就说解析不了。
+  static String _faqRowsSummary(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      final data = decoded is Map ? decoded['retData'] : null;
+      final rows = data is Map ? data['pageData'] : null;
+      final count = rows is List ? rows.length : 0;
+      final total = data is Map ? data['recordCount'] : null;
+      return '接口返回 pageData $count 条（recordCount ${total ?? '-'}）';
+    } catch (_) {
+      return '返回体不是 JSON，无法统计条数';
+    }
+  }
+
+  static String _describeFaqParam(String key, String value, String source) {
+    final languageLabel = switch (value) {
+      '0' || '1' => '英语',
+      '2' => '简中',
+      '3' => '繁中',
+      '4' => '日文',
+      _ => '未知',
+    };
+    final terminalLabel = switch (value) {
+      '1' => '安卓',
+      '2' => '苹果',
+      '3' => '小程序',
+      _ => '未知',
+    };
+    return switch (key) {
+      'userToken' => _maskToken(value),
+      'language' => '$value（$languageLabel）',
+      'terminal' => '$value（$terminalLabel）',
+      'broadcastId' => '$value（涂鸦产品ID，取自$source）',
+      _ => value,
+    };
+  }
+
+  /// 完整地址里的令牌打码。按字符串替换而不是 `Uri.replace`：后者会把「…」转成
+  /// `%E2%80%A6`，截图里就看不清了。
+  static String _maskedUrl(Uri url) {
+    final text = url.toString();
+    final token = url.queryParameters['userToken'] ?? '';
+    return token.isEmpty ? text : text.replaceAll(token, _maskToken(token));
+  }
+
+  /// 令牌只露前 6 后 4，够对出是哪个账号，截图转发也不至于泄露会话。
+  static String _maskToken(String token) => token.length <= 10
+      ? '***'
+      : '${token.substring(0, 6)}…${token.substring(token.length - 4)}';
 
   /// 常见问题筛选用的产品标识。
   ///

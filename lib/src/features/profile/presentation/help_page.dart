@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
@@ -23,8 +24,15 @@ class HelpPage extends StatefulWidget {
 }
 
 class _HelpPageState extends State<HelpPage> {
+  /// 列表下方打印接口调试信息（2026-09-14 产品：「直接在下方打印调了哪个接口、请求参数是什么、
+  /// 接口返回什么，我需要看下打印的日志」）。**联调期开着，数据问题查清后改成 false。**
+  static const bool _showApiTrace = true;
+
   Set<String> _expandedIds = <String>{};
   bool _requested = false;
+
+  /// 最近一次拉常见问题的记录，见 `FlowerpotState.faqTrace`。
+  String _trace = '';
 
   /// null = 还没拉到，空列表 = 后台确实没有。
   List<HelpCenterFaqItem>? _remoteItems;
@@ -59,6 +67,7 @@ class _HelpPageState extends State<HelpPage> {
     final faqs = await state.loadFaqs();
     if (!mounted) return;
     setState(() {
+      _trace = state.faqTrace;
       _remoteItems = faqs
           .map(
             (faq) => HelpCenterFaqItem(
@@ -94,11 +103,26 @@ class _HelpPageState extends State<HelpPage> {
     if (model == null) {
       return const AppLoading(key: Key('help-center-loading'));
     }
+    final trace = _showApiTrace && _trace.isNotEmpty
+        ? _ApiTraceBox(text: _trace)
+        : null;
     if (model.items.isEmpty) {
-      return const AppEmptyState(
+      const empty = AppEmptyState(
         key: Key('help-center-empty'),
         title: '暂无常见问题',
         message: '后台还没有配置常见问题，配置后这里会自动显示。',
+      );
+      if (trace == null) return empty;
+      // 空态也要把调试信息画出来——没数据的时候恰恰最需要看接口到底回了什么。
+      return ListView(
+        key: const Key('help-center-scroll-view'),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.pageMargin,
+          AppSpacing.lg,
+          AppSpacing.pageMargin,
+          40,
+        ),
+        children: <Widget>[empty, trace],
       );
     }
     return CustomScrollView(
@@ -112,10 +136,19 @@ class _HelpPageState extends State<HelpPage> {
               AppSpacing.pageMargin,
               40,
             ),
-            child: HelpCenterFaqList(
-              items: model.items,
-              expandedIds: _expandedIds,
-              onToggle: _toggleFaq,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                HelpCenterFaqList(
+                  items: model.items,
+                  expandedIds: _expandedIds,
+                  onToggle: _toggleFaq,
+                ),
+                if (trace != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.xl),
+                  trace,
+                ],
+              ],
             ),
           ),
         ),
@@ -129,5 +162,66 @@ class _HelpPageState extends State<HelpPage> {
         _expandedIds.remove(id);
       }
     });
+  }
+}
+
+/// 帮助中心列表下方的接口调试信息：调了哪个接口、请求参数、请求头、返回体、App 解析结果。
+///
+/// 等宽字体、可选中；右上角「复制」把整段放进剪贴板，方便直接发给后端对照。
+class _ApiTraceBox extends StatelessWidget {
+  const _ApiTraceBox({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('help-center-api-trace'),
+      margin: const EdgeInsets.only(top: AppSpacing.md),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.textTertiary.withValues(alpha: .3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Expanded(
+                child: Text(
+                  '接口调试信息（联调期显示）',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              TextButton(
+                key: const Key('help-center-api-trace-copy'),
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: text));
+                  if (context.mounted) {
+                    showAppMessage(context, '已复制', tone: AppMessageTone.success);
+                  }
+                },
+                child: const Text('复制'),
+              ),
+            ],
+          ),
+          SelectableText(
+            text,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 11,
+              height: 1.45,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
