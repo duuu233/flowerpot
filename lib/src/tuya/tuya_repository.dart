@@ -219,6 +219,15 @@ abstract class TuyaRepository {
   /// BLE 扫描逐台推上来的设备。同一台会重复出现（信号强度在变），去重交给调用方。
   Stream<BleDevice> get bleDevices;
 
+  /// **当前这一轮** BLE 扫描结束了（到时，或 SDK 自己停了），值是原生给的原因。
+  ///
+  /// 调用方主动 [stopBleScan] 的那一次不报——那是调用方自己知道的事。重开一轮时，
+  /// 上一轮迟到的结束也不报，免得把正在跑的新一轮标成已结束。
+  ///
+  /// ⚠️ 2026-09-14 之前原生一直在发，Dart 从没接：扫描到时之后状态里仍然记着"在扫"，
+  /// 「重新扫描」因此成了空操作。
+  Stream<String> get bleScanStops;
+
   /// **主动弹一次 BLE 所需权限的授权框**，用户答完才返回。
   ///
   /// ⚠️ 必须在 [bleProbe] **之前** await 掉。否则会踩 2026-09-11 那个坑：探测抢在授权框
@@ -299,6 +308,15 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       .map(_bleDevice)
       .where((device) => device != null)
       .cast<BleDevice>();
+
+  @override
+  late final Stream<String> bleScanStops = _rawEvents
+      .where(
+        (event) =>
+            event is Map && '${event['type'] ?? ''}' == 'bleScanStopped',
+      )
+      // 不走 `_stringField`：它在字段缺失时返回 null，而原因缺失不该让这条结束事件丢掉。
+      .map((event) => '${(event as Map)['reason'] ?? ''}');
 
   @override
   Future<void> ensureBlePermissions() => _invoke<void>('ensureBlePermissions');

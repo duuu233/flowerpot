@@ -691,6 +691,76 @@ class _PairingRepository extends MockTuyaRepository {
     expect(state.bleScanning, isFalse);
   });
 
+  testWidgets('BLE 发现：每次开扫都是全新一轮——上一轮的设备不留，扫描到时后能真的重开', (
+    tester,
+  ) async {
+    // 2026-09-14 产品反馈两条，根子在同一处：
+    // ①「关闭了设备，去搜索还是会搜索出设备」——扫到的设备挂在全局状态上，从来不清；
+    // ②「点击重新扫描扫描不到设备」——原生扫描到时自己停了，状态里还记着"在扫"，
+    //    `startBleDiscovery` 开头那句 `if (_bleScanning) return true` 直接把重开挡掉。
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+
+    expect(await state.startBleDiscovery(), isTrue);
+    repository.pushBleDevice(
+      const BleDevice(
+        uuid: 'uuid-pot',
+        name: '',
+        mac: 'AA:BB:CC:00:00:02',
+        productId: TuyaConfig.broadcastId,
+        rssi: -50,
+        bound: false,
+        supportWifiList: false,
+      ),
+    );
+    await tester.pump();
+    expect(state.bleDevices, hasLength(1));
+
+    // 原生扫描到时自己停了：状态要如实跟上。
+    repository.endBleScan();
+    await tester.pump();
+    expect(state.bleScanning, isFalse);
+
+    // 设备这期间关机了（不再有广播上来）：再开一轮，上一轮的结果一条都不能留，
+    // 原生也要真的重新开扫。
+    expect(await state.startBleDiscovery(), isTrue);
+    expect(repository.bleScanStarts, 2);
+    expect(state.bleScanning, isTrue);
+    expect(state.bleDevices, isEmpty);
+
+    // 还在扫的时候重开：先停旧的，再开新的。
+    expect(await state.startBleDiscovery(), isTrue);
+    expect(repository.bleScanStops, 1);
+    expect(repository.bleScanStarts, 3);
+
+    await state.stopBleDiscovery();
+  });
+
+  testWidgets('BLE 发现：停扫认主人——被别的搜索页重开过的这一轮，旧的那页停不掉', (
+    tester,
+  ) async {
+    // 失败页「返回搜索设备」会在老搜索页上面再压一页新的。从新页退回来时老页重开一轮，
+    // 而新页的 dispose 要等退场动画走完才跑——它那句停扫不能把老页刚开的这一轮掐掉。
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+    final lowerPage = Object();
+    final upperPage = Object();
+
+    await state.startBleDiscovery(owner: upperPage);
+    await state.startBleDiscovery(owner: lowerPage);
+    await state.stopBleDiscovery(owner: upperPage);
+    expect(state.bleScanning, isTrue);
+
+    await state.stopBleDiscovery(owner: lowerPage);
+    expect(state.bleScanning, isFalse);
+  });
+
   testWidgets('BLE 查 Wi-Fi 列表：老固件直接拒，不让用户干等超时', (tester) async {
     final repository = MockTuyaRepository(
       latency: Duration.zero,

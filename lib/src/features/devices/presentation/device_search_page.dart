@@ -83,7 +83,7 @@ class DeviceSearchPage extends StatefulWidget {
 }
 
 class _DeviceSearchPageState extends State<DeviceSearchPage>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
   /// 当前平台能不能列出附近的 Wi-Fi。
   ///
   /// **iOS 不能，而且没有替代方案**：系统没有任何公开 API 可以枚举附近热点
@@ -295,6 +295,17 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 光靠下标在两帧之间可能指向另一台。
   List<_FoundDevice> _found = const <_FoundDevice>[];
 
+  /// 第几轮搜索。[_scan] 每开一轮加一；[_startSearchWindow] 每次 await 回来先对一下，
+  /// 已经不是这一轮了就别再往下起定时器——否则两轮的定时器叠在一起，旧的那只永远没人取消。
+  int _round = 0;
+
+  /// 这一轮还在准备阶段（授权框、探测蓝牙、第一次读缓存），定时器还没起。
+  ///
+  /// 这段时间里不接受"自动重开一轮"（回到前台、从上层页面退回来）：**授权框本身就会
+  /// 触发一次 resumed**，那时重开会让两轮同时去申请权限——原生同一时间只允许一个申请，
+  /// 后一个被回成 busy，探测再抢在答完之前跑完，就又是 09-11 那个假的「未授予」。
+  bool _settingUp = false;
+
   @override
   void initState() {
     super.initState();
@@ -307,6 +318,24 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null) AppRoutes.routeObserver.subscribe(this, route);
+  }
+
+  /// 压在上面的页面退掉了（「连接 Wi-Fi」页返回、失败页返回……），本页又回到最上层。
+  ///
+  /// 点「连接」的那一刻扫描就停了，列表里留的是**那一刻**的结果——设备这期间可能已经关了。
+  /// 所以回来就按现在的真实情况重开一轮，而不是把旧列表原样摆出来（2026-09-14 产品反馈
+  /// 「不要缓存」）。
+  ///
+  /// 这个回调本身就意味着本页已经在最上层，不再去问 `isCurrent`——pop 还在处理中时
+  /// 被弹出的那页处于退场状态，不必依赖那一刻的判断。
+  @override
+  void didPopNext() => _rescanWhenIdle(knownOnTop: true);
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
     // 切到后台就把手机的 Wi-Fi 还回去：连上设备热点之后手机是没有外网的，不还原等于
     // 把用户撂在那儿直到进程被杀。
@@ -314,7 +343,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // ⚠️ 正在连的那一刻不能放：系统入网授权框会把本页 pause，这时放等于自己把刚发出去
     // 的请求撤回。`_connectingIndex != null` 正好覆盖那一段。
     if (lifecycleState == AppLifecycleState.resumed) {
-      unawaited(_reprobeBleOnResume());
+      _rescanWhenIdle();
       return;
     }
     if (lifecycleState != AppLifecycleState.paused) return;
@@ -334,9 +363,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _hotspotState = null;
     if (hotspotState != null) unawaited(hotspotState.releaseDeviceHotspot());
     // BLE 扫描同理：不停的话它会一直扫到超时，还握着这个 Activity。
+    // 带上 owner：这一轮若已经被下面那层搜索页重开过，就不是本页的了，别去掐掉它。
     final bleState = _bleState;
     _bleState = null;
-    if (bleState != null) unawaited(bleState.stopBleDiscovery());
+    if (bleState != null) unawaited(bleState.stopBleDiscovery(owner: this));
+    AppRoutes.routeObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
@@ -348,11 +379,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   }
 
   /// 开始一轮搜索。
+  ///
+  /// **进页面、「重新扫描」、回到前台、从上层页面退回来，走的都是这一个入口**，每次都是
+  /// 从零开始的一轮：清掉上一轮扫到的设备，原生扫描停掉重开（见
+  /// [FlowerpotState.startBleDiscovery]）。2026-09-14 之前「重新扫描」看起来也调了这里，
+  /// 但蓝牙那条被状态里一句 `if (_bleScanning) return true` 挡掉了——原生扫描早就到时
+  /// 停了，Dart 却还记着"在扫"，于是根本没有重新开扫。
   void _scan() {
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
     _deadlineTimer?.cancel();
     if (!mounted) return;
+    final round = ++_round;
     _windowExpired = false;
     _throttled = false;
     _scannedForReal = false;
@@ -371,7 +409,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       _scanning = true;
       _result = null;
     });
-    unawaited(_startSearchWindow());
+    unawaited(_startSearchWindow(round));
   }
 
   /// 先免费读一次缓存，**等权限落定、页面也真的就绪了**，再开窗口与真扫节奏。
@@ -391,7 +429,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// ⚠️ 不要为了「快一点」在开头塞两次真扫。那是 0/6/46/86s 那版的做法，已经被证明
   /// 会把配额押在设备还没上电的时刻，反而让「先进页面后开机」要等 86 秒。见
   /// [_forceScanGap] 的说明。
-  Future<void> _startSearchWindow() async {
+  Future<void> _startSearchWindow(int round) async {
+    _settingUp = true;
+    try {
+      await _setUpSearchWindow(round);
+    } finally {
+      // 被新一轮顶掉时不动它：那一轮自己置过 true，也会自己放。
+      if (round == _round) _settingUp = false;
+    }
+  }
+
+  /// [_startSearchWindow] 的正文。[round] 不是当前这一轮了就立刻收手。
+  Future<void> _setUpSearchWindow(int round) async {
     final state = FlowerpotScope.of(context);
     // 趁手机还连着路由器，先把要走云端的两步取回来，别等到连上设备热点没外网了
     // 才去取。只取一次：令牌有效期比一轮搜索窗口长得多，重新扫描不必重取。
@@ -422,8 +471,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 2. 原生的权限申请**同时只能有一个在跑**（多一个会被回成 `busy`），而下一行的
     //    `probeWifi` 也会申请权限。串起来才不会互相顶掉。
     if (PairingGate.apEnabled ? !widget.preferHotspot : true) {
-      await _startBleDiscovery(state);
-      if (!mounted) return;
+      await _startBleDiscovery(state, round);
+      if (!mounted || round != _round) return;
     }
     // ① 免费的一次：读系统扫描缓存。首次进入时的权限框就挡在这一步。
     _inFlight = true;
@@ -434,7 +483,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     } finally {
       _inFlight = false;
     }
-    if (!mounted || _windowExpired) return;
+    if (!mounted || _windowExpired || round != _round) return;
     setState(() {});
     // 缓存里就有设备的话到此为止，一次真扫都不用发。
     _maybeAutoOpen();
@@ -647,26 +696,40 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _openPairing(hotspotSsid: hotspot.ssid, routerSsid: routerSsid);
   }
 
-  /// 回到前台：**重新探测并再试一次**。
+  /// 回到前台、从上层页面退回来、点「重新检测」：**没在扫就重开一轮**，和进页面、
+  /// 点「重新扫描」走同一个 [_scan]。
   ///
-  /// 用户从这一页离开、去系统设置里打开定位或授予权限，回来时必须当场生效——
-  /// 否则页面上还挂着那句「缺少权限」，而权限其实已经给了（用户会以为是设备的问题）。
-  Future<void> _reprobeBleOnResume() async {
+  /// - 去系统设置里开了蓝牙 / 定位、给了权限回来，必须当场生效——否则页面上还挂着那句
+  ///   「缺少权限」，而权限其实已经给了（用户会以为是设备的问题）；
+  /// - 从「连接 Wi-Fi」页、失败页退回来：点「连接」时扫描就停了，列表里是那一刻的旧结果，
+  ///   设备可能早关了，按现在的真实情况重新列。
+  ///
+  /// 以下几种**不**重开：
+  /// - **正在扫**：下拉通知栏也会触发 resumed，不能每次都把列表清掉重来（那就是闪）；
+  /// - **本页不在最上层**：「连接 Wi-Fi」页压在上面时重开扫描会和配网抢同一个射频；
+  /// - 正在连某一台，或这一轮还在准备（授权框弹着，见 [_settingUp]）；
+  /// - AP 开着：那条的真扫受系统配额约束，回前台就重扫会把配额白白烧掉，保持原样。
+  void _rescanWhenIdle({bool knownOnTop = false}) {
     if (!mounted || PairingGate.apEnabled) return;
-    final state = FlowerpotScope.of(context);
-    if (state.bleScanning) return;
-    await state.startBleDiscovery();
-    if (!mounted) return;
-    setState(() {});
+    if (_connectingIndex != null || _settingUp) return;
+    if (!knownOnTop && ModalRoute.of(context)?.isCurrent == false) return;
+    if (FlowerpotScope.of(context).bleScanning) return;
+    _scan();
   }
 
   /// 和 Wi-Fi 扫描并行开 BLE 发现。
   ///
   /// 失败不抛、不拦路：这条通道目前是**加上去的**，Wi-Fi 那条照常跑。
-  Future<void> _startBleDiscovery(FlowerpotState state) async {
+  ///
+  /// 扫描时长跟搜索窗口对齐（原来是默认的 60 秒）：窗口里页面一直写着「搜索附近设备...」、
+  /// 雷达在转，原生却 60 秒就停了，剩下两分钟是在假装搜索——那期间给设备上电也搜不出来。
+  Future<void> _startBleDiscovery(FlowerpotState state, int round) async {
     _bleState = state;
-    final started = await state.startBleDiscovery();
-    if (!mounted) return;
+    final started = await state.startBleDiscovery(
+      timeout: DeviceSearchPage.searchWindow,
+      owner: this,
+    );
+    if (!mounted || round != _round) return;
     // 真的扫起来了才给抢答窗口：蓝牙用不了时一秒都不该压着热点列表。
     if (started) {
       _bleScanStartedAt = DateTime.now();
@@ -797,34 +860,46 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 也不再成立。要的就是「蓝牙扫到什么就是什么」，混进 AP 会让结论失真——
     // 用户一旦从热点那条配成了，这轮要验的「设备支不支持蓝牙」就没答案了。
     if (!PairingGate.apEnabled) {
-      return state.bleDevices
-          .map(
-            (device) => _FoundDevice.ble(
-              device,
-              productInfo: state.productInfoFor(device.uuid),
-              productInfoPending: state.productInfoPending(device.uuid),
-            ),
-          )
-          .toList(growable: false);
+      return _bleFound(state);
     }
     if (widget.preferHotspot) {
       return hotspots.map(_FoundDevice.hotspot).toList(growable: false);
     }
     final ble = state.bleDevices;
     if (ble.isNotEmpty) {
-      return ble
-          .map(
-            (device) => _FoundDevice.ble(
-              device,
-              productInfo: state.productInfoFor(device.uuid),
-              productInfoPending: state.productInfoPending(device.uuid),
-            ),
-          )
-          .toList(growable: false);
+      return _bleFound(state);
     }
     // 蓝牙还在抢答窗口里：先空着，别让用户抢在 BLE 答出来之前点走更差的那条路。
     if (_bleAnswering(state)) return const <_FoundDevice>[];
     return hotspots.map(_FoundDevice.hotspot).toList(growable: false);
+  }
+
+  /// BLE 扫到的设备里，**名字已经有定论的**那些。
+  ///
+  /// ⚠️ **名字还在查的设备整行先不画**（2026-09-14 产品口径：「等搜索到最后需要呈现的
+  /// 结果的字符，再在页面上展示」）。
+  ///
+  /// 这是同一个问题的第二次修：09-12 之前先画广播里那串标识（`设备 uuid23119e…`），
+  /// 一两秒后被云端产品名顶掉；09-12 改成先画「正在识别设备…」，产品看到的依然是
+  /// 「先一串字、再换成名字」。只要行先出来、字后定，就一定会换一次——所以现在是
+  /// 连行带名字一起等。查名字有 5 秒上限（`FlowerpotState._productInfoTimeout`），
+  /// 查不到就退回广播里的名字画出来，不会让设备一直不出现。
+  ///
+  /// 排查态（[PairingGate.showUnfilteredBleScan]）不压：那时要的是「扫到什么立刻看到什么」。
+  List<_FoundDevice> _bleFound(FlowerpotState state) {
+    return state.bleDevices
+        .where(
+          (device) =>
+              PairingGate.showUnfilteredBleScan ||
+              !state.productInfoPending(device.uuid),
+        )
+        .map(
+          (device) => _FoundDevice.ble(
+            device,
+            productInfo: state.productInfoFor(device.uuid),
+          ),
+        )
+        .toList(growable: false);
   }
 
   /// 用户点了一台 **BLE 发现的**设备：查它扫到的 Wi-Fi 列表，然后进输密码页。
@@ -856,7 +931,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     if (!mounted) return;
     // 停扫再连：接下来要和这台建立蓝牙连接，一边扫一边连是在抢同一个射频，
     // 只会把连接拖慢甚至连不上。
-    await state.stopBleDiscovery();
+    await state.stopBleDiscovery(owner: this);
     if (!mounted) return;
     var networks = const <DeviceWifiNetwork>[];
     if (device.supportWifiList) {
@@ -1039,6 +1114,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         _SearchRadar(
                           animation: _radarController,
                           spinning: _scanning,
+                          notFound: outcome.notFound,
                           // Same artwork as the empty-device screen, so it is
                           // rendered at the same size; the asset carries a lot
                           // of transparent padding, which made 200 look
@@ -1132,8 +1208,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                             children: <Widget>[
                               TextButton(
                                 key: const Key('device-search-recheck'),
-                                onPressed: () =>
-                                    unawaited(_reprobeBleOnResume()),
+                                onPressed: _rescanWhenIdle,
                                 child: const Text('重新检测'),
                               ),
                               TextButton(
@@ -1242,16 +1317,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         );
       }
       if (_stalled) {
-        // ⚠️ 这一句是 2026-09-10 产品反馈换来的：**设备静置一段时间会退出配网模式**，
-        // 那之后它不再广播热点，扫多久都没用。真扫受系统配额限制（前台 4 次 / 2 分钟）
-        // 已经跑在上限上，所以这时有用的不是再等，而是让用户把设备断电重启——重启后
-        // 热点一定在，下一次扫描就能看见。
-        // 两条通道都没答上来时才走到这里，所以话要覆盖两条：设备退出配网状态后
-        // **蓝牙广播和 Wi-Fi 热点会一起停**，断电重启两条一起恢复。
+        // 2026-09-10 起这里是一大段「设备静置会退出配网状态，此时它既不广播蓝牙、也不再
+        // 拉起热点，请断电重启…」。**2026-09-14 产品改成一句话**，与蓝牙那条
+        // （[_bleOnlyOutcome]）同一套文案、同一张插图，AP 翻回来时两边长得一样。
         return const _SearchOutcome(
-          '还没搜到设备',
-          '设备静置一段时间会退出配网状态，此时它既不广播蓝牙、也不再拉起热点。\n'
-              '请给设备断电重启（重新上电后会自动回到配网状态），再点「重新扫描」。',
+          '还没搜索到设备',
+          _notFoundMessage,
+          notFound: true,
         );
       }
       return const _SearchOutcome(
@@ -1339,12 +1411,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       );
     }
     if (_stalled) {
-      // 底部那张「小提示」卡（UI 图里就有）已经说了「确认设备已开机、把手机靠近设备」，
-      // 这里只补一条它没说、而用户确实需要知道的：**设备静置会退出配网状态，要断电重启**。
+      // **2026-09-14 产品定稿**：下面那一大段（「设备静置一段时间会退出配网状态，此时它
+      // 不再广播。请给设备断电重启…」）换成一句 [_notFoundMessage]，上面的雷达插图换成
+      // `pairing_failure_illustration.png`（见 `_SearchRadar.notFound`）。
       return const _SearchOutcome(
         '还没搜索到设备',
-        '设备静置一段时间会退出配网状态，此时它不再广播。\n'
-            '请给设备断电重启（重新上电后会自动回到配网状态），再点「重新扫描」。',
+        _notFoundMessage,
+        notFound: true,
       );
     }
     // **按 UI 图**（`docs/UI/搜索附近设备.png`）：标题「搜索附近设备...」，
@@ -1366,11 +1439,22 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   };
 }
 
+/// 「还没搜索到设备」时标题下面那句话（2026-09-14 产品定稿，原文照录）。
+const String _notFoundMessage = '请确认设备处于配网状态后，点击重新扫描';
+
 class _SearchOutcome {
-  const _SearchOutcome(this.title, this.message, {this.compactTitle = false});
+  const _SearchOutcome(
+    this.title,
+    this.message, {
+    this.compactTitle = false,
+    this.notFound = false,
+  });
 
   final String title;
   final String message;
+
+  /// 「还没搜索到设备」这一幕：插图换成配网失败那张，雷达扫描线不画。
+  final bool notFound;
 
   /// 标题用小一号的字。
   ///
@@ -1472,27 +1556,23 @@ class _SearchActions extends StatelessWidget {
 /// 两条通道的模型完全不同（BLE 给 `ScanDeviceBean`，Wi-Fi 只有一个 SSID），但页面上
 /// 它们是同一件东西：一台可以点「连接」的设备。差异收在这里，列表与行就不必各写一遍。
 class _FoundDevice {
-  const _FoundDevice.ble(
-    BleDevice device, {
-    this.productInfo,
-    this.productInfoPending = false,
-  }) : ble = device,
-       hotspot = null;
+  const _FoundDevice.ble(BleDevice device, {this.productInfo})
+    : ble = device,
+      hotspot = null;
 
   const _FoundDevice.hotspot(WifiNetwork network)
     : ble = null,
       hotspot = network,
-      productInfo = null,
-      productInfoPending = false;
+      productInfo = null;
 
   final BleDevice? ble;
   final WifiNetwork? hotspot;
 
-  /// 云端按 pid 查回来的产品信息（`getActivatorDeviceInfo`）。可能还没查到。
+  /// 云端按 pid 查回来的产品信息（`getActivatorDeviceInfo`）。
+  ///
+  /// 正常态下能走到这里的设备名字都已经有定论（还在查的整行不画，见
+  /// `_DeviceSearchPageState._bleFound`）；null / 空表示查过了但没查到。
   final BleProductInfo? productInfo;
-
-  /// 云端产品名还在查。查完（含查空、查失败）就是 false。
-  final bool productInfoPending;
 
   bool get isBle => ble != null;
 
@@ -1501,16 +1581,12 @@ class _FoundDevice {
   /// **云端产品名优先**：BLE 广播里常常没有名字，只剩 mac 尾号，人根本看不出哪台是花盆；
   /// 拿 pid 去云端换回来的产品名才是能认的那个（2026-09-11 产品给的思路）。查不到再退回
   /// 广播里的名字 / mac 尾号。
+  ///
+  /// ⚠️ 不要在这里加「正在识别设备…」一类的占位（09-12 加过、09-14 撤掉）：行一旦先画出来，
+  /// 名字就一定会再换一次，产品看到的就是闪。要等就在列表那一层整行等。
   String get label {
     final product = productInfo;
     if (product != null && !product.isEmpty) return product.name;
-    // ⚠️ **查的过程中先留白，不要画广播里那串标识**（2026-09-12 产品反馈：
-    // 「设备名称会闪一下，先显示一串字符，然后才显示具体名称」）。
-    //
-    // 根因：BLE 广播常常没有名字、mac 也是空的，`BleDevice.label` 只能退成
-    // `设备 uuid23119e…`——一串十六进制先画出来，一两秒后被云端产品名顶掉，看着就是
-    // 闪一下。查完（含查空、查失败）才退回广播里的名字，那时它不会再变了。
-    if (productInfoPending) return '正在识别设备…';
     return ble?.label ?? hotspot!.ssid;
   }
 
@@ -1758,11 +1834,18 @@ class _SearchRadar extends StatelessWidget {
     required this.animation,
     required this.spinning,
     required this.size,
+    this.notFound = false,
   });
 
   final Animation<double> animation;
   final bool spinning;
   final double size;
+
+  /// 「还没搜索到设备」：换成 `pairing_failure_illustration.png`（2026-09-14 产品指定）。
+  ///
+  /// 两张图构图一致（同一组同心圆、设备图标居中），放进同一个方框里大小对得上，切换时
+  /// 标题和按钮不会跳位。
+  final bool notFound;
 
   @override
   Widget build(BuildContext context) {
@@ -1774,7 +1857,9 @@ class _SearchRadar extends StatelessWidget {
           children: <Widget>[
             Positioned.fill(
               child: Image.asset(
-                AppAssets.pairingDeviceSearchIllustration,
+                notFound
+                    ? AppAssets.pairingFailureIllustration
+                    : AppAssets.pairingDeviceSearchIllustration,
                 fit: BoxFit.contain,
                 filterQuality: FilterQuality.high,
                 excludeFromSemantics: true,
@@ -1782,7 +1867,8 @@ class _SearchRadar extends StatelessWidget {
             ),
             // The sweep stops with the scan: a wedge still going round after
             // the answer arrived reads as "still searching".
-            if (spinning)
+            // 「还没搜索到设备」那一幕后台仍在扫，但扫描线压在失败插图上像是出了错，不画。
+            if (spinning && !notFound)
               Positioned.fill(
                 child: AnimatedBuilder(
                   animation: animation,

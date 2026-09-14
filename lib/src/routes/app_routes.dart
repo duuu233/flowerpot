@@ -43,6 +43,13 @@ import '../features/shell/presentation/shell_page.dart';
 import '../tuya/tuya_models.dart';
 
 abstract final class AppRoutes {
+  /// 页面想知道「上面那一页退掉了、自己又回到最上层」时订阅它（`RouteAware.didPopNext`）。
+  ///
+  /// 挂在根 Navigator 上（`FlowerpotApp`）。目前只有搜索页用：从「连接 Wi-Fi」页、失败页
+  /// 退回来时，上一轮扫描早就停了，列表里是那一刻的旧结果，要重开一轮。
+  static final RouteObserver<ModalRoute<Object?>> routeObserver =
+      RouteObserver<ModalRoute<Object?>>();
+
   static const root = '/';
   static const auth = '/auth';
   static const register = '/register';

@@ -46,6 +46,15 @@ class MockTuyaRepository implements TuyaRepository {
   /// 让用例像真机那样逐台推 BLE 设备上来，不需要蓝牙硬件。
   void pushBleDevice(BleDevice device) => _bleDevices.add(device);
 
+  final StreamController<String> _bleScanStops =
+      StreamController<String>.broadcast();
+
+  @override
+  Stream<String> get bleScanStops => _bleScanStops.stream;
+
+  /// 让用例模拟原生扫描**自己**结束（到时 / SDK 停了）。
+  void endBleScan([String reason = 'timeout']) => _bleScanStops.add(reason);
+
   /// [ensureBlePermissions] 被调了几次；用例据此断言"授权在探测之前"。
   int blePermissionRequests = 0;
   int appSettingsOpens = 0;

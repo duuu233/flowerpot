@@ -119,8 +119,10 @@ class _FlowerpotAppState extends State<FlowerpotApp>
 
   /// 联调日志用的路由观察者：进设备相关页面时把那一页的 DP 和当前值记一条。
   /// 列表本身也存成字段，免得每次 build 都换一个新 List 让 Navigator 重挂观察者。
-  late final List<NavigatorObserver> _navigatorObservers =
-      <NavigatorObserver>[InteractionLogRouteObserver(state)];
+  late final List<NavigatorObserver> _navigatorObservers = <NavigatorObserver>[
+    InteractionLogRouteObserver(state),
+    AppRoutes.routeObserver,
+  ];
 
   /// Cold-start screen, dismissed once the minimum time has passed *and* the
   /// session has been restored — otherwise a returning user would see the

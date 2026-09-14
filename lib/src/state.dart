@@ -525,7 +525,17 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, BleDevice> _bleDevices = <String, BleDevice>{};
 
   StreamSubscription<BleDevice>? _bleSub;
+
+  /// 原生「扫描结束」的订阅（到时 / SDK 自己停）。见 [startBleDiscovery] 里那段说明。
+  StreamSubscription<String>? _bleStopSub;
   bool _bleScanning = false;
+
+  /// 当前这一轮扫描是谁开的（搜索页传自己的 State 进来）。
+  ///
+  /// 搜索页可能**叠两层**：失败页「返回搜索设备」是 `pushReplacementNamed`，新的一页压在
+  /// 老的那页上面。从新页退回来时老页会重开一轮，而新页的 `dispose` 要等退场动画走完才跑
+  /// ——它那一句停扫要是不认主人，就会把老页刚开起来的这一轮掐掉。
+  Object? _bleOwner;
 
   /// 云端查回来的产品信息，按 uuid 存。查过的（含查空的）都留下，避免重复往返。
   final Map<String, BleProductInfo> _bleProductInfo = <String, BleProductInfo>{};
@@ -546,6 +556,12 @@ class FlowerpotState extends ChangeNotifier {
   /// 按信号从强到弱查前 20 台——想找的那台就在手边，几乎必然在这 20 台里。
   static const int _productInfoBudget = 20;
 
+  /// 云端产品名最多等多久。
+  ///
+  /// 搜索页在名字有定论之前**不画这一行**（见 [productInfoPending]），所以这里必须有
+  /// 上限：SDK 的回调万一不回来（断网、云端卡住），不设上限就等于这台设备永远不出现，
+  /// 页面上和「搜不到」一模一样。到点按查空处理，退回广播里的名字。
+  static const Duration _productInfoTimeout = Duration(seconds: 5);
 
   /// 最近一次 [loadDeviceWifiList] 拿回来的、**设备自己扫到的** Wi-Fi 列表。
   List<DeviceWifiNetwork> _deviceWifiNetworks = <DeviceWifiNetwork>[];
@@ -692,10 +708,12 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 这台设备的云端产品名**还没有定论**。
   ///
-  /// 搜索页用它决定名字先画什么：还没定论时留白，不要把广播里那串标识先画出来、
-  /// 一两秒后再被产品名顶掉（见 `_FoundDevice.label`）。
+  /// 搜索页用它决定**这一行画不画**：还没定论时整行先不出现，名字定下来才连名字带行
+  /// 一起画出来（2026-09-14 产品口径：「等搜索到最后需要呈现的结果的字符，再在页面上
+  /// 展示」）。09-12 那版是先画「正在识别设备…」占位，产品看到的仍然是字换了一次。
   ///
-  /// 三种情况分清楚，少一种都会留下一个永远转不完的「正在识别设备…」：
+  /// 三种情况分清楚，少一种都会让一台设备迟迟不出现（查询本身另有
+  /// [_productInfoTimeout] 兜底）：
   ///
   /// 1. **查过了**（含查空、查失败，[_bleProductInfo] 里有键）→ 有定论，false。
   /// 2. **正在查** → true。
@@ -730,19 +748,23 @@ class FlowerpotState extends ChangeNotifier {
     for (final device in targets) {
       _productInfoInFlight.add(device.uuid);
       try {
-        _bleProductInfo[device.uuid] = await _repository.queryDeviceProductInfo(
-          productId: device.productId,
-          uuid: device.uuid,
-          mac: device.mac,
-        );
+        _bleProductInfo[device.uuid] = await _repository
+            .queryDeviceProductInfo(
+              productId: device.productId,
+              uuid: device.uuid,
+              mac: device.mac,
+            )
+            .timeout(_productInfoTimeout);
       } catch (_) {
-        // 查不到也要占位：不占的话每次扫描回调都会重试同一台。
+        // 查不到（含超时）也要占位：不占的话每次扫描回调都会重试同一台，而搜索页
+        // 也会一直把这一行压着不画。
         _bleProductInfo[device.uuid] = const BleProductInfo();
       } finally {
         _productInfoInFlight.remove(device.uuid);
       }
+      // 查完一台就通知一次：搜索页等的就是这一刻才画这一行，别让它陪着后面几台一起等。
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   List<DeviceWifiNetwork> get deviceWifiNetworks =>
@@ -773,10 +795,38 @@ class FlowerpotState extends ChangeNotifier {
   /// 不占锁了。
   ///
   /// 返回 false 表示这条路没开起来（BLE 不可用、或原生拒绝），调用方照常走 Wi-Fi。
+  ///
+  /// [owner] 是开这一轮的人，见 [_bleOwner]；[stopBleDiscovery] 据此判断还轮不轮得到它停。
   Future<bool> startBleDiscovery({
     Duration timeout = const Duration(seconds: 60),
+    Object? owner,
   }) async {
-    if (_bleScanning) return true;
+    // ⚠️ **每调一次都是全新的一轮，不沿用上一轮的任何结果**（2026-09-14 产品反馈：
+    // 「关闭了设备，去搜索还是会搜索出设备」「点击重新扫描扫描不到设备」）。
+    //
+    // 原来开头是一句 `if (_bleScanning) return true;`，两个问题叠在一起：
+    //
+    // 1. **扫到的设备从来不清。** [_bleDevices] 挂在全局状态上、和 App 活得一样久，搜到过
+    //    一次的设备，关机之后再进搜索页照样在列表里——就是产品说的「缓存」。
+    // 2. **「重新扫描」是空操作。** 原生扫描到时自己停了，Dart 这边从来没人把
+    //    [_bleScanning] 置回 false（原生发了 `bleScanStopped`，没人接），再点「重新扫描」
+    //    直接被那句 return 掉，原生根本没有重新开扫。
+    //
+    // 所以现在：还在扫就先停，清掉上一轮扫到的设备，再真的开一轮；扫描结束的事件也接上
+    // （[_bleStopSub]）。云端产品名（[_bleProductInfo]）**不清**：它只回答「这个 uuid
+    // 叫什么」，不决定设备在不在，留着还能让下一轮的名字立刻有定论。
+    _bleOwner = owner;
+    if (_bleScanning) {
+      _bleScanning = false;
+      try {
+        await _repository.stopBleScan();
+      } catch (_) {
+        // 停不掉也照样往下开：原生 `startBleScan` 开扫之前自己还会再停一次。
+      }
+    }
+    _bleDevices.clear();
+    _bleCallbackCount = 0;
+    notifyListeners();
     // ⚠️ **顺序是这条路的命门**：必须先把授权框弹掉、等用户答完，再去探测。
     //
     // 2026-09-11 真机踩的就是这个：搜索页把 BLE 那条 `unawaited` 出去、紧接着才调
@@ -802,10 +852,23 @@ class FlowerpotState extends ChangeNotifier {
       // 顺手把云端产品信息补上（内部去重 + 限量，不会每条回调都往返）。
       unawaited(refreshBleProductInfo());
     });
-    _bleCallbackCount = 0;
+    // 原生扫描到时 / SDK 自己停了：如实记下来。不接这条，[_bleScanning] 会一直是 true，
+    // 下一轮的判断全建在一个早就不成立的"还在扫"上。
+    //
+    // 原生只替**当前这一轮**报结束（旧一轮的回调代理被替换后不再上报），所以这里不必
+    // 担心重开时旧一轮迟到的结束事件把新一轮标成已结束。
+    _bleStopSub ??= _repository.bleScanStops.listen((_) {
+      if (!_bleScanning) return;
+      _bleScanning = false;
+      notifyListeners();
+    });
+    // 先置位再发起：SDK 若在 `startLeScan` 里就同步回了 `onScanStop`（没扫起来），那条
+    // 事件会先于方法调用返回到达，得让它能把状态纠正回 false。
+    _bleScanning = true;
     try {
       await _repository.startBleScan(timeout: timeout);
     } catch (error) {
+      _bleScanning = false;
       _bleAvailability = BleAvailability(
         available: availability.available,
         supported: availability.supported,
@@ -815,7 +878,6 @@ class FlowerpotState extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    _bleScanning = true;
     notifyListeners();
     return true;
   }
@@ -835,26 +897,38 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// **每条离开搜索页的路径都要调**：扫描回调在原生侧握着 Activity，而且在真的耗电。
   /// 没在扫时调用也安全。
-  Future<void> stopBleDiscovery() async {
+  ///
+  /// 带了 [owner] 而当前这一轮不是它开的（已经被别的搜索页重开过），就什么都不做——
+  /// 见 [_bleOwner]。不带 [owner] 时无条件停。
+  Future<void> stopBleDiscovery({Object? owner}) async {
+    if (owner != null && !identical(owner, _bleOwner)) return;
     await _bleSub?.cancel();
     _bleSub = null;
+    await _bleStopSub?.cancel();
+    _bleStopSub = null;
     _productInfoInFlight.clear();
-    if (!_bleScanning) return;
-    _bleScanning = false;
-    try {
-      await _repository.stopBleScan();
-    } catch (_) {
-      // 停不掉不该盖过调用方要做的事；最坏情况是多扫一会儿。
+    final wasScanning = _bleScanning;
+    if (wasScanning) {
+      _bleScanning = false;
+      try {
+        await _repository.stopBleScan();
+      } catch (_) {
+        // 停不掉不该盖过调用方要做的事；最坏情况是多扫一会儿。
+      }
     }
     // ⚠️ **把 BLE 链路也断掉。** 设备只有在**没有连接**时才会广播；配网中途失败留下的
     // 那条连接会让它从此扫不到（2026-09-11 真机：之前搜得到、配网失败之后就搜不到了）。
     // 放在停扫之后、不抛错：它的职责就是"无论如何把设备放回广播状态"。
+    //
+    // ⚠️ **不跟着「还在不在扫」走**：原来整段挂在 `if (!_bleScanning) return` 后面，而
+    // `_bleScanning` 以前扫描到时也不会置回 false，所以实际上每次都断。现在扫描结束会
+    // 如实置 false（见 [startBleDiscovery]），再挂在它后面就会在"扫描已经到时"的时候漏断。
     try {
       await _repository.disconnectBleDevice();
     } catch (_) {
       // 断不掉也不该打断调用方；下一次进页面还会再断一次。
     }
-    notifyListeners();
+    if (wasScanning) notifyListeners();
   }
 
   /// 走 BLE 问一台设备要**它自己扫到的** Wi-Fi 列表。
@@ -2833,6 +2907,8 @@ class FlowerpotState extends ChangeNotifier {
     // disposed」。所以拆开手写，只做释放、不通知——已经没人在听了。
     unawaited(_bleSub?.cancel() ?? Future<void>.value());
     _bleSub = null;
+    unawaited(_bleStopSub?.cancel() ?? Future<void>.value());
+    _bleStopSub = null;
     if (_bleScanning) {
       _bleScanning = false;
       unawaited(_repository.stopBleScan().catchError((Object _) {}));

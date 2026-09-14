@@ -897,7 +897,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "onScanStop" -> {
                     val reason = args?.firstOrNull()?.toString().orEmpty()
                     trace("ble scan: 已结束（$reason）")
-                    emit(mapOf("type" to "bleScanStopped", "reason" to reason))
+                    // ⚠️ **只替当前这一轮报结束**（2026-09-14）。Dart 现在靠这条事件把"在扫"
+                    // 置回 false；而「重新扫描」是先停旧的再开新的，旧代理的 onScanStop
+                    // 可能晚于新一轮开始才到——照发的话，正在跑的新一轮会被当成已结束。
+                    // 调用方主动停扫（`stopBleScan` 先把 bleScanner 置空）同样不报，那是
+                    // Dart 自己发起、自己知道的事。
+                    if (bleScanner === self) {
+                        emit(mapOf("type" to "bleScanStopped", "reason" to reason))
+                    }
                     defaultValue(method.returnType)
                 }
                 else -> defaultValue(method.returnType)
