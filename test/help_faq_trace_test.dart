@@ -25,7 +25,9 @@ void main() {
     expect(trace, contains('HTTP 200'));
     expect(trace, contains('language = 2（简中）'));
     expect(trace, contains('terminal = 1（安卓）'));
-    expect(trace, contains('broadcastId = yciq4kssu1fv8umn（产品ID，取自后台产品列表 broadcastId）'));
+    expect(trace, contains('broadcastId = yciq4kssu1fv8umn（取自getBasicData deviceIdList 第 1 个（共 2 个））'));
+    expect(trace, contains('【接口】GET /Client/Basic/getBasicData（取产品 ID）'));
+    expect(trace, contains('deviceIdList = yciq4kssu1fv8umn, second-id'));
     expect(trace, contains('"faqTitle": "测试测试"'));
     expect(trace, contains('接口返回 pageData 1 条（recordCount 1），页面显示 1 条'));
     // 令牌不整段上屏。
@@ -35,7 +37,7 @@ void main() {
     expect(trace, isNot(contains('%E2%80%A6')));
   });
 
-  test('产品 ID 取后台产品列表的 broadcastId，不取设备报的 productId', () async {
+  test('产品 ID 取 getBasicData 的 deviceIdList 第一个，不取设备报的 productId', () async {
     // 2026-09-14：设备（DeviceBean.getProductId）报的是 ehbx83xdh9jkmxvz，后台维护的是
     // yciq4kssu1fv8umn；以前优先取设备值，常见问题整条筛不出来。
     final backend = _TraceBackend();
@@ -56,11 +58,11 @@ void main() {
     await state.loadFaqs();
 
     expect(backend.requestedBroadcastIds.last, 'yciq4kssu1fv8umn');
-    expect(backend.productListCalls, greaterThanOrEqualTo(1));
+    expect(backend.basicDataCalls, 1);
   });
 
-  test('后台产品列表拉不到时退回本地常量', () async {
-    final backend = _TraceBackend(productsFail: true);
+  test('不写死兜底：deviceIdList 拿不到就不带 broadcastId，并写明原因', () async {
+    final backend = _TraceBackend(deviceIds: const <String>[]);
     final state = FlowerpotState(
       repository: MockTuyaRepository(latency: Duration.zero),
       backendRepository: backend,
@@ -69,8 +71,23 @@ void main() {
 
     await state.loadFaqs();
 
-    expect(backend.requestedBroadcastIds.last, 'yciq4kssu1fv8umn');
-    expect(state.faqTrace, contains('本地常量 TuyaConfig.productId'));
+    expect(backend.requestedBroadcastIds.last, '');
+    expect(state.faqTrace, contains('没有带 broadcastId：getBasicData 没有返回 deviceIdList'));
+    expect(state.faqTrace, isNot(contains('yciq4kssu1fv8umn')));
+  });
+
+  test('基础数据接口失败也不写死，原因带上错误', () async {
+    final backend = _TraceBackend(basicDataFails: true);
+    final state = FlowerpotState(
+      repository: MockTuyaRepository(latency: Duration.zero),
+      backendRepository: backend,
+    );
+    addTearDown(state.dispose);
+
+    await state.loadFaqs();
+
+    expect(backend.requestedBroadcastIds.last, '');
+    expect(state.faqTrace, contains('getBasicData 请求失败'));
   });
 
   test('没发请求时也要说清楚为什么', () async {
@@ -87,25 +104,27 @@ void main() {
 }
 
 class _TraceBackend extends DisabledAppBackendRepository {
-  _TraceBackend({this.session = true, this.productsFail = false});
+  _TraceBackend({
+    this.session = true,
+    this.deviceIds = const <String>['yciq4kssu1fv8umn', 'second-id'],
+    this.basicDataFails = false,
+  });
 
   final bool session;
-  final bool productsFail;
+  final List<String> deviceIds;
+  final bool basicDataFails;
   ApiExchange? _exchange;
   final List<String> requestedBroadcastIds = <String>[];
-  int productListCalls = 0;
+  int basicDataCalls = 0;
 
   @override
-  Future<List<BackendProduct>> getProducts() async {
-    productListCalls++;
-    if (productsFail) throw const ApiException(500, '接口不存在');
-    return const <BackendProduct>[
-      BackendProduct(
-        productId: 15,
-        productName: '智能花盆',
-        broadcastId: 'yciq4kssu1fv8umn',
-      ),
-    ];
+  Future<BackendBasicData> getBasicData() async {
+    basicDataCalls++;
+    if (basicDataFails) throw const ApiException(500, '服务器错误');
+    return BackendBasicData(
+      const <String, String>{'platformemail': 'a@b.test'},
+      deviceIdList: deviceIds,
+    );
   }
 
   @override

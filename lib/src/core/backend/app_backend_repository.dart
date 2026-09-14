@@ -16,6 +16,9 @@ abstract class AppBackendRepository {
   /// 帮助中心常见问题列表接口。
   static const String faqListPath = '/Client/Product/getProductFaqList';
 
+  /// 基础数据接口（平台邮箱、`deviceIdList` 等）。
+  static const String basicDataPath = '/Client/Basic/getBasicData';
+
   bool get enabled;
   bool get hasSession;
 
@@ -799,8 +802,24 @@ class HttpAppBackendRepository implements AppBackendRepository {
       }
     }
 
-    walk(await _client.getJson('/Client/Basic/getBasicData'));
-    return BackendBasicData(flattened);
+    final data = await _client.getJson(AppBackendRepository.basicDataPath);
+    walk(data);
+    // ⚠️ `deviceIdList` 是**字符串数组**，上面的拍平只收 Map 里的标量、List 里的 Map，
+    // 字符串数组整个会被跳过——所以单独取。
+    final rawIds = data is Map ? data['deviceIdList'] : null;
+    final deviceIdList = <String>[];
+    if (rawIds is List) {
+      for (final item in rawIds) {
+        final id = _nullableText(item);
+        if (id != null) deviceIdList.add(id);
+      }
+    } else {
+      // swagger 写的是数组；万一后端给成逗号拼接的字符串也认。
+      for (final part in (_nullableText(rawIds) ?? '').split(',')) {
+        if (part.trim().isNotEmpty) deviceIdList.add(part.trim());
+      }
+    }
+    return BackendBasicData(flattened, deviceIdList: deviceIdList);
   }
 
   @override

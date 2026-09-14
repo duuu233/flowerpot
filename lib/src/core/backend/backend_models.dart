@@ -150,7 +150,10 @@ class BackendAppVersion {
 /// 这里保留整张表，再按几组常见命名去取用户协议、隐私政策和关于我们。取不到
 /// 就返回 null，页面回落到内置文案，不会因为后台没配就变成空白页。
 class BackendBasicData {
-  const BackendBasicData(this.values);
+  const BackendBasicData(
+    this.values, {
+    this.deviceIdList = const <String>[],
+  });
 
   static const BackendBasicData empty = BackendBasicData(
     <String, String>{},
@@ -158,7 +161,14 @@ class BackendBasicData {
 
   final Map<String, String> values;
 
-  bool get isEmpty => values.isEmpty;
+  /// `retData.deviceIdList`：「平台设备id集合」（swagger `BasicDataApiOut`）。
+  ///
+  /// 帮助中心常见问题接口的 `broadcastId` 取这里的**第一个**（2026-09-14 产品：
+  /// 「取第一个，目前是，后面再说」）。单独存一份，因为 [values] 是拍平后的键值对，
+  /// 字符串数组在拍平时会丢。
+  final List<String> deviceIdList;
+
+  bool get isEmpty => values.isEmpty && deviceIdList.isEmpty;
 
   String? get userAgreement => _pick(const <String>[
     'userAgreement',

@@ -2750,28 +2750,44 @@ class FlowerpotState extends ChangeNotifier {
       _logInteraction('帮助中心 ✗ 未请求 getProductFaqList：$reason');
       return const <BackendFaq>[];
     }
-    // 产品 ID 取后台产品列表的 broadcastId（见 [_faqProductId]）。还没拉过就先拉一次；
-    // 拉不到不拦路，退回本地常量。
-    if (_backendBroadcastIds.isEmpty) await refreshProductCatalog();
-    final (productId, source) = _faqProductId();
-    final request =
-        'getProductFaqList broadcastId=$productId（产品ID，取自$source）';
+    // 产品 ID：每次进帮助中心先拉一次基础数据，取 `deviceIdList` 第一个（见 [_faqProductId]）。
+    // **不写死兜底**（2026-09-14 产品：「不要写死数据」）：拿不到就不带 broadcastId，
+    // 调试信息里写明原因。
+    final basicStartedAt = DateTime.now();
+    Object? basicError;
+    try {
+      _basicData = await _backend.getBasicData();
+    } catch (error) {
+      basicError = error;
+    }
+    final basicTrace = _describeBasicDataExchange(
+      startedAt: basicStartedAt,
+      error: basicError,
+    );
+    final (productId, source) = _faqProductId(basicError);
+    final request = productId.isEmpty
+        ? 'getProductFaqList 未带 broadcastId（$source）'
+        : 'getProductFaqList broadcastId=$productId（取自$source）';
     final startedAt = DateTime.now();
     try {
       final faqs = await _backend.getFaqs(broadcastId: productId);
-      _faqTrace = _describeFaqExchange(
+      final faqTrace = _describeFaqExchange(
         startedAt: startedAt,
+        productId: productId,
         productIdSource: source,
         shown: faqs.length,
       );
+      _faqTrace = '$basicTrace\n\n$faqTrace';
       _logInteraction('帮助中心 ← $request，返回 ${faqs.length} 条');
       return faqs;
     } catch (error) {
-      _faqTrace = _describeFaqExchange(
+      final faqTrace = _describeFaqExchange(
         startedAt: startedAt,
+        productId: productId,
         productIdSource: source,
         error: error,
       );
+      _faqTrace = '$basicTrace\n\n$faqTrace';
       _logInteraction('帮助中心 ✗ $request：$error');
       return const <BackendFaq>[];
     }
@@ -2780,8 +2796,42 @@ class FlowerpotState extends ChangeNotifier {
   /// 把 [AppBackendRepository.lastExchange] 那份原始记录排成人读得懂的一段。
   ///
   /// userToken 只露头尾（页面会被截图转发）；其余参数、请求头、响应体原样。
+  /// 基础数据那一次请求：地址、状态、返回体、解析出的 `deviceIdList`。
+  String _describeBasicDataExchange({
+    required DateTime startedAt,
+    Object? error,
+  }) {
+    final lines = <String>['【接口】GET ${AppBackendRepository.basicDataPath}（取产品 ID）'];
+    final exchange = _backend.lastExchange(AppBackendRepository.basicDataPath);
+    final current =
+        exchange != null &&
+        !exchange.at.isBefore(startedAt.subtract(const Duration(seconds: 1)));
+    if (current) {
+      final status = exchange.statusCode;
+      final statusText = status == null ? '没有拿到响应' : 'HTTP $status';
+      lines
+        ..add(
+          '【结果】耗时 ${exchange.elapsed.inMilliseconds}ms · $statusText',
+        )
+        ..add('【完整地址】${_maskedUrl(exchange.url)}');
+      final failure = exchange.error;
+      if (failure != null) lines.add('【网络错误】$failure');
+      lines
+        ..add('【返回】')
+        ..add(exchange.responseBody.isEmpty ? '（空）' : exchange.responseBody);
+    } else {
+      lines.add('【结果】没有拿到本次请求的记录（请求可能没有发出去）');
+    }
+    if (error != null) lines.add('【错误】$error');
+    final ids = _basicData.deviceIdList;
+    final idsText = ids.isEmpty ? '（空）' : ids.join(', ');
+    lines.add('【App 解析】deviceIdList = $idsText');
+    return lines.join('\n');
+  }
+
   String _describeFaqExchange({
     required DateTime startedAt,
+    required String productId,
     required String productIdSource,
     int? shown,
     Object? error,
@@ -2811,6 +2861,9 @@ class FlowerpotState extends ChangeNotifier {
     exchange.url.queryParameters.forEach((key, value) {
       lines.add('  $key = ${_describeFaqParam(key, value, productIdSource)}');
     });
+    if (productId.isEmpty) {
+      lines.add('  （没有带 broadcastId：$productIdSource）');
+    }
     lines.add('【请求头】');
     exchange.headers.forEach((key, value) {
       final bearer = value.startsWith('Bearer ') ? value.substring(7) : value;
@@ -2868,7 +2921,7 @@ class FlowerpotState extends ChangeNotifier {
       'userToken' => _maskToken(value),
       'language' => '$value（$languageLabel）',
       'terminal' => '$value（$terminalLabel）',
-      'broadcastId' => '$value（产品ID，取自$source）',
+      'broadcastId' => '$value（取自$source）',
       _ => value,
     };
   }
@@ -2886,31 +2939,32 @@ class FlowerpotState extends ChangeNotifier {
       ? '***'
       : '${token.substring(0, 6)}…${token.substring(token.length - 4)}';
 
-  /// 常见问题筛选用的产品 ID，即请求参数 `broadcastId` 的值。
+  /// 常见问题筛选用的产品 ID，即请求参数 `broadcastId` 的值；拿不到为空串（不带这个参数）。
   ///
-  /// ⚠️ **口径（2026-09-14 产品明确）：接口要的「产品 ID」= 后台产品列表返回的 `broadcastId`**，
-  /// 后台维护的是 `yciq4kssu1fv8umn`。取值顺序：
+  /// **口径（2026-09-14 产品）**：取 `/Client/Basic/getBasicData` 返回的 `deviceIdList`
+  /// （「平台设备id集合」）的**第一个**——「取第一个，目前是，后面再说」。
   ///
-  /// 1. 后台产品列表（[refreshProductCatalog]）里有 [TuyaConfig.productId] → 就用它；
-  ///    列表里只有一个产品 → 用那一个；
-  /// 2. 列表没拉到 → 本地常量 [TuyaConfig.productId]（本 App 只有这一款产品）。
+  /// ⛔ **不写死兜底**（产品：「不要写死数据」）。拿不到（接口失败、列表为空）就不带
+  /// broadcastId，原因写进帮助中心的调试信息。
   ///
-  /// ⛔ **不要再取设备的 `productId`。** 那是涂鸦 SDK `DeviceBean.getProductId()` 给的值，
-  /// 这台花盆报的是 `ehbx83xdh9jkmxvz`（即 [TuyaConfig.broadcastId]，BLE 广播里那个），
-  /// 和后台的产品 ID 不是一个东西。2026-09-12～14 这里一直优先取设备值，帮助中心按
-  /// `broadcastId=ehbx83xdh9jkmxvz` 去查，后台那条挂在 `yciq4kssu1fv8umn` 下的常见问题就筛不出来——
-  /// 页面下方的调试信息打出来才看到。
+  /// ⛔ **不取设备的 `productId`**：涂鸦 SDK `DeviceBean.getProductId()` 对这台花盆报的是
+  /// `ehbx83xdh9jkmxvz`（BLE 广播标识），和后台的产品 ID `yciq4kssu1fv8umn` 不是一个值。
+  /// 2026-09-12～14 这里一直优先取设备值，后台那条常见问题就筛不出来。
+  ///
+  /// ⛔ 也不走 `/Client/Product/getProductList`（[refreshProductCatalog]）：那条路径在
+  /// swagger 里没有，线上返回和不存在的路径一模一样的 500。
   String get faqBroadcastId => _faqProductId().$1;
 
   /// [faqBroadcastId] 连同它是从哪来的，调试信息里要把来源一起打出来。
-  (String, String) _faqProductId() {
-    if (_backendBroadcastIds.contains(TuyaConfig.productId)) {
-      return (TuyaConfig.productId, '后台产品列表 broadcastId');
+  (String, String) _faqProductId([Object? basicDataError]) {
+    final ids = _basicData.deviceIdList;
+    if (ids.isNotEmpty) {
+      return (ids.first, 'getBasicData deviceIdList 第 1 个（共 ${ids.length} 个）');
     }
-    if (_backendBroadcastIds.length == 1) {
-      return (_backendBroadcastIds.first, '后台产品列表 broadcastId');
-    }
-    return (TuyaConfig.productId, '本地常量 TuyaConfig.productId（后台产品列表未拉到）');
+    final why = basicDataError == null
+        ? 'getBasicData 没有返回 deviceIdList'
+        : 'getBasicData 请求失败：$basicDataError';
+    return ('', why);
   }
 
   Future<void> setLanguage(String code) async {

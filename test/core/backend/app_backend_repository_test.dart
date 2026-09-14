@@ -46,6 +46,30 @@ void main() {
     repository.close();
   });
 
+  test('基础数据：deviceIdList（字符串数组）单独解析出来，平台邮箱照常可取', () async {
+    final session = ApiSession(storageKey: 'backend.basic.token')
+      ..setToken('api-token');
+    final repository = HttpAppBackendRepository(
+      client: ApiClient(
+        baseUrl: 'https://example.test',
+        session: session,
+        httpClient: MockClient(
+          (_) async => _response(<String, Object?>{
+            'deviceIdList': <String>['yciq4kssu1fv8umn', 'other-id'],
+            'platformEmail': 'service@example.test',
+          }),
+        ),
+      ),
+    );
+
+    final data = await repository.getBasicData();
+
+    // 拍平只收标量，字符串数组以前整个被丢掉——帮助中心就拿不到产品 ID。
+    expect(data.deviceIdList, <String>['yciq4kssu1fv8umn', 'other-id']);
+    expect(data.values['platformemail'], 'service@example.test');
+    repository.close();
+  });
+
   test('verification login registers an unknown mobile', () async {
     final requests = <http.Request>[];
     final session = ApiSession(storageKey: 'backend.code-login.token');
