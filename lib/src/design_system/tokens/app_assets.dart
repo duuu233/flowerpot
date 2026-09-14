@@ -22,7 +22,7 @@ abstract final class AppAssets {
   static const String pairingDeviceSelectionIllustration =
       'assets/images/pairing_device_selection_illustration.png';
   static const String pairingWifiSetupIllustration =
-      'assets/images/pairing_wifi_setup_illustration.png';
+      'assets/images/pairing_wifi_setup_illustration.gif';
   static const String pairingFailureIllustration =
       'assets/images/pairing_failure_illustration.png';
   static const String pairingSuccessIllustration =
