@@ -8,7 +8,7 @@ import '../../../../tuya/tuya_models.dart';
 /// 盖在「连接Wi-Fi」页上，而不是单独一条路由：配网是 `pairViaHotspot` 一次
 /// await 走完的，中途把页面换掉就没人在等那个 Future 了，成功/失败也没地方跳。
 /// 三步的状态来自 [FlowerpotState.pairingStage]。
-class PairingProgressView extends StatelessWidget {
+class PairingProgressView extends StatefulWidget {
   const PairingProgressView({
     required this.stage,
     required this.onCancel,
@@ -16,7 +16,13 @@ class PairingProgressView extends StatelessWidget {
     super.key,
   });
 
+  /// 取消确认框的文案（2026-09-14 产品指定）。
+  static const String cancelConfirmTitle = '取消配网';
+  static const String cancelConfirmMessage = '当前设备正在配网中，确定是否取消？';
+
   final PairingStage stage;
+
+  /// **用户在确认框里点了「取消配网」之后**才调；直接点页面上那颗按钮只会弹确认框。
   final VoidCallback onCancel;
 
   /// 正在等用户处理**系统**弹框时显示的一句话（没有就传 null）。
@@ -27,7 +33,74 @@ class PairingProgressView extends StatelessWidget {
   final String? notice;
 
   @override
+  State<PairingProgressView> createState() => _PairingProgressViewState();
+}
+
+class _PairingProgressViewState extends State<PairingProgressView> {
+  /// 「取消配网」的二次确认框正显示着（2026-09-14 产品：配网中点取消要二次确认）。
+  ///
+  /// ⚠️ **确认框画在本组件里，不用 `showDialog` 弹一条路由。** 配网随时可能在框开着时结束：
+  /// 配网页随即 `pushReplacementNamed` 去成功页 / 失败页，而 `pushReplacement` 替换的是
+  /// **最上层**那条路由——框是路由的话被替换掉的就是框，配网页反倒留在成功页底下。
+  /// 画在进度页里，配网一结束进度页连同框一起消失，导航不受影响。
+  bool _confirmingCancel = false;
+
+  void _askCancel() => setState(() => _confirmingCancel = true);
+
+  void _dismissCancel() {
+    if (!_confirmingCancel) return;
+    setState(() => _confirmingCancel = false);
+  }
+
+  void _confirmCancel() {
+    if (!_confirmingCancel) return;
+    setState(() => _confirmingCancel = false);
+    widget.onCancel();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    return PopScope(
+      // 框开着时返回键只关框，与路由式弹框的手感一致。
+      canPop: !_confirmingCancel,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _dismissCancel();
+      },
+      child: Stack(
+        children: <Widget>[
+          _buildProgress(context),
+          if (_confirmingCancel) ...<Widget>[
+            Positioned.fill(
+              child: ModalBarrier(
+                key: const Key('pairing-cancel-barrier'),
+                color: Colors.black.withValues(alpha: .4),
+                onDismiss: _dismissCancel,
+              ),
+            ),
+            Center(
+              child: AppDialog(
+                title: PairingProgressView.cancelConfirmTitle,
+                message: PairingProgressView.cancelConfirmMessage,
+                tone: AppDialogTone.danger,
+                confirmLabel: '取消配网',
+                // 不用默认的「取消」：框里问的就是「是否取消」，按钮再写「取消」分不清是
+                // 取消配网还是关掉这个框。
+                cancelLabel: '继续配网',
+                confirmKey: const Key('pairing-cancel-confirm'),
+                cancelKey: const Key('pairing-cancel-dismiss'),
+                onConfirm: _confirmCancel,
+                onCancel: _dismissCancel,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgress(BuildContext context) {
+    final stage = widget.stage;
+    final notice = widget.notice;
     final current = PairingStage.steps.indexOf(stage);
     return ColoredBox(
       color: AppColors.canvas,
@@ -106,7 +179,7 @@ class PairingProgressView extends StatelessWidget {
                     SizedBox(height: compact ? 16 : 20),
                     TextButton(
                       key: const Key('pairing-progress-cancel'),
-                      onPressed: onCancel,
+                      onPressed: _askCancel,
                       child: const Text(
                         '取消配网',
                         style: TextStyle(

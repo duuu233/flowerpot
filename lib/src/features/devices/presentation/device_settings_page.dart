@@ -108,9 +108,8 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
     SmartPlanterDevice device,
     DeviceSettingsMenuKind kind,
   ) {
-    // 帮助中心和设备无关，其余每一项点进去都要先确认设备在线。
-    if (kind != DeviceSettingsMenuKind.helpCenter &&
-        !ensureDeviceOnline(context, device.id)) {
+    // 每一项点进去都要先确认设备在线。
+    if (!ensureDeviceOnline(context, device.id)) {
       return;
     }
     if (kind == DeviceSettingsMenuKind.plant) {
@@ -143,7 +142,6 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage> {
       DeviceSettingsMenuKind.vibration => AppRoutes.vibrationSettings,
       DeviceSettingsMenuKind.behavior => AppRoutes.behaviorSettings,
       DeviceSettingsMenuKind.memorial => AppRoutes.memorial,
-      DeviceSettingsMenuKind.helpCenter => AppRoutes.help,
       DeviceSettingsMenuKind.other => AppRoutes.deviceOtherSettings,
       DeviceSettingsMenuKind.plantDetection => AppRoutes.plantDetectionSettings,
     };

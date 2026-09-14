@@ -29,6 +29,41 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('点「取消配网」先弹二次确认；「继续配网」关框不取消，确认后才取消', (tester) async {
+    var cancelled = 0;
+    await _pumpWithCancel(tester, () => cancelled++);
+
+    await tester.tap(find.byKey(const Key('pairing-progress-cancel')));
+    await tester.pump();
+    expect(find.text('当前设备正在配网中，确定是否取消？'), findsOneWidget);
+    expect(cancelled, 0);
+
+    await tester.tap(find.byKey(const Key('pairing-cancel-dismiss')));
+    await tester.pump();
+    expect(find.text('当前设备正在配网中，确定是否取消？'), findsNothing);
+    expect(cancelled, 0);
+
+    await tester.tap(find.byKey(const Key('pairing-progress-cancel')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('pairing-cancel-confirm')));
+    await tester.pump();
+    expect(find.text('当前设备正在配网中，确定是否取消？'), findsNothing);
+    expect(cancelled, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('确认框开着时点遮罩只关框', (tester) async {
+    var cancelled = 0;
+    await _pumpWithCancel(tester, () => cancelled++);
+
+    await tester.tap(find.byKey(const Key('pairing-progress-cancel')));
+    await tester.pump();
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pump();
+    expect(find.text('当前设备正在配网中，确定是否取消？'), findsNothing);
+    expect(cancelled, 0);
+  });
+
   testWidgets('第三步进行中：前两步都是对勾，转圈落在第三步', (tester) async {
     await _pump(tester, PairingStage.connectingCloud);
 
@@ -36,6 +71,23 @@ void main() {
     expect(find.byIcon(Icons.check), findsNWidgets(2));
     expect(tester.takeException(), isNull);
   });
+}
+
+Future<void> _pumpWithCancel(WidgetTester tester, VoidCallback onCancel) async {
+  await tester.binding.setSurfaceSize(const Size(375, 812));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: PairingProgressView(
+          stage: PairingStage.sendingWifi,
+          onCancel: onCancel,
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
 }
 
 Future<void> _pump(WidgetTester tester, PairingStage stage) async {

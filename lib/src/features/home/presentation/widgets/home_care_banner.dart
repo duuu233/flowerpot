@@ -7,8 +7,8 @@ import '../../../../design_system/design_system.dart';
 /// 首页「今日养护」：把四条状态建议轮流播出来。
 ///
 /// 一条状态一句话（需水 → 光照 → 温度 → 湿度，与上面四张卡片同序同源），每
-/// [interval] 换一条：旧的一句往下淡出、新的一句从下面淡入。只有一条时不轮播，
-/// 也不起定时器。
+/// [interval] 换一条：**旧的一句整体往上滚出、新的一句从下面滚进来**（文字滚动轮播，
+/// 2026-09-14 产品：不要渐变效果）。只有一条时不轮播，也不起定时器。
 class HomeCareBanner extends StatefulWidget {
   const HomeCareBanner({
     required this.messages,
@@ -56,13 +56,17 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
   /// 一条换下一条的**动画时长**，不是轮播间隔（那是 [HomeCareBanner.interval]，
   /// 2026-09-12 起 8 秒换一条）。产品先后提了两次，指的是不同的东西，别弄混：
   ///
-  /// - 「滚动速率慢一点」→ 改的是这里：旧的一句往下淡出、新的从下面淡入，这个
-  ///   位移+淡入过程走多久。420ms 显得"刷"一下就过去了，放到 900ms 读起来从容。
+  /// - 「滚动速率慢一点」→ 改的是这里：旧的一句滚出、新的一句滚进，这个位移过程走多久。
+  ///   420ms 显得"刷"一下就过去了，放到 900ms 读起来从容。
   /// - 「轮播间隙时间再长一点」→ 改的是 [HomeCareBanner.interval]，5 秒 → 8 秒。
   static const Duration _transition = Duration(milliseconds: 900);
 
   int _index = 0;
   Timer? _timer;
+
+  /// 当前这一句的 key。滚动动画靠它分辨「进来的」和「出去的」（见 build 里的
+  /// `transitionBuilder`）。
+  Key _messageKey = const ValueKey<String>('');
 
   @override
   void initState() {
@@ -148,6 +152,7 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
     }
     final messages = widget.messages;
     final message = messages.isEmpty ? '' : messages[_index % messages.length];
+    _messageKey = ValueKey<String>('$_index:$message');
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 44),
       child: AppSurfaceCard(
@@ -177,34 +182,47 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
             Expanded(
               child: SizedBox(
                 height: _messageHeight,
-                child: AnimatedSwitcher(
-                  duration: _transition,
-                  // 时长拉长之后曲线也要换：`easeOutCubic` 尾巴收得太快，
-                  // 900ms 下会显得"前面猛冲、最后一截停住"。`easeInOut` 两头都缓，
-                  // 整段匀一些，才是"慢"而不是"拖"。
-                  switchInCurve: Curves.easeInOut,
-                  switchOutCurve: Curves.easeInOut,
-                  transitionBuilder: (child, animation) => FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, .35),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
+                // **文字滚动轮播**（2026-09-14 产品：「改为文字滚动轮播的效果，不要这种渐变的效果」）：
+                // 旧的一句整体往上滚出这一格、新的一句从格子下沿滚进来，全程不透明度不变。
+                // 滚动距离是整格高度（Offset 1.0），格子外的部分由 [ClipRect] 裁掉。
+                //
+                // 原来是 `FadeTransition` 叠一小段 `SlideTransition`（0.35 格）：新旧两句在
+                // 同一位置半透明地重叠一下，产品看到的就是「渐变」。
+                child: ClipRect(
+                  child: AnimatedSwitcher(
+                    duration: _transition,
+                    // 时长拉长之后曲线也要换：`easeOutCubic` 尾巴收得太快，
+                    // 900ms 下会显得"前面猛冲、最后一截停住"。`easeInOut` 两头都缓，
+                    // 整段匀一些，才是"慢"而不是"拖"。
+                    switchInCurve: Curves.easeInOut,
+                    switchOutCurve: Curves.easeInOut,
+                    layoutBuilder: (current, previous) => Stack(
+                      alignment: Alignment.centerLeft,
+                      children: <Widget>[...previous, ?current],
                     ),
-                  ),
-                  child: Align(
-                    // 语言切换后同一个下标也要重播，所以键里带上文案本身。
-                    key: ValueKey<String>('$_index:$message'),
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      message,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.compactBody.copyWith(
-                        color: AppColors.textPrimary,
-                        height: 1.35,
+                    transitionBuilder: (child, animation) {
+                      // AnimatedSwitcher 对进出两句用同一个 builder：进来的那句动画 0→1，
+                      // 出去的那句是反着播 1→0。按 key 分开，进来的从下面（+1）滚到 0，
+                      // 出去的从 0 滚到上面（-1）。
+                      final entering = child.key == _messageKey;
+                      final offset = Tween<Offset>(
+                        begin: Offset(0, entering ? 1 : -1),
+                        end: Offset.zero,
+                      ).animate(animation);
+                      return SlideTransition(position: offset, child: child);
+                    },
+                    child: Align(
+                      // 语言切换后同一个下标也要重播，所以键里带上文案本身。
+                      key: _messageKey,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        message,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.compactBody.copyWith(
+                          color: AppColors.textPrimary,
+                          height: 1.35,
+                        ),
                       ),
                     ),
                   ),

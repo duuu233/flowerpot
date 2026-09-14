@@ -18,6 +18,8 @@ void main() {
     expect(find.text('选择植物'), findsOneWidget);
     expect(find.text('冷水花'), findsOneWidget);
     expect(find.text('其他设置'), findsOneWidget);
+    // 2026-09-14 帮助中心挪到首页快捷列表，设置页不再有这一行。
+    expect(find.text('帮助中心'), findsNothing);
 
     await tester.tap(find.text('显示'));
     expect(selected, <DeviceSettingsMenuKind>[DeviceSettingsMenuKind.display]);

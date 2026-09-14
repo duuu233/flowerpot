@@ -2728,7 +2728,19 @@ class FlowerpotState extends ChangeNotifier {
   /// 请求本身只打在 debug 控制台，产品在真机上看不到——所以带了什么参数、回来几条，
   /// 在联调日志里记一行（2026-09-14 产品要核对「接口是不是传了产品 ID」）。
   Future<List<BackendFaq>> loadFaqs() async {
-    if (!_backend.enabled || !_backend.hasSession) return const <BackendFaq>[];
+    if (!_backend.enabled || !_backend.hasSession) {
+      // 以前这一支静默返回空：页面画「暂无常见问题」，联调日志里什么都没有，看起来
+      // 就像「后台配了数据却不显示」。没发请求要说出来（2026-09-14）。
+      //
+      // ⚠️ 先让出一次：帮助中心是在 `didChangeDependencies` 里调进来的，这一支没有别的
+      // await，直接记日志会在 build 期间 notifyListeners 而抛异常。
+      await Future<void>.value();
+      _logInteraction(
+        '帮助中心 ✗ 未请求 getProductFaqList：'
+        '${_backend.enabled ? 'APP 后端登录态已失效' : 'APP 后端未启用'}',
+      );
+      return const <BackendFaq>[];
+    }
     final (productId, source) = _faqProductId();
     final request =
         'getProductFaqList broadcastId=$productId（涂鸦产品ID，取自$source）';
