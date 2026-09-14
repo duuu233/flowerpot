@@ -803,6 +803,41 @@ class _PairingRepository extends MockTuyaRepository {
     expect(state.deviceWifiNetworks.first.needsPassword, isTrue);
   });
 
+  testWidgets('配网成功后第三步「连接云端」停一下再结束（1–2 秒随机，走个流程）', (
+    tester,
+  ) async {
+    // 2026-09-14 产品：「第三步假效果又没有了，给个 1-2 秒的随机数延迟」。
+    // 09-11 以「最简洁」删过一次（`a0aa3bf`），这条用例守着它别再被删。
+    // 全局测试配置把停留置零了，这里换成固定的 1.5 秒来验。
+    FlowerpotState.cloudStageDelay = () => const Duration(milliseconds: 1500);
+    final repository = _PairingRepository();
+    final state = await _stateFor(tester, repository);
+
+    var done = false;
+    final pending = state
+        .pairViaBle(uuid: 'uuid-modern', ssid: 'Home_2.4G', password: '1234')
+        .whenComplete(() => done = true);
+    // Mock 的配网本身要 1 秒。
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+
+    // SDK 已经回了成功，但还停在第三步。
+    expect(state.pairingStage, PairingStage.connectingCloud);
+    expect(done, isFalse);
+
+    await tester.pump(const Duration(milliseconds: 1500));
+    final result = await pending;
+    expect(result.success, isTrue);
+    expect(state.pairingStage, PairingStage.idle);
+  });
+
+  test('第三步停留的生产取值落在 1–2 秒之间', () {
+    for (var i = 0; i < 500; i++) {
+      final delay = FlowerpotState.randomCloudStageDelay().inMilliseconds;
+      expect(delay, inInclusiveRange(1000, 2000));
+    }
+  });
+
   testWidgets('双模配网：凭据经蓝牙下发，全程不碰设备热点', (tester) async {
     final repository = _PairingRepository();
     final state = await _stateFor(tester, repository);

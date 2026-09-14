@@ -196,12 +196,17 @@ class PairingFailurePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 版式从「Stack + 写死的 Positioned 偏移」改成正常的纵向流。
+    // **一屏平铺，不滚动**（2026-09-14 产品：「文字部分出现了折叠、滚动条的效果，不要这种
+    // 效果，平铺到一个首屏里面，下面的小提示可以适当往下移」）。
     //
-    // 原来标题在 top:315、副标题 top:362、小提示卡 top:400 —— 副标题只有 38px 的空档，
-    // 而它是 14px/1.5 的两行（42px），失败码带上提示语时必然顶进小提示卡里，看起来就是
-    // 两段文字重叠。同一段 `SizedBox(height: max(690, 屏高))` 还把内容硬撑到 690，
-    // 于是矮屏上凭空多出一条滚动条。现在让每段自己占高度，短屏才滚。
+    // 以前是 `SingleChildScrollView` + `IntrinsicHeight`，失败原因一长（提示语 + 失败码 +
+    // 各步耗时，常常四五行）整页就超出一屏、出滚动条，按钮和小提示被挤到屏幕外。现在分三段：
+    //
+    // 1. 上半区（`_FailureSummary`）吃掉按钮和小提示之外的**全部**高度：插图随文字多少
+    //    缩放（200 → 最小 96），文字一个字都不截；极端情况（超矮屏 + 超长原因）才整块等比缩。
+    // 2. 小提示卡**贴着按钮上方**，和设计稿 `docs/UI/连接设备失败.png` 一样，中间的空白留在
+    //    文字和小提示之间。
+    // 3. 按钮沉底。
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '连接设备', leading: AppBackButton()),
       background: AppPageBackground.account,
@@ -209,119 +214,181 @@ class PairingFailurePage extends StatelessWidget {
         builder: (context, constraints) {
           final horizontalPadding = constraints.maxWidth < 360 ? 12.0 : 20.0;
           final compact = constraints.maxHeight < 690;
-          return SingleChildScrollView(
-            key: const Key('pairing-failure-scroll-view'),
-            child: ConstrainedBox(
-              // 撑满一屏，好让两个按钮沉到底部；内容比一屏高时照常滚。
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: IntrinsicHeight(
-                child: ResponsiveContent(
-                  padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      // 插图上下的留白是这一页唯一能让的地方：失败原因一多，
-                      // 副标题就涨到三四行，再按原来的 70 + 235 + 24 排，底部那颗
-                      // 「返回搜索设备」会被挤出首屏、只露出上半截。
-                      SizedBox(height: compact ? 16 : 36),
-                      Center(child: _FailureRadar(size: compact ? 160 : 200)),
-                      SizedBox(height: compact ? 10 : 16),
-                      const Text(
-                        '配网失败，请重试',
-                        key: Key('pairing-failure-title'),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 24,
-                          fontWeight: FontWeight.w600,
-                          height: 1.3,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _subtitle,
-                        key: const Key('pairing-failure-subtitle'),
-                        textAlign: TextAlign.center,
-                        // 行数不再写死 2：失败码带上提示语时本来就是三四行，
-                        // 截断反而把唯一能照着做的那句话吃掉了。
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 14,
-                          height: 1.5,
-                        ),
-                      ),
-                      SizedBox(height: compact ? 14 : 18),
-                      const _FailureTipCard(),
-                      // 内容不足一屏时把按钮推到底部；够高时 24 就是普通间距。
-                      // `IntrinsicHeight` 是 SingleChildScrollView 里用 Expanded
-                      // 的标准写法：没有它，Column 拿到的高度约束是无界的，Expanded
-                      // 会直接抛「non-zero flex but unbounded height」。
-                      SizedBox(height: compact ? 14 : 20),
-                      const Expanded(child: SizedBox.shrink()),
-                      SizedBox(
-                        height: 50,
-                        child: FilledButton(
-                          key: const Key('retry-pairing-button'),
-                          onPressed: () => _retry(context),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.brandPrimary,
-                            foregroundColor: AppColors.surface,
-                            shape: const StadiumBorder(),
-                            textStyle: const TextStyle(fontSize: 19),
-                          ),
-                          child: const Text('重新配网'),
-                        ),
-                      ),
-                      // **蓝牙那条失败后的退路。**双模的承诺是「自动优选最佳方式、
-                      // 提升成功率」，只在发现阶段优选是不够的——这条真的没成时得有
-                      // 另一条路。做成按钮而不是自动回落：自动重试要再等一轮超时，
-                      // 而且 AP 必然弹一次系统框，在用户以为结束的时刻冒出来更糟。
-                      if (_offerHotspotFallback) ...<Widget>[
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: 50,
-                          child: OutlinedButton(
-                            key: const Key('retry-over-hotspot-button'),
-                            onPressed: () => _retryOverHotspot(context),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.brandPrimary,
-                              side: const BorderSide(
-                                color: AppColors.brandPrimary,
-                              ),
-                              shape: const StadiumBorder(),
-                              textStyle: const TextStyle(fontSize: 19),
-                            ),
-                            child: const Text('改用热点方式配网'),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        height: 50,
-                        child: OutlinedButton(
-                          key: const Key('return-device-selection-button'),
-                          onPressed: () => _returnToDevices(context),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.brandPrimary,
-                            side: const BorderSide(
-                              color: AppColors.brandPrimary,
-                            ),
-                            shape: const StadiumBorder(),
-                            textStyle: const TextStyle(fontSize: 19),
-                          ),
-                          child: const Text('返回搜索设备'),
-                        ),
-                      ),
-                      SizedBox(height: compact ? 16 : 24),
-                    ],
+          return ResponsiveContent(
+            key: const Key('pairing-failure-content'),
+            padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+            child: SizedBox(
+              height: constraints.maxHeight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Expanded(
+                    child: _FailureSummary(subtitle: _subtitle, compact: compact),
                   ),
-                ),
+                  SizedBox(height: compact ? 12 : 16),
+                  const _FailureTipCard(),
+                  SizedBox(height: compact ? 14 : 24),
+                  SizedBox(
+                    height: 50,
+                    child: FilledButton(
+                      key: const Key('retry-pairing-button'),
+                      onPressed: () => _retry(context),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.brandPrimary,
+                        foregroundColor: AppColors.surface,
+                        shape: const StadiumBorder(),
+                        textStyle: const TextStyle(fontSize: 19),
+                      ),
+                      child: const Text('重新配网'),
+                    ),
+                  ),
+                  // **蓝牙那条失败后的退路。**双模的承诺是「自动优选最佳方式、
+                  // 提升成功率」，只在发现阶段优选是不够的——这条真的没成时得有
+                  // 另一条路。做成按钮而不是自动回落：自动重试要再等一轮超时，
+                  // 而且 AP 必然弹一次系统框，在用户以为结束的时刻冒出来更糟。
+                  if (_offerHotspotFallback) ...<Widget>[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 50,
+                      child: OutlinedButton(
+                        key: const Key('retry-over-hotspot-button'),
+                        onPressed: () => _retryOverHotspot(context),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.brandPrimary,
+                          side: const BorderSide(color: AppColors.brandPrimary),
+                          shape: const StadiumBorder(),
+                          textStyle: const TextStyle(fontSize: 19),
+                        ),
+                        child: const Text('改用热点方式配网'),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 50,
+                    child: OutlinedButton(
+                      key: const Key('return-device-selection-button'),
+                      onPressed: () => _returnToDevices(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.brandPrimary,
+                        side: const BorderSide(color: AppColors.brandPrimary),
+                        shape: const StadiumBorder(),
+                        textStyle: const TextStyle(fontSize: 19),
+                      ),
+                      child: const Text('返回搜索设备'),
+                    ),
+                  ),
+                  SizedBox(height: compact ? 16 : 24),
+                ],
               ),
             ),
           );
         },
       ),
     );
+  }
+}
+
+/// 失败页上半区：插图 + 标题 + 失败原因。**永远不滚动、不截断文字。**
+///
+/// 父级给多高就在多高里排完：先量出标题和失败原因要占的高度，剩下的给插图
+/// （最大 [_maxArt]，最小 [_minArt]）。插图缩到最小还放不下时（超矮屏 + 超长失败原因），
+/// 整块按比例缩小——宁可字小一点，也不出滚动条、不把按钮挤出屏幕。
+class _FailureSummary extends StatelessWidget {
+  const _FailureSummary({required this.subtitle, required this.compact});
+
+  final String subtitle;
+  final bool compact;
+
+  static const double _maxArt = 200;
+  static const double _minArt = 96;
+  static const double _titleGap = 12;
+
+  static const String _title = '配网失败，请重试';
+
+  static const TextStyle _titleStyle = TextStyle(
+    color: AppColors.textPrimary,
+    fontSize: 24,
+    fontWeight: FontWeight.w600,
+    height: 1.3,
+  );
+
+  static const TextStyle _subtitleStyle = TextStyle(
+    color: AppColors.textSecondary,
+    fontSize: 14,
+    height: 1.5,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final topGap = compact ? 12.0 : 28.0;
+        final artGap = compact ? 10.0 : 16.0;
+        final textHeight =
+            _measure(context, _title, _titleStyle, constraints.maxWidth) +
+            _titleGap +
+            _measure(context, subtitle, _subtitleStyle, constraints.maxWidth);
+        final art = (constraints.maxHeight - topGap - artGap - textHeight)
+            .clamp(_minArt, _maxArt)
+            .toDouble();
+        return FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                SizedBox(height: topGap),
+                Center(child: _FailureRadar(size: art)),
+                SizedBox(height: artGap),
+                const Text(
+                  _title,
+                  key: Key('pairing-failure-title'),
+                  textAlign: TextAlign.center,
+                  style: _titleStyle,
+                ),
+                const SizedBox(height: _titleGap),
+                // 行数不写死：失败码带上提示语、各步耗时时本来就是四五行，截断会把
+                // 唯一能照着做的那句话吃掉。
+                Text(
+                  subtitle,
+                  key: const Key('pairing-failure-subtitle'),
+                  textAlign: TextAlign.center,
+                  style: _subtitleStyle,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 按页面实际的字体与字号缩放量出这段文字排版后的高度。
+  ///
+  /// 要并上 [DefaultTextStyle]：`Text` 渲染时会继承主题里的字体，只拿本地样式量会和
+  /// 真实高度差一点。差出来的那点由外面的 `FittedBox` 兜住，不会溢出。
+  static double _measure(
+    BuildContext context,
+    String text,
+    TextStyle style,
+    double maxWidth,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: DefaultTextStyle.of(context).style.merge(style),
+      ),
+      textAlign: TextAlign.center,
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: maxWidth);
+    final height = painter.height;
+    painter.dispose();
+    return height;
   }
 }
 

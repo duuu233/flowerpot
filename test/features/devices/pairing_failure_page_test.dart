@@ -245,6 +245,53 @@ void main() {
     expect((selectionArguments! as PairingRequest).ssid, 'Home_2.4G');
     expect(tester.takeException(), isNull);
   });
+
+  // 2026-09-14 产品：「文字部分出现了折叠、滚动条的效果，不要这种效果，平铺到一个首屏
+  // 里面，下面的小提示可以适当往下移」。失败原因最长的时候（提示语 + 失败码 + 各步耗时）
+  // 也得一屏放下：没有可滚动的东西、文字不截断、按钮都在屏幕里、小提示贴着按钮上方。
+  for (final size in const <Size>[Size(375, 812), Size(320, 568)]) {
+    testWidgets('失败原因很长也一屏平铺，不出滚动条（${size.width.toInt()}x${size.height.toInt()}）', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(size);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: const PairingFailurePage(
+            request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
+            code: '207212',
+            message: '设备连不上路由器｜令牌(复用) 3ms · 配网 118203ms · 失败 2ms',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(Scrollable), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      final subtitle = tester.widget<Text>(
+        find.byKey(const Key('pairing-failure-subtitle')),
+      );
+      expect(subtitle.maxLines, isNull);
+      expect(subtitle.data, contains('（207212）'));
+      expect(subtitle.data, contains('配网 118203ms'));
+
+      final screen = Offset.zero & size;
+      final retry = tester.getRect(find.byKey(const Key('retry-pairing-button')));
+      final back = tester.getRect(
+        find.byKey(const Key('return-device-selection-button')),
+      );
+      expect(screen.contains(back.bottomRight - const Offset(1, 1)), isTrue);
+      // 小提示在按钮上方、失败原因下方。
+      final tip = tester.getRect(find.text('小提示'));
+      expect(tip.top, lessThan(retry.top));
+      expect(
+        tester.getRect(find.byKey(const Key('pairing-failure-subtitle'))).bottom,
+        lessThanOrEqualTo(tip.top),
+      );
+    });
+  }
 }
 
 Future<void> _pumpFailurePage(

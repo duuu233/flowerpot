@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1627,6 +1628,26 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '已中止配网，设备热点连接已释放');
   });
 
+  /// 第三步「连接云端」在进度卡上停留多久，**1–2 秒随机**。
+  ///
+  /// ⚠️ **这一步没有真实业务**：SDK 回 onActiveSuccess 时设备已经连上路由器、注册到云端了，
+  /// 没有东西可等。停这一下是**产品要的流程感**，不是在等什么——没有它，第三步一闪而过，
+  /// 用户看到的是「第二步刚亮起就跳到成功页」。
+  ///
+  /// 来回改过三次，**别再删**：09-10 产品要求加上 → 09-11 晚按「最简洁、最高效」删掉
+  /// （`a0aa3bf`）→ 09-14 产品：「第三步假效果又没有了，给个 1-2 秒的随机数延迟，第三步
+  /// 目前是假的，走个流程」。
+  ///
+  /// 可替换只为测试：用例的配网 Mock 自己已经等 1 秒，再叠一段随机等待会让按固定时长
+  /// pump 的用例时好时坏。`test/flutter_test_config.dart` 统一置零，专门的用例再换回来验。
+  @visibleForTesting
+  static Duration Function() cloudStageDelay = randomCloudStageDelay;
+
+  /// 生产用的取值：1000–2000 ms 均匀随机（两端都含）。
+  @visibleForTesting
+  static Duration randomCloudStageDelay() =>
+      Duration(milliseconds: 1000 + Random().nextInt(1001));
+
   /// [send] 是"真正把凭据发出去"的那一下：AP 走 `pair()`，双模走 `pairBleDevice()`。
   /// 两条路的收尾（置第三步、作废令牌、把设备并进列表、选中它）完全一样，所以只在
   /// 这一个参数上分叉——复制一份最容易在其中一份上漏掉作废令牌。
@@ -1635,12 +1656,10 @@ class FlowerpotState extends ChangeNotifier {
   ) async {
     final device = await _pairOrRecover(send);
     // 走到这里 SDK 已经回了 onActiveSuccess——设备**已经**连上路由器并注册到云端了。
-    // 第三步「连接云端」在这一刻置位、随即在 finally 里归 idle，界面上不会单独停留。
-    //
-    // 2026-09-11 晚删掉了这里原来那段 1–2 秒的随机 `Future.delayed`：它只是为了让第三步
-    // 在进度卡上"亮一会儿"，纯装的（产品要"最简洁、最高效"）。成功页本身就是"云端完成"
-    // 的信号，用户不会因为少看到一格转圈而困惑。
+    // 第三步「连接云端」置位后按产品要求停 1–2 秒再往下走（见 [cloudStageDelay]），
+    // 页面在这段时间里画「1、2 已完成，3 转圈」。
     _setPairingStage(PairingStage.connectingCloud);
+    await Future<void>.delayed(cloudStageDelay());
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.
     _activatorTokenAt = null;

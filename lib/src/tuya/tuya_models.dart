@@ -1106,7 +1106,8 @@ enum PairingStage {
   String get hint => switch (this) {
     PairingStage.idle => '',
     PairingStage.connectingDevice => '系统若弹出连接热点的确认框，请点「连接」',
-    PairingStage.sendingWifi => '正在把 Wi-Fi 名称和密码发给设备，请勿离开本页',
+    // 2026-09-14 产品定稿文案。
+    PairingStage.sendingWifi => '正在把Wi-Fi信息同步给设备，请勿离开本页面',
     PairingStage.connectingCloud => '设备正在连接路由器并注册到云端',
   };
 
