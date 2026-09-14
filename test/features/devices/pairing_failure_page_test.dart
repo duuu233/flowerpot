@@ -143,7 +143,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('debug builds show the SDK failure code', (tester) async {
+  // 2026-09-14 产品：失败页上「等待设备回应超时……然后重试（142）/ 令牌(复用) 0ms · 失败 19131ms」
+  // 这段不需要了。页面只留设计稿那一句；原因、失败码、各步耗时由 `diagnosticFor` 生成，
+  // 配网页跳过来之前记进联调日志（见 pairing_page_test）。
+  testWidgets('失败页只画一句笼统文案，不再画原因、失败码和各步耗时', (tester) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -151,8 +154,8 @@ void main() {
         theme: buildAppTheme(),
         home: const PairingFailurePage(
           request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
-          code: 'pair_failed',
-          message: '配网超时',
+          code: '142',
+          message: 'out of time｜令牌(复用) 0ms · 失败 19131ms',
         ),
       ),
     );
@@ -161,69 +164,40 @@ void main() {
     final subtitle = tester.widget<Text>(
       find.byKey(const Key('pairing-failure-subtitle')),
     );
-    // An unknown code shows the state's message as it came: it already carries
-    // the source tag and the per-step timings, so nothing is prepended.
-    expect(subtitle.data, contains('配网超时'));
+    expect(subtitle.data, '设备未能成功连接到当前Wi-Fi网络');
+    expect(find.textContaining('等待设备回应超时'), findsNothing);
+    expect(find.textContaining('（142）'), findsNothing);
+    expect(find.textContaining('19131ms'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('认不出的失败码也要显示出来，涂鸦的英文原文换成能照着做的话', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(375, 812));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(),
-        home: const PairingFailurePage(
-          request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
-          code: 'pair_failed',
-          message: 'out of time',
-        ),
-      ),
-    );
-    await tester.pump();
-
-    final subtitle = tester.widget<Text>(
-      find.byKey(const Key('pairing-failure-subtitle')),
-    );
+  test('诊断文案：认不出的码照样带出来，涂鸦英文原文换成能照着做的话，各步耗时单独一行', () {
     // 2026-09-10 测试报回来的正是这一条：只看到「……，out of time」，没有任何码，
-    // 于是判断不了失败在哪一步。码现在无论认不认得都带出来。
-    expect(subtitle.data, contains('（pair_failed）'));
-    expect(subtitle.data, contains('等待设备回应超时'));
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('a known failure code is explained in plain words', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(375, 812));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(),
-        home: const PairingFailurePage(
-          request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
-          code: 'hotspot_join_cancelled',
-          message: '未连上 SmartLife-A1B2｜令牌 812ms',
-        ),
-      ),
+    // 于是判断不了失败在哪一步。码无论认不认得都带出来。
+    final timeout = PairingFailurePage.diagnosticFor(
+      code: '142',
+      message: 'out of time｜令牌(复用) 0ms · 失败 19131ms',
     );
-    await tester.pump();
+    expect(timeout, contains('等待设备回应超时'));
+    expect(timeout, contains('（142）'));
+    expect(timeout, contains('\n令牌(复用) 0ms · 失败 19131ms'));
 
-    final subtitle = tester.widget<Text>(
-      find.byKey(const Key('pairing-failure-subtitle')),
+    // 认不出的码、也没有可翻译的原文：原文照带。
+    expect(
+      PairingFailurePage.diagnosticFor(code: 'pair_failed', message: '配网超时'),
+      '配网超时（pair_failed）',
     );
-    // The raw code stays visible for diagnosis, after the actionable line.
-    expect(subtitle.data, contains('手机没有连上设备热点'));
-    expect(subtitle.data, contains('（hotspot_join_cancelled）'));
-    // 2026-09-10 起**各步耗时单独一行保留**（原来是断言它被藏掉）。失败码只说
-    // 「哪一类」，耗时才说「死在哪一步」——比如「连热点」那一段有耗时就说明热点
-    // 确实连上了、失败在之后，这是真机排查唯一能拿到的线索。
-    expect(subtitle.data, contains('令牌 812ms'));
-    // 但 `｜` 之前的那段原文仍然不重复显示：提示语已经把它说清楚了。
-    expect(subtitle.data, isNot(contains('未连上 SmartLife-A1B2')));
-    expect(tester.takeException(), isNull);
+    // 认得的码换成一句能照着做的话；`｜` 之前那段原文不重复。
+    final known = PairingFailurePage.diagnosticFor(
+      code: 'hotspot_join_cancelled',
+      message: '未连上 SmartLife-A1B2｜令牌 812ms',
+    );
+    expect(known, contains('手机没有连上设备热点'));
+    expect(known, contains('（hotspot_join_cancelled）'));
+    expect(known, contains('令牌 812ms'));
+    expect(known, isNot(contains('未连上 SmartLife-A1B2')));
+    // 什么都没有时返回空串（日志只记一句「配网失败 ✗」）。
+    expect(PairingFailurePage.diagnosticFor(), '');
   });
 
   testWidgets('return keeps the request and reopens the search page', (
@@ -247,10 +221,10 @@ void main() {
   });
 
   // 2026-09-14 产品：「文字部分出现了折叠、滚动条的效果，不要这种效果，平铺到一个首屏
-  // 里面，下面的小提示可以适当往下移」。失败原因最长的时候（提示语 + 失败码 + 各步耗时）
-  // 也得一屏放下：没有可滚动的东西、文字不截断、按钮都在屏幕里、小提示贴着按钮上方。
+  // 里面，下面的小提示可以适当往下移」：没有可滚动的东西、按钮都在屏幕里、小提示贴着按钮上方。
+  // （同日失败原因那段已不上屏，这里仍用长原文喂进来，确认它不会把版式撑坏。）
   for (final size in const <Size>[Size(375, 812), Size(320, 568)]) {
-    testWidgets('失败原因很长也一屏平铺，不出滚动条（${size.width.toInt()}x${size.height.toInt()}）', (
+    testWidgets('一屏平铺，不出滚动条（${size.width.toInt()}x${size.height.toInt()}）', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(size);
@@ -274,8 +248,8 @@ void main() {
         find.byKey(const Key('pairing-failure-subtitle')),
       );
       expect(subtitle.maxLines, isNull);
-      expect(subtitle.data, contains('（207212）'));
-      expect(subtitle.data, contains('配网 118203ms'));
+      // 失败原因那段 2026-09-14 起不上屏，只剩一句。
+      expect(subtitle.data, '设备未能成功连接到当前Wi-Fi网络');
 
       final screen = Offset.zero & size;
       final retry = tester.getRect(find.byKey(const Key('retry-pairing-button')));

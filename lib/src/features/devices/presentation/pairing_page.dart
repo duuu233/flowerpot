@@ -8,6 +8,7 @@ import '../../../routes/app_routes.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import '../pairing_gate.dart';
+import 'pairing_failure_page.dart';
 import 'widgets/pairing_progress_view.dart';
 
 /// Route arguments for the Wi-Fi step, which now runs after a device is
@@ -336,16 +337,22 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // 悄悄退回是这一轮最要命的一种错：用户会在某次配网成功里以为「蓝牙这条通了」，
     // 而实际上成功的是 AP，本轮要验的结论就此被盖掉。宁可当场失败并说清楚。
     if (!PairingGate.apEnabled && (bleUuid == null || bleUuid.isEmpty)) {
+      const code = 'ap_disabled';
+      const message =
+          '当前版本已屏蔽热点（AP）配网，只走蓝牙双模；'
+          '而这次没有拿到设备的蓝牙标识，无法下发凭据。'
+          '请回搜索页用蓝牙重新搜索并选择设备。';
+      // 失败页 2026-09-14 起只画一句笼统文案，完整原因记进联调日志。
+      state.logPairingFailure(
+        PairingFailurePage.diagnosticFor(code: code, message: message),
+      );
       Navigator.pushReplacementNamed(
         context,
         AppRoutes.pairingFailure,
         arguments: PairingFailureArguments(
           request: request,
-          code: 'ap_disabled',
-          message:
-              '当前版本已屏蔽热点（AP）配网，只走蓝牙双模；'
-              '而这次没有拿到设备的蓝牙标识，无法下发凭据。'
-              '请回搜索页用蓝牙重新搜索并选择设备。',
+          code: code,
+          message: message,
         ),
       );
       return;
@@ -365,6 +372,14 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() => _pairing = false);
     if (!result.success) {
+      // 失败页 2026-09-14 起只画一句笼统文案（产品：原因 / 失败码 / 各步耗时那段不要了），
+      // 完整原因记进联调日志，排查照样有据。
+      state.logPairingFailure(
+        PairingFailurePage.diagnosticFor(
+          code: result.code,
+          message: result.message,
+        ),
+      );
       Navigator.pushReplacementNamed(
         context,
         AppRoutes.pairingFailure,

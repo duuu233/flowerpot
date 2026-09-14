@@ -40,35 +40,40 @@ class PairingFailurePage extends StatelessWidget {
   /// 通不通，给了退路、用户一退就用 AP 配成了，正好把结论盖掉。
   bool get _offerHotspotFallback => _viaBle && PairingGate.apEnabled;
 
-  /// 涂鸦返回的原始失败原因。
+  /// 涂鸦返回的失败码与原文（原文带 `｜各步耗时`）。
   ///
-  /// 正式包也照常显示：那句产品文案分不出超时、密码错和设备已被绑定，只看它
-  /// 无法判断该改什么。2026-09-10 起 [message] 是**不带来源前缀的原文**（产品要求
-  /// toast 直接给内容），所以认得的失败码由这一页自己补在括号里。
+  /// ⚠️ **2026-09-14 起不再画到页面上**（产品：「等待设备回应超时……然后重试（142）
+  /// 令牌(复用) 0ms · 失败 19131ms」这段文案不需要了，删掉）。页面只留设计稿那一句
+  /// [_subtitle]；完整原因由配网页在跳过来之前经 [diagnosticFor] 记进联调日志，排查照样有据。
   final String? code;
   final String? message;
 
-  String get _subtitle {
-    const generic = '设备未能成功连接到当前Wi-Fi网络';
-    // 失败码**无论认不认得都要显示**。
-    //
-    // 改之前只在认得的那一支里带上 `（$code）`，认不得时整个把 code 丢了、只剩涂鸦
-    // 的原文。2026-09-10 测试报回来的就是这种：「……，out of time」——看不到任何码，
-    // 于是没法判断失败在哪一步。而认不得恰恰是最需要这个码的情形。
+  /// 失败页标题下面那一句，与设计稿 `docs/UI/连接设备失败.png` 一致。**只有这一句。**
+  static const String _subtitle = '设备未能成功连接到当前Wi-Fi网络';
+
+  /// 这次失败的**完整诊断**：能照着做的提示 + 失败码 + 各步耗时。没有可说的返回空串。
+  ///
+  /// 原来就是失败页副标题里 [_subtitle] 下面那几行，规则不变：
+  ///
+  /// - 失败码**无论认不认得都带上**。改之前只在认得的那一支里带 `（$code）`，认不得时整个
+  ///   丢掉、只剩涂鸦原文——2026-09-10 测试报回来的「……，out of time」就看不到任何码；
+  /// - 各步耗时（消息里 `｜令牌 812ms · 连热点(xxx) 1.2s · 配网 120s`）单独一行：失败码只说
+  ///   「哪一类」，耗时才说「死在哪一步」。
+  ///
+  /// 2026-09-14 起只写进联调日志（`FlowerpotState.logPairingFailure`），不上屏。
+  static String diagnosticFor({String? code, String? message}) {
     final tag = code?.trim() ?? '';
     final suffix = tag.isEmpty ? '' : '（$tag）';
-    final hint = hintFor(code) ?? _hintForUnknownTuyaCode(tag) ?? _hintForMessage(message);
-    // 各步耗时（原流程会在消息里带 `｜令牌 812ms · 连热点(xxx) 1.2s · 配网 120s`）
-    // 单独留一行：它回答的是「失败在哪一步」，而那往往比失败码本身更能定位问题
-    // ——比如「连热点」那一段有耗时就说明热点确实连上了，失败在之后。
+    final hint =
+        hintFor(code) ?? _hintForUnknownTuyaCode(tag) ?? _hintForMessage(message);
     final steps = _stepsOf(message);
     final tail = steps == null ? '' : '\n$steps';
-    if (hint != null) return '$generic\n$hint$suffix$tail';
+    if (hint != null) return '$hint$suffix$tail';
     final detail = message?.trim() ?? '';
     if (detail.isEmpty) {
-      return tag.isEmpty ? generic : '$generic\n失败码 $tag';
+      return tag.isEmpty ? '' : '失败码 $tag';
     }
-    return '$generic\n$detail$suffix';
+    return '$detail$suffix';
   }
 
   /// 消息里 `｜` 之后那段各步耗时。没有就返回 null。

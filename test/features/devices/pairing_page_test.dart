@@ -416,7 +416,7 @@ void main() {
 
   testWidgets('a provisioning error opens the failure page', (tester) async {
     Object? failureArguments;
-    await _pumpPairingPage(
+    final state = await _pumpPairingPage(
       tester,
       const Size(375, 812),
       repository: _FailingRepository(),
@@ -439,6 +439,13 @@ void main() {
     expect(failure.code, 'pair_failed');
     // 2026-09-10 起文案不带来源前缀（`涂鸦-` / `接口-` / `APP-`），直接是原文。
     expect(failure.message, '配网失败');
+    // 失败页 2026-09-14 起不画原因，完整原因在跳页之前记进联调日志。
+    expect(
+      state.interactionLog.any(
+        (line) => line.contains('配网失败 ✗') && line.contains(failure.code!),
+      ),
+      isTrue,
+    );
     expect(tester.takeException(), isNull);
   });
 

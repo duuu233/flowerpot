@@ -1097,6 +1097,13 @@ class FlowerpotState extends ChangeNotifier {
   /// 进到某个页面时记一条。
   void logPageEntry(String page) => _logInteraction('进入 ← [$page]');
 
+  /// 配网失败的完整原因（提示 + 失败码 + 各步耗时）记一条。
+  ///
+  /// 失败页 2026-09-14 起只画一句「设备未能成功连接到当前Wi-Fi网络」（产品要求删掉原因那段），
+  /// 真机排查要的原文改到这里看。
+  void logPairingFailure(String detail) =>
+      _logInteraction(detail.isEmpty ? '配网失败 ✗' : '配网失败 ✗ $detail');
+
   /// 进页面时把这一页的功能点连同当前取到的值一起记下来。
   ///
   /// 产品要的是「刚进来的时候就要读取功能设置对应的 DPID 是什么、接收到的值是
