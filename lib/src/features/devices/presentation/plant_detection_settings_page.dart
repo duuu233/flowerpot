@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../shared/l10n/app_l10n.dart';
+import 'device_online_guard.dart';
 import 'widgets/device_toggle_settings_card.dart';
 import 'widgets/setting_orbit_illustration.dart';
 
@@ -34,7 +35,7 @@ class _PlantDetectionSettingsPageState
     if (!mounted) return;
     setState(() => updating = false);
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
     }
   }
 

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'tuya_raw.dart';
+
 /// Codec for the memorial-day DPs added by the 2026-09-03 export: the custom
 /// entries on `memorial_set` (154) and the two fixed dates on
 /// `memorial_birthday` (158) and `memorial_wedding` (159).
@@ -34,6 +36,13 @@ abstract final class TuyaMemorialCodec {
   /// The export's cap on custom text: 15 CJK characters, 45 bytes.
   static const int maxTextCharacters = 15;
 
+  /// 同一条上限的**字节**那一半：`最多 15 个汉字(45 字节)`。
+  ///
+  /// ⚠️ 两个都要挡。15 个汉字正好 45 字节，但 15 个 emoji 是 60 字节——只按字数
+  /// 挡的话，帧超长、固件那边会截断，用户看到的是一条被砍一半的祝福语。
+  /// 反过来 15 个 ASCII 才 15 字节，也不该因为字节没到 45 就放宽到 45 个字符。
+  static const int maxTextBytes = 45;
+
   /// Custom entries the device accepts on top of the two fixed dates.
   static const int maxCustomEntries = 10;
 
@@ -52,8 +61,18 @@ abstract final class TuyaMemorialCodec {
     bool enabled = true,
   }) {
     final body = utf8.encode(content);
+    // 内容长度是 1 个字节，物理上限 255；文字还另有 45 字节的产品上限。
     if (body.length > 255) {
       throw ArgumentError.value(content, 'content', '纪念日内容超过 255 字节');
+    }
+    if (enabled &&
+        type == MemorialContentType.text &&
+        body.length > maxTextBytes) {
+      throw ArgumentError.value(
+        content,
+        'content',
+        '纪念日文字超过 $maxTextBytes 字节（约 $maxTextCharacters 个汉字）',
+      );
     }
     return _frame(
       id: id,
@@ -134,27 +153,15 @@ abstract final class TuyaMemorialCodec {
     return number == null ? null : dateFromValue(number);
   }
 
-  /// Raw DP payloads arrive base64 encoded over the method channel, the same
-  /// as the history DPs; a byte list is accepted so tests and any future
-  /// binary channel work unchanged.
-  static List<int>? decodeRaw(Object? value) {
-    if (value is List<int>) return value;
-    if (value is String && value.isNotEmpty) {
-      try {
-        return base64.decode(value);
-      } on FormatException {
-        return null;
-      }
-    }
-    return null;
-  }
+  /// 上报值还原成字节。SDK 交上来的是十六进制串（兼容 base64），见 [TuyaRaw]。
+  static List<int>? decodeRaw(Object? value) => TuyaRaw.bytes(value);
 
   /// Writes go out as an upper-case hex string.
   ///
-  /// Reports come back base64 but the SDK's `publishDps` takes raw values as
-  /// hex — the two directions genuinely differ. Nothing in this project has
-  /// written a raw DP against real hardware yet, so this is the documented
-  /// convention rather than a verified one.
+  /// 2026-09-13 解包 SDK 7.5.1 核对：`publishDps` 里 `DevUtil.encodeRaw` 对 raw
+  /// 类型做 `hexStringToBytes` → `encodeBase64`，所以写十六进制是对的；上报方向
+  /// SDK 也先转成了十六进制（见 [TuyaRaw]），两个方向在 App 侧是同一种编码。
+  /// 仍未在真机上写过 raw DP。
   static String encodeRaw(List<int> bytes) => <String>[
     for (final byte in bytes) byte.toRadixString(16).padLeft(2, '0'),
   ].join().toUpperCase();

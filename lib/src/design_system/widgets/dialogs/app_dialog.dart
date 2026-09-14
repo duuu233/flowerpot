@@ -56,6 +56,7 @@ Future<bool?> showAppDialog(
   bool showCancel = true,
   bool barrierDismissible = true,
   Widget? content,
+  Widget? footer,
 }) {
   // Double-tapping 确认 would pop twice and take the page underneath with it.
   var resolved = false;
@@ -80,6 +81,7 @@ Future<bool?> showAppDialog(
         messageTextAlign: messageTextAlign,
         showCancel: showCancel,
         content: content,
+        footer: footer,
         onCancel: close,
         onConfirm: () => close(true),
       );
@@ -160,6 +162,7 @@ class AppDialog extends StatelessWidget {
     this.messageTextAlign = TextAlign.start,
     this.showCancel = true,
     this.content,
+    this.footer,
     this.onCancel,
     this.confirmKey = const Key('app-dialog-confirm'),
     this.cancelKey = const Key('app-dialog-cancel'),
@@ -177,6 +180,13 @@ class AppDialog extends StatelessWidget {
   /// Custom content under the explanation — an input field, a picker — laid
   /// out full width.
   final Widget? content;
+
+  /// 画在**按钮下面**的一小段补充说明。
+  ///
+  /// 和 [content] 的区别只有位置：[content] 在正文和按钮之间，这个在按钮之后。
+  /// 「未检测到植物」那个弹窗的「忽略检测结果，可前往设置关闭植物自动检测」就摆在
+  /// 这里（2026-09-12 产品指定的版式）。
+  final Widget? footer;
   final VoidCallback? onCancel;
   final VoidCallback? onConfirm;
 
@@ -285,6 +295,14 @@ class AppDialog extends StatelessWidget {
                     )
                   : confirmButton,
             ),
+            if (footer case final Widget note) ...<Widget>[
+              const SizedBox(height: 12),
+              Padding(
+                // 和按钮对齐，同样避开左边的图标框。
+                padding: const EdgeInsets.only(left: 60),
+                child: note,
+              ),
+            ],
           ],
         ),
       ),

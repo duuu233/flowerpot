@@ -53,11 +53,39 @@ abstract class AppBackendRepository {
   /// 所以不再先查 `getProductList` 换 productId——不传就是后台配置的全部植物。
   Future<List<PlantProfile>> getProductPlants({String keyword = ''});
 
+  /// 单株植物的**完整**资料。
+  ///
+  /// ⚠️ **必须单独拉一次，列表接口给不了。**（2026-09-12 按 swagger 核实）
+  /// `/Client/Product/getProductPlantList` 的返回体 `ClientProductPlantApiOut` **只有五个
+  /// 字段**：`productPlantId` / `plantName` / `plantImg` / `tuYaRemark` / `categoryType`
+  /// ——**没有学名、没有别名**，也没有简介、温湿度、养护建议。那一整套在
+  /// `/Client/UserProduct/getUserProductPlantDetail` 的 `ClientProductPlantDetailApiOut` 里。
+  ///
+  /// 植物详情页此前直接用列表传进来的对象、从不单独拉详情，所以「学名」「别名」永远是
+  /// 空的——产品反馈的就是这个。
+  ///
+  /// 两个查询键**二选一，不能同时为空**（2026-09-12 后端加的 `tuYaRemark`）：
+  ///
+  /// - [tuyaRemark] → 接口参数 `tuYaRemark`，**涂鸦标识符**。优先用它：它才是设备
+  ///   DP 116 报上来的那个值，而且后台保证不重复。
+  /// - [productPlantId] → 接口参数 `id`，后端自增主键。只在拿不到标识符时兜底。
+  ///
+  /// 两个都给时只发 [tuyaRemark]；都为空直接抛，不发请求。
+  Future<PlantProfile> getProductPlantDetail({
+    int? productPlantId,
+    String? tuyaRemark,
+  });
+
   /// 设备图库按涂鸦 `deviceId` 走，不再先用 `getUserProductList` 换后端的
   /// `userProductId`：设备档案由涂鸦提供，看一眼图片不该先在后端建一条用户产品
   /// 记录，那条链路上任何一个接口不可用（例如 404）都会把图库整页顶掉。
   Future<List<BackendImage>> getImages(String deviceId);
-  Future<void> uploadImage({
+
+  /// 上传一张设备图片，返回后端给的图片 URL（swagger `BaseUploadApiOut.url`）；
+  /// 接口没回地址时为 null。
+  ///
+  /// 这个 URL 要原样经 DP 142 `dl_url` 发给设备去下载，所以不能只上传不取返回。
+  Future<String?> uploadImage({
     required String deviceId,
     required String filePath,
   });
@@ -85,7 +113,9 @@ abstract class AppBackendRepository {
   // ── 基础数据 ──────────────────────────────────────────────────────
   Future<BackendAppVersion?> getLastVersion(String appVersionNo);
   Future<BackendBasicData> getBasicData();
-  Future<List<BackendFaq>> getFaqs({String keyword = ''});
+  /// [broadcastId] 是后台产品表那个字段（界面上 2026-09-12 起叫「涂鸦产品ID」），
+  /// 用来把常见问题筛到本产品。传空就不带这个参数，行为和以前一样。
+  Future<List<BackendFaq>> getFaqs({String keyword = '', String broadcastId = ''});
   Future<BackendFaq?> getFaqDetail(int faqId);
 
   /// 通用文件上传，返回可以直接写进 DP 帧或提交给后端的 URL。设备图库走的是
@@ -101,12 +131,16 @@ abstract class AppBackendRepository {
   });
 
   // ── 纪念日 ────────────────────────────────────────────────────────
-  Future<List<BackendAnniversary>> getAnniversaries(int userProductId);
+  //
+  // 整组按涂鸦 `deviceId` 走（swagger `ClientProductAnniversaryAddApiIn.deviceId`），
+  // 不再先用 `getUserProductList` 换后端的 `userProductId`：那几个用户产品接口
+  // 已经从 swagger 下线，打过去就是 404，纪念日保存会在第一步就失败。
+  Future<List<BackendAnniversary>> getAnniversaries(String deviceId);
   Future<BackendAnniversary?> getAnniversaryDetail(int anniversaryId);
 
   /// 返回后端分配的 `anniversaryId`，它同时也是写进 DP 154 的帧 id。
   Future<int> addAnniversary({
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -114,7 +148,7 @@ abstract class AppBackendRepository {
   });
   Future<void> editAnniversary({
     required int anniversaryId,
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -199,10 +233,16 @@ class DisabledAppBackendRepository implements AppBackendRepository {
       _disabled();
 
   @override
+  Future<PlantProfile> getProductPlantDetail({
+    int? productPlantId,
+    String? tuyaRemark,
+  }) async => _disabled();
+
+  @override
   Future<List<BackendImage>> getImages(String deviceId) async => _disabled();
 
   @override
-  Future<void> uploadImage({
+  Future<String?> uploadImage({
     required String deviceId,
     required String filePath,
   }) async => _disabled();
@@ -249,8 +289,10 @@ class DisabledAppBackendRepository implements AppBackendRepository {
   Future<BackendBasicData> getBasicData() async => BackendBasicData.empty;
 
   @override
-  Future<List<BackendFaq>> getFaqs({String keyword = ''}) async =>
-      const <BackendFaq>[];
+  Future<List<BackendFaq>> getFaqs({
+    String keyword = '',
+    String broadcastId = '',
+  }) async => const <BackendFaq>[];
 
   @override
   Future<BackendFaq?> getFaqDetail(int faqId) async => null;
@@ -267,7 +309,7 @@ class DisabledAppBackendRepository implements AppBackendRepository {
   }) async => _disabled();
 
   @override
-  Future<List<BackendAnniversary>> getAnniversaries(int userProductId) async =>
+  Future<List<BackendAnniversary>> getAnniversaries(String deviceId) async =>
       const <BackendAnniversary>[];
 
   @override
@@ -276,7 +318,7 @@ class DisabledAppBackendRepository implements AppBackendRepository {
 
   @override
   Future<int> addAnniversary({
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -286,7 +328,7 @@ class DisabledAppBackendRepository implements AppBackendRepository {
   @override
   Future<void> editAnniversary({
     required int anniversaryId,
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -502,6 +544,34 @@ class HttpAppBackendRepository implements AppBackendRepository {
       ).map(_plant).toList(growable: false);
 
   @override
+  Future<PlantProfile> getProductPlantDetail({
+    int? productPlantId,
+    String? tuyaRemark,
+  }) async {
+    // 二选一：有涂鸦标识就用它，没有才退回自增 id。**只发其中一个**——接口说的是
+    // 「二选一」，同时发两个的行为没定义，别赌。
+    final remark = tuyaRemark?.trim() ?? '';
+    if (remark.isEmpty && productPlantId == null) {
+      throw const ApiException(
+        'PLANT_DETAIL_NO_KEY',
+        '查植物详情要给 tuYaRemark 或 id，两个不能都为空',
+      );
+    }
+    // [ApiClient.getJson] 已经拆过信封——`retCode` 不是 200 时它自己抛，成功时
+    // 返回的就是 `retData` 本身，这里不能再取一次 `retData`。
+    //
+    // 这个接口的 retData 是**单个对象**，不是分页行，所以 `extractApiRows` 用不上；
+    // 不是对象时 `_map` 会抛 PARSE_ERROR。
+    final data = await _client.getJson(
+      '/Client/UserProduct/getUserProductPlantDetail',
+      query: remark.isNotEmpty
+          ? <String, Object?>{'tuYaRemark': remark}
+          : <String, Object?>{'id': productPlantId},
+    );
+    return _plant(_map(data));
+  }
+
+  @override
   Future<List<BackendImage>> getImages(String deviceId) async =>
       extractApiRows(
         await _client.getJson(
@@ -515,16 +585,16 @@ class HttpAppBackendRepository implements AppBackendRepository {
       ).map(_image).where((item) => item.id > 0).toList(growable: false);
 
   @override
-  Future<void> uploadImage({
+  Future<String?> uploadImage({
     required String deviceId,
     required String filePath,
-  }) async {
+  }) async => _uploadedUrl(
     await _client.upload(
       '/Client/Basic/setUserProductUpload',
       filePaths: <String>[filePath],
       query: <String, Object?>{'deviceId': deviceId},
-    );
-  }
+    ),
+  );
 
   @override
   Future<void> deleteImages(List<int> imageIds) async {
@@ -721,7 +791,10 @@ class HttpAppBackendRepository implements AppBackendRepository {
   }
 
   @override
-  Future<List<BackendFaq>> getFaqs({String keyword = ''}) async =>
+  Future<List<BackendFaq>> getFaqs({
+    String keyword = '',
+    String broadcastId = '',
+  }) async =>
       extractApiRows(
             await _client.getJson(
               '/Client/Product/getProductFaqList',
@@ -729,6 +802,8 @@ class HttpAppBackendRepository implements AppBackendRepository {
                 'pageIndex': 1,
                 'pageSize': 50,
                 if (keyword.trim().isNotEmpty) 'keyword': keyword.trim(),
+                if (broadcastId.trim().isNotEmpty)
+                  'broadcastId': broadcastId.trim(),
               },
             ),
           )
@@ -781,14 +856,14 @@ class HttpAppBackendRepository implements AppBackendRepository {
   }
 
   @override
-  Future<List<BackendAnniversary>> getAnniversaries(int userProductId) async =>
+  Future<List<BackendAnniversary>> getAnniversaries(String deviceId) async =>
       extractApiRows(
             await _client.getJson(
               '/Client/UserProduct/getProductAnniversaryList',
               query: <String, Object?>{
                 'pageIndex': 1,
                 'pageSize': 100,
-                'userProductId': userProductId,
+                'deviceId': deviceId,
               },
             ),
           )
@@ -796,12 +871,11 @@ class HttpAppBackendRepository implements AppBackendRepository {
           .where(
             (item) =>
                 item.anniversaryId > 0 &&
-                // 列表接口的 userProductId 过滤是后加的。旧版本会忽略它、把
-                // 账号下所有设备的纪念日一起返回，所以这里再滤一次；返回体没
-                // 带这个字段（解析成 0）时按「就是这台设备的」处理，否则会把
-                // 整份列表滤空。
-                (item.userProductId == 0 ||
-                    item.userProductId == userProductId),
+                // swagger 的列表入参里没有设备过滤（只有分页、关键词、日期），
+                // 返回行却带 deviceId：账号下几台花盆的纪念日会一起回来，所以
+                // `deviceId` 照带、这里再按返回行滤一次。返回体没带这个字段时
+                // 按「就是这台设备的」处理，否则会把整份列表滤空。
+                (item.deviceId.isEmpty || item.deviceId == deviceId),
           )
           .toList(growable: false);
 
@@ -818,7 +892,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
 
   @override
   Future<int> addAnniversary({
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -829,7 +903,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
         '/Client/UserProduct/addUserProductAnniversary',
         retryTransportErrors: false,
         body: _anniversaryBody(
-          userProductId: userProductId,
+          deviceId: deviceId,
           title: title,
           content: content,
           imageContent: imageContent,
@@ -840,7 +914,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
     if (id > 0) return id;
     // 新增接口没有 swagger 模型，返回体里不一定带 id。DP 154 的帧必须带 id，
     // 拿不到就回列表里按标题 + 日期找回刚写进去的那条，取 id 最大的一条。
-    final candidates = (await getAnniversaries(userProductId))
+    final candidates = (await getAnniversaries(deviceId))
         .where(
           (row) => row.title == title && _isoDate(row.date) == _isoDate(date),
         )
@@ -855,7 +929,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
   @override
   Future<void> editAnniversary({
     required int anniversaryId,
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
@@ -867,7 +941,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
       body: <String, Object?>{
         'anniversaryId': anniversaryId,
         ..._anniversaryBody(
-          userProductId: userProductId,
+          deviceId: deviceId,
           title: title,
           content: content,
           imageContent: imageContent,
@@ -902,14 +976,17 @@ class HttpAppBackendRepository implements AppBackendRepository {
     );
   }
 
+  /// 新增与编辑共用 `ClientProductAnniversaryAddApiIn`；编辑时调用方再补
+  /// `anniversaryId`。`terminal` / `language` / `userToken` 由 [ApiClient] 走
+  /// headers 与公共 query 带上，不进 body（`device` 手机机型全站都没传）。
   static Map<String, Object?> _anniversaryBody({
-    required int userProductId,
+    required String deviceId,
     required String title,
     required String content,
     required bool imageContent,
     required DateTime date,
   }) => <String, Object?>{
-    'userProductId': userProductId,
+    'deviceId': deviceId,
     'title': title,
     'content': content,
     'contentType': imageContent ? 1 : 0,
@@ -951,7 +1028,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
       anniversaryId: _integer(
         row['anniversaryId'] ?? row['userProductAnniversaryId'] ?? row['id'],
       ),
-      userProductId: _integer(row['userProductId']),
+      deviceId: _text(row, 'deviceId'),
       title: _text(row, 'title'),
       content: _text(row, 'content'),
       imageContent: _integer(row['contentType']) == 1,
@@ -1111,7 +1188,15 @@ class HttpAppBackendRepository implements AppBackendRepository {
       introduction: introduction,
       temperatureRequirement: _text(row, 'optimalTemperature'),
       humidityRequirement: _text(row, 'optimalHumidity'),
-      lightingRequirement: _text(row, 'lightingRequirements'),
+      // ⚠️ **优先取 `…Msg`**（2026-09-11 真实返回体确认）：后端这一项是**枚举数字**
+      // （`lightingRequirements: 1`），人话在配套的 `lightingRequirementsMsg`
+      // （`"全日照"`）里。改之前直接 `_text` 取数字字段，界面上画出来就是个「1」。
+      // 没有 Msg 时才退回原值，老接口仍然能用。
+      lightingRequirement: _text(
+        row,
+        'lightingRequirementsMsg',
+        fallback: _text(row, 'lightingRequirements'),
+      ),
       wateringFrequency: _text(row, 'wateringFrequency'),
       growthCharacteristics: _text(row, 'growthCharacteristics'),
       careInstructions: care,
@@ -1130,10 +1215,8 @@ class HttpAppBackendRepository implements AppBackendRepository {
 
   static BackendImage _image(Map<String, dynamic> row) {
     final url = _text(row, 'img');
-    final uri = Uri.tryParse(url);
-    final pathName = uri == null || uri.pathSegments.isEmpty
-        ? ''
-        : Uri.decodeComponent(uri.pathSegments.last);
+    // 和 DP 142 下发时带的文件名同一种取法，删除（155）/ 置顶（157）才对得上。
+    final pathName = BackendImage.fileNameOf(url);
     return BackendImage(
       id: _integer(row['uProductImgId'] ?? row['uproductImgId']),
       userProductId: _integer(row['userProductId']),

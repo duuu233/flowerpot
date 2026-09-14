@@ -12,9 +12,18 @@
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- 蓝牙（双模配网）。Android 11 及以下用这两个传统权限，都是 normal 级、装机即授予；
+         12 起被 BLUETOOTH_SCAN / BLUETOOTH_CONNECT 取代，所以加 maxSdkVersion 收口。 -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"/>
+    <!-- ⚠️ **这里刻意不加 `neverForLocation`**（2026-09-11 真机扫不到设备之后改的）。
+         加上那个标志确实可以在 Android 12+ 免掉定位权限，但代价是**系统会过滤扫描结果**：
+         凡是可能被用来推断位置的广播（iBeacon 这一类）都被剔掉，应用根本收不到。涂鸦官方
+         口径也是这么说的——「可选仅用 BLUETOOTH_SCAN（带 neverForLocation），无需定位权限，
+         **除非需扫描 iBeacon 类广播**」。待配网设备广播的正是这类厂商自定义数据，带着这个
+         标志很可能一台都扫不出来，而且**不报错、静默为空**，跟"设备没开机"完全分不开。
+         去掉它之后 12+ 需要同时授予 ACCESS_FINE_LOCATION，权限请求那边已按版本分支处理。 -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Smart Life App SDK must be initialized from Application.onCreate, so the

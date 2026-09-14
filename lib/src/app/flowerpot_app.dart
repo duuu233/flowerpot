@@ -11,6 +11,7 @@ import '../routes/app_routes.dart';
 import '../shared/l10n/app_l10n.dart';
 import '../state.dart';
 import '../tuya/tuya_repository.dart';
+import 'interaction_log_overlay.dart';
 
 /// 根节点切换动效时长（闪屏 → 登录页/主壳层）。
 const Duration kRootTransitionDuration = Duration(milliseconds: 1100);
@@ -105,7 +106,8 @@ class FlowerpotApp extends StatefulWidget {
   State<FlowerpotApp> createState() => _FlowerpotAppState();
 }
 
-class _FlowerpotAppState extends State<FlowerpotApp> {
+class _FlowerpotAppState extends State<FlowerpotApp>
+    with WidgetsBindingObserver {
   late final FlowerpotState state = FlowerpotState(
     repository:
         widget.repository ??
@@ -115,6 +117,13 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
         HttpAppBackendRepository.fromEnvironment(),
   );
 
+  /// 联调日志用的路由观察者：进设备相关页面时把那一页的 DP 和当前值记一条。
+  /// 列表本身也存成字段，免得每次 build 都换一个新 List 让 Navigator 重挂观察者。
+  late final List<NavigatorObserver> _navigatorObservers = <NavigatorObserver>[
+    InteractionLogRouteObserver(state),
+    AppRoutes.routeObserver,
+  ];
+
   /// Cold-start screen, dismissed once the minimum time has passed *and* the
   /// session has been restored — otherwise a returning user would see the
   /// login page flash before the shell replaces it.
@@ -123,8 +132,23 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Start with the real SDK session; no demo session is created.
     unawaited(_dismissSplashWhenReady());
+  }
+
+  /// 回前台就把在线状态对一次。
+  ///
+  /// 涂鸦 SDK 的 MQTT 心跳在后台会断，**断线期间的上下线不会补发**——不在这里补一次，
+  /// 页面就会一直停在切后台之前的状态（2026-09-12「设备关机了还显示在线」）。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
+    super.didChangeAppLifecycleState(lifecycleState);
+    if (lifecycleState == AppLifecycleState.resumed) {
+      state.resumeDeviceWatch();
+    } else {
+      state.pauseDeviceWatch();
+    }
   }
 
   Future<void> _dismissSplashWhenReady() async {
@@ -153,6 +177,7 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     state.dispose();
     super.dispose();
   }
@@ -202,11 +227,16 @@ class _FlowerpotAppState extends State<FlowerpotApp> {
               settings,
               authenticated: state.authenticated,
             ),
+            navigatorObservers: _navigatorObservers,
             // 语言作用域挂在 Navigator 之上，push 出来的业务页也在它下面：
             // 切语言时所有读 AppL10n 的页面一起重译，不需要各页自己监听。
+            // 联调日志浮层同理挂在这一层，所有 push 出来的页面都罩得住，不用逐页
+            // 往布局里插面板。临时设施，验通后整块去掉。
             builder: (context, child) => AppLocalizationsScope(
               language: state.language,
-              child: child ?? const SizedBox.shrink(),
+              child: InteractionLogOverlay(
+                child: child ?? const SizedBox.shrink(),
+              ),
             ),
           ),
         );

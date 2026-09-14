@@ -8,6 +8,7 @@ import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../home/models/home_dashboard_model.dart';
 import '../../home/presentation/home_page.dart';
+import 'device_online_guard.dart';
 
 class DeviceListPage extends StatelessWidget {
   const DeviceListPage({super.key, this.devices, this.onOpenProfile});
@@ -30,8 +31,9 @@ class DeviceListPage extends StatelessWidget {
     FlowerpotState state,
     SmartPlanterDevice device,
   ) {
+    // 这里已经是设备列表页，提示即可，不用再往列表页跳。
     if (!device.online) {
-      showAppMessage(context, '请打开设备并保持在线', tone: AppMessageTone.info);
+      showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.error);
       return;
     }
     state.selectDevice(device.id);
@@ -202,16 +204,7 @@ class _DeviceListCard extends StatelessWidget {
               children: <Widget>[
                 SizedBox(
                   width: 52,
-                  child: Center(
-                    child: Image.asset(
-                      AppAssets.smartPlanterWithPlant,
-                      width: 48,
-                      height: 62,
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.high,
-                      semanticLabel: '带植物的 YSplanter',
-                    ),
-                  ),
+                  child: Center(child: _DeviceListIcon(url: device.iconUrl)),
                 ),
                 const SizedBox(width: 15),
                 Expanded(
@@ -242,6 +235,40 @@ class _DeviceListCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 设备列表那一列的图：**直接用涂鸦平台上配的产品图**（`DeviceBean.getIconUrl`）。
+///
+/// 2026-09-12 产品口径：「设备列表页面的列表的图片就直接用涂鸦官网配置的图片，
+/// 这里的数据都是来自涂鸦，和后端接口没有交集。」所以这里既不画写死的静态图
+/// （那是最早的做法，和设备实际种的东西无关），也不去读 APP 后端的植物图
+/// （`DevicePlantArtwork` 那一套只服务详情、设置、状态卡那几页）。
+///
+/// 涂鸦没配图就留空位——位置照占，免得右边的文字跳动。
+class _DeviceListIcon extends StatelessWidget {
+  const _DeviceListIcon({required this.url});
+
+  static const double _width = 48;
+  static const double _height = 62;
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final source = url.trim();
+    if (source.isEmpty) return _blank();
+    return Image.network(
+      source,
+      width: _width,
+      height: _height,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '设备图片',
+      errorBuilder: (_, _, _) => _blank(),
+    );
+  }
+
+  Widget _blank() => const SizedBox(width: _width, height: _height);
 }
 
 class _OnlinePill extends StatelessWidget {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/vibration_settings_page_model.dart';
+import 'device_online_guard.dart';
 import 'widgets/vibration_scene_switches_card.dart';
 import 'widgets/vibration_settings_card.dart';
 
@@ -29,7 +30,7 @@ class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
     if (!mounted) return;
     setState(() => updating = false);
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
     }
   }
 
@@ -42,7 +43,7 @@ class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
     if (!mounted) return;
     setState(() => updatingKeyVibration = false);
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
     }
   }
 
@@ -55,7 +56,7 @@ class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
     if (!mounted) return;
     setState(() => updatingPlantVibration = false);
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
     }
   }
 

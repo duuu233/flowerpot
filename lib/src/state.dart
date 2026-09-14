@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,8 +9,10 @@ import 'core/backend/backend.dart';
 import 'core/cache/image_cache_cleanup.dart';
 import 'core/network/api_exception.dart';
 import 'features/auth/domain/auth_validator.dart';
+import 'features/devices/pairing_gate.dart';
 import 'shared/l10n/app_language.dart';
 import 'tuya/tuya_config.dart';
+import 'tuya/tuya_gallery_codec.dart';
 import 'tuya/tuya_memorial_codec.dart';
 import 'tuya/tuya_models.dart';
 import 'tuya/tuya_repository.dart';
@@ -226,6 +229,21 @@ class FlowerpotState extends ChangeNotifier {
   /// 设备正在等 App 弹「发现新植物」引导窗（DP 162 == 1）。
   bool plantGuidePending(String? deviceId) =>
       plantConfirmState(deviceId) == PlantConfirmState.prompt;
+
+  /// **设备报了多少次「162 = true」**，每收到一条就 +1。
+  ///
+  /// 详情页靠它决定要不要再弹一次引导窗（2026-09-12 产品：「点了确认以后，再次
+  /// 接收到 DP162 true 的时候，页面只要没有弹框了，就需要再次弹框，而不是只弹框
+  /// 一次」）。
+  ///
+  /// ⚠️ **为什么不直接看 [plantGuidePending]**：162 在用户处置之前一直是 true，
+  /// 而页面每次 `notifyListeners` 都会重建——按状态触发的话，点任何一个下发按钮都
+  /// 会重新冒出这个弹窗（2026-09-12 修过的那个回归）。按「收到上报」触发就两头都
+  /// 顾上了：重建不会误触发，设备再报一次就会再弹。
+  int plantGuideSignal(String? deviceId) =>
+      deviceId == null ? 0 : (_plantGuideSignals[deviceId] ?? 0);
+
+  final Map<String, int> _plantGuideSignals = <String, int>{};
 
   /// 设备当前上报的植物 id（DP 116）。老固件报字符串标识符时返回 null。
   int? reportedPlantId(String? deviceId) {
@@ -509,23 +527,246 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, BleDevice> _bleDevices = <String, BleDevice>{};
 
   StreamSubscription<BleDevice>? _bleSub;
+
+  /// 原生「扫描结束」的订阅（到时 / SDK 自己停）。见 [startBleDiscovery] 里那段说明。
+  StreamSubscription<String>? _bleStopSub;
   bool _bleScanning = false;
+
+  /// 当前这一轮扫描是谁开的（搜索页传自己的 State 进来）。
+  ///
+  /// 搜索页可能**叠两层**：失败页「返回搜索设备」是 `pushReplacementNamed`，新的一页压在
+  /// 老的那页上面。从新页退回来时老页会重开一轮，而新页的 `dispose` 要等退场动画走完才跑
+  /// ——它那一句停扫要是不认主人，就会把老页刚开起来的这一轮掐掉。
+  Object? _bleOwner;
+
+  /// 云端查回来的产品信息，按 uuid 存。查过的（含查空的）都留下，避免重复往返。
+  final Map<String, BleProductInfo> _bleProductInfo = <String, BleProductInfo>{};
+
+  /// 正在查的 uuid，防止同一台并发查两次。
+  final Set<String> _productInfoInFlight = <String>{};
+
+  /// SDK 的 `onResult` 本轮被回调了多少次（取上报序号的最大值）。
+  ///
+  /// **判断"SDK 到底有没有在回报"**：列表为空而这个数在涨，说明扫描是活的、只是没留住；
+  /// 两者都是 0 才是真的一次回调都没有。
+  int _bleCallbackCount = 0;
+  int get bleCallbackCount => _bleCallbackCount;
+
+  /// **一轮搜索里最多查几台**。
+  ///
+  /// 这是云端往返：不过滤扫描时附近可能有几十台设备，挨个查会把接口打满、也会拖慢页面。
+  /// 按信号从强到弱查前 20 台——想找的那台就在手边，几乎必然在这 20 台里。
+  static const int _productInfoBudget = 20;
+
+  /// 云端产品名最多等多久。
+  ///
+  /// 搜索页在名字有定论之前**不画这一行**（见 [productInfoPending]），所以这里必须有
+  /// 上限：SDK 的回调万一不回来（断网、云端卡住），不设上限就等于这台设备永远不出现，
+  /// 页面上和「搜不到」一模一样。到点按查空处理，退回广播里的名字。
+  static const Duration _productInfoTimeout = Duration(seconds: 5);
 
   /// 最近一次 [loadDeviceWifiList] 拿回来的、**设备自己扫到的** Wi-Fi 列表。
   List<DeviceWifiNetwork> _deviceWifiNetworks = <DeviceWifiNetwork>[];
 
   BleAvailability get bleAvailability => _bleAvailability;
 
+
   bool get bleScanning => _bleScanning;
 
   /// 扫到的设备，信号强的在前。
   ///
-  /// **已经绑过的不列**（[BleDevice.bound]）：那些是别人家的、或这个账号里已有的，
-  /// 点进去只会得到一个配网失败。
+  /// 正常口径是**已经绑过的不列**（[BleDevice.bound]）：那些是别人家的、或这个账号
+  /// 里已有的，点进去只会得到一个配网失败。
+  ///
+  /// ⚠️ 但 [PairingGate.showUnfilteredBleScan] 打开时**一个都不剔**：这一轮要回答的是
+  /// 「设备到底在不在广播」，被过滤掉的恰恰可能就是答案——花盆若因为某种原因被报成
+  /// 已绑定，剔掉之后页面上就是「什么都没扫到」，结论正好反了。列出来并在行上标注，
+  /// 比藏起来有用。
   List<BleDevice> get bleDevices {
-    final items = _bleDevices.values.where((item) => !item.bound).toList()
+    final items = _bleDevices.values
+        .where((item) {
+          if (PairingGate.showUnfilteredBleScan) return true;
+          // 正常动线：**只列本产品、且还没被绑定的**。附近别人的涂鸦设备、已经绑走的，
+          // 列出来只会让用户点到一个必然失败的东西。
+          return !item.bound && _isOurProduct(item);
+        })
+        .toList()
       ..sort((a, b) => b.rssi.compareTo(a.rssi));
-    return List<BleDevice>.unmodifiable(items);
+    // **按信号强弱只取前 [bleListLimit] 台**（2026-09-11 产品要求：列出来我看看有没有）。
+    //
+    // 不过滤 + 扫描类型全开之后，附近的涂鸦设备可能不止一台（邻居的、办公室里的）；
+    // 全画出来页面长到没法看、也没法截图。按信号排序之后，**想找的那台几乎必然在最前面**
+    // ——它就在手边。总数另由 [bleTotal] 报，页面上要说清「一共几台、列了几台」。
+    // **本产品置顶**（pid == `TuyaConfig.productId`，2026-09-11 产品给的 pid
+    // `yciq4kssu1fv8umn`）。不过滤扫描时附近可能有一堆别的涂鸦设备，花盆混在中间要人
+    // 一行行找；把它顶上来，页面一眼就能回答「有没有」。同组内仍按信号排。
+    items.sort((a, b) {
+      final mine = _isOurProduct(b) ? 1 : 0;
+      final theirs = _isOurProduct(a) ? 1 : 0;
+      if (mine != theirs) return mine - theirs;
+      return b.rssi.compareTo(a.rssi);
+    });
+    final capped = items.length <= bleListLimit
+        ? items
+        : items.sublist(0, bleListLimit);
+    return List<BleDevice>.unmodifiable(capped);
+  }
+
+  /// 这台 BLE 设备**就是本产品**（花盆）。
+  ///
+  /// ⚠️ **两个 id 都要比**：BLE 扫描回来的 `ScanDeviceBean.getProductId()` 拿到的是
+  /// **广播包里那个标识**（`TuyaConfig.broadcastId`），不是平台上的产品 ID。只比
+  /// `productId` 会永远认不出来——2026-09-11 真机上扫到 -32dBm 的花盆却没被标成
+  /// 「本产品」，就是这个原因。两者的区别见 [TuyaConfig.broadcastId]。
+  ///
+  /// 广播里的名字常常是空的、mac 每台都不同，所以这是唯一可靠的判据。
+  bool _isOurProduct(BleDevice device) {
+    final id = device.productId.trim();
+    if (id.isEmpty) return false;
+    // ① 本地兜底：平台产品 ID 与广播 ID（`TuyaConfig`）。后台没拉到时也能认。
+    if (id == TuyaConfig.productId || id == TuyaConfig.broadcastId) return true;
+    // ② 后台产品清单里的值也认（2026-09-11 产品口径「根据后台的接口配对一下」）。
+    //
+    //    ⚠️ **2026-09-12 起这一条基本不顶用了**：后台把 `broadcastId` 字段改成存
+    //    平台产品 ID（界面文案也改叫「涂鸦产品ID」），而 BLE 广播里带的仍然是广播
+    //    标识 `ehbx83xdh9jkmxvz`，两者对不上。现在认出这款花盆靠的是上面 ① 的本地
+    //    常量。留着这一条只是兜底——万一以后哪个产品在后台填的就是广播标识。
+    //
+    //    要让「后台新增产品、App 不发版就能认」重新成立，得让后端把广播标识单独
+    //    存一个字段，App 这边再把它并进这个集合。
+    return _backendBroadcastIds.contains(id);
+  }
+
+  /// 后台产品清单里的 `broadcastId` 集合。拉不到就是空的，只走上面的本地兜底。
+  final Set<String> _backendBroadcastIds = <String>{};
+
+  /// 拉一株植物的**完整**资料（`/Client/UserProduct/getUserProductPlantDetail`）。
+  ///
+  /// ⚠️ 详情页必须调它：列表接口 `getProductPlantList` 的返回体只有五个字段
+  /// （id/名称/图片/涂鸦标识/分类），**学名、别名、简介、温湿度、养护建议都不在里面**
+  /// （2026-09-12 按 swagger 核实）。产品口径「植物相关的信息都调这个接口拿」。
+  ///
+  /// 查询键二选一，**优先涂鸦标识**（[tuyaRemark]）：它是 DP 116 报上来的那个值，
+  /// 后台也保证不重复；自增 id 只在拿不到标识符时兜底。
+  ///
+  /// 拉不到就返回 null，页面继续用列表那份——空着总比编一份假的强。
+  Future<PlantProfile?> loadPlantDetail({
+    int? productPlantId,
+    String? tuyaRemark,
+  }) async {
+    try {
+      final plant = await _backend.getProductPlantDetail(
+        productPlantId: productPlantId,
+        tuyaRemark: tuyaRemark,
+      );
+      // 详情里也带涂鸦标识，顺手并进目录：下次按 DP 116 匹配就不用再拉一次。
+      _rememberPlants(<PlantProfile>[plant]);
+      return plant;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 拉一次后台产品清单，把 `broadcastId` 记下来给搜索页配对用。
+  ///
+  /// 尽力而为：拉不到不拦路——本地兜底那两个常量仍然认得出当前这款。
+  Future<void> refreshProductCatalog() async {
+    try {
+      final products = await _backend.getProducts();
+      final ids = products
+          .map((item) => item.broadcastId.trim())
+          .where((id) => id.isNotEmpty);
+      if (ids.isEmpty) return;
+      _backendBroadcastIds
+        ..clear()
+        ..addAll(ids);
+      notifyListeners();
+    } catch (_) {
+      // 后端没配、没登录、网络不好都可能失败，不该拦住配网。
+    }
+  }
+
+  /// 扫到的**本产品**台数。页面上单独报——这就是「到底有没有搜到花盆」的答案。
+  int get bleOurProductCount =>
+      _bleDevices.values.where(_isOurProduct).length;
+
+  /// 列表是否只保留本产品。排查态（[PairingGate.showUnfilteredBleScan]）下不过滤。
+  bool get _filterToOurProduct => !PairingGate.showUnfilteredBleScan;
+
+  /// 涂鸦 SDK 扫到的设备在页面上最多画几台。
+  static const int bleListLimit = 50;
+
+  /// 涂鸦 SDK 扫到的总台数（按 uuid 去重、过滤规则之后、**未截断**）。
+  int get bleTotal => _bleDevices.values
+      .where(
+        (item) => PairingGate.showUnfilteredBleScan
+            ? true
+            : (!item.bound && _isOurProduct(item)),
+      )
+      .length;
+
+  /// 这台 BLE 设备的云端产品信息；还没查到就是 null。
+  BleProductInfo? productInfoFor(String uuid) => _bleProductInfo[uuid];
+
+  /// 这台设备的云端产品名**还没有定论**。
+  ///
+  /// 搜索页用它决定**这一行画不画**：还没定论时整行先不出现，名字定下来才连名字带行
+  /// 一起画出来（2026-09-14 产品口径：「等搜索到最后需要呈现的结果的字符，再在页面上
+  /// 展示」）。09-12 那版是先画「正在识别设备…」占位，产品看到的仍然是字换了一次。
+  ///
+  /// 三种情况分清楚，少一种都会让一台设备迟迟不出现（查询本身另有
+  /// [_productInfoTimeout] 兜底）：
+  ///
+  /// 1. **查过了**（含查空、查失败，[_bleProductInfo] 里有键）→ 有定论，false。
+  /// 2. **正在查** → true。
+  /// 3. **还没轮到** → 只有进了待查名单（信号最强的前 [_productInfoBudget] 台、
+  ///    且 uuid 和 pid 都在）才算 true；名单外的设备压根不会被查，直接算有定论，
+  ///    页面立刻退回广播里的名字。
+  bool productInfoPending(String uuid) {
+    if (uuid.isEmpty || _bleProductInfo.containsKey(uuid)) return false;
+    if (_productInfoInFlight.contains(uuid)) return true;
+    return bleDevices
+        .take(_productInfoBudget)
+        .any(
+          (device) =>
+              device.uuid == uuid &&
+              device.uuid.isNotEmpty &&
+              device.productId.isNotEmpty,
+        );
+  }
+
+  /// 给**信号最强的前 [_productInfoBudget] 台**补齐云端产品信息。
+  ///
+  /// BLE 广播里常常没有名字，只有 mac + pid；拿 pid 去云端换回产品名之后，列表才真的
+  /// 能"看出有没有"。每台只查一次（查空也算查过），失败也记一条空的——**否则每次
+  /// 扫描回调都会重试，几十台设备就是几十次往返**。
+  Future<void> refreshBleProductInfo() async {
+    final targets = bleDevices.take(_productInfoBudget).where((device) {
+      if (device.uuid.isEmpty || device.productId.isEmpty) return false;
+      return !_bleProductInfo.containsKey(device.uuid) &&
+          !_productInfoInFlight.contains(device.uuid);
+    }).toList(growable: false);
+    if (targets.isEmpty) return;
+    for (final device in targets) {
+      _productInfoInFlight.add(device.uuid);
+      try {
+        _bleProductInfo[device.uuid] = await _repository
+            .queryDeviceProductInfo(
+              productId: device.productId,
+              uuid: device.uuid,
+              mac: device.mac,
+            )
+            .timeout(_productInfoTimeout);
+      } catch (_) {
+        // 查不到（含超时）也要占位：不占的话每次扫描回调都会重试同一台，而搜索页
+        // 也会一直把这一行压着不画。
+        _bleProductInfo[device.uuid] = const BleProductInfo();
+      } finally {
+        _productInfoInFlight.remove(device.uuid);
+      }
+      // 查完一台就通知一次：搜索页等的就是这一刻才画这一行，别让它陪着后面几台一起等。
+      notifyListeners();
+    }
   }
 
   List<DeviceWifiNetwork> get deviceWifiNetworks =>
@@ -556,19 +797,80 @@ class FlowerpotState extends ChangeNotifier {
   /// 不占锁了。
   ///
   /// 返回 false 表示这条路没开起来（BLE 不可用、或原生拒绝），调用方照常走 Wi-Fi。
+  ///
+  /// [owner] 是开这一轮的人，见 [_bleOwner]；[stopBleDiscovery] 据此判断还轮不轮得到它停。
   Future<bool> startBleDiscovery({
     Duration timeout = const Duration(seconds: 60),
+    Object? owner,
   }) async {
-    if (_bleScanning) return true;
+    // ⚠️ **每调一次都是全新的一轮，不沿用上一轮的任何结果**（2026-09-14 产品反馈：
+    // 「关闭了设备，去搜索还是会搜索出设备」「点击重新扫描扫描不到设备」）。
+    //
+    // 原来开头是一句 `if (_bleScanning) return true;`，两个问题叠在一起：
+    //
+    // 1. **扫到的设备从来不清。** [_bleDevices] 挂在全局状态上、和 App 活得一样久，搜到过
+    //    一次的设备，关机之后再进搜索页照样在列表里——就是产品说的「缓存」。
+    // 2. **「重新扫描」是空操作。** 原生扫描到时自己停了，Dart 这边从来没人把
+    //    [_bleScanning] 置回 false（原生发了 `bleScanStopped`，没人接），再点「重新扫描」
+    //    直接被那句 return 掉，原生根本没有重新开扫。
+    //
+    // 所以现在：还在扫就先停，清掉上一轮扫到的设备，再真的开一轮；扫描结束的事件也接上
+    // （[_bleStopSub]）。云端产品名（[_bleProductInfo]）**不清**：它只回答「这个 uuid
+    // 叫什么」，不决定设备在不在，留着还能让下一轮的名字立刻有定论。
+    _bleOwner = owner;
+    if (_bleScanning) {
+      _bleScanning = false;
+      try {
+        await _repository.stopBleScan();
+      } catch (_) {
+        // 停不掉也照样往下开：原生 `startBleScan` 开扫之前自己还会再停一次。
+      }
+    }
+    _bleDevices.clear();
+    _bleCallbackCount = 0;
+    notifyListeners();
+    // ⚠️ **顺序是这条路的命门**：必须先把授权框弹掉、等用户答完，再去探测。
+    //
+    // 2026-09-11 真机踩的就是这个：搜索页把 BLE 那条 `unawaited` 出去、紧接着才调
+    // `probeWifi`，而**权限框是 `probeWifi` 触发的**。于是 BLE 探测抢在授权框被回答
+    // 之前跑完，`checkSelfPermission` 报"未授予" ⇒ 不扫描、也没人再探一次，页面上
+    // 就一直写着「缺少定位权限」——而用户去系统设置一看，权限明明给了。
+    // 表现出来就是「第二次进 App 才正常」。
+    //
+    // 授权失败不在这里下结论：照常往下探测，由 `bleProbe` 的实测结果说话。
+    try {
+      await _repository.ensureBlePermissions();
+    } catch (_) {
+      // 用户拒了、或系统不再弹框。探测会把"缺哪一项"如实报出来。
+    }
     final availability = await probeBle();
     if (!availability.usable) return false;
     _bleSub ??= _repository.bleDevices.listen((device) {
-      _bleDevices[device.uuid] = device;
+      // 按稳定键去重（uuid → mac → address → id）：广播里未必带 uuid，
+      // 只按 uuid 会让所有没 uuid 的挤成一条。
+      if (device.seq > _bleCallbackCount) _bleCallbackCount = device.seq;
+      _bleDevices[device.key] = device;
+      notifyListeners();
+      // 顺手把云端产品信息补上（内部去重 + 限量，不会每条回调都往返）。
+      unawaited(refreshBleProductInfo());
+    });
+    // 原生扫描到时 / SDK 自己停了：如实记下来。不接这条，[_bleScanning] 会一直是 true，
+    // 下一轮的判断全建在一个早就不成立的"还在扫"上。
+    //
+    // 原生只替**当前这一轮**报结束（旧一轮的回调代理被替换后不再上报），所以这里不必
+    // 担心重开时旧一轮迟到的结束事件把新一轮标成已结束。
+    _bleStopSub ??= _repository.bleScanStops.listen((_) {
+      if (!_bleScanning) return;
+      _bleScanning = false;
       notifyListeners();
     });
+    // 先置位再发起：SDK 若在 `startLeScan` 里就同步回了 `onScanStop`（没扫起来），那条
+    // 事件会先于方法调用返回到达，得让它能把状态纠正回 false。
+    _bleScanning = true;
     try {
       await _repository.startBleScan(timeout: timeout);
     } catch (error) {
+      _bleScanning = false;
       _bleAvailability = BleAvailability(
         available: availability.available,
         supported: availability.supported,
@@ -578,26 +880,57 @@ class FlowerpotState extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    _bleScanning = true;
     notifyListeners();
     return true;
+  }
+
+  /// 把用户送去本应用的系统设置页。
+  ///
+  /// 权限被点成「拒绝」之后系统不再弹框，这是唯一的出路。
+  Future<void> openAppSettings() async {
+    try {
+      await _repository.openAppSettings();
+    } catch (_) {
+      // 打不开设置页不值得打断页面；用户还可以自己去系统设置。
+    }
   }
 
   /// 停掉 BLE 扫描并断开订阅。
   ///
   /// **每条离开搜索页的路径都要调**：扫描回调在原生侧握着 Activity，而且在真的耗电。
   /// 没在扫时调用也安全。
-  Future<void> stopBleDiscovery() async {
+  ///
+  /// 带了 [owner] 而当前这一轮不是它开的（已经被别的搜索页重开过），就什么都不做——
+  /// 见 [_bleOwner]。不带 [owner] 时无条件停。
+  Future<void> stopBleDiscovery({Object? owner}) async {
+    if (owner != null && !identical(owner, _bleOwner)) return;
     await _bleSub?.cancel();
     _bleSub = null;
-    if (!_bleScanning) return;
-    _bleScanning = false;
-    try {
-      await _repository.stopBleScan();
-    } catch (_) {
-      // 停不掉不该盖过调用方要做的事；最坏情况是多扫一会儿。
+    await _bleStopSub?.cancel();
+    _bleStopSub = null;
+    _productInfoInFlight.clear();
+    final wasScanning = _bleScanning;
+    if (wasScanning) {
+      _bleScanning = false;
+      try {
+        await _repository.stopBleScan();
+      } catch (_) {
+        // 停不掉不该盖过调用方要做的事；最坏情况是多扫一会儿。
+      }
     }
-    notifyListeners();
+    // ⚠️ **把 BLE 链路也断掉。** 设备只有在**没有连接**时才会广播；配网中途失败留下的
+    // 那条连接会让它从此扫不到（2026-09-11 真机：之前搜得到、配网失败之后就搜不到了）。
+    // 放在停扫之后、不抛错：它的职责就是"无论如何把设备放回广播状态"。
+    //
+    // ⚠️ **不跟着「还在不在扫」走**：原来整段挂在 `if (!_bleScanning) return` 后面，而
+    // `_bleScanning` 以前扫描到时也不会置回 false，所以实际上每次都断。现在扫描结束会
+    // 如实置 false（见 [startBleDiscovery]），再挂在它后面就会在"扫描已经到时"的时候漏断。
+    try {
+      await _repository.disconnectBleDevice();
+    } catch (_) {
+      // 断不掉也不该打断调用方；下一次进页面还会再断一次。
+    }
+    if (wasScanning) notifyListeners();
   }
 
   /// 走 BLE 问一台设备要**它自己扫到的** Wi-Fi 列表。
@@ -716,6 +1049,147 @@ class FlowerpotState extends ChangeNotifier {
       },
     );
   });
+
+  // ══════════════ 联调日志（临时，流程验通后去掉） ══════════════
+  //
+  // 2026-09-12 产品要求：「和涂鸦、和设备有数据交互的，都在页面最下面打印一下每次
+  // 操作的数据」，用于和涂鸦 / 固件联调。**这是临时设施**，跑通后连同页面上的日志框
+  // 一起去掉（`PairingGate` 那种开关式收口同理）。
+  //
+  // 只记两类：**下发**（App → 设备的 DP 写）与**上报**（设备 → App 的 DP 变化）。
+  // 两者就是"和设备的数据交互"的全部；云端接口另有 `ApiClient` 的日志，不混进来。
+
+  /// 最近若干条交互日志，新的在最后。
+  List<String> get interactionLog => List<String>.unmodifiable(_interactionLog);
+  final List<String> _interactionLog = <String>[];
+
+  /// 只留最近这些条：页面上放不下更多，而联调看的就是最后几条。
+  static const int _interactionLogLimit = 60;
+
+  /// 记一条交互日志。带时分秒——联调时要对着设备那边的时间看。
+  void _logInteraction(String line) {
+    final now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    _interactionLog.add(
+      '${two(now.hour)}:${two(now.minute)}:${two(now.second)} $line',
+    );
+    if (_interactionLog.length > _interactionLogLimit) {
+      _interactionLog.removeAt(0);
+    }
+    notifyListeners();
+  }
+
+  /// 清空日志框。
+  void clearInteractionLog() {
+    _interactionLog.clear();
+    notifyListeners();
+  }
+
+  /// 设备是否在线。**全站唯一的在线判断入口**。
+  ///
+  /// 产品口径（2026-09-12）：设备列表页、设备详情页能点进去的相关页面，以及所有
+  /// 下发 DP 的动作，都要先过这一道。页面侧用 `ensureDeviceOnline(context, id)`
+  /// 包一层提示和跳转，下发那一路在 [_publishDps] 里直接拦。
+  ///
+  /// 不认识的设备 id 一律当不在线：既然连设备都没有，就更谈不上能操作。
+  bool isDeviceOnline(String id) => deviceById(id)?.online ?? false;
+
+  /// 进到某个页面时记一条。
+  void logPageEntry(String page) => _logInteraction('进入 ← [$page]');
+
+  /// 进页面时把这一页的功能点连同当前取到的值一起记下来。
+  ///
+  /// 产品要的是「刚进来的时候就要读取功能设置对应的 DPID 是什么、接收到的值是
+  /// 什么」，所以一行里把四样东西摆齐：App 的设置键 → 涂鸦标识符 → DP 号 → 页面
+  /// 此刻用的值，联调时能直接对着功能点表看。
+  ///
+  /// ⚠️ 值是**页面当前取到的值**：设备还没上报过这条 DP 时，它就是 App 的默认值。
+  /// 想区分「设备报的」和「App 默认的」，得等固件把全量 DP 报上来再说。
+  void logSettingsSnapshot(String deviceId, String page, List<String> keys) {
+    final device = deviceById(deviceId);
+    if (device == null) {
+      _logInteraction('读取 ← [$page] 未找到设备 $deviceId');
+      return;
+    }
+    final entries = <String>[
+      for (final key in keys) _settingLogEntry(device.settings, key),
+    ];
+    _logInteraction('读取 ← [$page] ${entries.join('，')}');
+  }
+
+  String _settingLogEntry(DeviceControlSettings settings, String key) {
+    final value = _settingLogValue(settings, key);
+    if (key == 'napPeriod') {
+      return _periodLogEntry('nap_start_time', 'nap_end_time', value);
+    }
+    if (key == 'nightPeriod') {
+      return _periodLogEntry(
+        'night_sleep_start_time',
+        'night_sleep_end_time',
+        value,
+      );
+    }
+    final identifier = TuyaConfig.setting[key];
+    if (identifier == null) return '$key=未接功能点';
+    final dpId = TuyaConfig.dp[identifier];
+    if (dpId == null) return '$identifier=未接功能点';
+    return 'DP$dpId $identifier=$value';
+  }
+
+  /// 作息那两项各占一头一尾两条 DP，页面上是一个区间，所以合起来记。
+  String _periodLogEntry(
+    String startIdentifier,
+    String endIdentifier,
+    Object? value,
+  ) {
+    final start = TuyaConfig.dp[startIdentifier];
+    final end = TuyaConfig.dp[endIdentifier];
+    return 'DP$start+DP$end $startIdentifier/$endIdentifier=$value';
+  }
+
+  Object? _settingLogValue(DeviceControlSettings settings, String key) =>
+      switch (key) {
+        'autoBrightness' || 'led' => settings.autoBrightness,
+        'soundInteraction' => settings.soundInteraction,
+        'soundSensitivity' => settings.soundSensitivity,
+        'touchInteraction' => settings.touchInteraction,
+        'touchSensitivity' => settings.touchSensitivity,
+        'vibration' => settings.vibration,
+        'touchKeyVibration' => settings.touchKeyVibration,
+        'touchPlantVibration' => settings.touchPlantVibration,
+        'napEnabled' => settings.napEnabled,
+        'napPeriod' => settings.napPeriod,
+        'nightEnabled' => settings.nightEnabled,
+        'nightPeriod' => settings.nightPeriod,
+        'temperatureUnit' => settings.temperatureUnit,
+        'clockFormat' => settings.clockFormat,
+        'standby' => settings.standbyEnabled,
+        'standbyDelay' => settings.standbyDelayMinutes,
+        'deviceLanguage' => settings.deviceLanguage,
+        'plantDetection' => settings.plantDetection,
+        _ => null,
+      };
+
+  /// 统一的 DP 下发入口：**所有写 DP 的地方都走它**，这样日志不会漏。
+  ///
+  /// 直接调 `_repository.publishDps` 的话，新增一处下发就少记一条，日志就不可信了。
+  Future<void> _publishDps(String deviceId, Map<int, Object> dps) async {
+    // 离线设备不下发：指令到不了设备，还会让页面以为改成功了。只拦「认识而且
+    // 确实离线」的设备——刚配网完还没进列表的设备 [deviceById] 查不到，那种情况
+    // 照常发，不然会把配网收尾的写操作一起拦掉。
+    final known = deviceById(deviceId);
+    if (known != null && !known.online) {
+      _logInteraction('下发被拦 ✗ 设备已离线 $dps');
+      throw const TuyaException('device_offline', '设备已离线');
+    }
+    _logInteraction('下发 → $dps');
+    try {
+      await _repository.publishDps(deviceId, dps);
+    } catch (error) {
+      _logInteraction('下发失败 ✗ $error');
+      rethrow;
+    }
+  }
 
   /// 配网过程中的原生日志，**给页面直接显示用**。
   ///
@@ -1154,6 +1628,26 @@ class FlowerpotState extends ChangeNotifier {
     return const ActionResult(true, '已中止配网，设备热点连接已释放');
   });
 
+  /// 第三步「连接云端」在进度卡上停留多久，**1–2 秒随机**。
+  ///
+  /// ⚠️ **这一步没有真实业务**：SDK 回 onActiveSuccess 时设备已经连上路由器、注册到云端了，
+  /// 没有东西可等。停这一下是**产品要的流程感**，不是在等什么——没有它，第三步一闪而过，
+  /// 用户看到的是「第二步刚亮起就跳到成功页」。
+  ///
+  /// 来回改过三次，**别再删**：09-10 产品要求加上 → 09-11 晚按「最简洁、最高效」删掉
+  /// （`a0aa3bf`）→ 09-14 产品：「第三步假效果又没有了，给个 1-2 秒的随机数延迟，第三步
+  /// 目前是假的，走个流程」。
+  ///
+  /// 可替换只为测试：用例的配网 Mock 自己已经等 1 秒，再叠一段随机等待会让按固定时长
+  /// pump 的用例时好时坏。`test/flutter_test_config.dart` 统一置零，专门的用例再换回来验。
+  @visibleForTesting
+  static Duration Function() cloudStageDelay = randomCloudStageDelay;
+
+  /// 生产用的取值：1000–2000 ms 均匀随机（两端都含）。
+  @visibleForTesting
+  static Duration randomCloudStageDelay() =>
+      Duration(milliseconds: 1000 + Random().nextInt(1001));
+
   /// [send] 是"真正把凭据发出去"的那一下：AP 走 `pair()`，双模走 `pairBleDevice()`。
   /// 两条路的收尾（置第三步、作废令牌、把设备并进列表、选中它）完全一样，所以只在
   /// 这一个参数上分叉——复制一份最容易在其中一份上漏掉作废令牌。
@@ -1162,12 +1656,10 @@ class FlowerpotState extends ChangeNotifier {
   ) async {
     final device = await _pairOrRecover(send);
     // 走到这里 SDK 已经回了 onActiveSuccess——设备**已经**连上路由器并注册到云端了。
-    // 第三步「连接云端」在这一刻置位、随即在 finally 里归 idle，界面上不会单独停留。
-    //
-    // 2026-09-11 晚删掉了这里原来那段 1–2 秒的随机 `Future.delayed`：它只是为了让第三步
-    // 在进度卡上"亮一会儿"，纯装的（产品要"最简洁、最高效"）。成功页本身就是"云端完成"
-    // 的信号，用户不会因为少看到一格转圈而困惑。
+    // 第三步「连接云端」置位后按产品要求停 1–2 秒再往下走（见 [cloudStageDelay]），
+    // 页面在这段时间里画「1、2 已完成，3 转圈」。
     _setPairingStage(PairingStage.connectingCloud);
+    await Future<void>.delayed(cloudStageDelay());
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.
     _activatorTokenAt = null;
@@ -1327,6 +1819,13 @@ class FlowerpotState extends ChangeNotifier {
       throw const TuyaException('plant_missing', '设备当前没有上报植物，无法确认');
     }
     final plant = _plantForIdentifier(reported);
+    // 产品要求「点确定也在日志中看到下发的植物ID」。下面的 `_publishDps` 本来就会
+    // 打出整个 DP map，但那一行读起来是 `{116: xxx, 161: y}`，不够直白；这里先单独
+    // 写一条，说清这次确认下发的是哪一株。
+    _logInteraction(
+      '确认植物 → DP116=$reported'
+      '${plant == null ? '（目录里没有这一株，只下发 116）' : '，${plant.name}'}',
+    );
     final withType = await _publishPlantSelection(
       id,
       reported,
@@ -1386,7 +1885,7 @@ class FlowerpotState extends ChangeNotifier {
     if (dps == null) {
       throw TuyaException('unsupported_dp', '当前产品未提供该功能点：$key');
     }
-    await _repository.publishDps(id, dps);
+    await _publishDps(id, dps);
     _replaceDevice(id, (device) {
       final current = device.settings;
       final next = switch (key) {
@@ -1426,6 +1925,33 @@ class FlowerpotState extends ChangeNotifier {
     });
     return const ActionResult(true, '设置已同步');
   });
+
+  /// 把历史 DP 的到货情况打进联调日志框。
+  ///
+  /// 产品 2026-09-12 反馈「需水状态页没有历史记录，同一台设备在智能生活 APP 上有」。
+  /// 两边的数据源不是一回事：
+  ///
+  /// - 智能生活 APP 走的是**涂鸦云端统计服务**，云端自己按天/周/月聚合。
+  /// - 本 App 走的是**设备自己上报的 131–139 九条 raw DP**——当初改成这样，就是因为
+  ///   云端统计要付费订阅，这个账号没有。
+  ///
+  /// 所以"那边有、这边没有"完全可能同时成立：设备没把历史 DP 报上来，云端却有。
+  /// 这个方法不修数据，只是把每条历史 DP 的原始长度和解出的点数打到页面上，
+  /// 好分清是**设备没报**还是**报了解不出来**。
+  Future<void> logHistoryDiagnostics(String deviceId, String page) async {
+    try {
+      final report = await _repository.historyDiagnostics(deviceId);
+      if (report.isEmpty) {
+        _logInteraction('读取 ← [$page] 历史 DP：一条都没有');
+        return;
+      }
+      report.forEach((metricKey, line) {
+        _logInteraction('读取 ← [$page] 历史 $metricKey：$line');
+      });
+    } catch (error) {
+      _logInteraction('读取 ← [$page] 历史 DP 体检失败 ✗ $error');
+    }
+  }
 
   Future<List<double>> historyFor(
     String id,
@@ -1562,8 +2088,7 @@ class FlowerpotState extends ChangeNotifier {
   Future<void> refreshMemorials(String deviceId) async {
     if (!_backendReady) return;
     try {
-      final backendDevice = await _ensureBackendDevice(deviceId);
-      final rows = await _backend.getAnniversaries(backendDevice.userProductId);
+      final rows = await _backend.getAnniversaries(deviceId);
       _memorials[deviceId] = rows
           .map(_memorialFromBackend)
           .toList(growable: true);
@@ -1580,7 +2105,10 @@ class FlowerpotState extends ChangeNotifier {
     MemorialEntry entry, {
     required bool isNew,
   }) async {
-    final backendDevice = await _ensureBackendDevice(deviceId);
+    // 纪念日接口直接吃涂鸦 deviceId。以前这里先按 deviceId 去 getUserProductList
+    // 换后端的 userProductId（查不到还会 addUserProduct 建一条），那几个用户产品
+    // 接口已经下线，保存在第一步就 404 了。
+    _requireBackendSession();
     var content = entry.content.trim();
     if (entry.type == MemorialContentType.image &&
         content.isNotEmpty &&
@@ -1591,7 +2119,7 @@ class FlowerpotState extends ChangeNotifier {
     final date = entry.date ?? DateTime.now();
     final id = isNew
         ? await _backend.addAnniversary(
-            userProductId: backendDevice.userProductId,
+            deviceId: deviceId,
             title: entry.title,
             content: content,
             imageContent: imageContent,
@@ -1601,7 +2129,7 @@ class FlowerpotState extends ChangeNotifier {
     if (!isNew) {
       await _backend.editAnniversary(
         anniversaryId: id,
-        userProductId: backendDevice.userProductId,
+        deviceId: deviceId,
         title: entry.title,
         content: content,
         imageContent: imageContent,
@@ -1655,7 +2183,7 @@ class FlowerpotState extends ChangeNotifier {
         if (dpId == null) {
           throw const TuyaException('unsupported_dp', '当前产品未提供清空照片功能点');
         }
-        await _repository.publishDps(deviceId, <int, Object>{dpId: true});
+        await _publishDps(deviceId, <int, Object>{dpId: true});
         return const ActionResult(true, '已通知设备清空照片');
       });
 
@@ -1692,11 +2220,20 @@ class FlowerpotState extends ChangeNotifier {
     if (dpId == null) {
       throw TuyaException('unsupported_dp', '当前产品未提供该功能点：$identifier');
     }
-    await _repository.publishDps(deviceId, <int, Object>{
+    await _publishDps(deviceId, <int, Object>{
       dpId: TuyaMemorialCodec.encodeRaw(bytes),
     });
   }
 
+  /// 定制动画上传一张图：**先传后端，再经 DP 142 `dl_url` 通知设备去下载**。
+  ///
+  /// ⚠️ 2026-09-14 之前这里只传了后端、刷新了列表就返回「图片已上传」，**一条 DP 都没发**
+  /// ——设备根本不知道有新图，联调日志里也看不到任何下发（产品反馈）。当时的理由是
+  /// 142 的协议还没给；09-12 那版功能点表已经写明格式
+  /// `url_len(1B) + url + name_len(1B) + name`，见 [TuyaGalleryCodec.downloadFrame]。
+  ///
+  /// 帧里的 name 与删除（155）、置顶（157）发的是同一个文件名（[BackendImage.fileNameOf]），
+  /// 设备按它存、按它删、按它置顶。
   Future<ActionResult> addAnimation(
     String deviceId, {
     required String name,
@@ -1704,9 +2241,36 @@ class FlowerpotState extends ChangeNotifier {
   }) => _guard(() async {
     if (_backend.enabled) {
       _requireBackendSession();
-      await _backend.uploadImage(deviceId: deviceId, filePath: path);
+      final before = <String>{
+        for (final item
+            in _backendAnimations[deviceId] ?? const <AnimationAsset>[])
+          item.id,
+      };
+      final uploadedUrl = await _backend.uploadImage(
+        deviceId: deviceId,
+        filePath: path,
+      );
       await _refreshBackendImages(deviceId);
-      return const ActionResult(true, '图片已上传');
+      // 接口按 swagger 会回 `{name, url}`；万一没回，退到列表里新多出来的那一张。
+      final url = (uploadedUrl?.trim().isNotEmpty ?? false)
+          ? uploadedUrl!.trim()
+          : _newestBackendImageUrl(deviceId, before);
+      if (url == null || url.isEmpty) {
+        _logInteraction('定制动画 ✗ 图片已上传，但拿不到图片地址，DP142 dl_url 未下发');
+        throw const ApiException(
+          'UPLOAD_URL_MISSING',
+          '图片已上传，但接口没有返回图片地址，未能通知设备下载',
+        );
+      }
+      final fileName = BackendImage.fileNameOf(url);
+      // 下发那一行打的是十六进制帧，人读不了；先把帧里装了什么摆出来。
+      _logInteraction('定制动画 DP142 dl_url：name=$fileName url=$url');
+      await _publishRawDp(
+        deviceId,
+        'dl_url',
+        TuyaGalleryCodec.downloadFrame(url: url, name: fileName),
+      );
+      return const ActionResult(true, '图片已上传，已通知设备下载');
     }
     final asset = AnimationAsset(
       id: '${DateTime.now().microsecondsSinceEpoch}',
@@ -1720,6 +2284,20 @@ class FlowerpotState extends ChangeNotifier {
     if (index >= 0) _animations[index] = asset.copyWith(synced: true);
     return const ActionResult(true, '图片已上传并同步');
   });
+
+  /// 上传前没有、上传后多出来的那一张（id 最大的）的地址。上传接口没回地址时兜底用。
+  String? _newestBackendImageUrl(String deviceId, Set<String> before) {
+    AnimationAsset? newest;
+    for (final item
+        in _backendAnimations[deviceId] ?? const <AnimationAsset>[]) {
+      if (before.contains(item.id)) continue;
+      if (newest == null ||
+          (int.tryParse(item.id) ?? 0) > (int.tryParse(newest.id) ?? 0)) {
+        newest = item;
+      }
+    }
+    return newest?.path;
+  }
 
   void pinAnimation(String id) {
     final index = _animations.indexWhere((item) => item.id == id);
@@ -1891,7 +2469,7 @@ class FlowerpotState extends ChangeNotifier {
     final dpId = TuyaConfig.dp['factory_reset'];
     if (dpId == null) return;
     try {
-      await _repository.publishDps(id, <int, Object>{dpId: true});
+      await _publishDps(id, <int, Object>{dpId: true});
     } on TuyaException {
       // Unreachable device: unbinding locally is still what was asked for.
     }
@@ -1902,7 +2480,7 @@ class FlowerpotState extends ChangeNotifier {
     if (dpId == null) {
       throw const TuyaException('unsupported_dp', '当前产品未提供水位校准功能点');
     }
-    await _repository.publishDps(id, <int, Object>{dpId: step});
+    await _publishDps(id, <int, Object>{dpId: step});
   }
 
   /// 下发植物：116 植物品种和 161 植物分类走同一条指令。
@@ -1925,8 +2503,53 @@ class FlowerpotState extends ChangeNotifier {
     final typeDp = TuyaConfig.dp['plant_type'];
     final typeValue = TuyaConfig.plantTypeValue(category);
     if (typeDp != null && typeValue != null) dps[typeDp] = typeValue;
-    await _repository.publishDps(id, dps);
-    return dps.length > 1;
+    // 顺带把 162 显式写回 false（2026-09-12 产品要求，见 [resetPlantGuideFlag]）。
+    final confirmDp = TuyaConfig.dp['plant_present'];
+    if (confirmDp != null) dps[confirmDp] = false;
+    await _publishDps(id, dps);
+    _notePlantGuideReset(id);
+    // 只有 161 才算"带上了分类"，162 是每次都发的，不能把它算进去。
+    return typeDp != null && typeValue != null;
+  }
+
+  /// **把 162 显式写回 false。**
+  ///
+  /// 产品口径（2026-09-12）：「涂鸦那边会有延迟，每次点击『选择植物』和『确认』的
+  /// 时候，都多传一个 dpid=162 改为 false，帮它这个值初始化一下。」
+  ///
+  /// 为什么要这么干：涂鸦**只推 DP 变化**。162 一直停在 true 的话，固件再写一次 true
+  /// 不会产生新的上报，App 也就无从知道设备又要求弹窗了——弹窗于是只出现一次。
+  /// 由 App 主动写回 false，下一次 true 就是一次真正的翻转，能推上来。
+  ///
+  /// 162 在 09-12 的功能点表里是 `可下发可上报（rw）`，App 写它是合法的。
+  ///
+  /// 写完顺手把本地状态也置成 hidden：固件通常会回一条 162=0，但不指望它——本地
+  /// 先落定，弹窗就不会因为读到旧快照再冒一次。
+  Future<void> resetPlantGuideFlag(String id) async {
+    final confirmDp = TuyaConfig.dp['plant_present'];
+    if (confirmDp == null) return;
+    try {
+      await _publishDps(id, <int, Object>{confirmDp: false});
+      _notePlantGuideReset(id);
+    } catch (_) {
+      // 初始化失败不该拦住用户去选植物——下一次上报照常能弹。
+    }
+  }
+
+  /// 162 已经被写回 false：把**本地设备状态**落定，弹窗不会因为读到旧快照再冒一次。
+  ///
+  /// ⚠️ **不动 [_lastPlantConfirm]**。那个 map 记的是「上一次**从设备收到**的 162」，
+  /// 专门用来认出整包快照里的翻转；把 App 自己写下去的值也记进去，就会出现这种误判：
+  /// 写完 false 之后、固件还没回 162=0 之前，随便来一条电量上报（整包快照里 162 仍是
+  /// true）都会被当成「设备又要求弹一次」——那就退回「点任何按钮都冒弹窗」的老毛病了。
+  void _notePlantGuideReset(String id) {
+    _replaceDevice(
+      id,
+      (device) => device.copyWith(
+        plantConfirm: PlantConfirmState.hidden,
+        plantConfirmRaw: 'false',
+      ),
+    );
   }
 
   Future<ActionResult> removeDevice(String id, {required bool resetFactory}) =>
@@ -2089,14 +2712,48 @@ class FlowerpotState extends ChangeNotifier {
     return _basicData;
   }
 
-  /// 帮助中心的常见问题。拉不到返回空，页面回落到内置的几条。
+  /// 帮助中心的常见问题。拉不到就返回空，页面画空态。
+  ///
+  /// 2026-09-12 接口加了 `broadcastId` 筛选（后台产品表那个字段，界面上现在叫
+  /// 「涂鸦产品ID」）。App 这边用 [faqBroadcastId] 解析出来的值带上去，让常见问题
+  /// 只出本产品的那几条。
+  ///
+  /// 请求本身只打在 debug 控制台，产品在真机上看不到——所以带了什么参数、回来几条，
+  /// 在联调日志里记一行（2026-09-14 产品要核对「接口是不是传了产品 ID」）。
   Future<List<BackendFaq>> loadFaqs() async {
     if (!_backend.enabled || !_backend.hasSession) return const <BackendFaq>[];
+    final (productId, source) = _faqProductId();
+    final request =
+        'getProductFaqList broadcastId=$productId（涂鸦产品ID，取自$source）';
     try {
-      return await _backend.getFaqs();
-    } catch (_) {
+      final faqs = await _backend.getFaqs(broadcastId: productId);
+      _logInteraction('帮助中心 ← $request，返回 ${faqs.length} 条');
+      return faqs;
+    } catch (error) {
+      _logInteraction('帮助中心 ✗ $request：$error');
       return const <BackendFaq>[];
     }
+  }
+
+  /// 常见问题筛选用的产品标识。
+  ///
+  /// 取值顺序：当前选中设备的涂鸦产品 ID（SDK 给的，最准）→ 任意一台已绑定设备的
+  /// → [TuyaConfig.productId]（还没绑设备时的兜底，本 App 只有这一款产品）。
+  ///
+  /// ⚠️ 这里要的是**涂鸦平台产品 ID**，不是 BLE 广播里那个标识
+  /// （[TuyaConfig.broadcastId]）。后台那个字段名虽然还叫 `broadcastId`，2026-09-12
+  /// 起存的是平台产品 ID，界面文案也改成了「涂鸦产品ID」。
+  String get faqBroadcastId => _faqProductId().$1;
+
+  /// [faqBroadcastId] 连同它是从哪来的，联调日志要把来源一起打出来。
+  (String, String) _faqProductId() {
+    final selected = selectedDevice?.productId.trim() ?? '';
+    if (selected.isNotEmpty) return (selected, '当前设备');
+    for (final device in devices) {
+      final id = device.productId.trim();
+      if (id.isNotEmpty) return (id, '已绑定设备');
+    }
+    return (TuyaConfig.productId, '本地常量 TuyaConfig.productId');
   }
 
   Future<void> setLanguage(String code) async {
@@ -2177,10 +2834,64 @@ class FlowerpotState extends ChangeNotifier {
 
   void _listenForDeviceUpdates() {
     _deviceUpdates?.cancel();
-    _deviceUpdates = _repository.deviceUpdates.listen(_applyDeviceUpdate);
+    _deviceUpdates = _repository.deviceUpdates.listen((update) {
+      final device = update.device;
+      if (device != null) {
+        _logInteraction(
+          '上报 ← 116=${device.plantVariety.isEmpty ? '-' : device.plantVariety}'
+          ' 162=${device.plantConfirmRaw.isEmpty ? '-' : device.plantConfirmRaw}'
+          ' 电量=${device.battery}%'
+          ' 在线=${device.online ? '是' : '否'}',
+        );
+      } else if (update.removedId != null) {
+        _logInteraction('上报 ← 设备被解绑 ${update.removedId}');
+      }
+      _applyDeviceUpdate(update);
+      // ⚠️ **必须放在 [_applyDeviceUpdate] 之后**：计数一变页面就会重建并去读
+      // `plantGuidePending`，而那个读的是合并后的设备快照。先记数的话，页面会拿
+      // 着**上一版**状态判定「不用弹」，把这次上报白白消耗掉。
+      if (device != null) _notePlantGuideReport(device, update.changedDps);
+    });
     _otaUpdates?.cancel();
     _otaUpdates = _repository.otaUpdates.listen(_applyOtaProgress);
   }
+
+  /// 这条上报里如果真的带了 162 且值为 true，就把计数 +1。
+  ///
+  /// **必须看 [DeviceUpdate.changedDps]**：设备快照是历史 DP 合并后的样子，只看
+  /// `device.plantConfirm` 的话，温度、电量那些无关上报也会被当成"162 又报了一次"。
+  void _notePlantGuideReport(SmartPlanterDevice device, Set<int> changedDps) {
+    final dpId = TuyaConfig.dp['plant_present'];
+    final previous = _lastPlantConfirm[device.id];
+    _lastPlantConfirm[device.id] = device.plantConfirm;
+    if (device.plantConfirm != PlantConfirmState.prompt) return;
+
+    // 「设备又要求弹一次」有两条到货路径，都要认：
+    //
+    // ① 这条报文里确实带了 162——`onDpUpdate` 那条路，`dps` 里能看到 DP 号。
+    // ② 162 由别的值翻成 prompt——`onDevInfoUpdate` 那条路整包快照下来，事件里
+    //    没有逐条 DP，`changedDps` 是空的，只能靠前后值对比看出来。
+    //
+    // 反过来，**整包快照里 162 本来就是 true** 的情况不算（例如设备列表刚拉回来）：
+    // 那不是一次新的上报，进页面那次检查已经负责弹了。
+    final carried = dpId != null && changedDps.contains(dpId);
+    final flipped = previous != null && previous != PlantConfirmState.prompt;
+    if (!carried && !flipped) return;
+
+    final count = (_plantGuideSignals[device.id] ?? 0) + 1;
+    _plantGuideSignals[device.id] = count;
+    _logInteraction(
+      '上报 ← DP${dpId ?? 162} 植物确认=true（第 $count 次，'
+      '${carried ? '报文带了该 DP' : '整包快照翻转'}）',
+    );
+  }
+
+  /// 上一次**从设备收到的** 162 值，用来认出「整包快照里 162 翻成了 true」。
+  ///
+  /// 只由 [_notePlantGuideReport] 写——App 自己下发的 false 不进这里，理由见
+  /// [_notePlantGuideReset]。
+  final Map<String, PlantConfirmState> _lastPlantConfirm =
+      <String, PlantConfirmState>{};
 
   /// 固件升级的实时进度。
   ///
@@ -2267,6 +2978,8 @@ class FlowerpotState extends ChangeNotifier {
   @override
   void dispose() {
     _sessionEpoch++;
+    _onlinePoll?.cancel();
+    _onlinePoll = null;
     _deviceUpdates?.cancel();
     _otaUpdates?.cancel();
     // BLE 扫描在原生侧握着 Activity、还在耗电，状态对象没了更没人去停它。
@@ -2276,6 +2989,8 @@ class FlowerpotState extends ChangeNotifier {
     // disposed」。所以拆开手写，只做释放、不通知——已经没人在听了。
     unawaited(_bleSub?.cancel() ?? Future<void>.value());
     _bleSub = null;
+    unawaited(_bleStopSub?.cancel() ?? Future<void>.value());
+    _bleStopSub = null;
     if (_bleScanning) {
       _bleScanning = false;
       unawaited(_repository.stopBleScan().catchError((Object _) {}));
@@ -2528,6 +3243,83 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
+  // ══════════════ 在线状态：心跳推送 + 前台轮询兜底 ══════════════
+  //
+  // 在线/离线的**第一来源是涂鸦 SDK 的 MQTT 心跳**：设备掉线 → 云端按心跳超时判定
+  // → 推给 SDK → SDK 更新 `DeviceBean` 并回调 `IDevListener.onStatusChanged`，原生侧
+  // 的 `devListenerProxy` 把它转成 `{deviceId, online}` 事件送上来。这条路本身没问题。
+  //
+  // ⚠️ **但它会漏**（2026-09-12 产品反馈「设备关机了，App 还显示在线」）：
+  //
+  // 1. App 切到后台、或 MQTT 断开重连期间发生的状态变化**不会补发**，重连之后
+  //    SDK 只是把 bean 更新到最新，不会再回放一次 `onStatusChanged`。
+  // 2. 在这次改动之前，App **没有任何主动刷新**——设备清单只有下拉刷新会重拉。
+  //    所以只要漏掉那一次回调，页面就一直停在「在线」。
+  //
+  // 云端判定本身的延迟（心跳超时，通常几十秒）是设备和云侧的事，App 改不了；
+  // 能改的是别再漏。所以前台每 [onlinePollInterval] 读一次 SDK 的设备缓存
+  // （[TuyaRepository.deviceOnlineStates]，**不发网络请求**），发现和本地不一致就更正。
+
+  /// 前台轮询在线状态的间隔。读的是 SDK 本地缓存，没有网络开销。
+  static const Duration onlinePollInterval = Duration(seconds: 8);
+
+  Timer? _onlinePoll;
+
+  /// App 回到前台：立刻对一次在线状态，再把设备清单整体刷一遍，然后开始轮询。
+  void resumeDeviceWatch() {
+    if (!authenticated) return;
+    unawaited(_pollOnlineStates());
+    unawaited(_refreshDevicesForSession(ignoreErrors: true));
+    _ensureOnlinePolling();
+  }
+
+  /// App 进后台：停轮询。后台读缓存没意义，回前台时会立刻补一次。
+  void pauseDeviceWatch() {
+    _onlinePoll?.cancel();
+    _onlinePoll = null;
+  }
+
+  void _ensureOnlinePolling() {
+    if (_onlinePoll != null || !authenticated) return;
+    _onlinePoll = Timer.periodic(onlinePollInterval, (timer) {
+      if (!authenticated) {
+        timer.cancel();
+        _onlinePoll = null;
+        return;
+      }
+      unawaited(_pollOnlineStates());
+    });
+  }
+
+  /// 把 SDK 缓存里的在线标志对一遍，不一致就更正并记一条日志。
+  Future<void> _pollOnlineStates() async {
+    if (!authenticated || _devices.isEmpty) return;
+    final ids = _devices.map((device) => device.id).toList(growable: false);
+    Map<String, bool> states;
+    try {
+      states = await _repository.deviceOnlineStates(ids);
+    } catch (_) {
+      // 读不到就算了，下一轮再说——这只是兜底，不该把任何东西拦下来。
+      return;
+    }
+    if (states.isEmpty) return;
+    var changed = false;
+    final next = <SmartPlanterDevice>[];
+    for (final device in _devices) {
+      final online = states[device.id];
+      if (online == null || online == device.online) {
+        next.add(device);
+        continue;
+      }
+      changed = true;
+      _logInteraction('心跳 ← ${device.name} 变为${online ? '在线' : '离线'}');
+      next.add(device.copyWith(online: online));
+    }
+    if (!changed) return;
+    _devices = next;
+    notifyListeners();
+  }
+
   Future<void> _refreshDevicesForSession({required bool ignoreErrors}) async {
     final epoch = _sessionEpoch;
     try {
@@ -2557,6 +3349,7 @@ class FlowerpotState extends ChangeNotifier {
         _selectedDeviceId = _devices.first.id;
       }
       _logDevices();
+      _ensureOnlinePolling();
       notifyListeners();
     } catch (error) {
       if (epoch != _sessionEpoch) return;
@@ -2610,7 +3403,7 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
-  /// 没有后端会话时按「登录失效」报错，图库上传和 [_ensureBackendDevice] 共用
+  /// 没有后端会话时按「登录失效」报错，图库上传和纪念日保存共用
   /// 这一句，避免无 token 的请求打出去再靠 401 兜回来。
   void _requireBackendSession() {
     if (_backend.enabled && _backend.hasSession) return;
@@ -2618,55 +3411,6 @@ class FlowerpotState extends ChangeNotifier {
       'BACKEND_SESSION_REQUIRED',
       'APP 后端登录状态已失效，请重新登录',
     );
-  }
-
-  Future<BackendUserProduct> _ensureBackendDevice(String deviceId) async {
-    _requireBackendSession();
-    final cached = _backendDevices[deviceId];
-    if (cached != null && cached.productId != null) return cached;
-
-    final rows = await _backend.getUserProducts();
-    final summary = rows.where((row) => row.deviceId == deviceId).firstOrNull;
-    if (summary != null) {
-      final detail = summary.productId == null
-          ? await _backend.getUserProductDetail(summary.userProductId)
-          : summary;
-      _backendDevices[deviceId] = detail;
-      return detail;
-    }
-
-    final device = deviceById(deviceId);
-    if (device == null) {
-      throw const ApiException('DEVICE_NOT_FOUND', '未找到需要关联的设备');
-    }
-    final products = await _backend.getProducts();
-    final normalizedProductId = device.productId.trim().toLowerCase();
-    final matches = products
-        .where(
-          (product) =>
-              product.broadcastId.trim().toLowerCase() == normalizedProductId,
-        )
-        .toList(growable: false);
-    final product = matches.length == 1
-        ? matches.single
-        : products.length == 1
-        ? products.single
-        : null;
-    if (product == null) {
-      throw ApiException(
-        'PRODUCT_MAPPING_NOT_FOUND',
-        '后台未找到涂鸦产品 ${device.productId} 对应的产品，请先配置 broadcastId',
-      );
-    }
-    var created = await _backend.addUserProduct(
-      deviceId: device.id,
-      product: product,
-    );
-    if (created.productId == null) {
-      created = created.copyWith(productId: product.productId);
-    }
-    _backendDevices[deviceId] = created;
-    return created;
   }
 
   Future<void> _refreshBackendImages(String deviceId) async {

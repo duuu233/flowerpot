@@ -6,6 +6,7 @@ import 'tuya_config.dart';
 import 'tuya_history_codec.dart';
 import 'tuya_memorial_codec.dart';
 import 'tuya_models.dart';
+import 'tuya_raw.dart';
 
 /// 显式国家码优先；缺省时按区域回落到国内 86 / 海外 1。
 String _resolveCountryCode(LoginRegion region, String? override) {
@@ -92,6 +93,16 @@ abstract class TuyaRepository {
   /// 当前使用的涂鸦家庭 id。设备列表按家庭查，家庭对不上就会是空的。
   Future<String> currentHomeId();
 
+  /// 这几台设备此刻的在线标志，**读 SDK 本地缓存，不发网络请求**。
+  ///
+  /// 在线状态由涂鸦 SDK 的 MQTT 心跳维护：设备掉线 → 云端判定 → 推给 SDK →
+  /// SDK 更新 `DeviceBean` 并回调 `onStatusChanged`。**回调那一路会漏**——App 切到
+  /// 后台、MQTT 断开重连期间发生的变化不会补发，于是页面就停在上一次的状态
+  /// （2026-09-12 产品反馈「设备关机了，App 还显示在线」）。
+  ///
+  /// bean 本身是准的，所以前台按秒级把它读回来兜底。查不到的设备不出现在返回值里。
+  Future<Map<String, bool>> deviceOnlineStates(List<String> deviceIds);
+
   /// 固定这次会话使用的家庭 id。
   ///
   /// 家庭是涂鸦账号下的东西，和设备、和 APP 后端都没有关系：只要账号没变，就该
@@ -125,6 +136,17 @@ abstract class TuyaRepository {
     SensorMetric metric,
     ReportRange range,
   );
+
+  /// 历史 DP 的**到货情况**，给联调日志框用。
+  ///
+  /// 报表和状态页的曲线只有一个数据源：设备自己上报的 131–139 这九条 raw DP
+  /// （云端统计服务要付费订阅，这个账号没有）。所以"没有历史记录"只可能是
+  /// ①设备压根没报这条 DP ②报了但解不出来。这个方法把每条的原始长度和解出的
+  /// 点数都吐出来，一眼分得清是哪一种。
+  ///
+  /// 返回**按指标分组**的一句话，例如
+  /// `waterLevel → 日 DP131 hex 99字节/96点 · 周 DP132 无 · 月 DP133 无`。
+  Future<Map<String, String>> historyDiagnostics(String deviceId);
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
@@ -196,6 +218,46 @@ abstract class TuyaRepository {
 
   /// BLE 扫描逐台推上来的设备。同一台会重复出现（信号强度在变），去重交给调用方。
   Stream<BleDevice> get bleDevices;
+
+  /// **当前这一轮** BLE 扫描结束了（到时，或 SDK 自己停了），值是原生给的原因。
+  ///
+  /// 调用方主动 [stopBleScan] 的那一次不报——那是调用方自己知道的事。重开一轮时，
+  /// 上一轮迟到的结束也不报，免得把正在跑的新一轮标成已结束。
+  ///
+  /// ⚠️ 2026-09-14 之前原生一直在发，Dart 从没接：扫描到时之后状态里仍然记着"在扫"，
+  /// 「重新扫描」因此成了空操作。
+  Stream<String> get bleScanStops;
+
+  /// **主动弹一次 BLE 所需权限的授权框**，用户答完才返回。
+  ///
+  /// ⚠️ 必须在 [bleProbe] **之前** await 掉。否则会踩 2026-09-11 那个坑：探测抢在授权框
+  /// 被回答之前跑完，`checkSelfPermission` 当然报"未授予"，于是既不扫描、也没人再探一次，
+  /// 页面上那句「缺少定位权限」就一直挂着——而用户去系统设置一看，权限明明是给了的
+  /// （第二次进 App 就正常，正是这个原因）。
+  ///
+  /// 权限被拒时抛 `permission_denied`；被点成「拒绝且不再询问」之后系统不再弹框，
+  /// 只能靠 [openAppSettings] 把用户送去设置页。
+  Future<void> ensureBlePermissions();
+
+  /// 打开本应用的系统设置页（权限被永久拒绝后唯一的出路）。
+  Future<void> openAppSettings();
+
+  /// 主动断开与设备的 BLE 连接；[uuid] 为空表示**全断**。
+  ///
+  /// ⚠️ **这一步直接决定设备还能不能被再次扫到。** BLE 外设**在连接状态下会停止广播**，
+  /// 配网中途失败又没断干净的话，设备就一直挂在那条连接上、不再发广播——下一轮扫描
+  /// 什么都扫不到（2026-09-11 真机「之前搜得到、配网失败之后就搜不到了」）。
+  Future<void> disconnectBleDevice({String uuid});
+
+  /// 按 BLE 扫到的标识去云端查**这台是什么产品**（名称、图标）。
+  ///
+  /// 原生走 `IThingDeviceActivator.getActivatorDeviceInfo(productId, uuid, mac, …)`。
+  /// ⚠️ **云端往返**：调用方必须自己去重并限量，不过滤扫描时附近可能几十台设备。
+  Future<BleProductInfo> queryDeviceProductInfo({
+    required String productId,
+    required String uuid,
+    required String mac,
+  });
 }
 
 class MethodChannelTuyaRepository implements TuyaRepository {
@@ -247,14 +309,54 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       .where((device) => device != null)
       .cast<BleDevice>();
 
+  @override
+  late final Stream<String> bleScanStops = _rawEvents
+      .where(
+        (event) =>
+            event is Map && '${event['type'] ?? ''}' == 'bleScanStopped',
+      )
+      // 不走 `_stringField`：它在字段缺失时返回 null，而原因缺失不该让这条结束事件丢掉。
+      .map((event) => '${(event as Map)['reason'] ?? ''}');
+
+  @override
+  Future<void> ensureBlePermissions() => _invoke<void>('ensureBlePermissions');
+
+  @override
+  Future<void> openAppSettings() => _invoke<void>('openAppSettings');
+
+  @override
+  Future<void> disconnectBleDevice({String uuid = ''}) =>
+      _invoke<void>('disconnectBleDevice', <String, Object?>{'uuid': uuid});
+
+  @override
+  Future<BleProductInfo> queryDeviceProductInfo({
+    required String productId,
+    required String uuid,
+    required String mac,
+  }) async {
+    final raw = await _invoke<Map<Object?, Object?>>(
+      'queryDeviceProductInfo',
+      <String, Object?>{'productId': productId, 'uuid': uuid, 'mac': mac},
+    );
+    return raw == null
+        ? const BleProductInfo()
+        : BleProductInfo.fromMap(raw);
+  }
+
   /// 解析原生的 BLE 事件：`{type: 'bleDevice', uuid, name, rssi, …}`。
   ///
-  /// 没有 uuid 的一律丢掉：查 Wi-Fi 列表、配网都要它，画在页面上也点不动。
+  /// ⚠️ **一条都不丢。**
+  ///
+  /// 改之前这里写着「没有 uuid 的一律丢掉」——理由是配网要 uuid、画出来也点不动。
+  /// 但那是**静默过滤**：广播里没带 uuid 的设备直接消失，页面上显示的是「一台都没扫到」，
+  /// 于是「我们把它扔了」被当成了「设备没在广播」，排查方向正好反（2026-09-11 真机
+  /// 一直搜不到设备，这是原因之一）。
+  ///
+  /// 现在全部留下、全部画出来；能不能点由页面按 uuid 是否为空自己决定。
   BleDevice? _bleDevice(Object? event) {
     if (event is! Map) return null;
     if ('${event['type'] ?? ''}' != 'bleDevice') return null;
-    final device = BleDevice.fromMap(event.cast<Object?, Object?>());
-    return device.uuid.isEmpty ? null : device;
+    return BleDevice.fromMap(event.cast<Object?, Object?>());
   }
 
   /// 从原生事件里取一个字符串字段：`{type: <type>, <field>: '…'}`。
@@ -316,17 +418,23 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     final device = event['device'];
     if (device is Map) merged.addAll(device);
     final dps = event['dps'];
+    // 本次报文带了哪几个 DP。合并之后就分不出来了，所以在合并前先记下来。
+    var changed = const <int>{};
     if (dps is Map) {
       final known = merged['dps'];
       merged['dps'] = <Object?, Object?>{
         if (known is Map) ...known,
         ...dps,
       };
+      changed = dps.keys
+          .map((key) => int.tryParse('$key'))
+          .whereType<int>()
+          .toSet();
     }
     final online = event['online'];
     if (online is bool) merged['online'] = online;
 
-    return DeviceUpdate.changed(_device(merged));
+    return DeviceUpdate.changed(_device(merged), changedDps: changed);
   }
 
   Future<T?> _invoke<T>(
@@ -493,6 +601,19 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       await _invoke<String>('currentHomeId') ?? '';
 
   @override
+  Future<Map<String, bool>> deviceOnlineStates(List<String> deviceIds) async {
+    if (deviceIds.isEmpty) return const <String, bool>{};
+    final raw = await _invoke<Map<Object?, Object?>>('deviceOnlineStates', {
+      'deviceIds': deviceIds,
+    });
+    if (raw == null) return const <String, bool>{};
+    return <String, bool>{
+      for (final entry in raw.entries)
+        if (entry.value is bool) '${entry.key}': entry.value! as bool,
+    };
+  }
+
+  @override
   Future<void> useHome(String homeId) =>
       _invoke<void>('setHomeId', <String, Object?>{'homeId': homeId});
 
@@ -621,6 +742,49 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     SensorMetric metric,
     ReportRange range,
   ) async => _history[deviceId]?.series(metric, range) ?? const <double>[];
+
+  @override
+  Future<Map<String, String>> historyDiagnostics(String deviceId) async {
+    final snapshot = _snapshots[deviceId];
+    if (snapshot == null) {
+      return <String, String>{'设备': '本次会话还没拉到这台设备的快照'};
+    }
+    final dps = (snapshot['dps'] as Map<Object?, Object?>?) ??
+        <Object?, Object?>{};
+    const rangeLabels = <String, String>{
+      'day': '日',
+      'week': '周',
+      'month': '月',
+    };
+    final report = <String, String>{};
+    TuyaConfig.history.forEach((metricKey, ranges) {
+      final sampleBytes = TuyaConfig.historySampleBytes[metricKey] ?? 1;
+      final parts = <String>[];
+      ranges.forEach((rangeName, identifier) {
+        final label = rangeLabels[rangeName] ?? rangeName;
+        final id = TuyaConfig.dp[identifier];
+        final raw = dps['$id'] ?? dps[id];
+        if (raw == null) {
+          parts.add('$label DP$id 无');
+          return;
+        }
+        final decoded = TuyaHistoryCodec.decode(
+          raw,
+          range: ReportRange.values.byName(rangeName),
+          sampleBytes: sampleBytes,
+        );
+        // 编码和字节数一起打：SDK 交上来的是十六进制串（见 TuyaRaw），这里
+        // 一眼能看出是不是又按错编码解了——`hex 99字节/96点` 才是日包的正常样子。
+        final bytes = TuyaRaw.bytes(raw);
+        final size = raw is String || raw is List
+            ? '${TuyaRaw.encodingOf(raw)} ${bytes?.length ?? 0}字节'
+            : '${raw.runtimeType}';
+        parts.add('$label DP$id $size/${decoded.length}点');
+      });
+      report[metricKey] = parts.join(' · ');
+    });
+    return report;
+  }
 
   @override
   Future<String> createShareLink(String deviceId) async =>
@@ -846,6 +1010,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       id: deviceId,
       productId: '${raw['productId'] ?? raw['pid'] ?? ''}',
       name: '${raw['name'] ?? '智能花盆'}',
+      iconUrl: '${raw['iconUrl'] ?? ''}',
       online: boolean(raw['online'], false),
       signal: integer(raw['signal'], 0),
       battery: integer(dp('battery_level'), 0),

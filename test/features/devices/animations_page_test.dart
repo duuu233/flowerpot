@@ -87,16 +87,37 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('有图才画删除选中与取消选择，上传按钮一直在', (tester) async {
+  testWidgets('底部按钮按「有没有选中图片」换面孔', (tester) async {
     final state = await _uploadOne(tester);
     await _pumpWithState(tester, state, const Size(375, 812));
 
+    // 没选中：只有那条长的上传按钮。
     expect(find.byKey(const Key('animation-upload-action')), findsOneWidget);
+    expect(find.byKey(const Key('animation-pin-action')), findsNothing);
+    expect(find.byKey(const Key('animation-delete-action')), findsNothing);
+    expect(
+      find.byKey(const Key('animation-clear-selection-action')),
+      findsNothing,
+    );
+
+    // 选中一张：换成一排功能钮，**第一颗是置顶**（DP 157）；上传这时候不画。
+    await tester.tap(find.byKey(const Key('animation-tile-0')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('animation-pin-action')), findsOneWidget);
     expect(find.byKey(const Key('animation-delete-action')), findsOneWidget);
     expect(
       find.byKey(const Key('animation-clear-selection-action')),
       findsOneWidget,
     );
+    expect(find.byKey(const Key('animation-upload-action')), findsNothing);
+
+    // 取消选中：切回长按钮。
+    await tester.tap(find.byKey(const Key('animation-clear-selection-action')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('animation-upload-action')), findsOneWidget);
+    expect(find.byKey(const Key('animation-pin-action')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

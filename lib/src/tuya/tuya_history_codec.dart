@@ -1,6 +1,5 @@
-import 'dart:convert';
-
 import 'tuya_models.dart';
+import 'tuya_raw.dart';
 
 /// Decoder for the nine raw history DPs (131–139).
 ///
@@ -36,7 +35,7 @@ abstract final class TuyaHistoryCodec {
     required ReportRange range,
     required int sampleBytes,
   }) {
-    final bytes = _bytes(value);
+    final bytes = TuyaRaw.bytes(value);
     if (bytes == null) return const <double>[];
 
     final headerBytes = range == ReportRange.day ? 3 : 4;
@@ -58,19 +57,5 @@ abstract final class TuyaHistoryCodec {
       return ((bytes[offset] << 8) | bytes[offset + 1]).toDouble();
     }
     return bytes[offset].toDouble();
-  }
-
-  /// Raw DPs arrive base64 encoded over the Tuya method channel; a byte list
-  /// is accepted too, so tests and any future binary channel work unchanged.
-  static List<int>? _bytes(Object? value) {
-    if (value is List<int>) return value;
-    if (value is String && value.isNotEmpty) {
-      try {
-        return base64.decode(value);
-      } on FormatException {
-        return null;
-      }
-    }
-    return null;
   }
 }

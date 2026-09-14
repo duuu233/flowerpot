@@ -95,10 +95,15 @@ class HomePlantOverview extends StatelessWidget {
   }
 }
 
-/// 已绑定设备首页正中那张图：优先用后台给这株植物配的图片
-/// （`getProductPlantList` 的 `plantImg`，经 `PlantProfile.imageUrl` 带过来），
-/// 没有配、或者取不回来时才回落到本地静态图。植物详情页 `_PlantDetailArtwork`
-/// 是同一套口径。
+/// 已绑定设备首页正中那张图：用后台给这株植物配的图片
+/// （`getProductPlantList` 的 `plantImg`，经 `PlantProfile.imageUrl` 带过来）。
+///
+/// ⚠️ **没有配、或者取不回来时留空，不拿静态图冒充**（2026-09-12 产品口径：
+/// 「去掉一切兜底、静态假数据，没有就为空」）。随便放一张带植物的产品图，用户
+/// 会以为那就是盆里种的东西，而它和这台设备毫无关系。
+///
+/// 唯一的例外是 [plantMissing]：设备明确报了「盆里没有植物」(116 = -1)，画一张
+/// **不带植物的花盆**说的就是事实，不是编的。`DevicePlantArtwork` 是同一套口径。
 class _PlantHeroImage extends StatelessWidget {
   const _PlantHeroImage({required this.imageUrl, this.plantMissing = false});
 
@@ -112,8 +117,9 @@ class _PlantHeroImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (plantMissing) return _emptyPlanter();
     final url = imageUrl?.trim();
-    if (url == null || url.isEmpty) return _fallback();
+    if (url == null || url.isEmpty) return _blank();
     return Image.network(
       url,
       width: _width,
@@ -121,20 +127,22 @@ class _PlantHeroImage extends StatelessWidget {
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       semanticLabel: '设备当前的植物',
-      errorBuilder: (_, _, _) => _fallback(),
+      errorBuilder: (_, _, _) => _blank(),
     );
   }
 
-  Widget _fallback() => Image.asset(
-    plantMissing
-        ? AppAssets.smartPlanterDevice
-        : AppAssets.smartPlanterWithPlant,
+  /// 盆里确实没有植物——画空花盆，这是事实。
+  Widget _emptyPlanter() => Image.asset(
+    AppAssets.smartPlanterDevice,
     width: _width,
     height: _height,
     fit: BoxFit.contain,
     filterQuality: FilterQuality.high,
-    semanticLabel: plantMissing ? '未种植物的 YSplanter' : '带植物的 YSplanter',
+    semanticLabel: '未种植物的 YSplanter',
   );
+
+  /// 有植物但后台没配图：**留空位**，不画图。位置照占，免得下面的内容跳动。
+  Widget _blank() => const SizedBox(width: _width, height: _height);
 }
 
 class _HomeMetricCard extends StatelessWidget {

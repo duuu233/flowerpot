@@ -40,9 +40,10 @@ void main() {
     await tester.tap(find.byKey(_confirmKey));
     await tester.pumpAndSettle();
 
-    // 116 写回设备刚报上来的那一株；不再写 162——固件收到 116 自己改回 0。
+    // 116 写回设备刚报上来的那一株，**162 显式写回 false**（2026-09-12 产品要求：
+    // 涂鸦只推 DP 变化，不主动翻转的话下一次 true 推不上来）。
     expect(repository.published.single[116], 'pothos');
-    expect(repository.published.single.containsKey(162), isFalse);
+    expect(repository.published.single[162], false);
     expect(tester.takeException(), isNull);
   });
 
@@ -56,7 +57,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('plant-picker-target'), findsOneWidget);
-    expect(repository.published, isEmpty);
+    // 「选择植物」不下发 116，但**会单独把 162 写回 false**。
+    expect(repository.published.single, <int, Object>{162: false});
     expect(tester.takeException(), isNull);
   });
 
@@ -78,9 +80,36 @@ void main() {
     await tester.tap(find.byKey(_confirmKey));
     await tester.pumpAndSettle();
 
-    // 唯一那个按钮走的是「去选植物」，不能把 0 当成确认下发。
+    // 唯一那个按钮走的是「去选植物」：**不能把 0 当成确认下发 116**，
+    // 但和另一支一样要把 162 写回 false。
     expect(find.text('plant-picker-target'), findsOneWidget);
+    expect(repository.published.single, <int, Object>{162: false});
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('116 报 -1 且 162 报 1：弹「未检测到植物」，点我知道了写回 162=false', (
+    tester,
+  ) async {
+    final repository = _HomeRepository(<SmartPlanterDevice>[
+      _device(plantVariety: '-1', plantConfirm: PlantConfirmState.prompt),
+    ]);
+    await _pumpDeviceHome(tester, repository);
+
+    expect(find.text('未检测到植物'), findsOneWidget);
+    expect(find.text('请将植物种入花盆'), findsOneWidget);
+    expect(find.text('我知道了'), findsOneWidget);
+    // 提示文案在按钮下面。
+    expect(find.text('忽略检测结果，可前往设置关闭植物自动检测'), findsOneWidget);
+    // 盆里没东西，没有可确认也没得选：那两颗按钮都不出现。
+    expect(find.text('确认'), findsNothing);
+    expect(find.text('选择植物'), findsNothing);
+    // 只是提示，还没下发任何东西。
     expect(repository.published, isEmpty);
+
+    await tester.tap(find.byKey(_confirmKey));
+    await tester.pumpAndSettle();
+
+    expect(repository.published.single, <int, Object>{162: false});
     expect(tester.takeException(), isNull);
   });
 
@@ -92,6 +121,71 @@ void main() {
 
     expect(find.text('发现新植物'), findsNothing);
     expect(repository.published, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('设备再报一次 162=true 就再弹一次，不是只弹一次', (tester) async {
+    final repository = _HomeRepository(<SmartPlanterDevice>[
+      _device(plantConfirm: PlantConfirmState.hidden),
+    ]);
+    await _pumpDeviceHome(tester, repository);
+    expect(find.text('发现新植物'), findsNothing);
+
+    // 第一次上报：弹。
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _device(plantConfirm: PlantConfirmState.prompt),
+        changedDps: const <int>{162},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('发现新植物'), findsOneWidget);
+
+    // 处置掉弹窗。固件没把 162 改回 0（这里的设备快照仍是 prompt），按旧的
+    // 「跳变触发」写法，之后就再也不会弹了。
+    await tester.tap(find.byKey(_confirmKey));
+    await tester.pumpAndSettle();
+    expect(find.text('发现新植物'), findsNothing);
+
+    // 第二次上报：**还要再弹**。
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _device(plantConfirm: PlantConfirmState.prompt),
+        changedDps: const <int>{162},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('发现新植物'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('162 还是 true 但这条上报没带 162，不重复弹窗', (tester) async {
+    final repository = _HomeRepository(<SmartPlanterDevice>[
+      _device(plantConfirm: PlantConfirmState.hidden),
+    ]);
+    await _pumpDeviceHome(tester, repository);
+
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _device(plantConfirm: PlantConfirmState.prompt),
+        changedDps: const <int>{162},
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(_confirmKey));
+    await tester.pumpAndSettle();
+    expect(find.text('发现新植物'), findsNothing);
+
+    // 只报了电量。设备快照里 162 仍是 prompt，但这条报文没带它——不能因此重弹，
+    // 否则就退回 2026-09-12 修过的那个回归（点任何按钮都冒弹窗）。
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _device(plantConfirm: PlantConfirmState.prompt),
+        changedDps: const <int>{103},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('发现新植物'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

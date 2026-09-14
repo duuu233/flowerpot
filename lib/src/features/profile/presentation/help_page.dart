@@ -5,9 +5,17 @@ import '../../../design_system/design_system.dart';
 import '../models/help_center_model.dart';
 import 'widgets/help_center_faq_list.dart';
 
+/// 帮助中心：常见问题全部来自后台 `/Client/Product/getProductFaqList`。
+///
+/// **没有内置兜底数据**——产品口径是「全部动态读取，没有就为空，不要用静态数据
+/// 兜底」。后台没配或接口不通时这里就是一个空态，而不是几条对不上版本的假问答。
+///
+/// 答案是后台富文本编辑器（wangEditor）存的 HTML，交给 [HelpCenterFaqList] 里的
+/// [AppRichHtml] 渲染，不能当纯文本显示。
 class HelpPage extends StatefulWidget {
   const HelpPage({super.key, this.pageModel});
 
+  /// 测试和预览用。传了就不请求后台。
   final HelpCenterPageModel? pageModel;
 
   @override
@@ -15,27 +23,23 @@ class HelpPage extends StatefulWidget {
 }
 
 class _HelpPageState extends State<HelpPage> {
-  late Set<String> _expandedIds;
+  Set<String> _expandedIds = <String>{};
   bool _requested = false;
 
-  /// 后台配的常见问题。null = 还没拉到，页面先用内置的那几条。
+  /// null = 还没拉到，空列表 = 后台确实没有。
   List<HelpCenterFaqItem>? _remoteItems;
 
-  HelpCenterPageModel get _model {
+  HelpCenterPageModel? get _model {
     final pageModel = widget.pageModel;
     if (pageModel != null) return pageModel;
     final remote = _remoteItems;
-    if (remote == null || remote.isEmpty) return HelpCenterPageModel.figma;
+    if (remote == null) return null;
     return HelpCenterPageModel(
       items: remote,
-      initiallyExpandedIds: <String>{remote.first.id},
+      initiallyExpandedIds: remote.isEmpty
+          ? const <String>{}
+          : <String>{remote.first.id},
     );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _expandedIds = <String>{..._model.initiallyExpandedIds};
   }
 
   @override
@@ -46,13 +50,14 @@ class _HelpPageState extends State<HelpPage> {
     _loadFaqs();
   }
 
-  /// 后台配了就用后台那份（`/Client/Product/getProductFaqList`）；返回空或者
-  /// 接口不通时保留内置的四条，帮助中心不会变成空页。
   Future<void> _loadFaqs() async {
     final state = FlowerpotScope.maybeOf(context);
-    if (state == null) return;
+    if (state == null) {
+      setState(() => _remoteItems = const <HelpCenterFaqItem>[]);
+      return;
+    }
     final faqs = await state.loadFaqs();
-    if (!mounted || faqs.isEmpty) return;
+    if (!mounted) return;
     setState(() {
       _remoteItems = faqs
           .map(
@@ -63,7 +68,7 @@ class _HelpPageState extends State<HelpPage> {
             ),
           )
           .toList(growable: false);
-      _expandedIds = <String>{..._model.initiallyExpandedIds};
+      _expandedIds = <String>{...?_model?.initiallyExpandedIds};
     });
   }
 
@@ -71,7 +76,7 @@ class _HelpPageState extends State<HelpPage> {
   void didUpdateWidget(covariant HelpPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pageModel != widget.pageModel) {
-      _expandedIds = <String>{..._model.initiallyExpandedIds};
+      _expandedIds = <String>{...?_model?.initiallyExpandedIds};
     }
   }
 
@@ -80,26 +85,41 @@ class _HelpPageState extends State<HelpPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '帮助中心', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: CustomScrollView(
-        key: const Key('help-center-scroll-view'),
-        slivers: <Widget>[
-          SliverToBoxAdapter(
-            child: ResponsiveContent(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.pageMargin,
-                AppSpacing.lg,
-                AppSpacing.pageMargin,
-                40,
-              ),
-              child: HelpCenterFaqList(
-                items: _model.items,
-                expandedIds: _expandedIds,
-                onToggle: _toggleFaq,
-              ),
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    final model = _model;
+    if (model == null) {
+      return const AppLoading(key: Key('help-center-loading'));
+    }
+    if (model.items.isEmpty) {
+      return const AppEmptyState(
+        key: Key('help-center-empty'),
+        title: '暂无常见问题',
+        message: '后台还没有配置常见问题，配置后这里会自动显示。',
+      );
+    }
+    return CustomScrollView(
+      key: const Key('help-center-scroll-view'),
+      slivers: <Widget>[
+        SliverToBoxAdapter(
+          child: ResponsiveContent(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageMargin,
+              AppSpacing.lg,
+              AppSpacing.pageMargin,
+              40,
+            ),
+            child: HelpCenterFaqList(
+              items: model.items,
+              expandedIds: _expandedIds,
+              onToggle: _toggleFaq,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

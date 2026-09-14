@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../shared/l10n/app_l10n.dart';
 import '../../../tuya/tuya_memorial_codec.dart';
+import 'device_online_guard.dart';
 
 /// Route arguments for [MemorialEditPage].
 class MemorialEditArguments {
@@ -117,6 +119,18 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
       );
       return;
     }
+    // DP 154 的文字上限是「15 个汉字(45 字节)」，**字数和字节都要挡**：15 个汉字
+    // 正好 45 字节，但 15 个 emoji 是 60 字节，只数字符会让帧超长、固件截断。
+    if (_entry.type == MemorialContentType.text &&
+        utf8.encode(content).length > TuyaMemorialCodec.maxTextBytes) {
+      showAppMessage(
+        context,
+        '文字内容最多 ${TuyaMemorialCodec.maxTextBytes} 字节，'
+        '表情符号占的字节多，请少用几个',
+        tone: AppMessageTone.error,
+      );
+      return;
+    }
     setState(() => _saving = true);
     final result = await FlowerpotScope.of(context).saveMemorial(
       widget.arguments.deviceId,
@@ -124,11 +138,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
     );
     if (!mounted) return;
     setState(() => _saving = false);
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-    );
+    showDeviceActionResult(context, result, announceSuccess: true);
     if (result.success) Navigator.pop(context);
   }
 
@@ -163,7 +173,8 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                 24,
               ),
               child: AppSurfaceCard(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                // 左右 24 是设计稿量的（卡片 335 宽、字段 286 宽，两边各 24.5）。
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
@@ -200,16 +211,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                             color: AppColors.textPrimary,
                             fontSize: 17,
                           ),
-                          decoration: const InputDecoration(
-                            isCollapsed: true,
-                            border: InputBorder.none,
-                            counterText: '',
-                            hintText: '请输入纪念日标题',
-                            hintStyle: TextStyle(
-                              color: AppColors.textTertiary,
-                              fontSize: 17,
-                            ),
-                          ),
+                          decoration: _bareFieldDecoration('请输入纪念日标题'),
                         ),
                       ),
                     const SizedBox(height: 26),
@@ -325,6 +327,41 @@ class _FieldLabel extends StatelessWidget {
 /// 显得过圆；12 更贴设计稿，也不会把 46~56 高的框做成胶囊。
 const BorderRadius _fieldRadius = BorderRadius.all(Radius.circular(12));
 
+/// 标题框与日期框的高度，量自
+/// `docs/UI/v2/智能花盆ysplanter/编辑纪念日-自定义-文字.png`。
+const double _fieldHeight = 48;
+
+/// 文字内容框的整体高度，同上量得约 109。
+///
+/// 里面是「输入区 + 右下角计数」，所以不能只按输入行数估——原来写成
+/// 上下 16/12 的内边距加 104 的输入区，整块有 150+，比稿子高了三分之一，
+/// 这就是产品说的「内容输入部分边距不对」。
+const double _contentFieldHeight = 109;
+
+/// 文字输入区本身的高度：总高减去上下内边距、计数行和它上面那点间距。
+/// 12 + 输入区 + 4 + 16(计数行 13×1.2 取整) + 10 = 109。
+const double _contentInputHeight = _contentFieldHeight - 12 - 4 - 16 - 10;
+
+/// 灰底框里的输入框：只画文字和光标，不画自己的底色和边框。
+///
+/// ⚠️ 只写 `border: InputBorder.none` 不够。全局 `inputDecorationTheme`
+/// （`app_theme.dart`）是 `filled: true` + 白色 `fillColor` + 胶囊形
+/// `enabledBorder` / `focusedBorder`（圆角 999），`InputDecoration` 里没写的这几项
+/// 会从主题补回来。结果是灰框里又套了一个紧贴文字的白色胶囊：圆角过大、左右离灰框
+/// 16px、上下完全没有留白——2026-09-13 产品反馈的就是这个，标题框和文字内容框都中招。
+/// 所以这里把底色和三种状态的边框都显式关掉，灰底和内边距只由外面那层框负责。
+InputDecoration _bareFieldDecoration(String hintText) => InputDecoration(
+  isCollapsed: true,
+  filled: false,
+  border: InputBorder.none,
+  enabledBorder: InputBorder.none,
+  focusedBorder: InputBorder.none,
+  disabledBorder: InputBorder.none,
+  counterText: '',
+  hintText: hintText,
+  hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 17),
+);
+
 class _FilledField extends StatelessWidget {
   const _FilledField({required this.child});
 
@@ -334,11 +371,13 @@ class _FilledField extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.canvas,
+        color: AppColors.fieldFill,
         borderRadius: _fieldRadius,
       ),
       child: SizedBox(
-        height: 56,
+        // 48 是从设计稿量的（标题框与日期框同高）。原来写的 56 比稿子高一截，
+        // 三个框叠起来整张卡片就被撑长了。
+        height: _fieldHeight,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Align(alignment: Alignment.centerLeft, child: child),
@@ -357,14 +396,14 @@ class _DateField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.canvas,
+      color: AppColors.fieldFill,
       borderRadius: _fieldRadius,
       child: InkWell(
         key: const Key('memorial-date-field'),
         borderRadius: _fieldRadius,
         onTap: onTap,
         child: SizedBox(
-          height: 56,
+          height: _fieldHeight,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
@@ -434,7 +473,7 @@ class _ContentTypeTabs extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.canvas,
+        color: AppColors.fieldFill,
         borderRadius: AppRadius.card,
       ),
       child: Padding(
@@ -521,18 +560,18 @@ class _TextContentFieldState extends State<_TextContentField> {
     final used = widget.controller.text.runes.length;
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.canvas,
+        color: AppColors.fieldFill,
         borderRadius: _fieldRadius,
       ),
       child: Padding(
-        // 左右和标题、日期两个输入框对齐（16），上下留出与之相称的呼吸；原来是
-        // 14/10 的不对称边距，配上 16 的大圆角，看着比上面两个框圆一圈也挤一圈。
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+        // 左右和标题、日期两个框对齐（16）；上下按设计稿的总高 109 倒推：
+        // 12(上) + 输入区 + 4 + 计数行 + 10(下)。
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             SizedBox(
-              height: 104,
+              height: _contentInputHeight,
               child: TextField(
                 key: const Key('memorial-text-field'),
                 controller: widget.controller,
@@ -548,18 +587,10 @@ class _TextContentFieldState extends State<_TextContentField> {
                   fontSize: 17,
                   height: 1.5,
                 ),
-                decoration: const InputDecoration(
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  counterText: '',
-                  hintText: '请输入纪念日文字内容...',
-                  hintStyle: TextStyle(
-                    color: AppColors.textTertiary,
-                    fontSize: 17,
-                  ),
-                ),
+                decoration: _bareFieldDecoration('请输入纪念日文字内容...'),
               ),
             ),
+            const SizedBox(height: 4),
             Align(
               alignment: Alignment.centerRight,
               child: Text(
@@ -567,7 +598,8 @@ class _TextContentFieldState extends State<_TextContentField> {
                 key: const Key('memorial-text-counter'),
                 style: const TextStyle(
                   color: AppColors.textTertiary,
-                  fontSize: 14,
+                  fontSize: 13,
+                  height: 1.2,
                 ),
               ),
             ),

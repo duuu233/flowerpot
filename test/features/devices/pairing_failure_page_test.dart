@@ -1,4 +1,5 @@
 import 'package:flowerpot/src/design_system/design_system.dart';
+import 'package:flowerpot/src/features/devices/pairing_gate.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_search_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_failure_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_page.dart';
@@ -74,6 +75,9 @@ void main() {
   });
 
   testWidgets('蓝牙失败：重试照原样走蓝牙，另给一条「改用热点方式」的退路', (tester) async {
+    // 那条退路只在 AP 可用时存在；2026-09-11 起生产值是屏蔽的（见下一条用例）。
+    PairingGate.apEnabled = true;
+    addTearDown(PairingGate.reset);
     Object? pairingArguments;
     Object? searchArguments;
     await _pumpFailurePage(
@@ -116,9 +120,26 @@ void main() {
   });
 
   testWidgets('走 AP 失败时不画「改用热点方式」——本来就是热点那条', (tester) async {
+    PairingGate.apEnabled = true;
+    addTearDown(PairingGate.reset);
     await _pumpFailurePage(tester, const Size(375, 812));
 
     expect(find.byKey(const Key('retry-over-hotspot-button')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('AP 屏蔽后：蓝牙失败也不给「改用热点方式」', (tester) async {
+    // 给了退路、用户一退就用 AP 配成了，这一轮要验的「设备支不支持蓝牙」
+    // 就被盖掉了。所以屏蔽期间一律不给。
+    await _pumpFailurePage(
+      tester,
+      const Size(375, 812),
+      bleUuid: 'uuid-pot',
+    );
+
+    expect(find.byKey(const Key('retry-over-hotspot-button')), findsNothing);
+    // 「重新配网」仍在，走的还是蓝牙那条。
+    expect(find.byKey(const Key('retry-pairing-button')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -224,6 +245,53 @@ void main() {
     expect((selectionArguments! as PairingRequest).ssid, 'Home_2.4G');
     expect(tester.takeException(), isNull);
   });
+
+  // 2026-09-14 产品：「文字部分出现了折叠、滚动条的效果，不要这种效果，平铺到一个首屏
+  // 里面，下面的小提示可以适当往下移」。失败原因最长的时候（提示语 + 失败码 + 各步耗时）
+  // 也得一屏放下：没有可滚动的东西、文字不截断、按钮都在屏幕里、小提示贴着按钮上方。
+  for (final size in const <Size>[Size(375, 812), Size(320, 568)]) {
+    testWidgets('失败原因很长也一屏平铺，不出滚动条（${size.width.toInt()}x${size.height.toInt()}）', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(size);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: const PairingFailurePage(
+            request: PairingRequest(ssid: 'Home_2.4G', password: '12345678'),
+            code: '207212',
+            message: '设备连不上路由器｜令牌(复用) 3ms · 配网 118203ms · 失败 2ms',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(Scrollable), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      final subtitle = tester.widget<Text>(
+        find.byKey(const Key('pairing-failure-subtitle')),
+      );
+      expect(subtitle.maxLines, isNull);
+      expect(subtitle.data, contains('（207212）'));
+      expect(subtitle.data, contains('配网 118203ms'));
+
+      final screen = Offset.zero & size;
+      final retry = tester.getRect(find.byKey(const Key('retry-pairing-button')));
+      final back = tester.getRect(
+        find.byKey(const Key('return-device-selection-button')),
+      );
+      expect(screen.contains(back.bottomRight - const Offset(1, 1)), isTrue);
+      // 小提示在按钮上方、失败原因下方。
+      final tip = tester.getRect(find.text('小提示'));
+      expect(tip.top, lessThan(retry.top));
+      expect(
+        tester.getRect(find.byKey(const Key('pairing-failure-subtitle'))).bottom,
+        lessThanOrEqualTo(tip.top),
+      );
+    });
+  }
 }
 
 Future<void> _pumpFailurePage(

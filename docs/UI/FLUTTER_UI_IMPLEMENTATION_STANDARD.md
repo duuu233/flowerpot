@@ -60,6 +60,8 @@
 - 页面通过 `ColorScheme`、TextTheme 和 Design Token 获取视觉属性。
 - 点击、焦点、禁用、加载、错误等交互状态遵循 Material 3。
 - 页面导航、SnackBar、Dialog、BottomSheet 等优先使用现有 Design System 封装。
+- ⚠️ **自己画了底框的输入框，要把主题的底色和边框显式关掉。** 全局 `inputDecorationTheme` 是 `filled: true` + 白色 `fillColor` + 胶囊 `enabledBorder`/`focusedBorder`（圆角 999）。只写 `border: InputBorder.none` 挡不住：`InputDecoration` 里没写的 `filled`、`enabledBorder`、`focusedBorder` 都会从主题补回来，灰框里就会套一个紧贴文字的白胶囊。要写全 `filled: false` 加上 `border` / `enabledBorder` / `focusedBorder` / `disabledBorder: InputBorder.none`（参考 `memorial_edit_page.dart` 的 `_bareFieldDecoration`、`account_password_form_card.dart`）。2026-09-13 纪念日编辑页踩过。
+- ⚠️ **`VerticalDivider` / `Divider` 不写 `width`/`height` 时取的是主题 `dividerTheme.space`（本项目为 1），不是 Material 默认的 16**，线两边没有任何留白。需要留白时用 `margin` 或 `SizedBox` 显式给出（参考需水状态卡的指标行）。
 
 ## 五、iPhone 适配要求
 

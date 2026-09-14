@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_memorial_codec.dart';
+import 'device_online_guard.dart';
 import 'memorial_edit_page.dart';
 
 /// 纪念日列表（`docs/UI/v2/智能花盆ysplanter/纪念日.png`）。
@@ -126,15 +128,14 @@ class _MemorialPageState extends State<MemorialPage> {
       icon: Icons.delete_outline,
     );
     if (!confirmed || !context.mounted) return;
-    final result = await FlowerpotScope.of(
+    final state = FlowerpotScope.of(context);
+    // 删除要下发 DP154，点两次会发两帧。
+    final result = await withBlockingProgress(
       context,
-    ).deleteMemorial(deviceId, entry.id);
-    if (!context.mounted) return;
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+      () => state.deleteMemorial(deviceId, entry.id),
     );
+    if (result == null || !context.mounted) return;
+    showDeviceActionResult(context, result, announceSuccess: true);
   }
 }
 

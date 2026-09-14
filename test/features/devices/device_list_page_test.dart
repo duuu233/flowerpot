@@ -104,7 +104,7 @@ void main() {
     await tester.tap(find.byKey(const Key('device-list-item-device-03')));
     await tester.pumpAndSettle();
 
-    expect(find.text('请打开设备并保持在线'), findsOneWidget);
+    expect(find.text('设备已离线'), findsOneWidget);
     expect(deviceArguments, isNull);
     expect(pickerArguments, isNull);
     // 还留在列表页。

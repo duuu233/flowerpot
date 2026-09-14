@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -41,6 +43,13 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
     if (!initialized) {
       history = _load();
       initialized = true;
+      // 「为什么没有历史记录」只能在真机上分辨：把九条历史 DP 的到货情况打进页面
+      // 底部的联调日志框，一眼看出是设备没报还是报了解不出来。
+      unawaited(
+        FlowerpotScope.of(
+          context,
+        ).logHistoryDiagnostics(widget.deviceId, '需水状态'),
+      );
     }
   }
 

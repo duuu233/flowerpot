@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../../tuya/tuya_repository.dart' show TuyaException;
+import 'device_online_guard.dart';
 import 'widgets/ota_progress_dialog.dart';
 import 'widgets/water_level_calibration_dialog.dart';
 
@@ -109,15 +111,16 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
   }
 
   Future<void> _updateSetting(String key, Object value) async {
-    final result = await FlowerpotScope.of(
+    // 下发要走云端往返，这段盖住不让点第二次（2026-09-12 产品：所有可能重复
+    // 点击的地方都要有 loading）。
+    final state = FlowerpotScope.of(context);
+    final result = await withBlockingProgress(
       context,
-    ).updateSetting(widget.deviceId, key, value);
-    if (!mounted) return;
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+      () => state.updateSetting(widget.deviceId, key, value),
     );
+    // `withBlockingProgress` 返回可空：null 表示页面已经不在了，动作压根没发起。
+    if (!mounted || result == null) return;
+    showDeviceActionResult(context, result, announceSuccess: true);
   }
 
   Future<void> _calibrateWaterLevel() async {
@@ -128,7 +131,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
         final result = await scope.calibrateWaterLevel(widget.deviceId, step);
         if (!mounted) return false;
         if (!result.success) {
-          showAppMessage(context, result.message, tone: AppMessageTone.error);
+          showDeviceActionResult(context, result);
         }
         return result.success;
       },
@@ -201,7 +204,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       );
       if (!mounted) return;
       if (!result.success) {
-        showAppMessage(context, result.message, tone: AppMessageTone.error);
+        showDeviceActionResult(context, result);
         return;
       }
       // 升级只是「发起」了，进度和成败随后从事件通道回来：盖一个进度弹层，
@@ -242,12 +245,15 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       destructive: true,
     );
     if (!confirmed || !mounted) return;
-    final result = await FlowerpotScope.of(
+    final state = FlowerpotScope.of(context);
+    // 解绑是不可逆动作，更不能点两次。
+    final result = await withBlockingProgress(
       context,
-    ).removeDevice(widget.deviceId, resetFactory: true);
-    if (!mounted) return;
+      () => state.removeDevice(widget.deviceId, resetFactory: true),
+    );
+    if (!mounted || result == null) return;
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
       return;
     }
     // 设备已经从账号里移除，本页和它的兄弟页都失去了数据源，所以清到根再进
@@ -272,12 +278,15 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       destructive: true,
     );
     if (!confirmed || !mounted) return;
-    final result = await FlowerpotScope.of(
+    final state = FlowerpotScope.of(context);
+    // 同上：不可逆，点一次就够。
+    final result = await withBlockingProgress(
       context,
-    ).removeDevice(widget.deviceId, resetFactory: resetFactory);
-    if (!mounted) return;
+      () => state.removeDevice(widget.deviceId, resetFactory: resetFactory),
+    );
+    if (!mounted || result == null) return;
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
       return;
     }
     showAppMessage(context, result.message, tone: AppMessageTone.success);
@@ -515,16 +524,12 @@ Future<bool> showFirmwareUpdateDialog(
         barrierColor: Colors.black.withValues(alpha: .42),
         builder: (dialogContext) => Dialog(
           key: const Key('firmware-update-dialog'),
-          // **贴底，不居中**（产品 2026-09-11：「OTA 升级的弹框底部定位就行不要在
-          // 中间」）。整条升级动线两个弹框一起改，否则点完「立即更新」会从居中跳到
-          // 底部。只改位置：卡片样式、327 的最大宽度都没动。
-          alignment: Alignment.bottomCenter,
-          insetPadding: EdgeInsets.fromLTRB(
-            24,
-            24,
-            24,
-            MediaQuery.viewPaddingOf(dialogContext).bottom + 16,
-          ),
+          // **居中**（产品 2026-09-12：「检查更新弹框要居中」）。
+          //
+          // 这里推翻了 2026-09-11 的口径——那次两个弹框一起贴了底。现在两个各归各位：
+          // 「检查更新」是个要看清版本号、需要做决定的框，居中；点了「立即更新」之后
+          // 的进度层才是底部弹层（见 `showOtaProgressDialog`）。alignment 不写就是
+          // Flutter 默认的居中，insetPadding 也回到默认的左右 40 / 上下 24。
           shape: const RoundedRectangleBorder(borderRadius: AppRadius.dialog),
           clipBehavior: Clip.antiAlias,
           child: ConstrainedBox(

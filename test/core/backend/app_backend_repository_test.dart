@@ -209,22 +209,27 @@ void main() {
             request.url.path,
             '/Client/UserProduct/getProductAnniversaryList',
           );
-          expect(request.url.queryParameters['userProductId'], '5');
+          expect(request.url.queryParameters['deviceId'], 'tuya-5');
+          // 纪念日整组按涂鸦 deviceId 走，不能再出现后端的 userProductId。
+          expect(
+            request.url.queryParameters.containsKey('userProductId'),
+            isFalse,
+          );
           return _response(<String, Object?>{
             'pageData': <Object?>[
               <String, Object?>{
                 'anniversaryId': 42,
-                'userProductId': 5,
+                'deviceId': 'tuya-5',
                 'title': '相识纪念日',
                 'content': '第一次见面',
                 'contentType': 0,
                 'anniversaryDate': '2026-09-02',
                 'isVerify': 1,
               },
-              // 过滤参数是后加的，旧版本会把别的设备也一起返回。
+              // swagger 的列表入参没有设备过滤，账号下别的花盆也会一起返回。
               <String, Object?>{
                 'anniversaryId': 43,
-                'userProductId': 6,
+                'deviceId': 'tuya-6',
                 'title': '别的设备',
                 'content': '不该出现',
                 'contentType': 0,
@@ -237,7 +242,7 @@ void main() {
       ),
     );
 
-    final rows = await repository.getAnniversaries(5);
+    final rows = await repository.getAnniversaries('tuya-5');
 
     expect(rows, hasLength(1));
     expect(rows.single.anniversaryId, 42);
@@ -264,7 +269,7 @@ void main() {
     );
 
     final id = await repository.addAnniversary(
-      userProductId: 5,
+      deviceId: 'tuya-5',
       title: '相识纪念日',
       content: 'https://cdn.example.test/day.png',
       imageContent: true,
@@ -276,7 +281,9 @@ void main() {
       captured.url.path,
       '/Client/UserProduct/addUserProductAnniversary',
     );
-    expect(body['userProductId'], 5);
+    // swagger `ClientProductAnniversaryAddApiIn`：设备按涂鸦 deviceId 关联。
+    expect(body['deviceId'], 'tuya-5');
+    expect(body.containsKey('userProductId'), isFalse);
     expect(body['title'], '相识纪念日');
     // 后端的 contentType 是 0=文字/1=图片，和 DP 154 的 1/2 不是一套编码。
     expect(body['contentType'], 1);
@@ -303,7 +310,7 @@ void main() {
             'pageData': <Object?>[
               <String, Object?>{
                 'anniversaryId': 91,
-                'userProductId': 5,
+                'deviceId': 'tuya-5',
                 'title': '相识纪念日',
                 'content': '第一次见面',
                 'contentType': 0,
@@ -316,7 +323,7 @@ void main() {
     );
 
     final id = await repository.addAnniversary(
-      userProductId: 5,
+      deviceId: 'tuya-5',
       title: '相识纪念日',
       content: '第一次见面',
       imageContent: false,
@@ -328,6 +335,43 @@ void main() {
       '/Client/UserProduct/addUserProductAnniversary',
       '/Client/UserProduct/getProductAnniversaryList',
     ]);
+    repository.close();
+  });
+
+  test('editing an anniversary sends the id with the deviceId body', () async {
+    late http.Request captured;
+    final session = ApiSession(storageKey: 'backend.anniversary-edit.token')
+      ..setToken('api-token');
+    final repository = HttpAppBackendRepository(
+      client: ApiClient(
+        baseUrl: 'https://example.test',
+        session: session,
+        httpClient: MockClient((request) async {
+          captured = request;
+          return _response(true);
+        }),
+      ),
+    );
+
+    await repository.editAnniversary(
+      anniversaryId: 42,
+      deviceId: 'tuya-5',
+      title: '相识纪念日',
+      content: '第一次见面',
+      imageContent: false,
+      date: DateTime(2026, 9, 2),
+    );
+    final body = jsonDecode(captured.body) as Map<String, dynamic>;
+
+    expect(
+      captured.url.path,
+      '/Client/UserProduct/editUserProductAnniversary',
+    );
+    expect(body['anniversaryId'], 42);
+    expect(body['deviceId'], 'tuya-5');
+    expect(body.containsKey('userProductId'), isFalse);
+    expect(body['contentType'], 0);
+    expect(body['anniversaryDate'], '2026-09-02');
     repository.close();
   });
 

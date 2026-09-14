@@ -123,7 +123,30 @@ internal object TuyaSdkInitializer {
             if (nested != null) {
                 describe(nested)
             } else {
-                "native_error" to (throwable.message ?: throwable.javaClass.simpleName)
+                // ⚠️ **异常类名 + 出事的那一帧，缺一不可**（2026-09-11 教训）。
+                //
+                // 那次真机配网失败，页面上只回了一个光秃秃的 `NullPointerException`——
+                // `throwable.message` 对 NPE 往往是 null，于是退回类名，而类名说不出
+                // 是哪一行。测试截图发过来，除了"有个空指针"什么都推不出来。
+                //
+                // 现在带上第一帧**属于涂鸦或我们自己**的栈（跳过 java/android 的内部帧），
+                // 页面上一眼能看到类名 + 方法 + 行号。
+                val detail = throwable.message?.takeIf { it.isNotBlank() }
+                val frame = throwable.stackTrace.firstOrNull { item ->
+                    item.className.startsWith("com.thingclips") ||
+                        item.className.startsWith("com.common")
+                }
+                val where = if (frame == null) {
+                    ""
+                } else {
+                    " @ " + frame.className.substringAfterLast('.') +
+                        "." + frame.methodName + ":" + frame.lineNumber
+                }
+                "native_error" to (
+                    throwable.javaClass.simpleName +
+                        (if (detail == null) "" else ": " + detail) +
+                        where
+                    )
             }
         }
     }

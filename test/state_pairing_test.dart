@@ -1,7 +1,9 @@
 import 'support/mock_tuya_repository.dart';
 import 'dart:async';
 
+import 'package:flowerpot/src/features/devices/pairing_gate.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/tuya_config.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/widgets.dart';
@@ -475,7 +477,159 @@ class _PairingRepository extends MockTuyaRepository {
     expect(state.pairingStage, PairingStage.idle);
   });
 
+  testWidgets('BLE 发现：先弹授权框、答完再探测（首次进入才不会误报"缺权限"）', (
+    tester,
+  ) async {
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+
+    expect(await state.startBleDiscovery(), isTrue);
+    // ⚠️ 顺序就是这条路的命门：授权必须在探测**之前**跑完。2026-09-11 真机上
+    // 「第一次进搜不到、退出去重进就好了」，根因正是探测抢在授权框被回答之前完成、
+    // 报了个假的"未授予"，而且之后再没人重新探测。
+    expect(repository.blePermissionRequests, 1);
+    expect(repository.bleScanStarts, 1);
+
+    await state.stopBleDiscovery();
+  });
+
+  testWidgets('BLE 发现：没有 uuid 的也照常列出来（只是点不动）', (tester) async {
+    // ⚠️ 2026-09-11 真机一直搜不到设备，原因之一就是仓库层把 uuid 为空的**静默丢掉**了：
+    // 广播里没带 uuid 的设备直接消失，页面显示「一台都没扫到」——「我们扔了它」被当成
+    // 「设备没在广播」，排查方向正好反。现在一条都不丢。
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+    await state.startBleDiscovery();
+
+    repository.pushBleDevice(
+      const BleDevice(
+        uuid: '',
+        name: '',
+        mac: 'AA:BB:CC:00:00:09',
+        productId: '',
+        rssi: -60,
+        bound: false,
+        supportWifiList: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(state.bleDevices, hasLength(1));
+    // uuid 为空时按 mac 去重，不会和别的挤成一条。
+    expect(state.bleDevices.single.key, 'AA:BB:CC:00:00:09');
+
+    await state.stopBleDiscovery();
+  });
+
+  testWidgets('BLE 发现：正常态只列本产品，别人的涂鸦设备不列', (tester) async {
+    // 2026-09-11 晚：真机配网跑通后收掉排查态，列表回到「只列本产品」。
+    // 认设备以**后台产品清单的 broadcastId** 为准，本地常量兜底。
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+    await state.startBleDiscovery();
+
+    repository
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-pot',
+          name: '',
+          mac: 'AA:BB:CC:00:00:02',
+          productId: TuyaConfig.broadcastId,
+          rssi: -60,
+          bound: false,
+          supportWifiList: true,
+        ),
+      )
+      // 附近别人的涂鸦设备：信号更强，但不是本产品 ⇒ 不该出现在列表里。
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-other',
+          name: '别人的',
+          mac: 'AA:BB:CC:00:00:03',
+          productId: 'pid-other',
+          rssi: -30,
+          bound: false,
+          supportWifiList: false,
+        ),
+      );
+    await tester.pumpAndSettle();
+
+    expect(state.bleDevices.map((item) => item.uuid), <String>['uuid-pot']);
+    expect(state.bleOurProductCount, 1);
+
+    await state.stopBleDiscovery();
+  });
+
+  testWidgets('BLE 发现：本产品置顶，并补上云端产品名', (tester) async {
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+    await state.startBleDiscovery();
+
+    repository
+      // 信号最强，但**不是本产品**——不该排在花盆前面。
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-other',
+          name: '别人的耳机',
+          mac: 'AA:BB:CC:00:00:01',
+          productId: 'pid-other',
+          rssi: -30,
+          bound: false,
+          supportWifiList: false,
+        ),
+      )
+      // 信号弱，但 pid 就是平台上建的那个产品。
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-pot',
+          name: '',
+          mac: 'AA:BB:CC:00:00:02',
+          // ⚠️ 真机上 BLE 扫到的是**广播包里那个标识**，不是平台产品 ID
+          // （2026-09-11：-32dBm 的花盆报的是 broadcastId）。只比 productId
+          // 会永远认不出来，所以这里刻意用 broadcastId 来守这条。
+          productId: TuyaConfig.broadcastId,
+          rssi: -85,
+          bound: false,
+          supportWifiList: true,
+        ),
+      );
+    await tester.pumpAndSettle();
+
+    // **本产品置顶**：不过滤扫描时附近一堆别的涂鸦设备，花盆混在中间要人一行行找。
+    expect(state.bleDevices.first.uuid, 'uuid-pot');
+    expect(state.bleOurProductCount, 1);
+    // 产品 ID 那一路也要认（有的固件广播的就是它）。
+    expect(TuyaConfig.productId == TuyaConfig.broadcastId, isFalse);
+
+    // 云端产品名要补上：广播里没有名字（`name` 是空的），只有查回来才认得出。
+    expect(state.productInfoFor('uuid-pot')?.name, '智能花盆');
+    // 每台只查一次——否则每条扫描回调都会往返一次。
+    expect(repository.productInfoQueries.where((u) => u == 'uuid-pot'), hasLength(1));
+
+    await state.stopBleDiscovery();
+    // ⚠️ 停扫必须连**BLE 链路**一起断：设备只有在没有连接时才广播，留着一条就等于
+    // 让它从此扫不到（2026-09-11 真机：之前搜得到、配网失败之后就搜不到了）。
+    expect(repository.bleDisconnects, isNotEmpty);
+  });
+
   testWidgets('BLE 发现：扫到的设备逐台进列表，已绑的不列', (tester) async {
+    // 这一条验的是**过滤开着**时的口径。2026-09-11 起生产值是「不过滤」
+    // （`PairingGate.showUnfilteredBleScan`，为了验设备支不支持蓝牙），
+    // 但过滤那套逻辑必须一直是能跑的——将来关掉排查模式就靠它。
+    PairingGate.showUnfilteredBleScan = false;
+    addTearDown(PairingGate.reset);
     final repository = MockTuyaRepository(
       latency: Duration.zero,
       seedDevice: false,
@@ -537,6 +691,76 @@ class _PairingRepository extends MockTuyaRepository {
     expect(state.bleScanning, isFalse);
   });
 
+  testWidgets('BLE 发现：每次开扫都是全新一轮——上一轮的设备不留，扫描到时后能真的重开', (
+    tester,
+  ) async {
+    // 2026-09-14 产品反馈两条，根子在同一处：
+    // ①「关闭了设备，去搜索还是会搜索出设备」——扫到的设备挂在全局状态上，从来不清；
+    // ②「点击重新扫描扫描不到设备」——原生扫描到时自己停了，状态里还记着"在扫"，
+    //    `startBleDiscovery` 开头那句 `if (_bleScanning) return true` 直接把重开挡掉。
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+
+    expect(await state.startBleDiscovery(), isTrue);
+    repository.pushBleDevice(
+      const BleDevice(
+        uuid: 'uuid-pot',
+        name: '',
+        mac: 'AA:BB:CC:00:00:02',
+        productId: TuyaConfig.broadcastId,
+        rssi: -50,
+        bound: false,
+        supportWifiList: false,
+      ),
+    );
+    await tester.pump();
+    expect(state.bleDevices, hasLength(1));
+
+    // 原生扫描到时自己停了：状态要如实跟上。
+    repository.endBleScan();
+    await tester.pump();
+    expect(state.bleScanning, isFalse);
+
+    // 设备这期间关机了（不再有广播上来）：再开一轮，上一轮的结果一条都不能留，
+    // 原生也要真的重新开扫。
+    expect(await state.startBleDiscovery(), isTrue);
+    expect(repository.bleScanStarts, 2);
+    expect(state.bleScanning, isTrue);
+    expect(state.bleDevices, isEmpty);
+
+    // 还在扫的时候重开：先停旧的，再开新的。
+    expect(await state.startBleDiscovery(), isTrue);
+    expect(repository.bleScanStops, 1);
+    expect(repository.bleScanStarts, 3);
+
+    await state.stopBleDiscovery();
+  });
+
+  testWidgets('BLE 发现：停扫认主人——被别的搜索页重开过的这一轮，旧的那页停不掉', (
+    tester,
+  ) async {
+    // 失败页「返回搜索设备」会在老搜索页上面再压一页新的。从新页退回来时老页重开一轮，
+    // 而新页的 dispose 要等退场动画走完才跑——它那句停扫不能把老页刚开的这一轮掐掉。
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+    final lowerPage = Object();
+    final upperPage = Object();
+
+    await state.startBleDiscovery(owner: upperPage);
+    await state.startBleDiscovery(owner: lowerPage);
+    await state.stopBleDiscovery(owner: upperPage);
+    expect(state.bleScanning, isTrue);
+
+    await state.stopBleDiscovery(owner: lowerPage);
+    expect(state.bleScanning, isFalse);
+  });
+
   testWidgets('BLE 查 Wi-Fi 列表：老固件直接拒，不让用户干等超时', (tester) async {
     final repository = MockTuyaRepository(
       latency: Duration.zero,
@@ -577,6 +801,41 @@ class _PairingRepository extends MockTuyaRepository {
       <String>['TP-LINK_2.4G', 'Xiaomi_2.4G'],
     );
     expect(state.deviceWifiNetworks.first.needsPassword, isTrue);
+  });
+
+  testWidgets('配网成功后第三步「连接云端」停一下再结束（1–2 秒随机，走个流程）', (
+    tester,
+  ) async {
+    // 2026-09-14 产品：「第三步假效果又没有了，给个 1-2 秒的随机数延迟」。
+    // 09-11 以「最简洁」删过一次（`a0aa3bf`），这条用例守着它别再被删。
+    // 全局测试配置把停留置零了，这里换成固定的 1.5 秒来验。
+    FlowerpotState.cloudStageDelay = () => const Duration(milliseconds: 1500);
+    final repository = _PairingRepository();
+    final state = await _stateFor(tester, repository);
+
+    var done = false;
+    final pending = state
+        .pairViaBle(uuid: 'uuid-modern', ssid: 'Home_2.4G', password: '1234')
+        .whenComplete(() => done = true);
+    // Mock 的配网本身要 1 秒。
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+
+    // SDK 已经回了成功，但还停在第三步。
+    expect(state.pairingStage, PairingStage.connectingCloud);
+    expect(done, isFalse);
+
+    await tester.pump(const Duration(milliseconds: 1500));
+    final result = await pending;
+    expect(result.success, isTrue);
+    expect(state.pairingStage, PairingStage.idle);
+  });
+
+  test('第三步停留的生产取值落在 1–2 秒之间', () {
+    for (var i = 0; i < 500; i++) {
+      final delay = FlowerpotState.randomCloudStageDelay().inMilliseconds;
+      expect(delay, inInclusiveRange(1000, 2000));
+    }
   });
 
   testWidgets('双模配网：凭据经蓝牙下发，全程不碰设备热点', (tester) async {

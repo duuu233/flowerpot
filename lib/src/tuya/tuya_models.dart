@@ -153,13 +153,28 @@ class DeviceHistory {
 class DeviceUpdate {
   /// The device as it now stands, with the reported DPs already merged into
   /// the last known snapshot.
-  const DeviceUpdate.changed(SmartPlanterDevice this.device) : removedId = null;
+  const DeviceUpdate.changed(
+    SmartPlanterDevice this.device, {
+    this.changedDps = const <int>{},
+  }) : removedId = null;
 
   /// The device left the account — unbound from another phone, or reset.
-  const DeviceUpdate.removed(String this.removedId) : device = null;
+  const DeviceUpdate.removed(String this.removedId)
+    : device = null,
+      changedDps = const <int>{};
 
   final SmartPlanterDevice? device;
   final String? removedId;
+
+  /// **这一条上报里真正带了哪几个 DP**，不是设备当前的全部 DP。
+  ///
+  /// 设备快照是「历史 DP 合并后的样子」，所以光看 [device] 分不出「162 这次报了
+  /// true」和「162 上次报过 true、这次报的是温度」。植物确认弹窗要的就是前者
+  /// （2026-09-12 产品：「再次接收到 DP162 true 的时候……就需要再次弹框」），
+  /// 所以把本次报文的 DP 号原样带上来。
+  ///
+  /// 桥接没给 `dps` 时（例如只有在线状态变化）是空集合。
+  final Set<int> changedDps;
 }
 
 /// 固件升级的实时状态。
@@ -549,6 +564,7 @@ class SmartPlanterDevice {
     required this.productId,
     required this.name,
     required this.online,
+    this.iconUrl = '',
     required this.signal,
     required this.battery,
     required this.charging,
@@ -574,6 +590,12 @@ class SmartPlanterDevice {
   final String id;
   final String productId;
   final String name;
+
+  /// 涂鸦平台上给这个产品配的图（`DeviceBean.getIconUrl`）。
+  ///
+  /// 设备列表那一列画的就是它——那一页的数据全部来自涂鸦，和 APP 后端的植物图
+  /// 是两回事（2026-09-12 产品口径）。没配就是空串，页面留空。
+  final String iconUrl;
   final bool online;
   final int signal;
   final int battery;
@@ -641,6 +663,7 @@ class SmartPlanterDevice {
 
   SmartPlanterDevice copyWith({
     String? name,
+    String? iconUrl,
     bool? online,
     int? signal,
     int? battery,
@@ -663,6 +686,7 @@ class SmartPlanterDevice {
     id: id,
     productId: productId,
     name: name ?? this.name,
+    iconUrl: iconUrl ?? this.iconUrl,
     online: online ?? this.online,
     signal: signal ?? this.signal,
     battery: battery ?? this.battery,
@@ -794,6 +818,11 @@ class BleAvailability {
     required this.available,
     required this.supported,
     required this.enabled,
+    this.locationOn = true,
+    this.scanPermission = true,
+    this.locationPermission = true,
+    this.sdkInt = 0,
+    this.release = '',
     this.reason = '',
   });
 
@@ -801,6 +830,12 @@ class BleAvailability {
     available: raw['available'] == true,
     supported: raw['supported'] == true,
     enabled: raw['enabled'] == true,
+    // 缺省按 true：老桥接不回这三项时，别凭空报一个「定位没开」把人带偏。
+    sdkInt: (raw['sdkInt'] as num?)?.toInt() ?? 0,
+    release: raw['release']?.toString() ?? '',
+    locationOn: raw['locationOn'] != false,
+    scanPermission: raw['scanPermission'] != false,
+    locationPermission: raw['locationPermission'] != false,
     reason: raw['reason']?.toString() ?? '',
   );
 
@@ -813,11 +848,38 @@ class BleAvailability {
   /// 蓝牙开关开着。
   final bool enabled;
 
+  /// **系统的「定位服务」开关**是否打开。
+  ///
+  /// ⚠️ 这是 BLE 扫描最容易被忽略的一道门：Android 6～11 强制要求它，而我们在 12+ 又
+  /// 刻意没用 `neverForLocation`（那个标志会让系统把 iBeacon 类广播从结果里过滤掉），
+  /// 所以同样受它影响。**关着的时候扫描静默返回空**——不报错、不回调，和「附近没有设备」
+  /// 完全分不开。它不是权限、申请不来，只能检测出来让用户自己去开。
+  final bool locationOn;
+
+  /// Android 12+ 的「附近的设备」权限（`BLUETOOTH_SCAN`）。
+  final bool scanPermission;
+
+  /// 定位权限（`ACCESS_FINE_LOCATION`）。BLE 扫描需要，理由同 [locationOn]。
+  final bool locationPermission;
+
+  /// 系统版本：决定走哪一套蓝牙权限模型，排查时必须知道。
+  final int sdkInt;
+  final String release;
+
   /// 不可用时的原文，直接画到页面上。
   final String reason;
 
-  /// 三项都成立才谈得上扫。
-  bool get usable => available && supported && enabled;
+  /// **每一道门都开着**才谈得上扫得到东西。
+  ///
+  /// 少判任何一条的后果都一样：扫描静默为空，而页面上显示的是「附近没有设备」——
+  /// 把"我们这边没配好"说成了"设备有问题"，正好把排查方向带反。
+  bool get usable =>
+      available &&
+      supported &&
+      enabled &&
+      locationOn &&
+      scanPermission &&
+      locationPermission;
 
   static const BleAvailability unknown = BleAvailability(
     available: false,
@@ -841,24 +903,32 @@ class BleDevice {
     required this.rssi,
     required this.bound,
     required this.supportWifiList,
+    this.address = '',
     this.id = '',
     this.configType = '',
+    this.providerName = '',
     this.deviceType = 0,
     this.flag = 0,
+    this.seq = 0,
+    this.rawText = '',
   });
 
   factory BleDevice.fromMap(Map<Object?, Object?> raw) => BleDevice(
     uuid: raw['uuid']?.toString() ?? '',
     name: raw['name']?.toString() ?? '',
     mac: raw['mac']?.toString() ?? '',
+    address: raw['address']?.toString() ?? '',
     productId: raw['productId']?.toString() ?? '',
     rssi: (raw['rssi'] as num?)?.toInt() ?? 0,
     bound: raw['bound'] == true,
     supportWifiList: raw['supportWifiList'] == true,
     id: raw['id']?.toString() ?? '',
     configType: raw['configType']?.toString() ?? '',
+    providerName: raw['providerName']?.toString() ?? '',
     deviceType: (raw['deviceType'] as num?)?.toInt() ?? 0,
     flag: (raw['flag'] as num?)?.toInt() ?? 0,
+    seq: (raw['seq'] as num?)?.toInt() ?? 0,
+    rawText: raw['raw']?.toString() ?? '',
   );
 
   /// 设备的 BLE uuid。**查 Wi-Fi 列表与双模配网都靠它**：原生按它取回自己缓存的
@@ -882,12 +952,39 @@ class BleDevice {
   /// 干等一次超时，回落到手机的 Wi-Fi 扫描反而快。
   final bool supportWifiList;
 
+  /// 蓝牙地址。**和 [mac] 是两个字段**：双模配网真正拿去连的是 address，
+  /// 之前把两者合并上报，address 为空时看不出来。
+  final String address;
+
   final String id;
   final String configType;
+  final String providerName;
   final int deviceType;
+
+  /// 这是本轮第几次 `onResult` 回调。**用来判断"SDK 到底有没有在回报"**：
+  /// 列表为空而 seq 一直在涨，说明扫描是活的、只是我们没留住；两者都是 0 才是真的没回调。
+  final int seq;
+
+  /// SDK 那个 bean 的原样 `toString()`。
+  ///
+  /// ⚠️ 上面那些字段是按常见 getter 名猜着读的；万一这一版 SDK 字段名不一样，全都会是空，
+  /// 而页面上看不出为什么。有了这一条，真机上一眼能看到 SDK 究竟给了什么。
+  final String rawText;
 
   /// 能力位原值。真机上排查 [supportWifiList] 为什么是 false 时要看它。
   final int flag;
+
+  /// 去重用的稳定键。
+  ///
+  /// ⚠️ **不能只用 uuid**：广播里未必带 uuid，而按 uuid 去重会让所有没有 uuid 的设备
+  /// 挤成一条、甚至被整条丢掉（2026-09-11 真机"一台都扫不到"的原因之一就是仓库层
+  /// 把 uuid 为空的直接 return null 了）。按 uuid → mac → address → id 依次退。
+  String get key {
+    for (final candidate in <String>[uuid, mac, address, id]) {
+      if (candidate.trim().isNotEmpty) return candidate.trim();
+    }
+    return 'seq-$seq';
+  }
 
   /// 页面上怎么称呼这一台。
   ///
@@ -908,6 +1005,28 @@ class BleDevice {
     >= -75 => 2,
     _ => 1,
   };
+}
+
+/// 云端按 pid / uuid / mac 查回来的**产品信息**。
+///
+/// BLE 广播里常常没有名字，页面上一行只有 `mac + pid + rssi`，人没法判断哪一台是花盆。
+/// 拿 pid 去云端换回产品名之后，列表才真的能"看出有没有"。
+class BleProductInfo {
+  const BleProductInfo({this.name = '', this.icon = '', this.raw = ''});
+
+  factory BleProductInfo.fromMap(Map<Object?, Object?> map) => BleProductInfo(
+    name: map['name']?.toString() ?? '',
+    icon: map['icon']?.toString() ?? '',
+    raw: map['raw']?.toString() ?? '',
+  );
+
+  final String name;
+  final String icon;
+
+  /// 认不出字段时的原样 `toString()`。真机上一眼能看出 SDK 给的是什么 bean。
+  final String raw;
+
+  bool get isEmpty => name.trim().isEmpty;
 }
 
 /// 设备**自己扫到的**一个 Wi-Fi（走 BLE 问它要的那份列表）。
@@ -987,7 +1106,8 @@ enum PairingStage {
   String get hint => switch (this) {
     PairingStage.idle => '',
     PairingStage.connectingDevice => '系统若弹出连接热点的确认框，请点「连接」',
-    PairingStage.sendingWifi => '正在把 Wi-Fi 名称和密码发给设备，请勿离开本页',
+    // 2026-09-14 产品定稿文案。
+    PairingStage.sendingWifi => '正在把Wi-Fi信息同步给设备，请勿离开本页面',
     PairingStage.connectingCloud => '设备正在连接路由器并注册到云端',
   };
 

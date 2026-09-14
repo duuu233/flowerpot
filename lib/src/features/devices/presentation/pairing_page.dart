@@ -7,6 +7,7 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
+import '../pairing_gate.dart';
 import 'widgets/pairing_progress_view.dart';
 
 /// Route arguments for the Wi-Fi step, which now runs after a device is
@@ -330,6 +331,25 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
     // 两条都要令牌，而令牌走云端、必须在**还连着路由器**时取好——由搜索页预取
     // （`prepareForPairing`）。AP 那条尤其要紧：手机一挂到设备热点上就没有外网了。
     final bleUuid = widget.arguments?.bleUuid;
+    // ⚠️ **AP 屏蔽期间拿不到 uuid 就直接报错，不许悄悄退回 AP。**
+    //
+    // 悄悄退回是这一轮最要命的一种错：用户会在某次配网成功里以为「蓝牙这条通了」，
+    // 而实际上成功的是 AP，本轮要验的结论就此被盖掉。宁可当场失败并说清楚。
+    if (!PairingGate.apEnabled && (bleUuid == null || bleUuid.isEmpty)) {
+      Navigator.pushReplacementNamed(
+        context,
+        AppRoutes.pairingFailure,
+        arguments: PairingFailureArguments(
+          request: request,
+          code: 'ap_disabled',
+          message:
+              '当前版本已屏蔽热点（AP）配网，只走蓝牙双模；'
+              '而这次没有拿到设备的蓝牙标识，无法下发凭据。'
+              '请回搜索页用蓝牙重新搜索并选择设备。',
+        ),
+      );
+      return;
+    }
     final result = bleUuid != null && bleUuid.isNotEmpty
         ? await state.pairViaBle(
             uuid: bleUuid,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/display_settings_page_model.dart';
+import 'device_online_guard.dart';
 import 'widgets/display_settings_card.dart';
 
 class DisplaySettingsPage extends StatefulWidget {
@@ -26,7 +27,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
     if (!mounted) return;
     setState(() => updating = false);
     if (!result.success) {
-      showAppMessage(context, result.message, tone: AppMessageTone.error);
+      showDeviceActionResult(context, result);
     }
   }
 

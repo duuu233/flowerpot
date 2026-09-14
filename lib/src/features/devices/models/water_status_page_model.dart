@@ -19,6 +19,14 @@ enum WaterStatusMetric {
     WaterStatusMetric.waterLevel => 'ml',
     WaterStatusMetric.soilMoisture => '%',
   };
+
+  /// 曲线纵轴上限，取功能点导出里的量程：水位 131–133 / DP 105 是 0–200 mL，
+  /// 土壤湿度 134–136 是 0–100 %。水位以前沿用图表默认的 100，超过 100 mL 的点
+  /// 全被压在顶线上。
+  double get chartMax => switch (this) {
+    WaterStatusMetric.waterLevel => 200,
+    WaterStatusMetric.soilMoisture => 100,
+  };
 }
 
 class WaterStatusArguments {

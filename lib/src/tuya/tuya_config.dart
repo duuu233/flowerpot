@@ -13,6 +13,25 @@ abstract final class TuyaConfig {
   /// editing rows by hand.
   static const productId = 'yciq4kssu1fv8umn';
 
+  /// 设备 **BLE 广播包里**带的标识（2026-09-11 真机确认）。
+  ///
+  /// ⚠️ **它和 [productId] 是两个不同的东西，不是"对不上"**：
+  ///
+  /// | | 是什么 | 谁用 |
+  /// | --- | --- | --- |
+  /// | [productId] `yciq4kssu1fv8umn` | 涂鸦 IoT 平台上那个**产品**的 ID | 配网、绑定、DP 表——**云端一律以它为准** |
+  /// | [broadcastId] `ehbx83xdh9jkmxvz` | 设备**广播**时放进 BLE 包里的标识 | 只用于本地判断「这条广播是不是这款产品」 |
+  ///
+  /// BLE 扫描回来的 `ScanDeviceBean.getProductId()` 拿到的是**广播里那个**，所以认
+  /// 设备时两个都要比——只比 [productId] 会永远认不出来（2026-09-11 真机上扫到
+  /// -32dBm 的花盆却没被标成"本产品"，就是这个原因）。
+  ///
+  /// ⚠️ **2026-09-12：后台那个 `broadcastId` 字段改存平台产品 ID 了**
+  /// （后台界面上的文案也从「广播ID」改成了「涂鸦产品ID」）。也就是说后台清单里
+  /// 拿到的不再是广播标识，`FlowerpotState._isOurProduct` 认这款花盆靠的就是下面
+  /// 这个本地常量。**这一行不能删**，删了搜索页就再也认不出设备。
+  static const broadcastId = 'ehbx83xdh9jkmxvz';
+
   /// Product DP table, keyed by the Tuya *identifier* rather than by an app
   /// concept, so a row can be diffed against the platform export character for
   /// character. App-facing names resolve through [setting] and [history];
@@ -101,12 +120,20 @@ abstract final class TuyaConfig {
     // 2026-09-09 起两态、且只由设备上报：0 = 不弹窗，1 = 弹「发现新植物」引导窗。
     // App 不再写这条——下发 116 之后固件自己改回 0 并立即上报；116 为 -1 或用户
     // 关掉自动检测时固件同样报 0。
+    // ⚠️ **平台 2026-09-12 把它改名了**：`plant_confirm`（植物确认）→ `plant_present`
+    // （弹窗提醒）。**DP 号与数据类型都没变**（162 / bool），改的只是标识符与显示名，
+    // 所以行为不受影响；这里跟着平台导出走，两个名字都留着，免得别处按旧名查不到。
+    'plant_present': 162,
     'plant_confirm': 162,
 
     // TODO(固件/平台): 自动检测植物的开关。产品要求设备设置页有这个纯开关，但
     // 09-07 的导出里还没有这条功能点，163 与标识符都是本地占位。平台补完导出后
     // 只需要改这一行——App 侧统一走 `TuyaConfig.setting['plantDetection']`。
-    'plant_detect_switch': 163, // bool, rw
+    // ⚠️ **2026-09-12 平台已正式导出**（此前是本地占位）。平台上的标识符是
+    // `plant_confirm_switch`，不是我们当初猜的 `plant_detect_switch`——DP 号 163、
+    // 类型 bool 都对得上。两个名字都留着：下发按 DP 号走，改名不影响行为。
+    'plant_confirm_switch': 163, // bool, rw
+    'plant_detect_switch': 163, // bool, rw（本地旧名，平台已改用上面那个）
   };
 
   /// DPs the device transmits as an integer scaled by a power of ten (涂鸦

@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
+import 'device_online_guard.dart';
+import 'widgets/device_plant_artwork.dart';
 
 class DeviceInfoPage extends StatelessWidget {
   const DeviceInfoPage({required this.deviceId, super.key, this.info});
@@ -16,15 +19,14 @@ class DeviceInfoPage extends StatelessWidget {
       builder: (_) => _RenameDeviceDialog(initialName: device.name),
     );
     if (name == null || !context.mounted) return;
-    final result = await FlowerpotScope.of(
+    final state = FlowerpotScope.of(context);
+    // 改名走云端，点两次会提交两回。
+    final result = await withBlockingProgress(
       context,
-    ).renameDevice(device.id, name);
-    if (context.mounted) {
-      showAppMessage(
-        context,
-        result.message,
-        tone: result.success ? AppMessageTone.success : AppMessageTone.error,
-      );
+      () => state.renameDevice(device.id, name),
+    );
+    if (result != null && context.mounted) {
+      showDeviceActionResult(context, result, announceSuccess: true);
     }
   }
 
@@ -36,25 +38,56 @@ class DeviceInfoPage extends StatelessWidget {
   ///
   /// `plantConfirmRaw` 是上报的**原文**；`plantConfirm` 是 App 解析后的结论
   /// （`fromDp` 只认明确的 1，其它一律当 0），两者都显示才看得出解析有没有偏差。
+  /// 联调诊断串：**植物与电池两组 DP 的原值、解析结果、以及匹配到了谁**。
+  ///
+  /// 2026-09-11 产品要的三件事都靠它回答：
+  ///
+  /// 1. 「固件固定上报的植物 ID 是多少」——看 `DP 116 上报原值`，那个值就是要填到后台
+  ///    植物的**涂鸦标识**字段里的；
+  /// 2. 「上报的 ID 后端存不存在」——看 `目录匹配`。**匹配不上就按无植物处理**，
+  ///    这一行直接说破是哪一种，不用再猜是没上报还是没配；
+  /// 3. 「电池数据为空，DP 有没有正常上来」——看电池那一组的原值。
+  ///
+  /// 用 `SelectableText`：这一段是要复制出去发给后端/固件的。
+  static String _dpDiagnostics(BuildContext context, SmartPlanterDevice device) {
+    final state = FlowerpotScope.of(context);
+    final reported = device.plantVariety;
+    final matched = state.reportedPlantName(device.id);
+    return <String>[
+      '【植物】',
+      'DP 116 plant_variety 上报原值：'
+          '${reported.isEmpty ? '（未上报过）' : reported}',
+      '解析成 id：${PlantVariety.parse(reported) ?? '（不是数字，按字符串标识符处理）'}',
+      // 匹配用的是**后台的涂鸦标识**（tuYaRemark），不是植物自增 id。
+      '目录匹配：${matched == null || matched.isEmpty ? '未匹配到（后台没有这个涂鸦标识 ⇒ 按无植物显示）' : matched}',
+      'DP 162 plant_confirm 上报原值：'
+          '${device.plantConfirmRaw.isEmpty ? '（未上报过）' : device.plantConfirmRaw}',
+      'DP 162 解析：${device.plantConfirm.name}'
+          '（${device.plantConfirm.dpValue}，true 才弹引导窗）',
+      '',
+      '【电池】',
+      'DP 103 battery_level：${device.battery}%',
+      'DP 104/145 充电中：${device.charging}',
+      '⚠️ 电池**没有历史 DP**（设备只导出 131–139：水位/土壤湿度/光照），',
+      '所以报表里的电池曲线永远为空——要曲线需要设备侧新增历史 DP。',
+      '',
+      '【设备】',
+      '名称：${device.name}',
+      'devId：${device.id}',
+    ].join('\n');
+  }
+
   Future<void> _showPlantConfirmDp(
     BuildContext context,
     SmartPlanterDevice device,
   ) async {
-    final raw = device.plantConfirmRaw;
     await showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
         key: const Key('device-info-dp162-dialog'),
-        title: const Text('DP 162 plant_confirm'),
-        content: Text(
-          '上报原值：${raw.isEmpty ? '（未上报过）' : raw}\n'
-          'App 解析：${device.plantConfirm.name}'
-          '（${device.plantConfirm.dpValue}，true 才弹引导窗）\n'
-          '\n'
-          'DP 116 plant_variety：'
-          '${device.plantVariety.isEmpty ? '（未上报过）' : device.plantVariety}\n'
-          '设备：${device.name}\n'
-          'devId：${device.id}',
+        title: const Text('DP 诊断'),
+        content: SingleChildScrollView(
+          child: SelectableText(_dpDiagnostics(context, device)),
         ),
         actions: <Widget>[
           TextButton(
@@ -252,10 +285,10 @@ class _DeviceInfoHero extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
           child: Row(
             children: <Widget>[
-              const SizedBox(
+              SizedBox(
                 width: 76,
                 child: Center(
-                  child: AppDevicePlaceholder(hasPlant: true, width: 62),
+                  child: DevicePlantArtwork(deviceId: device.id, width: 62),
                 ),
               ),
               const SizedBox(width: 14),

@@ -1,15 +1,17 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
-import 'package:flutter/foundation.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../home/models/home_dashboard_model.dart';
 import '../../home/presentation/home_page.dart';
+import 'device_online_guard.dart';
 import 'plant_detail_page.dart';
 
 enum PlantPickerMode { add, select }
@@ -36,6 +38,10 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
   String query = '';
   String? selectedId;
   bool initialized = false;
+
+  /// 植物目录还在路上。改之前这一页在等接口的那几秒里画的是「没有搜到植物」的
+  /// 空态——看着像后台一株都没配，其实只是还没回来（2026-09-12 产品：加个 loading）。
+  bool loadingPlants = false;
   bool addingPlant = true;
   List<PlantProfile> plants = const <PlantProfile>[];
 
@@ -52,6 +58,8 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
     if (state.usingAppBackend) plants = const <PlantProfile>[];
     selectedId = current?.id ?? plants.firstOrNull?.id;
     initialized = true;
+    // 首帧之前赋值，不用 setState——build 还没跑过。
+    loadingPlants = true;
     unawaited(_loadPlants(current));
   }
 
@@ -88,6 +96,9 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
         _loadErrorText(error),
         tone: AppMessageTone.error,
       );
+    } finally {
+      // 成功、失败、后端没开——都要把 loading 收掉，否则页面会一直转圈。
+      if (mounted) setState(() => loadingPlants = false);
     }
   }
 
@@ -126,21 +137,44 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
   PlantProfile? get selected =>
       plants.where((item) => item.id == selectedId).firstOrNull;
 
+  /// 打开植物详情页。
+  ///
+  /// 详情页底部也有「确认选择 / 确认添加」（2026-09-12 产品要求），按了之后它
+  /// `pop(true)` 回来——**下发和跳转仍然在这里做**，选择流程只有 [_confirmSelection]
+  /// 一份实现，两个入口不会走岔。
+  Future<void> _openDetails(PlantProfile plant) async {
+    final state = FlowerpotScope.of(context);
+    final confirmed = await Navigator.pushNamed(
+      context,
+      AppRoutes.plantDetail,
+      arguments: PlantDetailArguments(
+        plant: plant,
+        bound: state.deviceById(widget.deviceId)?.plant.id == plant.id,
+        selectable: true,
+        addingPlant: addingPlant,
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() => selectedId = plant.id);
+    await _confirmSelection();
+  }
+
   Future<void> _confirmSelection() async {
     final selectedPlant = selected;
     if (selectedPlant == null) {
       showAppMessage(context, '暂无可添加的植物', tone: AppMessageTone.info);
       return;
     }
-    final result = await FlowerpotScope.of(
+    final state = FlowerpotScope.of(context);
+    // 底部按钮虽然按 `state.busy` 禁用，但那一位要等状态层 `_guard` 翻起来才生效；
+    // 而且详情页的「确认选择」是**程序化**调到这里的，根本不经过那颗按钮。盖一层
+    // 进度圈把这两个缝隙一起堵上（2026-09-12 产品：所有可能重复点击的地方都要有）。
+    final result = await withBlockingProgress(
       context,
-    ).selectPlant(widget.deviceId, selectedPlant);
-    if (!mounted) return;
-    showAppMessage(
-      context,
-      result.message,
-      tone: result.success ? AppMessageTone.success : AppMessageTone.error,
+      () => state.selectPlant(widget.deviceId, selectedPlant),
     );
+    if (!mounted || result == null) return;
+    showDeviceActionResult(context, result, announceSuccess: true);
     if (result.success) {
       if (addingPlant) {
         // Replace the "no plant yet" page with the device detail page, so
@@ -197,7 +231,9 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
                   ),
                 ),
               ),
-              if (plants.isEmpty)
+              if (loadingPlants)
+                const SliverToBoxAdapter(child: _PlantCatalogLoading())
+              else if (plants.isEmpty)
                 const SliverToBoxAdapter(child: _EmptySearchResult())
               else
                 SliverPadding(
@@ -223,16 +259,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
                         plant: plant,
                         selected: selectedId == plant.id,
                         onTap: () => setState(() => selectedId = plant.id),
-                        onDetails: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.plantDetail,
-                          arguments: PlantDetailArguments(
-                            plant: plant,
-                            bound:
-                                state.deviceById(widget.deviceId)?.plant.id ==
-                                plant.id,
-                          ),
-                        ),
+                        onDetails: () => _openDetails(plant),
                       );
                     },
                   ),
@@ -245,7 +272,7 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
             bottom: 8,
             child: FilledButton(
               key: const Key('confirm-plant-selection'),
-              onPressed: state.busy || plants.isEmpty
+              onPressed: state.busy || loadingPlants || plants.isEmpty
                   ? null
                   : _confirmSelection,
               style: FilledButton.styleFrom(
@@ -439,58 +466,63 @@ class _PlantCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Expanded(
-                  child: Padding(
-                    // The artwork ranges from 146x172 to 388x368, so it is
-                    // contained rather than cropped to keep the grid even.
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    child: _PlantArtwork(
-                      plant: plant,
-                      key: Key('plant-image-${plant.id}'),
+                  // **整张图片就是「查看详情」的点击区**（2026-09-11 产品要求）。
+                  //
+                  // 改之前详情入口是选中后才出现的一条「查看详情」横条，它**顶掉了植物
+                  // 名那一行**——选中之后名字就没了，这正是「植物选择没有正确带出植物
+                  // 名称」的来源。现在名字**常驻**，详情改由点图片进入。
+                  //
+                  // 内层手势优先于外层 InkWell 命中：点图片 → 详情，点名字那一行或卡片
+                  // 其余位置 → 选中这一株。
+                  child: GestureDetector(
+                    key: Key('plant-details-${plant.id}'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onDetails,
+                    child: Padding(
+                      // The artwork ranges from 146x172 to 388x368, so it is
+                      // contained rather than cropped to keep the grid even.
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: _PlantArtwork(
+                        plant: plant,
+                        key: Key('plant-image-${plant.id}'),
+                      ),
                     ),
                   ),
                 ),
-                if (selected)
-                  Material(
-                    color: AppColors.brandPrimary,
-                    child: InkWell(
-                      key: Key('plant-details-${plant.id}'),
-                      onTap: onDetails,
-                      child: const SizedBox(
-                        height: 28,
-                        child: Center(
-                          child: Text(
-                            '查看详情',
-                            style: TextStyle(
-                              color: AppColors.surface,
-                              fontSize: 15,
-                              height: 1,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  SizedBox(
-                    height: 35,
-                    child: Center(
+                // 名字常驻：选中与否都画，避免选中时整行换成别的内容、页面跳一下。
+                SizedBox(
+                  height: 35,
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: Text(
                         plant.name,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: selected
+                              ? AppColors.brandPrimary
+                              : AppColors.textPrimary,
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                   ),
+                ),
               ],
             ),
-            if (selected)
-              const Positioned(top: 11, right: 11, child: _SelectedBadge()),
+            // 选中 / 未选中都画，位置一致——只画选中态的话，卡片右上角会在选中那一刻
+            // 凭空多出一个圆，看着像跳了一下。
+            Positioned(
+              top: 11,
+              right: 11,
+              child: _SelectedBadge(selected: selected),
+            ),
           ],
         ),
       ),
@@ -498,6 +530,12 @@ class _PlantCard extends StatelessWidget {
   }
 }
 
+/// 列表卡片里那株植物的图，只认后端配的 `plantImg`。
+///
+/// ⚠️ **没有就留空**（2026-09-12 产品口径：「去掉一切兜底、静态假数据，没有就为空」）。
+/// 原来会回落到 `AppAssets.plantImage(plant.id)`：那是一张按 id 查的本地图片表，后台
+/// 配的植物 id 不在表里，最后统一退成一个通用图标——**整页每一株看起来都"有图"，
+/// 其实一张都没取到**，产品反馈的「选择植物列表读不到图片」就是这么被盖住的。
 class _PlantArtwork extends StatelessWidget {
   const _PlantArtwork({required this.plant, super.key});
 
@@ -506,30 +544,40 @@ class _PlantArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = plant.imageUrl?.trim();
-    if (imageUrl != null && imageUrl.isNotEmpty) {
-      return Image.network(
-        imageUrl,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.high,
-        semanticLabel: plant.name,
-        errorBuilder: (_, _, _) => Image.asset(
-          AppAssets.plantImage(plant.id),
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
-        ),
-      );
-    }
-    return Image.asset(
-      AppAssets.plantImage(plant.id),
+    if (imageUrl == null || imageUrl.isEmpty) return const SizedBox.shrink();
+    return Image.network(
+      imageUrl,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       semanticLabel: plant.name,
+      errorBuilder: (_, _, _) => const SizedBox.shrink(),
     );
   }
 }
 
+/// 植物目录加载中。占的高度和两行卡片差不多，免得 loading 一消失页面猛跳一下。
+class _PlantCatalogLoading extends StatelessWidget {
+  const _PlantCatalogLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      key: Key('plant-catalog-loading'),
+      height: 316,
+      child: AppLoading(label: '正在加载植物…'),
+    );
+  }
+}
+
+/// 卡片右上角那个圆：选中是实心打勾，未选中是**主题色描边的空心圈**。
+///
+/// ⚠️ 未选中那一支是 2026-09-12 补的：改之前**未选中根本不画**，卡片底色又是白的，
+/// 于是看上去"有个白色的圈、看不见"——产品反馈的就是这个。空心圈给主题色描边、
+/// 中间留白，白底上也看得清。
 class _SelectedBadge extends StatelessWidget {
-  const _SelectedBadge();
+  const _SelectedBadge({this.selected = true});
+
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -537,25 +585,30 @@ class _SelectedBadge extends StatelessWidget {
     // such asset, so the disc is a plain coloured circle carrying the existing
     // tick artwork rather than a redrawn icon.
     return Semantics(
-      label: '已选择',
+      label: selected ? '已选择' : '未选择',
       child: DecoratedBox(
-        decoration: const BoxDecoration(
-          color: AppColors.brandPrimary,
+        decoration: BoxDecoration(
+          color: selected ? AppColors.brandPrimary : AppColors.surface,
           shape: BoxShape.circle,
+          border: selected
+              ? null
+              : Border.all(color: AppColors.brandPrimary, width: 1.5),
         ),
         child: SizedBox.square(
           dimension: 23,
-          child: Center(
-            child: Image.asset(
-              AppAssets.checkmarkIcon,
-              width: 13,
-              height: 13,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.high,
-              color: AppColors.surface,
-              excludeFromSemantics: true,
-            ),
-          ),
+          child: selected
+              ? Center(
+                  child: Image.asset(
+                    AppAssets.checkmarkIcon,
+                    width: 13,
+                    height: 13,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                    color: AppColors.surface,
+                    excludeFromSemantics: true,
+                  ),
+                )
+              : null,
         ),
       ),
     );

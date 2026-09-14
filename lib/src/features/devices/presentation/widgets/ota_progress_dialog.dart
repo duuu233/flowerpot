@@ -10,15 +10,21 @@ import '../../../../tuya/tuya_models.dart';
 /// `FlowerpotState.otaUpdates`）。之前进度只写在「其他设置」的那一行上，用户点完
 /// 更新看不出有没有在动；这里把它摊开成弹层，跑完（成功或失败）才允许关。
 ///
-/// ## 位置：底部，不居中
+/// ## 形态：满宽的底部弹层
 ///
-/// 产品口径（2026-09-11）：**OTA 升级的弹框底部定位，不要在中间。** 整条升级动线的两个
-/// 弹框（「检查更新」`showFirmwareUpdateDialog` 和这个进度层）都按底部对齐，中途不会从
-/// 居中跳到底部。
+/// 产品口径几经调整，现在是（2026-09-12）：**「检查更新」居中，「固件升级中」贴底、
+/// 宽度铺满屏幕、其余区域盖一层黑色半透明遮罩**——也就是常见的底部弹层。
 ///
-/// 实现上只改**位置**，卡片本身的样式一点没动——`alignment` 给到 `bottomCenter`，
-/// `insetPadding` 的底边留出系统手势区（[_otaDialogInsetPadding]）。**不要改成
-/// `showModalBottomSheet`**：那会把卡片拉成满宽、顶部切成两个直角，等于重做视觉。
+/// 沿革（别再改回去）：
+/// - 2026-09-11：两个弹框一起贴底，都保持卡片形态（左右留 40）。当时特意写过
+///   「不要改成满宽，那等于重做视觉」。
+/// - 2026-09-12：产品明确要这两个**各归各位**——决策框居中，进度层做成满宽底部弹层。
+///   所以上面那句话作废了，这里就是按满宽实现的。
+///
+/// 实现没用 `showModalBottomSheet`：进度层要**跑完才允许关**（`PopScope`），而
+/// bottom sheet 的下拉关闭、`isDismissible` 那套还得再一个个关掉；用 `showDialog` +
+/// `insetPadding: EdgeInsets.zero` + `alignment: bottomCenter` 更直接，遮罩也就是
+/// dialog 自己的 barrier。
 Future<void> showOtaProgressDialog(
   BuildContext context, {
   required String deviceId,
@@ -26,19 +32,11 @@ Future<void> showOtaProgressDialog(
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
+    // 其余区域的黑色半透明遮罩。和「检查更新」那个框用同一个浓度。
+    barrierColor: Colors.black.withValues(alpha: .42),
     builder: (_) => _OtaProgressDialog(deviceId: deviceId),
   );
 }
-
-/// 底部对齐的弹框留边：左右沿用 Flutter 默认的 40，底边在系统手势区之上再留 16。
-///
-/// 不写死一个数，是因为全屏手势导航的机型底部有一条 home indicator，贴着画会被压住。
-EdgeInsets _otaDialogInsetPadding(BuildContext context) => EdgeInsets.fromLTRB(
-  40,
-  24,
-  40,
-  MediaQuery.viewPaddingOf(context).bottom + 16,
-);
 
 class _OtaProgressDialog extends StatelessWidget {
   const _OtaProgressDialog({required this.deviceId});
@@ -55,71 +53,88 @@ class _OtaProgressDialog extends StatelessWidget {
     return PopScope(
       // 升级中不许返回键关掉：关了就再也看不到进度，用户只会以为升级没在跑。
       canPop: !running,
-      child: AlertDialog(
+      child: Dialog(
         key: const Key('ota-progress-dialog'),
         backgroundColor: AppColors.surface,
-        shape: const RoundedRectangleBorder(borderRadius: AppRadius.dialog),
-        // 贴底，不居中（产品口径，见文件头）。
+        // 满宽贴底：左右不留边，只有顶部两个角是圆的——底部弹层的样子。
+        insetPadding: EdgeInsets.zero,
         alignment: Alignment.bottomCenter,
-        insetPadding: _otaDialogInsetPadding(context),
-        title: Text(
-          switch (status) {
-            OtaStatus.running => '固件升级中',
-            OtaStatus.success => '升级完成',
-            OtaStatus.failed => '升级失败',
-          },
-          style: AppTypography.sectionTitle.copyWith(fontSize: 17),
+        clipBehavior: Clip.antiAlias,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            ClipRRect(
-              borderRadius: AppRadius.full,
-              child: LinearProgressIndicator(
-                key: const Key('ota-progress-bar'),
-                minHeight: 8,
-                // 失败时把进度条停在最后一次收到的百分比上，别归零——那看着像
-                // 从头再来。
-                value: status == OtaStatus.success ? 1 : percent / 100,
-                backgroundColor: AppColors.canvas,
-                color: status == OtaStatus.failed
-                    ? AppColors.danger
-                    : AppColors.brandPrimary,
-              ),
+        child: SizedBox(
+          // `Dialog` 给子件的是松约束，不写这一行卡片会缩成内容宽度。
+          width: double.infinity,
+          child: Padding(
+            // 底边在系统手势区之上再留 20：全屏手势的机型底部有 home indicator。
+            padding: EdgeInsets.fromLTRB(
+              24,
+              24,
+              24,
+              MediaQuery.viewPaddingOf(context).bottom + 20,
             ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              status == OtaStatus.success ? '100%' : '$percent%',
-              key: const Key('ota-progress-percent'),
-              textAlign: TextAlign.center,
-              style: AppTypography.sectionTitle.copyWith(
-                color: AppColors.brandPrimary,
-                fontSize: 20,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              switch (status) {
-                OtaStatus.running => '升级过程中请保持设备通电，不要断开 Wi-Fi。',
-                OtaStatus.success => '设备已升级到新版本。',
-                OtaStatus.failed => ota?.message ?? '请稍后重试。',
-              },
-              textAlign: TextAlign.center,
-              style: AppTypography.smallBody,
-            ),
-          ],
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: running
-            ? null
-            : <Widget>[
-                FilledButton(
-                  key: const Key('ota-progress-close'),
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('知道了'),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text(
+                  switch (status) {
+                    OtaStatus.running => '固件升级中',
+                    OtaStatus.success => '升级完成',
+                    OtaStatus.failed => '升级失败',
+                  },
+                  textAlign: TextAlign.center,
+                  style: AppTypography.sectionTitle.copyWith(fontSize: 17),
                 ),
+                const SizedBox(height: AppSpacing.lg),
+                ClipRRect(
+                  borderRadius: AppRadius.full,
+                  child: LinearProgressIndicator(
+                    key: const Key('ota-progress-bar'),
+                    minHeight: 8,
+                    // 失败时把进度条停在最后一次收到的百分比上，别归零——那看着
+                    // 像从头再来。
+                    value: status == OtaStatus.success ? 1 : percent / 100,
+                    backgroundColor: AppColors.canvas,
+                    color: status == OtaStatus.failed
+                        ? AppColors.danger
+                        : AppColors.brandPrimary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  status == OtaStatus.success ? '100%' : '$percent%',
+                  key: const Key('ota-progress-percent'),
+                  textAlign: TextAlign.center,
+                  style: AppTypography.sectionTitle.copyWith(
+                    color: AppColors.brandPrimary,
+                    fontSize: 20,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  switch (status) {
+                    OtaStatus.running => '升级过程中请保持设备通电，不要断开 Wi-Fi。',
+                    OtaStatus.success => '设备已升级到新版本。',
+                    OtaStatus.failed => ota?.message ?? '请稍后重试。',
+                  },
+                  textAlign: TextAlign.center,
+                  style: AppTypography.smallBody,
+                ),
+                // 跑完（成功或失败）才给关闭按钮；升级中不给，避免用户以为能中断。
+                if (!running) ...<Widget>[
+                  const SizedBox(height: AppSpacing.xxl),
+                  FilledButton(
+                    key: const Key('ota-progress-close'),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('知道了'),
+                  ),
+                ],
               ],
+            ),
+          ),
+        ),
       ),
     );
   }

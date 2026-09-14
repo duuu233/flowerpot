@@ -37,24 +37,11 @@ abstract final class AppAssets {
   static const String addIcon = 'assets/images/add_icon.png';
   static const String infoOutlineIcon = 'assets/images/info_outline_icon.png';
 
-  /// Plant artwork, keyed by `PlantProfile.id`.
-  ///
-  /// The catalogue only offers plants that appear here, so a picker card never
-  /// falls back to a coloured box. Add the artwork and the entry together.
-  static const Map<String, String> plantImages = <String, String>{
-    'pilea_cadierei': 'assets/images/plant_pilea.png',
-    'pothos': 'assets/images/plant_pothos.png',
-    'ivy': 'assets/images/plant_ivy.png',
-    'monstera': 'assets/images/plant_monstera.png',
-    'bird_of_paradise': 'assets/images/plant_bird_of_paradise.png',
-    'china_doll': 'assets/images/plant_china_doll.png',
-  };
-
-  /// Falls back to the generic plant icon so an unexpected id degrades to a
-  /// small glyph instead of crashing the card.
-  static String plantImage(String id) => plantImages[id] ?? plantIcon;
-
   // Device and plant imagery.
+  //
+  // ⚠️ 这里**没有**按植物 id 查的本地图片表了（2026-09-12 删）。植物图一律来自后端
+  // 的 `plantImg`，取不到就留空——留一张本地图当兜底，等于给每一株认不出来的植物都
+  // 画上同一张图，看着像有数据，其实一张都没取到。
   static const String smartPlanterWithPlant =
       'assets/images/smart_planter_with_plant.png';
   static const String smartPlanterDevice =

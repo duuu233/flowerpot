@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/app_theme.dart';
@@ -40,6 +42,12 @@ class _ReportsPageState extends State<ReportsPage> {
     if (!historyInitialized) {
       history = _load();
       historyInitialized = true;
+      // 同需水状态页：把九条历史 DP 的到货情况打进联调日志框。
+      unawaited(
+        FlowerpotScope.of(
+          context,
+        ).logHistoryDiagnostics(widget.arguments.deviceId, '报表'),
+      );
     }
   }
 
@@ -124,7 +132,16 @@ class _ReportsPageState extends State<ReportsPage> {
                         height: 270,
                         child: Center(
                           child: Text(
-                            '设备还没有上报${info.title}历史数据。',
+                            // ⚠️ **「还没上报」和「根本没有这个数据源」要分开说**
+                            // （2026-09-11 产品反馈「报表里电池数据为空」）。
+                            //
+                            // 设备只导出 9 个历史 DP（131–139）：水位 / 土壤湿度 / 光照
+                            // 各三个周期。**电池、温度、湿度、PPFD、DLI 没有历史 DP**，
+                            // 再等也不会有。说成「还没有上报」会让人一直等一个不存在的东西。
+                            _MetricInfo.hasHistorySource(widget.arguments.metric)
+                                ? '设备还没有上报${info.title}历史数据。'
+                                : '${info.title}没有历史曲线：设备当前的功能点里没有导出'
+                                      '这一项的历史数据，只有实时值。',
                             textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
@@ -259,6 +276,18 @@ class _MetricInfo {
       decimals,
     );
   }
+
+  /// 这个指标有没有**历史数据源**。
+  ///
+  /// 设备导出的历史 DP 只有 131–139 九个：水位（131/132/133）、土壤湿度（134/135/136）、
+  /// 光照（137/138/139），各对应日 / 周 / 月。其余指标（电池、温度、湿度、PPFD、DLI）
+  /// **只有实时值、没有历史曲线**——这是产品功能点决定的，不是"还没上报"。
+  static bool hasHistorySource(SensorMetric metric) => switch (metric) {
+    SensorMetric.waterLevel ||
+    SensorMetric.soilMoisture ||
+    SensorMetric.light => true,
+    _ => false,
+  };
 
   static _MetricInfo of(SensorMetric metric) => switch (metric) {
     SensorMetric.waterLevel => const _MetricInfo(

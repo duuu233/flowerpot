@@ -22,6 +22,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('metric groups keep clear of the divider', (tester) async {
+    // 2026-09-13 产品反馈：中间竖线和右边那组重叠。竖线两边要各留 9，375 与 320
+    // 两种宽度都不能贴上去，也不能溢出。
+    for (final size in const <Size>[Size(375, 812), Size(320, 568)]) {
+      await _pumpWaterWidgets(tester, size);
+
+      final divider = tester.getRect(
+        find.byKey(const Key('water-metric-divider')),
+      );
+      final level = tester.getRect(find.byKey(const Key('water-metric-level')));
+      final soil = tester.getRect(find.byKey(const Key('water-metric-soil')));
+
+      expect(divider.width, 1, reason: '$size');
+      expect(level.right, lessThanOrEqualTo(divider.left - 9 + 0.01));
+      expect(soil.left, greaterThanOrEqualTo(divider.right + 9 - 0.01));
+      // 两组各占一半，宽度一致，左右看起来才对齐。
+      expect((level.width - soil.width).abs(), lessThan(0.01));
+      expect(tester.takeException(), isNull, reason: '$size');
+    }
+  });
+
   testWidgets('water status content scrolls at 320x568', (tester) async {
     await _pumpWaterWidgets(tester, const Size(320, 568));
 

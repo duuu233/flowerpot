@@ -86,6 +86,22 @@ class BackendImage {
   final int userProductId;
   final String name;
   final String url;
+
+  /// 图片在**设备上**的文件名：图片 URL 的最后一段（百分号解码后）；取不到返回空串。
+  ///
+  /// ⚠️ 设备图库的三条功能点共用这个名字——142 `dl_url` 下载时带上它，155 `del_photo` /
+  /// 157 `pin_photo` 按它删、按它置顶。三处必须取法一致，所以集中在这里。
+  static String fileNameOf(String url) {
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null || uri.pathSegments.isEmpty) return '';
+    final last = uri.pathSegments.last;
+    try {
+      return Uri.decodeComponent(last);
+    } catch (_) {
+      // 百分号编码不合法时照原样用，别让一个怪文件名把整个列表解析打断。
+      return last;
+    }
+  }
 }
 
 /// 用户资料，对应 `/Client/User/getUserInfo`。
@@ -219,7 +235,7 @@ class BackendFaq {
 class BackendAnniversary {
   const BackendAnniversary({
     required this.anniversaryId,
-    required this.userProductId,
+    required this.deviceId,
     required this.title,
     required this.content,
     required this.imageContent,
@@ -228,7 +244,10 @@ class BackendAnniversary {
   });
 
   final int anniversaryId;
-  final int userProductId;
+
+  /// 涂鸦 `deviceId`。2026-09-13 核对的 swagger 里，纪念日这组接口已经不再用后端的
+  /// `userProductId`，入参和返回体都按涂鸦设备 id 关联。
+  final String deviceId;
   final String title;
   final String content;
 

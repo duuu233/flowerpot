@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flowerpot/src/tuya/tuya_config.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'plant_catalog.dart';
@@ -44,6 +45,57 @@ class MockTuyaRepository implements TuyaRepository {
 
   /// 让用例像真机那样逐台推 BLE 设备上来，不需要蓝牙硬件。
   void pushBleDevice(BleDevice device) => _bleDevices.add(device);
+
+  final StreamController<String> _bleScanStops =
+      StreamController<String>.broadcast();
+
+  @override
+  Stream<String> get bleScanStops => _bleScanStops.stream;
+
+  /// 让用例模拟原生扫描**自己**结束（到时 / SDK 停了）。
+  void endBleScan([String reason = 'timeout']) => _bleScanStops.add(reason);
+
+  /// [ensureBlePermissions] 被调了几次；用例据此断言"授权在探测之前"。
+  int blePermissionRequests = 0;
+  int appSettingsOpens = 0;
+
+  @override
+  Future<void> ensureBlePermissions() async {
+    await _wait();
+    blePermissionRequests++;
+  }
+
+  @override
+  Future<void> openAppSettings() async => appSettingsOpens++;
+
+  /// 断开调用记录；用例据此断言"每条退出路径都断干净了"。
+  final List<String> bleDisconnects = <String>[];
+
+  @override
+  Future<void> disconnectBleDevice({String uuid = ''}) async {
+    bleDisconnects.add(uuid);
+  }
+
+  /// 云端产品信息的假数据：按 pid 给名字，用例可改。
+  Map<String, BleProductInfo> productInfoByPid = <String, BleProductInfo>{
+    'pid1': const BleProductInfo(name: '智能花盆'),
+    // 真机上 BLE 广播里带的是 broadcastId，云端同样按它查得到产品。
+    TuyaConfig.broadcastId: const BleProductInfo(name: '智能花盆'),
+  };
+
+  /// 查了几次；用例据此断言"去重 + 限量"真的生效。
+  final List<String> productInfoQueries = <String>[];
+
+  @override
+  Future<BleProductInfo> queryDeviceProductInfo({
+    required String productId,
+    required String uuid,
+    required String mac,
+  }) async {
+    await _wait();
+    productInfoQueries.add(uuid);
+    return productInfoByPid[productId] ?? const BleProductInfo();
+  }
 
   /// 这一台 mock「手机」的 BLE 情况，用例按需改。默认可用——搜索页的主路径要能跑。
   BleAvailability bleAvailability = const BleAvailability(
@@ -316,6 +368,21 @@ class MockTuyaRepository implements TuyaRepository {
   }) async {
     await _wait();
     _devices.removeWhere((device) => device.id == deviceId);
+  }
+
+  @override
+  Future<Map<String, bool>> deviceOnlineStates(List<String> deviceIds) async {
+    await _wait();
+    return <String, bool>{
+      for (final device in _devices)
+        if (deviceIds.contains(device.id)) device.id: device.online,
+    };
+  }
+
+  @override
+  Future<Map<String, String>> historyDiagnostics(String deviceId) async {
+    await _wait();
+    return const <String, String>{'mock': '演示仓库直接造数据，没有原始历史 DP'};
   }
 
   @override

@@ -4,6 +4,8 @@ import 'support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/core/backend/backend.dart';
 import 'package:flowerpot/src/core/network/network.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/tuya_gallery_codec.dart';
+import 'package:flowerpot/src/tuya/tuya_memorial_codec.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -205,9 +207,10 @@ void main() {
   });
 
   test('device images load, upload and delete through the backend', () async {
-    final backend = _ImageBackend(<String>[]);
+    final events = <String>[];
+    final backend = _ImageBackend(events);
     final state = FlowerpotState(
-      repository: MockTuyaRepository(latency: Duration.zero),
+      repository: _RecordingTuya(events),
       backendRepository: backend,
     );
     addTearDown(state.dispose);
@@ -235,10 +238,26 @@ void main() {
     final deletion = await state.deleteAnimation(deviceId, '31');
     expect(deletion.success, isTrue);
     expect(state.animations.map((item) => item.id), <String>['32']);
+    // ⚠️ 上传之后必须紧跟一条 DP 142 `dl_url`（2026-09-14：之前只传后端、一条 DP 都没发，
+    // 设备根本不知道有新图）。帧里的文件名要和列表里那张（删除 155 / 置顶 157 用的）一致。
+    final frame = TuyaMemorialCodec.encodeRaw(
+      TuyaGalleryCodec.downloadFrame(
+        url: 'https://cdn.example.test/new.gif',
+        name: 'new.gif',
+      ),
+    );
+    expect(state.animations.last.name, 'new.gif');
     expect(backend.events, <String>[
       'backend:upload:C:/tmp/new.gif',
+      'tuya:142=$frame',
       'backend:delete:31',
     ]);
+    expect(
+      state.interactionLog.any(
+        (line) => line.contains('DP142 dl_url：name=new.gif'),
+      ),
+      isTrue,
+    );
   });
 
   test('a reported DP 116 identifier updates the active plant', () async {
@@ -435,7 +454,7 @@ class _ImageBackend extends _RecordingBackend {
   }
 
   @override
-  Future<void> uploadImage({
+  Future<String?> uploadImage({
     required String deviceId,
     required String filePath,
   }) async {
@@ -449,6 +468,8 @@ class _ImageBackend extends _RecordingBackend {
         url: 'https://cdn.example.test/new.gif',
       ),
     );
+    // swagger `BaseUploadApiOut.url`：上传接口回的就是这张图的地址。
+    return 'https://cdn.example.test/new.gif';
   }
 
   @override

@@ -10,6 +10,15 @@ abstract final class AppColors {
 
   static const Color canvas = Color(0xFFFAFAFA);
   static const Color surface = Color(0xFFFFFFFF);
+
+  /// 白底卡片里输入框 / 分段控件的填充色。
+  ///
+  /// ⚠️ **别拿 [canvas] 当它用**：那是**页面**底色（#FAFAFA），摆在白卡片
+  /// （[surface] #FFFFFF）上只差 2%，框和卡片几乎分不出来——2026-09-12 产品反馈
+  /// 「编辑纪念日页标题输入框的白色和灰色背景样式有问题」就是这个。
+  /// 这个值取自设计稿 `docs/UI/v2/智能花盆ysplanter/编辑纪念日-自定义-文字.png`
+  /// （标题框、日期框、文字框、文字/图片分段条取样都是 #F7F7F7）。
+  static const Color fieldFill = Color(0xFFF7F7F7);
   static const Color surfaceTranslucent = Color(0xA8FFFFFF);
 
   static const Color textStrong = Color(0xFF000000);

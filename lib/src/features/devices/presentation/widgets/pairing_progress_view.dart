@@ -169,22 +169,35 @@ class _StepRow extends StatelessWidget {
                 decoration: BoxDecoration(color: color, shape: BoxShape.circle),
                 child: SizedBox.square(
                   dimension: 28,
-                  child: state == _StepState.done
-                      ? const Icon(
-                          Icons.check,
-                          size: 16,
+                  child: switch (state) {
+                    _StepState.done => const Icon(
+                      Icons.check,
+                      size: 16,
+                      color: AppColors.surface,
+                    ),
+                    // 2026-09-14 产品：正在执行的那一步画转圈，不画序号——一眼看出
+                    // 「现在在哪一步、还在动」。已完成是对勾，等待中仍是序号。
+                    _StepState.running => Center(
+                      child: SizedBox.square(
+                        key: Key('pairing-step-spinner-$index'),
+                        dimension: 16,
+                        child: const CircularProgressIndicator(
+                          strokeWidth: 2,
                           color: AppColors.surface,
-                        )
-                      : Center(
-                          child: Text(
-                            '${index + 1}',
-                            style: const TextStyle(
-                              color: AppColors.surface,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
                         ),
+                      ),
+                    ),
+                    _StepState.waiting => Center(
+                      child: Text(
+                        '${index + 1}',
+                        style: const TextStyle(
+                          color: AppColors.surface,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  },
                 ),
               ),
               if (!isLast)

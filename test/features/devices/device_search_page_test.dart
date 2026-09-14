@@ -1,10 +1,14 @@
 import '../../support/mock_tuya_repository.dart';
+import 'dart:async';
+
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
+import 'package:flowerpot/src/features/devices/pairing_gate.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_search_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/pairing_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/tuya_config.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/foundation.dart';
@@ -19,6 +23,18 @@ abstract final class _FoundListKey {
 }
 
 void main() {
+  // 本文件里**绝大多数用例验的是 AP（热点）那条动线**，而 2026-09-11 起 AP 被
+  // `PairingGate` 整条屏蔽了（只走蓝牙，为的是验设备支不支持）。
+  //
+  // 这里统一把它开回来，既保住既有覆盖，也正是「屏蔽不是删除」那句话的守护：
+  // AP 的代码必须一直是能跑的，将来翻回 true 不需要重写。
+  // 屏蔽之后的行为由文件末尾单独的用例覆盖。
+  setUp(() {
+    PairingGate.apEnabled = true;
+    PairingGate.showUnfilteredBleScan = false;
+  });
+  tearDown(PairingGate.reset);
+
   testWidgets('device search page exposes the Figma content', (tester) async {
     await _pumpDeviceSearchPage(tester, const Size(375, 812));
 
@@ -137,8 +153,11 @@ void main() {
     // 和搜索页共用，把 4 次用满会让 SDK 连不上设备热点。空档由 1 秒一次的读缓存补。）
     await tester.pump(const Duration(seconds: 41));
     await tester.pump();
-    expect(find.text('还没搜到设备'), findsOneWidget);
-    expect(find.textContaining('断电重启'), findsOneWidget);
+    // 2026-09-14 文案改成一句话，插图换成配网失败那张（与蓝牙那条同一套）。
+    expect(find.text('还没搜索到设备'), findsOneWidget);
+    expect(find.text('请确认设备处于配网状态后，点击重新扫描'), findsOneWidget);
+    expect(find.textContaining('断电重启'), findsNothing);
+    expect(findAssetImage(AppAssets.pairingFailureIllustration), findsOneWidget);
     expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
 
     await _runOutSearchWindow(tester);
@@ -336,6 +355,184 @@ void main() {
     expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  // ⚠️ 下面这几条用**生产值**（AP 屏蔽、只走蓝牙）。雷达在转，别用 pumpAndSettle——
+  // 扫描窗口里动画一直在跑，它等不到"安定"。
+
+  testWidgets('蓝牙扫到设备：名字查回来之前整行不画，查回来连名带行一起出现', (tester) async {
+    // 2026-09-14 产品：「搜索出设备名称会闪一下，先显示一串字符再显示设备的名称」。
+    // 09-12 那版先画「正在识别设备…」占位——行先出来、字后定，照样要换一次字。
+    PairingGate.reset();
+    final repository = _SlowNameRepository();
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    repository.pushBleDevice(_ourPlanter);
+    await tester.pump();
+    await tester.pump();
+
+    // 名字还在查：一行都不画，也不出现任何过渡字样。
+    expect(find.byKey(_FoundListKey.key), findsNothing);
+    expect(find.textContaining('uuid-pot'), findsNothing);
+    expect(find.text('正在识别设备…'), findsNothing);
+    expect(find.text('搜索附近设备...'), findsOneWidget);
+
+    repository.names.complete(const BleProductInfo(name: '智能花盆'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(_FoundListKey.key), findsOneWidget);
+    expect(find.text('智能花盆'), findsOneWidget);
+    expect(find.text('发现 1 台设备'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('名字一直查不回来：最多等 5 秒就退回广播里的名字，设备不会一直不出现', (
+    tester,
+  ) async {
+    PairingGate.reset();
+    final repository = _SlowNameRepository();
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    repository.pushBleDevice(_ourPlanter);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.byKey(_FoundListKey.key), findsNothing);
+
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump();
+    expect(find.byKey(_FoundListKey.key), findsOneWidget);
+    // mac 尾号：`AA:BB:CC:00:00:02` → 「设备 0002」。
+    expect(find.text('设备 0002'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('40 秒没搜到：换失败插图和一句话；点「重新扫描」和进页面一样是全新一轮', (
+    tester,
+  ) async {
+    PairingGate.reset();
+    final repository = MockTuyaRepository(latency: Duration.zero);
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(repository.bleScanStarts, 1);
+    expect(
+      findAssetImage(AppAssets.pairingDeviceSearchIllustration),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(seconds: 41));
+    await tester.pump();
+    expect(find.text('还没搜索到设备'), findsOneWidget);
+    expect(find.text('请确认设备处于配网状态后，点击重新扫描'), findsOneWidget);
+    expect(find.textContaining('断电重启'), findsNothing);
+    expect(findAssetImage(AppAssets.pairingFailureIllustration), findsOneWidget);
+    expect(
+      findAssetImage(AppAssets.pairingDeviceSearchIllustration),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('device-search-rescan')), findsOneWidget);
+
+    // 原生扫描自己到时停了。09-14 之前真机就卡在这里：状态里仍记着"在扫"，
+    // 「重新扫描」被挡掉，原生根本没有重新开扫。
+    repository.endBleScan();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('device-search-rescan')));
+    await tester.pump();
+    await tester.pump();
+
+    // 和进页面同一条路：原生真的重新开扫，页面回到「搜索中」和雷达插图。
+    expect(repository.bleScanStarts, 2);
+    expect(find.text('搜索附近设备...'), findsOneWidget);
+    expect(
+      findAssetImage(AppAssets.pairingDeviceSearchIllustration),
+      findsOneWidget,
+    );
+
+    // 设备这回处于配网状态：照常搜出来。
+    repository.pushBleDevice(_ourPlanter);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('智能花盆'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('从「连接 Wi-Fi」页退回来：重开一轮，不把上一轮的旧列表原样摆出来', (
+    tester,
+  ) async {
+    // 2026-09-14 产品：「关闭了设备，去搜索还是会搜索出设备……不要缓存」。
+    PairingGate.reset();
+    final repository = MockTuyaRepository(latency: Duration.zero);
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    repository.pushBleDevice(_ourPlanter);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('智能花盆'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('device-search-connect-0')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('pairing-wifi-target'), findsOneWidget);
+    expect(repository.bleScanStarts, 1);
+
+    // 用户在输密码页点了返回；这期间设备关机了（不再有广播上来）。
+    Navigator.of(tester.element(find.text('pairing-wifi-target'))).pop();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(repository.bleScanStarts, 2);
+    expect(find.byKey(_FoundListKey.key), findsNothing);
+    expect(find.text('智能花盆'), findsNothing);
+    expect(find.text('搜索附近设备...'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+}
+
+/// 本产品的一台花盆，照真机的样子：广播里带的是 broadcastId，名字是空的。
+const BleDevice _ourPlanter = BleDevice(
+  uuid: 'uuid-pot',
+  name: '',
+  mac: 'AA:BB:CC:00:00:02',
+  productId: TuyaConfig.broadcastId,
+  rssi: -48,
+  bound: false,
+  supportWifiList: false,
+);
+
+/// 云端产品名要等用例放行（[names]）才回来；不放行就一直不回。
+class _SlowNameRepository extends MockTuyaRepository {
+  _SlowNameRepository() : super(latency: Duration.zero);
+
+  final Completer<BleProductInfo> names = Completer<BleProductInfo>();
+
+  @override
+  Future<BleProductInfo> queryDeviceProductInfo({
+    required String productId,
+    required String uuid,
+    required String mac,
+  }) => names.future;
 }
 
 /// 跑满一整轮搜索窗口：窗口内页面一直显示「搜索中」，走完才给出结论。
@@ -422,6 +619,87 @@ Future<void> _runOutSearchWindow(WidgetTester tester) async {
     expect(repository.bleScanStops, greaterThanOrEqualTo(1));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('AP 屏蔽后：只用蓝牙搜，热点一台都不列，页面上写清楚', (tester) async {
+    PairingGate.reset(); // 用生产值：apEnabled = false、不过滤
+    final repository = MockTuyaRepository(latency: Duration.zero);
+    final state = await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+    // 抢答窗口过掉也不该冒出热点——AP 整条关着。
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pump();
+
+    // mock 的扫描结果里是有 `SmartLife-A1B2` 这个设备热点的。
+    expect(state.wifiScan?.deviceHotspots, hasLength(1));
+    // 但一行都不画。
+    expect(find.byKey(_FoundListKey.key), findsNothing);
+    expect(find.text('SmartLife-A1B2'), findsNothing);
+    // 页面上要写清楚现在用的是什么、扫到了什么、过滤了没有。
+    final status = tester.widget<Text>(
+      find.byKey(const Key('device-search-ble-status')),
+    );
+    expect(status.data, contains('搜索方式：蓝牙'));
+    expect(status.data, contains('AP 已屏蔽'));
+    expect(status.data, contains('过滤：无'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('AP 屏蔽后：蓝牙扫到什么就列什么，已绑定的也列出来但点不动', (tester) async {
+    PairingGate.reset();
+    final repository = MockTuyaRepository(latency: Duration.zero);
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    repository
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-free',
+          name: '花盆',
+          mac: 'AA:BB:CC:DD:11:22',
+          productId: 'pid1',
+          rssi: -44,
+          bound: false,
+          supportWifiList: true,
+        ),
+      )
+      // 已被绑定：**照样列出来**。这一轮要的是「蓝牙看见了什么」，
+      // 藏起来等于把证据删掉——设备若因故被报成已绑定，过滤后页面上就是
+      // 「什么都没扫到」，结论正好反了。
+      ..pushBleDevice(
+        const BleDevice(
+          uuid: 'uuid-bound',
+          name: '别人的',
+          mac: 'AA:BB:CC:DD:99:99',
+          productId: 'pid1',
+          rssi: -40,
+          bound: true,
+          supportWifiList: false,
+        ),
+      );
+    await tester.pumpAndSettle();
+
+    expect(find.text('花盆'), findsOneWidget);
+    expect(find.text('别人的'), findsOneWidget);
+    // 行上的小字要把事实摆出来：绑定状态、能力位。
+    expect(find.textContaining('已被绑定'), findsOneWidget);
+    expect(find.textContaining('固件不支持读 Wi-Fi 列表'), findsOneWidget);
+    // 已绑定那行点不动（信号更强，排在第 0 行）。
+    final boundButton = tester.widget<FilledButton>(
+      find.byKey(const Key('device-search-connect-0')),
+    );
+    expect(boundButton.onPressed, isNull);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<FlowerpotState> _pumpDeviceSearchPage(
@@ -442,6 +720,8 @@ Future<FlowerpotState> _pumpDeviceSearchPage(
       state: state,
       child: MaterialApp(
         theme: buildAppTheme(),
+        // 和 `FlowerpotApp` 一样挂上：搜索页靠它知道「上面那页退掉了」。
+        navigatorObservers: <NavigatorObserver>[AppRoutes.routeObserver],
         home: DeviceSearchPage(request: request),
         onGenerateRoute: (settings) {
           if (settings.name == AppRoutes.pairing) {

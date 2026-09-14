@@ -1,23 +1,94 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
 
 class PlantDetailArguments {
-  const PlantDetailArguments({required this.plant, this.bound = false});
+  const PlantDetailArguments({
+    required this.plant,
+    this.bound = false,
+    this.selectable = false,
+    this.addingPlant = false,
+  });
 
   final PlantProfile plant;
   final bool bound;
+
+  /// 从「选择植物」页进来的：详情页底部也要画一个确认按钮
+  /// （2026-09-12 产品：「选择植物下面的确认选择按钮，在植物详情也需要」）。
+  ///
+  /// ⚠️ 按钮**自己不下发**，只是带着「用户选了这株」的结果 `pop` 回选择植物页，
+  /// 由那一页统一执行 `selectPlant` 和随后的跳转。选择流程只有一份实现，两个入口
+  /// 的行为就不会分叉。
+  final bool selectable;
+
+  /// 只影响按钮文案：添加植物时是「确认添加」，更换时是「确认选择」。
+  final bool addingPlant;
 }
 
-/// 详情内容全部来自植物列表那一行——`getProductPlantList` 已经把字段带齐了，
-/// 主流程不再单独打一次植物详情接口。
-class PlantDetailPage extends StatelessWidget {
+/// 详情页。
+///
+/// ⚠️ **进页面必须单独拉一次植物详情**（2026-09-12 按 swagger 核实后改）。
+///
+/// 此前这里写着「`getProductPlantList` 已经把字段带齐了，不再单独打详情接口」——
+/// **那个假设是错的**：列表的返回体 `ClientProductPlantApiOut` 只有五个字段
+/// （`productPlantId` / `plantName` / `plantImg` / `tuYaRemark` / `categoryType`），
+/// **学名、别名、简介、温湿度、养护建议一个都没有**。所以这一页的「学名」「别名」
+/// 一直是空的——产品反馈的正是这个。全套在
+/// `/Client/UserProduct/getUserProductPlantDetail`（id 传 productPlantId）里。
+///
+/// 先用列表那份画（名字和图片已经够画首屏），详情回来再补齐；拉不到就保持空白，
+/// **不拿本地数据顶替**。
+class PlantDetailPage extends StatefulWidget {
   const PlantDetailPage({required this.arguments, super.key});
 
   final PlantDetailArguments arguments;
 
-  PlantProfile get plant => arguments.plant;
+  @override
+  State<PlantDetailPage> createState() => _PlantDetailPageState();
+}
+
+class _PlantDetailPageState extends State<PlantDetailPage> {
+  PlantProfile? _detail;
+  bool _loading = false;
+  bool _requested = false;
+
+  PlantProfile get plant => _detail ?? widget.arguments.plant;
+
+  PlantDetailArguments get arguments => widget.arguments;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_requested) return;
+    _requested = true;
+    // 2026-09-12 接口加了 `tuYaRemark`，和原来的 `id` 二选一。**优先涂鸦标识**：
+    // 它是 DP 116 报上来的那个值，后台也保证不重复；自增 id 只做兜底。
+    final source = widget.arguments.plant;
+    final remark = source.tuyaIdentifier.trim();
+    final id = source.productPlantId;
+    if (remark.isEmpty && id == null) return;
+    setState(() => _loading = true);
+    final state = FlowerpotScope.of(context);
+    unawaited(
+      state
+          .loadPlantDetail(
+            productPlantId: id,
+            tuyaRemark: remark.isEmpty ? null : remark,
+          )
+          .then((value) {
+        if (!mounted) return;
+        setState(() {
+          if (value != null) _detail = value;
+          _loading = false;
+        });
+      }),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,31 +96,77 @@ class PlantDetailPage extends StatelessWidget {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '植物详情', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: SingleChildScrollView(
-        key: const Key('plant-detail-scroll-view'),
-        child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageMargin,
-            32,
-            AppSpacing.pageMargin,
-            28,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              _PlantSummaryCard(
-                plant: plant,
-                data: data,
-                bound: arguments.bound,
+      body: Stack(
+        children: <Widget>[
+          SingleChildScrollView(
+            key: const Key('plant-detail-scroll-view'),
+            child: ResponsiveContent(
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.pageMargin,
+                32,
+                AppSpacing.pageMargin,
+                // 有确认按钮时给它让出位置，免得最后一张卡被压在按钮底下。
+                arguments.selectable ? 96 : 28,
               ),
-              const SizedBox(height: 12),
-              _PlantBasicInfoCard(plant: plant, data: data),
-              const SizedBox(height: 12),
-              _PlantCareAdviceCard(items: data.careAdvice),
-            ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  _PlantSummaryCard(
+                    plant: plant,
+                    data: data,
+                    bound: arguments.bound,
+                  ),
+                  const SizedBox(height: 12),
+                  _PlantBasicInfoCard(
+                    plant: plant,
+                    data: data,
+                    detailLoading: _loading,
+                    detailLoaded: _detail != null,
+                  ),
+                  const SizedBox(height: 12),
+                  _PlantCareAdviceCard(items: data.careAdvice),
+                ],
+              ),
+            ),
           ),
-        ),
+          if (arguments.selectable)
+            Positioned(
+              left: AppSpacing.pageMargin,
+              right: AppSpacing.pageMargin,
+              bottom: 8,
+              child: _ConfirmPlantButton(addingPlant: arguments.addingPlant),
+            ),
+        ],
       ),
+    );
+  }
+}
+
+/// 详情页底部的「确认选择 / 确认添加」，样式照搬选择植物页那一颗。
+///
+/// ⚠️ **它不下发任何东西**，只是 `pop(true)` 回选择植物页，由那一页执行
+/// `selectPlant` 和随后的跳转——选择流程只有一份实现，两个入口不会走岔。
+class _ConfirmPlantButton extends StatelessWidget {
+  const _ConfirmPlantButton({required this.addingPlant});
+
+  final bool addingPlant;
+
+  @override
+  Widget build(BuildContext context) {
+    final busy = FlowerpotScope.of(context).busy;
+    return FilledButton(
+      key: const Key('confirm-plant-from-detail'),
+      onPressed: busy ? null : () => Navigator.pop(context, true),
+      style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(50),
+        backgroundColor: AppColors.brandPrimary,
+        foregroundColor: AppColors.surface,
+        elevation: 2,
+        shadowColor: AppColors.brandPrimary.withValues(alpha: .35),
+        shape: const StadiumBorder(),
+        textStyle: AppTypography.pageTitle.copyWith(color: AppColors.surface),
+      ),
+      child: Text(addingPlant ? '确认添加' : '确认选择'),
     );
   }
 }
@@ -281,10 +398,21 @@ class _EnvironmentMetric extends StatelessWidget {
 }
 
 class _PlantBasicInfoCard extends StatelessWidget {
-  const _PlantBasicInfoCard({required this.plant, required this.data});
+  const _PlantBasicInfoCard({
+    required this.plant,
+    required this.data,
+    required this.detailLoading,
+    required this.detailLoaded,
+  });
 
   final PlantProfile plant;
   final _PlantDetailData data;
+
+  /// 详情接口还在路上。只画在 debug 包的「接口体检」行里用。
+  final bool detailLoading;
+
+  /// 详情接口已经取回了数据。同上，只给体检行用。
+  final bool detailLoaded;
 
   @override
   Widget build(BuildContext context) {
@@ -303,9 +431,42 @@ class _PlantBasicInfoCard extends StatelessWidget {
               title: '基础信息',
             ),
             const SizedBox(height: 14),
-            _DetailRow(label: '学名', child: Text(plant.latinName)),
+            // 空值显式画一句，别留一行空白——分不清是"后台没配"还是"App 没读到"。
+            _DetailRow(
+              label: '学名',
+              child: Text(
+                plant.latinName.trim().isEmpty ? '--' : plant.latinName,
+              ),
+            ),
             const SizedBox(height: 12),
-            _DetailRow(label: '别名', child: Text(data.alias)),
+            _DetailRow(
+              label: '别名',
+              child: Text(data.alias.trim().isEmpty ? '--' : data.alias),
+            ),
+            // ⚠️ **只在 debug 包出现的字段体检**（2026-09-11）。
+            //
+            // 产品反馈「详情页没读到图片、学名、别名」，而后台那条数据（tuYaRemark=17）
+            // 明明配全了。差别在于：**详情页用的是列表接口 `getProductPlantList` 传进来的
+            // 对象，从不单独拉详情**——列表返回什么，这一页就只有什么。所以要能一眼看出
+            // 到底是哪几项没从接口下来。正式包不画。
+            if (kDebugMode) ...<Widget>[
+              const SizedBox(height: 12),
+              _DetailRow(
+                label: '接口体检',
+                child: Text(
+                  <String>[
+                    '图片 ${(plant.imageUrl ?? '').trim().isEmpty ? '空' : '有'}',
+                    '学名 ${plant.latinName.trim().isEmpty ? '空' : '有'}',
+                    '别名 ${data.alias.trim().isEmpty ? '空' : '有'}',
+                    '涂鸦标识 ${plant.tuyaIdentifier.trim().isEmpty ? '空' : plant.tuyaIdentifier}',
+                    detailLoading
+                        ? '详情接口 加载中'
+                        : '详情接口 ${detailLoaded ? '已取到' : '未取到'}',
+                  ].join(' · '),
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             _DetailRow(
               label: '养护难度',
@@ -524,6 +685,14 @@ class _RatingStars extends StatelessWidget {
   }
 }
 
+/// 详情页那株植物的图，只认后端配的 `plantImg`。
+///
+/// ⚠️ **没有就留空**（2026-09-12 产品口径：「去掉一切兜底、静态假数据，没有就为空」）。
+/// 这里原来会回落到 `AppAssets.plantImage(plant.id)` ——一张按 id 查本地图片表的静态图。
+/// 后台配的植物 id 根本不在那张表里，查不到还会再退成一个通用图标，等于**给每一株
+/// 认不出来的植物都画上同一张图**，看着像数据齐了，其实什么都没有。
+///
+/// 背后的浅色圆底还在（画在外层 Stack 里），所以留空不会塌成一条缝。
 class _PlantDetailArtwork extends StatelessWidget {
   const _PlantDetailArtwork({required this.plant, super.key});
 
@@ -532,24 +701,13 @@ class _PlantDetailArtwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = plant.imageUrl?.trim();
-    if (imageUrl != null && imageUrl.isNotEmpty) {
-      return Image.network(
-        imageUrl,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.high,
-        semanticLabel: plant.name,
-        errorBuilder: (_, _, _) => Image.asset(
-          AppAssets.plantImage(plant.id),
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
-        ),
-      );
-    }
-    return Image.asset(
-      AppAssets.plantImage(plant.id),
+    if (imageUrl == null || imageUrl.isEmpty) return const SizedBox.shrink();
+    return Image.network(
+      imageUrl,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       semanticLabel: plant.name,
+      errorBuilder: (_, _, _) => const SizedBox.shrink(),
     );
   }
 }
@@ -581,8 +739,7 @@ class _PlantDetailData {
   final String growth;
   final List<String> careAdvice;
 
-  /// 后台单独维护的四条建议文案。**没有本地兜底**：写死的 `_byId` / `_generic`
-  /// 里都是空串，后台没配就整行不显示，不拿阈值区间冒充建议。
+  /// 后台单独维护的四条建议文案。后台没配就整行不显示，不拿阈值区间冒充建议。
   final String lightingSuggestion;
   final String waterSuggestion;
   final String temperatureSuggestion;
@@ -591,50 +748,33 @@ class _PlantDetailData {
   /// Written per plant. The generic fallback produced near-identical cards —
   /// same temperature range, same three tips, and `别名` echoing the plant's
   /// own name — so every plant read the same in the picker.
+  /// 从后端植物资料构造。**一律用真实数据，后端没给就留空。**
+  ///
+  /// ⚠️ 2026-09-12 产品口径：「去掉静态数据，所有都要真实的数据，没有就为空」。
+  ///
+  /// 改之前这里有一整套**本地写死的兜底**（`_byId` 按 id 配了六种植物、`_generic` 按
+  /// 含水量/光照阈值现编一份），任何一个字段后端为空就拿兜底顶上。结果是页面上显示着
+  /// 一份**看起来有、实际是编的**植物资料——产品说的「页面数据都是错的」就是它。
+  /// 空着反而是对的：一眼能看出后台哪几项没配。
   factory _PlantDetailData.fromProfile(PlantProfile plant) {
-    final fallback = _byId[plant.id] ?? _generic(plant);
-    final hasBackendDetail =
-        plant.introduction.isNotEmpty ||
-        plant.alias.isNotEmpty ||
-        plant.temperatureRequirement.isNotEmpty ||
-        plant.humidityRequirement.isNotEmpty ||
-        plant.lightingRequirement.isNotEmpty ||
-        plant.wateringFrequency.isNotEmpty ||
-        plant.growthCharacteristics.isNotEmpty ||
-        plant.careInstructions.isNotEmpty ||
-        plant.lightingSuggestion.isNotEmpty ||
-        plant.waterSuggestion.isNotEmpty ||
-        plant.temperatureSuggestion.isNotEmpty ||
-        plant.humiditySuggestion.isNotEmpty ||
-        plant.difficultyMaintenance != null;
-    if (!hasBackendDetail) return fallback;
     final careAdvice = plant.careInstructions
         .split(RegExp(r'[\r\n；;]+'))
         .map((item) => item.trim())
         .where((item) => item.isNotEmpty)
         .toList(growable: false);
     return _PlantDetailData(
-      temperature: plant.temperatureRequirement.isEmpty
-          ? fallback.temperature
-          : plant.temperatureRequirement,
-      humidity: plant.humidityRequirement.isEmpty
-          ? fallback.humidity
-          : plant.humidityRequirement,
-      lightRating: _rating(plant.lightingRequirement, fallback.lightRating),
-      summary: plant.introduction.isEmpty
-          ? fallback.summary
-          : plant.introduction,
-      alias: plant.alias.isEmpty ? fallback.alias : plant.alias,
-      difficulty: (plant.difficultyMaintenance ?? fallback.difficulty)
-          .clamp(1, 5)
-          .toInt(),
-      watering: plant.wateringFrequency.isEmpty
-          ? fallback.watering
-          : plant.wateringFrequency,
-      growth: plant.growthCharacteristics.isEmpty
-          ? fallback.growth
-          : plant.growthCharacteristics,
-      careAdvice: careAdvice.isEmpty ? fallback.careAdvice : careAdvice,
+      temperature: plant.temperatureRequirement,
+      humidity: plant.humidityRequirement,
+      // 后端给的是枚举数字 + `…Msg` 人话（见 `app_backend_repository._plant`）。
+      // 解析不出 1..5 就给 0——由页面决定这一行画不画，不再猜一个 3 出来。
+      lightRating: _rating(plant.lightingRequirement),
+      summary: plant.introduction,
+      alias: plant.alias,
+      // 后端没给难度就是 0：星级那一行按 0 处理，不再默认 3 星。
+      difficulty: (plant.difficultyMaintenance ?? 0).clamp(0, 5).toInt(),
+      watering: plant.wateringFrequency,
+      growth: plant.growthCharacteristics,
+      careAdvice: careAdvice,
       lightingSuggestion: plant.lightingSuggestion,
       waterSuggestion: plant.waterSuggestion,
       temperatureSuggestion: plant.temperatureSuggestion,
@@ -642,133 +782,10 @@ class _PlantDetailData {
     );
   }
 
-  static int _rating(String value, int fallback) {
+  /// 从光照要求里取 1..5 的星级；取不到给 0（= 没有数据，不画星）。
+  static int _rating(String value) {
     final match = RegExp(r'[1-5]').firstMatch(value);
-    return int.tryParse(match?.group(0) ?? '') ?? fallback;
+    return int.tryParse(match?.group(0) ?? '') ?? 0;
   }
 
-  static const _byId = <String, _PlantDetailData>{
-    'pilea_cadierei': pilea,
-    'pothos': pothos,
-    'ivy': ivy,
-    'monstera': monstera,
-    'bird_of_paradise': birdOfParadise,
-    'china_doll': chinaDoll,
-  };
-
-  static _PlantDetailData _generic(PlantProfile plant) {
-    final highMoisture = plant.moistureTarget >= 60;
-    final highLight = plant.lightTarget >= 220;
-    return _PlantDetailData(
-      temperature: '18-28°C',
-      humidity: highMoisture ? '55-75%' : '45-65%',
-      lightRating: highLight ? 4 : 3,
-      summary: plant.tip,
-      alias: plant.latinName,
-      difficulty: 3,
-      watering: highMoisture ? '生长期每周2-3次，冬季适当减少' : '表土干燥后浇透，避免盆内积水',
-      growth: '适合室内明亮散射光环境，保持良好通风可促进健康生长。',
-      careAdvice: <String>[
-        '避免阳光直射，放在明亮的散射光处。',
-        '根据土壤干湿情况补水，避免长期积水。',
-        '生长期定期补充稀释肥料，及时清理枯叶。',
-      ],
-    );
-  }
-
-  static const pothos = _PlantDetailData(
-    temperature: '15-30°C',
-    humidity: '50-70%',
-    lightRating: 2,
-    summary: '藤蔓下垂生长，叶片心形油亮，耐阴好养，是最适合新手的室内绿植之一。',
-    alias: '黄金葛',
-    difficulty: 1,
-    watering: '春夏每周1-2次，冬季10-15天一次，宁干勿涝',
-    growth: '生长速度快，可水培也可土培，攀爬或垂吊都有观赏性，耐阴性极强。',
-    careAdvice: <String>[
-      '放在有散射光的位置即可，长期全黑会让叶片斑纹变淡。',
-      '盆土表面干透再浇，冬季减少浇水，避免烂根。',
-      '藤蔓过长时随时修剪，剪下的枝条插水里就能生根。',
-    ],
-  );
-
-  static const ivy = _PlantDetailData(
-    temperature: '10-25°C',
-    humidity: '55-75%',
-    lightRating: 3,
-    summary: '枝叶纤细成串垂落，耐寒耐阴，适合放在书架或窗台边营造层次感。',
-    alias: '洋常春藤',
-    difficulty: 2,
-    watering: '春秋每周1-2次，夏季保持土壤微润，冬季控水',
-    growth: '喜凉爽湿润，怕闷热，通风不良时容易生红蜘蛛，夏季需注意降温。',
-    careAdvice: <String>[
-      '避开正午直射光，明亮散射光下叶色最好。',
-      '天气干燥时向叶片喷水，既增湿也能减少虫害。',
-      '每年春季换盆一次，同时修剪过密的枝条。',
-    ],
-  );
-
-  static const monstera = _PlantDetailData(
-    temperature: '18-30°C',
-    humidity: '55-75%',
-    lightRating: 3,
-    summary: '叶片宽大并自然开裂，造型感强，是室内最上镜的观叶植物之一。',
-    alias: '蓬莱蕉',
-    difficulty: 2,
-    watering: '春夏每周1次浇透，冬季2周1次，表土干2-3厘米再浇',
-    growth: '生长期长得快，叶片会随成熟度增加裂口，成株需要支撑柱引导攀爬。',
-    careAdvice: <String>[
-      '明亮散射光处开裂最漂亮，光照太弱新叶会不开裂。',
-      '定期用湿布擦拭叶面，保持光泽也利于呼吸。',
-      '气生根不要剪掉，可以引导入土帮助吸收养分。',
-    ],
-  );
-
-  static const birdOfParadise = _PlantDetailData(
-    temperature: '18-30°C',
-    humidity: '45-65%',
-    lightRating: 5,
-    summary: '叶片挺拔如扇，株型大气，光照充足时可开出形似飞鸟的橙蓝色花朵。',
-    alias: '鹤望兰',
-    difficulty: 3,
-    watering: '生长期每周1-2次浇透，冬季减半，忌盆内积水',
-    growth: '喜光耐旱，光照越足株型越紧凑；室内养护建议放在南向窗边。',
-    careAdvice: <String>[
-      '每天至少4小时明亮光照，长期光照不足很难开花。',
-      '叶片易被风吹裂属正常现象，不影响健康。',
-      '生长期每月补一次磷钾肥，有助于孕蕾。',
-    ],
-  );
-
-  static const chinaDoll = _PlantDetailData(
-    temperature: '18-28°C',
-    humidity: '50-70%',
-    lightRating: 4,
-    summary: '羽状复叶层层展开，新叶嫩绿明快，寓意好，常作为乔迁与开业的礼物。',
-    alias: '菜豆树',
-    difficulty: 3,
-    watering: '春夏每周2次，秋冬每周1次，保持土壤微润',
-    growth: '喜温暖湿润和充足散射光，环境突变时容易落叶，缓苗后会重新萌发。',
-    careAdvice: <String>[
-      '刚搬回家掉叶属于正常缓苗，先固定位置不要频繁挪动。',
-      '空气干燥时向周围喷雾，避免叶尖发黄干枯。',
-      '每年春季修剪徒长枝，保持树形紧凑。',
-    ],
-  );
-
-  static const pilea = _PlantDetailData(
-    temperature: '18-28°C',
-    humidity: '50-70%',
-    lightRating: 3,
-    summary: '叶片布满银白色脉纹，清新雅致，喜湿润明亮环境，适合室内桌面或半阴环境栽培。',
-    alias: '银脉冷水花',
-    difficulty: 3,
-    watering: '春秋每周1-2次，夏季每周2-3次，冬季每周1次',
-    growth: '喜湿润环境，生长迅速，耐阴性较强，叶色清新，极具观赏价值。',
-    careAdvice: <String>[
-      '避免阳光直射，放在明亮的散射光处，如窗边或室内明亮处。',
-      '保持土壤湿润但不积水，空气干燥时可向叶片喷水增湿。',
-      '生长期每月施一次稀释的液体肥，促进叶片生长更旺盛。',
-    ],
-  );
 }

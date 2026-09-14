@@ -13,7 +13,7 @@ class HomeCareBanner extends StatefulWidget {
   const HomeCareBanner({
     required this.messages,
     this.title = '今日养护',
-    this.interval = const Duration(seconds: 5),
+    this.interval = const Duration(seconds: 8),
     this.notice,
     super.key,
   });
@@ -27,7 +27,11 @@ class HomeCareBanner extends StatefulWidget {
   /// 左边那几个字，跟着界面语言走。
   final String title;
 
-  /// 切换间隔。
+  /// 切换间隔：**这一条停留多久才换下一条**，和切换那一下的动画时长
+  /// （[_HomeCareBannerState._transition]）是两回事。
+  ///
+  /// 2026-09-12 从 5 秒放到 8 秒（产品：「轮播间隙时间可以再长一点」）。减去 900ms
+  /// 的切换动画，每条实际静止约 7.1 秒，够把两行读完。
   final Duration interval;
 
   /// 有值时整行只画这一句（前面是惊叹号图标），养护建议和标题都不显示。
@@ -42,7 +46,20 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
   /// 不到水了，该加水啦。」差一倍），不固定住的话每切一条卡片就会抽一下。
   static const double _messageHeight = 36;
 
-  static const Duration _transition = Duration(milliseconds: 420);
+  /// 图标和它右边那一截（有植物时是「今日养护」，没植物时是提示语）之间的间距。
+  ///
+  /// 2026-09-12 从 `AppSpacing.lg`（16）收到 8（产品：「今日养护要和左边的图标离得
+  /// 近点」）。**两支都用它**——这两支是同一张卡的两个状态，只改一边的话，设备切换
+  /// 有无植物时图标后面的文字会横向跳一下。
+  static const double _iconGap = AppSpacing.sm;
+
+  /// 一条换下一条的**动画时长**，不是轮播间隔（那是 [HomeCareBanner.interval]，
+  /// 2026-09-12 起 8 秒换一条）。产品先后提了两次，指的是不同的东西，别弄混：
+  ///
+  /// - 「滚动速率慢一点」→ 改的是这里：旧的一句往下淡出、新的从下面淡入，这个
+  ///   位移+淡入过程走多久。420ms 显得"刷"一下就过去了，放到 900ms 读起来从容。
+  /// - 「轮播间隙时间再长一点」→ 改的是 [HomeCareBanner.interval]，5 秒 → 8 秒。
+  static const Duration _transition = Duration(milliseconds: 900);
 
   int _index = 0;
   Timer? _timer;
@@ -87,7 +104,9 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
         constraints: const BoxConstraints(minHeight: 44),
         child: AppSurfaceCard(
           key: const Key('home-care-notice'),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          // ⚠️ **内边距要和下面那一支一模一样**（2026-09-11）：这两支是同一张卡的两个
+          // 状态，差 2px 也会在切换时看出来。
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
           color: AppColors.surfaceTranslucent,
           borderRadius: AppRadius.large,
           side: const BorderSide(color: AppColors.surface),
@@ -98,12 +117,27 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
                 size: 18,
                 color: AppColors.warning,
               ),
-              const SizedBox(width: AppSpacing.lg),
+              // 间距和下面那一支保持一致（见 [_iconGap]），否则设备切换有无植物时，
+              // 图标后面的文字会横向跳一下。
+              const SizedBox(width: _iconGap),
               Expanded(
-                child: Text(
-                  notice,
-                  style: AppTypography.compactBody.copyWith(
-                    color: AppColors.textSecondary,
+                // **同样固定两行高**（[_messageHeight]）。
+                //
+                // 改之前这一支让文字自己撑高：「未检测到植物」只有一行，而有植物时的
+                // 养护建议区是固定两行，于是用户按固件按钮切换有无植物时，整张卡的高度
+                // 变一次、下面的内容跟着跳一次（2026-09-11 产品反馈）。两支同高就不跳。
+                child: SizedBox(
+                  height: _messageHeight,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      notice,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.compactBody.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -131,7 +165,7 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
               filterQuality: FilterQuality.high,
               semanticLabel: widget.title,
             ),
-            const SizedBox(width: AppSpacing.lg),
+            const SizedBox(width: _iconGap),
             Text(
               widget.title,
               style: AppTypography.compactBody.copyWith(
@@ -145,8 +179,11 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
                 height: _messageHeight,
                 child: AnimatedSwitcher(
                   duration: _transition,
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
+                  // 时长拉长之后曲线也要换：`easeOutCubic` 尾巴收得太快，
+                  // 900ms 下会显得"前面猛冲、最后一截停住"。`easeInOut` 两头都缓，
+                  // 整段匀一些，才是"慢"而不是"拖"。
+                  switchInCurve: Curves.easeInOut,
+                  switchOutCurve: Curves.easeInOut,
                   transitionBuilder: (child, animation) => FadeTransition(
                     opacity: animation,
                     child: SlideTransition(
