@@ -30,6 +30,10 @@ abstract final class TuyaConfig {
   /// （后台界面上的文案也从「广播ID」改成了「涂鸦产品ID」）。也就是说后台清单里
   /// 拿到的不再是广播标识，`FlowerpotState._isOurProduct` 认这款花盆靠的就是下面
   /// 这个本地常量。**这一行不能删**，删了搜索页就再也认不出设备。
+  ///
+  /// ⚠️ **已绑定设备的 `DeviceBean.getProductId()` 报的也是这个值**（2026-09-14 帮助中心调试信息里
+  /// 看到的），不是 [productId]。所以凡是要给 APP 后端传「产品 ID」的地方，一律用后台产品列表的
+  /// `broadcastId`（后台维护的是 [productId] 这个值），不要拿设备的 productId。
   static const broadcastId = 'ehbx83xdh9jkmxvz';
 
   /// Product DP table, keyed by the Tuya *identifier* rather than by an app

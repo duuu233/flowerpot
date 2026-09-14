@@ -2750,9 +2750,12 @@ class FlowerpotState extends ChangeNotifier {
       _logInteraction('帮助中心 ✗ 未请求 getProductFaqList：$reason');
       return const <BackendFaq>[];
     }
+    // 产品 ID 取后台产品列表的 broadcastId（见 [_faqProductId]）。还没拉过就先拉一次；
+    // 拉不到不拦路，退回本地常量。
+    if (_backendBroadcastIds.isEmpty) await refreshProductCatalog();
     final (productId, source) = _faqProductId();
     final request =
-        'getProductFaqList broadcastId=$productId（涂鸦产品ID，取自$source）';
+        'getProductFaqList broadcastId=$productId（产品ID，取自$source）';
     final startedAt = DateTime.now();
     try {
       final faqs = await _backend.getFaqs(broadcastId: productId);
@@ -2865,7 +2868,7 @@ class FlowerpotState extends ChangeNotifier {
       'userToken' => _maskToken(value),
       'language' => '$value（$languageLabel）',
       'terminal' => '$value（$terminalLabel）',
-      'broadcastId' => '$value（涂鸦产品ID，取自$source）',
+      'broadcastId' => '$value（产品ID，取自$source）',
       _ => value,
     };
   }
@@ -2883,25 +2886,31 @@ class FlowerpotState extends ChangeNotifier {
       ? '***'
       : '${token.substring(0, 6)}…${token.substring(token.length - 4)}';
 
-  /// 常见问题筛选用的产品标识。
+  /// 常见问题筛选用的产品 ID，即请求参数 `broadcastId` 的值。
   ///
-  /// 取值顺序：当前选中设备的涂鸦产品 ID（SDK 给的，最准）→ 任意一台已绑定设备的
-  /// → [TuyaConfig.productId]（还没绑设备时的兜底，本 App 只有这一款产品）。
+  /// ⚠️ **口径（2026-09-14 产品明确）：接口要的「产品 ID」= 后台产品列表返回的 `broadcastId`**，
+  /// 后台维护的是 `yciq4kssu1fv8umn`。取值顺序：
   ///
-  /// ⚠️ 这里要的是**涂鸦平台产品 ID**，不是 BLE 广播里那个标识
-  /// （[TuyaConfig.broadcastId]）。后台那个字段名虽然还叫 `broadcastId`，2026-09-12
-  /// 起存的是平台产品 ID，界面文案也改成了「涂鸦产品ID」。
+  /// 1. 后台产品列表（[refreshProductCatalog]）里有 [TuyaConfig.productId] → 就用它；
+  ///    列表里只有一个产品 → 用那一个；
+  /// 2. 列表没拉到 → 本地常量 [TuyaConfig.productId]（本 App 只有这一款产品）。
+  ///
+  /// ⛔ **不要再取设备的 `productId`。** 那是涂鸦 SDK `DeviceBean.getProductId()` 给的值，
+  /// 这台花盆报的是 `ehbx83xdh9jkmxvz`（即 [TuyaConfig.broadcastId]，BLE 广播里那个），
+  /// 和后台的产品 ID 不是一个东西。2026-09-12～14 这里一直优先取设备值，帮助中心按
+  /// `broadcastId=ehbx83xdh9jkmxvz` 去查，后台那条挂在 `yciq4kssu1fv8umn` 下的常见问题就筛不出来——
+  /// 页面下方的调试信息打出来才看到。
   String get faqBroadcastId => _faqProductId().$1;
 
-  /// [faqBroadcastId] 连同它是从哪来的，联调日志要把来源一起打出来。
+  /// [faqBroadcastId] 连同它是从哪来的，调试信息里要把来源一起打出来。
   (String, String) _faqProductId() {
-    final selected = selectedDevice?.productId.trim() ?? '';
-    if (selected.isNotEmpty) return (selected, '当前设备');
-    for (final device in devices) {
-      final id = device.productId.trim();
-      if (id.isNotEmpty) return (id, '已绑定设备');
+    if (_backendBroadcastIds.contains(TuyaConfig.productId)) {
+      return (TuyaConfig.productId, '后台产品列表 broadcastId');
     }
-    return (TuyaConfig.productId, '本地常量 TuyaConfig.productId');
+    if (_backendBroadcastIds.length == 1) {
+      return (_backendBroadcastIds.first, '后台产品列表 broadcastId');
+    }
+    return (TuyaConfig.productId, '本地常量 TuyaConfig.productId（后台产品列表未拉到）');
   }
 
   Future<void> setLanguage(String code) async {

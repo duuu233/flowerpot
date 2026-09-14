@@ -1,6 +1,7 @@
 import 'package:flowerpot/src/core/backend/backend.dart';
 import 'package:flowerpot/src/core/network/network.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/mock_tuya_repository.dart';
@@ -24,7 +25,7 @@ void main() {
     expect(trace, contains('HTTP 200'));
     expect(trace, contains('language = 2（简中）'));
     expect(trace, contains('terminal = 1（安卓）'));
-    expect(trace, contains('broadcastId = yciq4kssu1fv8umn（涂鸦产品ID，取自'));
+    expect(trace, contains('broadcastId = yciq4kssu1fv8umn（产品ID，取自后台产品列表 broadcastId）'));
     expect(trace, contains('"faqTitle": "测试测试"'));
     expect(trace, contains('接口返回 pageData 1 条（recordCount 1），页面显示 1 条'));
     // 令牌不整段上屏。
@@ -32,6 +33,44 @@ void main() {
     expect(trace, contains('012345…0123'));
     expect(trace, contains('【完整地址】https://api.example.test/Client/Product/getProductFaqList?'));
     expect(trace, isNot(contains('%E2%80%A6')));
+  });
+
+  test('产品 ID 取后台产品列表的 broadcastId，不取设备报的 productId', () async {
+    // 2026-09-14：设备（DeviceBean.getProductId）报的是 ehbx83xdh9jkmxvz，后台维护的是
+    // yciq4kssu1fv8umn；以前优先取设备值，常见问题整条筛不出来。
+    final backend = _TraceBackend();
+    final state = FlowerpotState(
+      repository: MockTuyaRepository(latency: Duration.zero),
+      backendRepository: backend,
+    );
+    addTearDown(state.dispose);
+    await state.login(
+      account: 'demo@example.test',
+      credential: 'demo',
+      region: LoginRegion.overseas,
+      verificationCode: false,
+    );
+    // Mock 设备的 productId 是另一个值，正好用来证明不看它。
+    expect(state.devices.single.productId, isNot('yciq4kssu1fv8umn'));
+
+    await state.loadFaqs();
+
+    expect(backend.requestedBroadcastIds.last, 'yciq4kssu1fv8umn');
+    expect(backend.productListCalls, greaterThanOrEqualTo(1));
+  });
+
+  test('后台产品列表拉不到时退回本地常量', () async {
+    final backend = _TraceBackend(productsFail: true);
+    final state = FlowerpotState(
+      repository: MockTuyaRepository(latency: Duration.zero),
+      backendRepository: backend,
+    );
+    addTearDown(state.dispose);
+
+    await state.loadFaqs();
+
+    expect(backend.requestedBroadcastIds.last, 'yciq4kssu1fv8umn');
+    expect(state.faqTrace, contains('本地常量 TuyaConfig.productId'));
   });
 
   test('没发请求时也要说清楚为什么', () async {
@@ -48,10 +87,26 @@ void main() {
 }
 
 class _TraceBackend extends DisabledAppBackendRepository {
-  _TraceBackend({this.session = true});
+  _TraceBackend({this.session = true, this.productsFail = false});
 
   final bool session;
+  final bool productsFail;
   ApiExchange? _exchange;
+  final List<String> requestedBroadcastIds = <String>[];
+  int productListCalls = 0;
+
+  @override
+  Future<List<BackendProduct>> getProducts() async {
+    productListCalls++;
+    if (productsFail) throw const ApiException(500, '接口不存在');
+    return const <BackendProduct>[
+      BackendProduct(
+        productId: 15,
+        productName: '智能花盆',
+        broadcastId: 'yciq4kssu1fv8umn',
+      ),
+    ];
+  }
 
   @override
   bool get enabled => true;
@@ -68,6 +123,7 @@ class _TraceBackend extends DisabledAppBackendRepository {
     String keyword = '',
     String broadcastId = '',
   }) async {
+    requestedBroadcastIds.add(broadcastId);
     const token = '0123456789abcdef0123';
     _exchange = ApiExchange(
       method: 'GET',

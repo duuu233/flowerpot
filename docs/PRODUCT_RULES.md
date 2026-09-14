@@ -342,7 +342,7 @@ Android 10+ 上「把手机连到设备热点」这一步会弹一次系统入�
 - 142 的文件名、删除（155）、置顶（157）发的文件名**必须是同一个**：都取图片 URL 的最后一段。
 - 上传区文案是「**点击此处上传文件**」——**手机端没有拖拽**，不要出现「拖拽」。（2026-09-14 定稿）
 - 帮助中心的常见问题接口 `getProductFaqList` **要传产品 ID**，入参名 `broadcastId`。
-  App 传的是**涂鸦平台产品 ID**（当前设备 `productId` → 任一已绑定设备 → `TuyaConfig.productId`），
+  App 传的是**后台产品列表的 `broadcastId`**（`yciq4kssu1fv8umn`，列表没拉到用同值本地常量），
   联调日志里有一行带参数和返回条数。（2026-09-14 核对）产品 ID 的口径见 §4.4。
 - **联调期：帮助中心列表下方直接打印接口调试信息**（2026-09-14 产品：「直接在下方打印调了哪个接口、
   请求参数、接口返回什么」）——接口、完整地址、每个参数及含义、请求头、HTTP 状态、返回体、App 解析条数；
@@ -362,9 +362,11 @@ Android 10+ 上「把手机连到设备热点」这一步会弹一次系统入�
 - ⚠️ **不要和 `ProductApiOut.productId` 混**：那是后台自增的整数主键，不是产品 ID 口径。
 - ⚠️ **不要和 `TuyaConfig.broadcastId`（`ehbx83xdh9jkmxvz`）混**：那是设备 **BLE 广播包**里的标识，
   只用于搜索页本地判断「扫到的是不是这款花盆」，名字撞了、含义完全不同。
-- App 侧取值：设备的涂鸦 `productId`（SDK `DeviceBean.getProductId`）与后台录入的这个值一致，
-  所以直接用设备的；还没有设备时用 `TuyaConfig.productId`。**前提是后台录入的就是涂鸦平台产品 ID**，
-  两边对不上时帮助中心会筛不出数据——看联调日志里的返回条数。
+- **App 侧取值：后台产品列表的 `broadcastId`**（列表没拉到时用本地常量 `yciq4kssu1fv8umn`）。
+  ⛔ **不要取设备的 `productId`**：涂鸦 SDK `DeviceBean.getProductId()` 对这台花盆报的是
+  `ehbx83xdh9jkmxvz`（BLE 广播标识），和后台的产品 ID 不是一个值。2026-09-12～14 帮助中心一直优先取设备值，
+  按 `broadcastId=ehbx83xdh9jkmxvz` 去查，后台挂在 `yciq4kssu1fv8umn` 下的常见问题整条筛不出来
+  （2026-09-14 页面调试信息里发现，产品确认后台维护的是 `yciq4kssu1fv8umn`）。
 
 ---
 
