@@ -322,10 +322,27 @@ Android 10+ 上「把手机连到设备热点」这一步会弹一次系统入�
   这一条。只传后端、不下发等于设备什么都不知道。（2026-09-14）
 - 142 的文件名、删除（155）、置顶（157）发的文件名**必须是同一个**：都取图片 URL 的最后一段。
 - 上传区文案是「**点击此处上传文件**」——**手机端没有拖拽**，不要出现「拖拽」。（2026-09-14 定稿）
-- 帮助中心的常见问题接口 `getProductFaqList` **要传产品 ID**：swagger 上客户端这条只有
-  `broadcastId`（「平台设备id」，后台产品表同名字段界面叫「涂鸦产品ID」）一个产品筛选参数，
+- 帮助中心的常见问题接口 `getProductFaqList` **要传产品 ID**，入参名 `broadcastId`。
   App 传的是**涂鸦平台产品 ID**（当前设备 `productId` → 任一已绑定设备 → `TuyaConfig.productId`），
-  不是 BLE 广播 ID；联调日志里有一行带参数和返回条数。（2026-09-14 核对）
+  联调日志里有一行带参数和返回条数。（2026-09-14 核对）产品 ID 的口径见 §4.4。
+
+## 4.4 后端「产品ID」＝产品列表返回的 `broadcastId` 字段
+
+**（2026-09-14 产品明确）接口入参说「要传产品 ID」，指的就是产品列表返回的 `broadcastId`。**
+这个字段目前**当产品 ID 用**，存的是涂鸦平台产品 ID（本产品 `yciq4kssu1fv8umn`）。
+
+- 字段名是历史遗留：swagger 里产品列表 / 详情的出参描述仍写「广播id」，新增 / 编辑产品的入参
+  描述写「平台设备id」，后台界面文案是「涂鸦产品ID」——**三个叫法都是这一个值**。
+- 在哪儿：后台产品列表 `/ZoneAdmin/Product/getProductList`（出参 `ProductApiOut.broadcastId`）、
+  详情 `getProductDetail`、增改 `addProduct` / `editProduct`（入参 `ProductAddApiIn.broadcastId`）。
+- 客户端需要产品 ID 的入参目前只有一处：`/Client/Product/getProductFaqList` 的 `broadcastId`。
+  以后新接口要「按产品筛」，同样传这个值。
+- ⚠️ **不要和 `ProductApiOut.productId` 混**：那是后台自增的整数主键，不是产品 ID 口径。
+- ⚠️ **不要和 `TuyaConfig.broadcastId`（`ehbx83xdh9jkmxvz`）混**：那是设备 **BLE 广播包**里的标识，
+  只用于搜索页本地判断「扫到的是不是这款花盆」，名字撞了、含义完全不同。
+- App 侧取值：设备的涂鸦 `productId`（SDK `DeviceBean.getProductId`）与后台录入的这个值一致，
+  所以直接用设备的；还没有设备时用 `TuyaConfig.productId`。**前提是后台录入的就是涂鸦平台产品 ID**，
+  两边对不上时帮助中心会筛不出数据——看联调日志里的返回条数。
 
 ---
 
