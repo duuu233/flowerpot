@@ -26,6 +26,9 @@ class _LightStatusPageState extends State<LightStatusPage> {
   late Future<List<double>> history;
   bool initialized = false;
 
+  /// 上次取曲线时设备快照里的那一段历史，用来认出「涂鸦又推来了新的历史 DP」。
+  List<double> _loadedSeries = const <double>[];
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -49,6 +52,15 @@ class _LightStatusPageState extends State<LightStatusPage> {
           metrics: const <String>{'illuminance'},
         ),
       );
+    } else if (FlowerpotScope.of(context).historyReportedSince(
+      widget.deviceId,
+      '光照状态',
+      SensorMetric.light,
+      range,
+      _loadedSeries,
+    )) {
+      // 同需水状态页：停在页面上时设备推来了新的 137–139，重取曲线。
+      history = _load();
     }
   }
 
@@ -57,9 +69,15 @@ class _LightStatusPageState extends State<LightStatusPage> {
   /// ⚠️ 2026-09-15 以前这里读的是 [SensorMetric.dli]，而仓库把 137–139 解出来存在
   /// [SensorMetric.light] 名下——功能点表里压根没有 DLI 历史 DP，所以真机上这张图
   /// 永远是「暂无 DLI 历史」，137–139 报上来也画不出来。和需水状态页一样按 DP 读。
-  Future<List<double>> _load() => FlowerpotScope.of(
-    context,
-  ).historyFor(widget.deviceId, SensorMetric.light, range);
+  Future<List<double>> _load() {
+    final state = FlowerpotScope.of(context);
+    _loadedSeries = state.reportedHistory(
+      widget.deviceId,
+      SensorMetric.light,
+      range,
+    );
+    return state.historyFor(widget.deviceId, SensorMetric.light, range);
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -31,6 +31,9 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
   late Future<List<double>> history;
   bool initialized = false;
 
+  /// 上次取曲线时设备快照里的那一段历史，用来认出「涂鸦又推来了新的历史 DP」。
+  List<double> _loadedSeries = const <double>[];
+
   @override
   void initState() {
     super.initState();
@@ -61,12 +64,28 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
           metrics: const <String>{'waterLevel', 'soilMoisture'},
         ),
       );
+    } else if (FlowerpotScope.of(context).historyReportedSince(
+      widget.deviceId,
+      '需水状态',
+      metric.sensorMetric,
+      range,
+      _loadedSeries,
+    )) {
+      // 停在页面上时设备推来了新的 131–136：重取曲线（FutureBuilder 换 future 时
+      // 保留上一次的数据，不会闪回「正在读取」）。
+      history = _load();
     }
   }
 
-  Future<List<double>> _load() => FlowerpotScope.of(
-    context,
-  ).historyFor(widget.deviceId, metric.sensorMetric, range);
+  Future<List<double>> _load() {
+    final state = FlowerpotScope.of(context);
+    _loadedSeries = state.reportedHistory(
+      widget.deviceId,
+      metric.sensorMetric,
+      range,
+    );
+    return state.historyFor(widget.deviceId, metric.sensorMetric, range);
+  }
 
   @override
   Widget build(BuildContext context) {

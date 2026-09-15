@@ -1998,6 +1998,54 @@ class FlowerpotState extends ChangeNotifier {
     ReportRange range,
   ) => _repository.getHistory(id, metric, range);
 
+  /// 当前设备快照里解出的这段历史（设备没报过就是空）。
+  ///
+  /// 状态页取曲线时记下它，之后拿 [historyReportedSince] 比：涂鸦推来新的 131–139，
+  /// 仓库合并快照后重新解码、换掉设备，这一段就变了。
+  List<double> reportedHistory(
+    String deviceId,
+    SensorMetric metric,
+    ReportRange range,
+  ) => deviceById(deviceId)?.history.series(metric, range) ?? const <double>[];
+
+  /// 这一页的曲线自 [before]（上次取曲线时的 [reportedHistory]）之后有没有新的历史上报。
+  ///
+  /// 2026-09-15 产品问「报表数据会不会跟着涂鸦推送的 DP 实时变」。以前不会：四个状态页
+  /// 只在进页面、切日 / 周 / 月时取一次曲线，停在页面上时设备推来的 131–139 进了快照，
+  /// 图却不动（顶部实时值和状态会动，因为它们每次重建都从设备上读）。页面在
+  /// `didChangeDependencies` 里调这个方法，返回 true 就重取曲线。
+  ///
+  /// 比的是**这一页、这个范围**的那一段，不是整台设备：温度、电量这类无关上报不会让
+  /// 曲线重取，土壤湿度的历史变了也不会让「水位 · 日」重取。变了顺带在联调日志记一行。
+  bool historyReportedSince(
+    String deviceId,
+    String page,
+    SensorMetric metric,
+    ReportRange range,
+    List<double> before,
+  ) {
+    final latest = reportedHistory(deviceId, metric, range);
+    if (listEquals(latest, before)) return false;
+    final identifier = switch (metric) {
+      SensorMetric.waterLevel => TuyaConfig.history['waterLevel'],
+      SensorMetric.soilMoisture => TuyaConfig.history['soilMoisture'],
+      SensorMetric.light => TuyaConfig.history['illuminance'],
+      _ => null,
+    }?[range.name];
+    final dpId = identifier == null ? null : TuyaConfig.dp[identifier];
+    // 这里在页面的 didChangeDependencies 里、也就是 build 阶段被调：直接记日志会
+    // notifyListeners，撞上「build 期间 markNeedsBuild」，所以推到这一帧之后再记。
+    unawaited(
+      Future<void>(() {
+        _logInteraction(
+          '上报 ← [$page] 历史${dpId == null ? '' : ' DP$dpId'} 有新数据'
+          '（${latest.length}点），曲线已刷新',
+        );
+      }),
+    );
+    return true;
+  }
+
   /// The 纪念日 page's rows: the two fixed dates the device keeps on their own
   /// DPs, then the custom entries.
   ///

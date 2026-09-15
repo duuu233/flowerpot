@@ -24,13 +24,14 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
   late Future<List<double>> history;
   bool initialized = false;
 
+  /// 上次取曲线时设备快照里的那一段历史，用来认出「涂鸦又推来了新的历史 DP」。
+  List<double> _loadedSeries = const <double>[];
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!initialized) {
-      history = FlowerpotScope.of(
-        context,
-      ).historyFor(widget.deviceId, SensorMetric.temperature, ReportRange.day);
+      history = _load();
       initialized = true;
       // 同需水状态页：进页面把 112/113/146 的原始上报值打进联调日志框。
       unawaited(
@@ -41,7 +42,31 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
           hasHistoryDp: false,
         ),
       );
+    } else if (FlowerpotScope.of(context).historyReportedSince(
+      widget.deviceId,
+      '空气温度',
+      SensorMetric.temperature,
+      ReportRange.day,
+      _loadedSeries,
+    )) {
+      // 和需水 / 光照页同一套：功能点表目前没有这项的历史 DP，快照里这一段恒为空，
+      // 这个分支真机上不会进；将来固件补了历史 DP、仓库接上解码，曲线同样跟着上报刷新。
+      history = _load();
     }
+  }
+
+  Future<List<double>> _load() {
+    final state = FlowerpotScope.of(context);
+    _loadedSeries = state.reportedHistory(
+      widget.deviceId,
+      SensorMetric.temperature,
+      ReportRange.day,
+    );
+    return state.historyFor(
+      widget.deviceId,
+      SensorMetric.temperature,
+      ReportRange.day,
+    );
   }
 
   @override
