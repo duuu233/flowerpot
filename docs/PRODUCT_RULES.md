@@ -508,7 +508,12 @@ strings -a -n 2 cls/path/To/Class.class | grep -E '^(on|get|set|is)?[A-Z_]'
     the parameter type 'ActionResult'`。检查器已用那一版坏代码自测过：报出的行号
     （122）与编译器完全一致，全库 282 个文件零误报。**新增同类辅助函数时把名字加进
     那个名单**，否则这条防线对它无效。
-  - ⚠️ **这三个脚本都查不出类型错误。** 同一次打包还炸了两处类型问题，只能靠人看：
+  - ⚠️ **改完 Dart 还要跑 `python3 tools/dart_ternary_null_index_check.py`**（2026-09-15
+    打包失败之后加的）。它查**三元表达式分支里的空安全下标 `?[`**：
+    `cond ? map[a]?[b] ?? x : y` 里的 `?[` 会被解析器当成嵌套三元的 `?`，报
+    `Expected ':' before this`，连带一串类型错误。改法：先把 `map[a]` 取到局部变量判空，分支里不写 `?[`。
+    检查器已用那一版坏代码自测过：报出的行号（2032）与编译器一致，全库 290 个文件零误报。
+  - ⚠️ **这几个脚本都查不出类型错误。** 同一次打包还炸了两处类型问题，只能靠人看：
     ① `ApiClient.getJson` **已经拆过信封**（`retCode` 非 200 直接抛，返回的就是 `retData`
     本身），不要再 `json['retData']`——它的静态类型是 `Object?`，`[]` 根本没定义；
     ② `state.deviceById(id)` 只收 `String`，而 `plantMissing(id)` 收 `String?`，**同一个

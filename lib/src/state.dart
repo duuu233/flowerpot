@@ -2028,8 +2028,11 @@ class FlowerpotState extends ChangeNotifier {
       return cached.$3;
     }
     final packet = device.history.series(metric, range);
-    final live = range == ReportRange.day
-        ? _liveSamples[deviceId]?[metric] ?? const <double>[]
+    // ⚠️ 别写成 `cond ? map[a]?[b] ?? x : y`：三元分支里的 `?[` 会被解析器当成嵌套三元的
+    // `?`，release 打包直接编译失败（2026-09-15 打包报 Expected ':' before this）。
+    final liveByMetric = _liveSamples[deviceId];
+    final live = range == ReportRange.day && liveByMetric != null
+        ? liveByMetric[metric] ?? const <double>[]
         : const <double>[];
     final merged = <double>[...packet, ...live];
     final series = List<double>.unmodifiable(
