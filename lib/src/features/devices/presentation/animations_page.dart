@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../shared/widgets/blocking_progress.dart';
@@ -22,7 +23,8 @@ class AnimationsPage extends StatefulWidget {
   State<AnimationsPage> createState() => _AnimationsPageState();
 }
 
-class _AnimationsPageState extends State<AnimationsPage> {
+class _AnimationsPageState extends State<AnimationsPage>
+    with NetworkRetryAware<AnimationsPage> {
   bool loadingStarted = false;
 
   /// Files ticked in the gallery. 图库管理（v2）是多选删除，所以选中态属于页面
@@ -55,6 +57,9 @@ class _AnimationsPageState extends State<AnimationsPage> {
     loadingStarted = true;
     unawaited(_refreshFiles());
   }
+
+  @override
+  Future<void> reloadForNetworkRetry() => _refreshFiles();
 
   Future<void> _refreshFiles() async {
     try {

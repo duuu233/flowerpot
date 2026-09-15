@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
@@ -33,7 +34,8 @@ class PlantPickerPage extends StatefulWidget {
   State<PlantPickerPage> createState() => _PlantPickerPageState();
 }
 
-class _PlantPickerPageState extends State<PlantPickerPage> {
+class _PlantPickerPageState extends State<PlantPickerPage>
+    with NetworkRetryAware<PlantPickerPage> {
   final searchController = TextEditingController();
   String query = '';
   String? selectedId;
@@ -61,6 +63,17 @@ class _PlantPickerPageState extends State<PlantPickerPage> {
     // 首帧之前赋值，不用 setState——build 还没跑过。
     loadingPlants = true;
     unawaited(_loadPlants(current));
+  }
+
+  /// 「网络异常」弹窗点「重试」：按进页面时的口径重新拉植物目录。
+  @override
+  Future<void> reloadForNetworkRetry() async {
+    final state = FlowerpotScope.of(context);
+    final current = state.hasPlant(widget.deviceId)
+        ? state.deviceById(widget.deviceId)?.plant
+        : null;
+    setState(() => loadingPlants = true);
+    await _loadPlants(current);
   }
 
   Future<void> _loadPlants(PlantProfile? current) async {

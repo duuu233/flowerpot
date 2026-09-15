@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/widgets/blocking_progress.dart';
@@ -20,7 +21,8 @@ class DeviceOtherSettingsPage extends StatefulWidget {
       _DeviceOtherSettingsPageState();
 }
 
-class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
+class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
+    with NetworkRetryAware<DeviceOtherSettingsPage> {
   bool _updatingFirmware = false;
 
   @override
@@ -33,6 +35,15 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage> {
       if (!mounted) return;
       FlowerpotScope.of(context).refreshFirmwareUpdate(widget.deviceId);
     });
+  }
+
+  /// 「网络异常」弹窗点「重试」：重读设备，再问一次有没有新固件。
+  @override
+  Future<void> reloadForNetworkRetry() async {
+    final state = FlowerpotScope.of(context);
+    await state.reloadDevices();
+    if (!mounted) return;
+    await state.refreshFirmwareUpdate(widget.deviceId);
   }
 
   @override

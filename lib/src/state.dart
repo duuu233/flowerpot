@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'core/backend/backend.dart';
 import 'core/cache/image_cache_cleanup.dart';
 import 'core/network/api_exception.dart';
+import 'core/network/network_status.dart';
 import 'features/auth/domain/auth_validator.dart';
 import 'features/devices/pairing_gate.dart';
 import 'shared/l10n/app_language.dart';
@@ -3221,6 +3222,9 @@ class FlowerpotState extends ChangeNotifier {
         code: 'invalid_input',
       );
     } on TuyaException catch (error) {
+      // 涂鸦的错误码分不出是不是手机没网：交给「网络异常」弹窗去查一次，网是通的
+      // 就什么都不发生。APP 后端那边由 ApiClient 自己上报。
+      NetworkStatus.reportFailure();
       return ActionResult(
         false,
         error.message,

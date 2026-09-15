@@ -76,6 +76,21 @@ class AppL10n {
   String get unnamedDevice =>
       t(const {AppLanguage.zh: '我的花盆', AppLanguage.en: 'My planter'});
 
+  String get cancel =>
+      t(const {AppLanguage.zh: '取消', AppLanguage.en: 'Cancel'});
+
+  String get retry => t(const {AppLanguage.zh: '重试', AppLanguage.en: 'Retry'});
+
+  // ── 网络异常弹窗（全局，2026-09-15）───────────────────────────────────
+  String get networkErrorTitle =>
+      t(const {AppLanguage.zh: '网络异常', AppLanguage.en: 'Network error'});
+
+  String get networkErrorMessage => t(const {
+    AppLanguage.zh: '当前网络不可用，请检查网络后重试',
+    AppLanguage.en:
+        'The network is unavailable. Please check your connection and try again.',
+  });
+
   // ── 设置 ────────────────────────────────────────────────────────────
   String get settings =>
       t(const {AppLanguage.zh: '设置', AppLanguage.en: 'Settings'});

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flowerpot/src/core/network/network_status.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +12,9 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
     // 已经等 1 秒，再叠随机时长会让按固定时长 pump 的用例时好时坏。专门验它的用例
     // 自己换回来。
     FlowerpotState.cloudStageDelay = () => Duration.zero;
+    // 「网络异常」弹窗默认去解析后端域名；用例里一律当有网，不做真 DNS，也不让
+    // 弹窗冒出来挡住别的断言。专门验弹窗的用例自己换成 false。
+    NetworkStatus.probe = () async => true;
   });
   await testMain();
 }

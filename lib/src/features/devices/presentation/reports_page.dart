@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/app_theme.dart';
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../shared/shared.dart';
 import '../../../tuya/tuya_models.dart';
 
@@ -23,7 +24,8 @@ class ReportsPage extends StatefulWidget {
   State<ReportsPage> createState() => _ReportsPageState();
 }
 
-class _ReportsPageState extends State<ReportsPage> {
+class _ReportsPageState extends State<ReportsPage>
+    with NetworkRetryAware<ReportsPage> {
   late ReportRange range;
   late Future<List<double>> history;
   bool historyInitialized = false;
@@ -49,6 +51,16 @@ class _ReportsPageState extends State<ReportsPage> {
         ).logHistoryDiagnostics(widget.arguments.deviceId, '报表'),
       );
     }
+  }
+
+  /// 「网络异常」弹窗点「重试」：重读设备（历史 DP 在设备快照里），再重画曲线。
+  @override
+  Future<void> reloadForNetworkRetry() async {
+    await FlowerpotScope.of(context).reloadDevices();
+    if (!mounted) return;
+    setState(() {
+      history = _load();
+    });
   }
 
   Future<List<double>> _load() => FlowerpotScope.of(

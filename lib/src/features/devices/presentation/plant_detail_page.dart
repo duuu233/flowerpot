@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
 
@@ -52,7 +53,8 @@ class PlantDetailPage extends StatefulWidget {
   State<PlantDetailPage> createState() => _PlantDetailPageState();
 }
 
-class _PlantDetailPageState extends State<PlantDetailPage> {
+class _PlantDetailPageState extends State<PlantDetailPage>
+    with NetworkRetryAware<PlantDetailPage> {
   PlantProfile? _detail;
   bool _loading = false;
   bool _requested = false;
@@ -66,6 +68,14 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
     super.didChangeDependencies();
     if (_requested) return;
     _requested = true;
+    unawaited(_loadDetail());
+  }
+
+  /// 「网络异常」弹窗点「重试」：按进页面时的参数再拉一次详情。
+  @override
+  Future<void> reloadForNetworkRetry() => _loadDetail();
+
+  Future<void> _loadDetail() async {
     // 2026-09-12 接口加了 `tuYaRemark`，和原来的 `id` 二选一。**优先涂鸦标识**：
     // 它是 DP 116 报上来的那个值，后台也保证不重复；自增 id 只做兜底。
     final source = widget.arguments.plant;
@@ -73,21 +83,15 @@ class _PlantDetailPageState extends State<PlantDetailPage> {
     final id = source.productPlantId;
     if (remark.isEmpty && id == null) return;
     setState(() => _loading = true);
-    final state = FlowerpotScope.of(context);
-    unawaited(
-      state
-          .loadPlantDetail(
-            productPlantId: id,
-            tuyaRemark: remark.isEmpty ? null : remark,
-          )
-          .then((value) {
-        if (!mounted) return;
-        setState(() {
-          if (value != null) _detail = value;
-          _loading = false;
-        });
-      }),
+    final value = await FlowerpotScope.of(context).loadPlantDetail(
+      productPlantId: id,
+      tuyaRemark: remark.isEmpty ? null : remark,
     );
+    if (!mounted) return;
+    setState(() {
+      if (value != null) _detail = value;
+      _loading = false;
+    });
   }
 
   @override

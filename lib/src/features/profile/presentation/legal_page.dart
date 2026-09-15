@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../design_system/design_system.dart';
 import '../models/legal_document_page_model.dart';
 import 'widgets/legal_document_card.dart';
@@ -15,7 +16,8 @@ class LegalPage extends StatefulWidget {
   State<LegalPage> createState() => _LegalPageState();
 }
 
-class _LegalPageState extends State<LegalPage> {
+class _LegalPageState extends State<LegalPage>
+    with NetworkRetryAware<LegalPage> {
   bool _requested = false;
 
   LegalDocumentPageModel get _baseModel =>
@@ -32,6 +34,13 @@ class _LegalPageState extends State<LegalPage> {
     // 协议正文后台可以改（`/Client/Basic/getBasicData`）。App 里那份是兜底：
     // 后台没配、或者接口不通时页面照常有内容，不会变成空白页。
     FlowerpotScope.maybeOf(context)?.loadBasicData();
+  }
+
+  @override
+  Future<void> reloadForNetworkRetry() async {
+    final state = FlowerpotScope.maybeOf(context);
+    if (state == null) return;
+    await state.loadBasicData();
   }
 
   @override

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../models/personal_info_page_model.dart';
@@ -19,7 +20,8 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _ProfilePageState extends State<ProfilePage>
+    with NetworkRetryAware<ProfilePage> {
   String? _localAvatarPath;
   bool _seeded = false;
 
@@ -35,6 +37,10 @@ class _ProfilePageState extends State<ProfilePage> {
       state.refreshUserInfo();
     }
   }
+
+  @override
+  Future<void> reloadForNetworkRetry() =>
+      FlowerpotScope.of(context).refreshUserInfo();
 
   @override
   Widget build(BuildContext context) {

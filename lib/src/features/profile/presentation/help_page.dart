@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../design_system/design_system.dart';
 import '../models/help_center_model.dart';
 import 'widgets/help_center_faq_list.dart';
@@ -22,7 +23,7 @@ class HelpPage extends StatefulWidget {
   State<HelpPage> createState() => _HelpPageState();
 }
 
-class _HelpPageState extends State<HelpPage> {
+class _HelpPageState extends State<HelpPage> with NetworkRetryAware<HelpPage> {
   Set<String> _expandedIds = <String>{};
   bool _requested = false;
 
@@ -48,6 +49,14 @@ class _HelpPageState extends State<HelpPage> {
     if (_requested || widget.pageModel != null) return;
     _requested = true;
     _loadFaqs();
+  }
+
+  /// 「网络异常」弹窗点「重试」：回到加载态，重新拉一次常见问题。
+  @override
+  Future<void> reloadForNetworkRetry() async {
+    if (widget.pageModel != null) return;
+    setState(() => _remoteItems = null);
+    await _loadFaqs();
   }
 
   Future<void> _loadFaqs() async {

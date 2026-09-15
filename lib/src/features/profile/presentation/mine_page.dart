@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../models/mine_page_model.dart';
@@ -23,7 +24,7 @@ class MinePage extends StatefulWidget {
   State<MinePage> createState() => _MinePageState();
 }
 
-class _MinePageState extends State<MinePage> {
+class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
   @override
   void initState() {
     super.initState();
@@ -37,6 +38,16 @@ class _MinePageState extends State<MinePage> {
       // 意见反馈那一行的邮箱来自后台「基础信息配置」。
       state.loadBasicData();
     });
+  }
+
+  /// 「网络异常」弹窗点「重试」：进页面拉的两样再拉一遍。
+  @override
+  Future<void> reloadForNetworkRetry() async {
+    final state = FlowerpotScope.of(context);
+    await Future.wait<void>(<Future<void>>[
+      state.refreshUserInfo(),
+      state.loadBasicData(),
+    ]);
   }
 
   @override

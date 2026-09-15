@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/widgets/blocking_progress.dart';
@@ -22,7 +23,8 @@ class MemorialPage extends StatefulWidget {
   State<MemorialPage> createState() => _MemorialPageState();
 }
 
-class _MemorialPageState extends State<MemorialPage> {
+class _MemorialPageState extends State<MemorialPage>
+    with NetworkRetryAware<MemorialPage> {
   bool _requested = false;
 
   String get deviceId => widget.deviceId;
@@ -36,6 +38,10 @@ class _MemorialPageState extends State<MemorialPage> {
     // 进页面拉一次。没接后端时这是个空操作，页面继续显示本地那份清单。
     FlowerpotScope.of(context).refreshMemorials(deviceId);
   }
+
+  @override
+  Future<void> reloadForNetworkRetry() =>
+      FlowerpotScope.of(context).refreshMemorials(deviceId);
 
   @override
   Widget build(BuildContext context) {

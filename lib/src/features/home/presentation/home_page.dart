@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/user_avatar.dart';
@@ -57,7 +58,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with NetworkRetryAware<HomePage> {
   /// 进页面的检查只跑一次，依赖变化重建时不会再弹一遍。
   bool _entryChecked = false;
 
@@ -76,6 +77,14 @@ class _HomePageState extends State<HomePage> {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => unawaited(_runEntryChecks()),
     );
+  }
+
+  /// 「网络异常」弹窗点「重试」：重读设备列表，再把进页面那一轮检查跑一遍。
+  @override
+  Future<void> reloadForNetworkRetry() async {
+    await FlowerpotScope.of(context).reloadDevices();
+    if (!mounted) return;
+    await _runEntryChecks();
   }
 
   /// 进入设备详情页的检查。

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
 import '../../../core/backend/backend.dart';
 import '../../../design_system/design_system.dart';
 import '../models/about_page_model.dart';
@@ -17,7 +18,8 @@ class AboutPage extends StatefulWidget {
   State<AboutPage> createState() => _AboutPageState();
 }
 
-class _AboutPageState extends State<AboutPage> {
+class _AboutPageState extends State<AboutPage>
+    with NetworkRetryAware<AboutPage> {
   bool _requested = false;
 
   AboutPageModel get _baseModel =>
@@ -31,6 +33,13 @@ class _AboutPageState extends State<AboutPage> {
     // 更新状态和版本说明来自 `/Client/Basic/getLastVersion`，要把本机版本号发
     // 过去做比对。后端没开或查不到就用页面自带的「已是最新版本」。
     FlowerpotScope.maybeOf(context)?.checkAppVersion(_baseModel.version);
+  }
+
+  @override
+  Future<void> reloadForNetworkRetry() async {
+    final state = FlowerpotScope.maybeOf(context);
+    if (state == null) return;
+    await state.checkAppVersion(_baseModel.version);
   }
 
   /// 后端的判定覆盖到页面模型上。当前版本号仍然显示本机的那个——`version`

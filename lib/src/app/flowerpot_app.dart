@@ -12,6 +12,7 @@ import '../shared/l10n/app_l10n.dart';
 import '../state.dart';
 import '../tuya/tuya_repository.dart';
 import 'interaction_log_overlay.dart';
+import 'network_alert.dart';
 
 /// 根节点切换动效时长（闪屏 → 登录页/主壳层）。
 const Duration kRootTransitionDuration = Duration(milliseconds: 1100);
@@ -122,7 +123,11 @@ class _FlowerpotAppState extends State<FlowerpotApp>
   late final List<NavigatorObserver> _navigatorObservers = <NavigatorObserver>[
     InteractionLogRouteObserver(state),
     AppRoutes.routeObserver,
+    _networkRoutes,
   ];
+
+  /// 「网络异常」弹窗要知道当前是哪一页、上面有没有盖着弹框，见 [NetworkAlertHost]。
+  final NetworkRouteTracker _networkRoutes = NetworkRouteTracker();
 
   /// Cold-start screen, dismissed once the minimum time has passed *and* the
   /// session has been restored — otherwise a returning user would see the
@@ -232,10 +237,16 @@ class _FlowerpotAppState extends State<FlowerpotApp>
             // 切语言时所有读 AppL10n 的页面一起重译，不需要各页自己监听。
             // 联调日志浮层同理挂在这一层，所有 push 出来的页面都罩得住，不用逐页
             // 往布局里插面板。临时设施，验通后整块去掉。
+            // 「网络异常」弹窗也挂在这里（常驻，不随联调日志去掉）；闪屏期间不查。
             builder: (context, child) => AppLocalizationsScope(
               language: state.language,
-              child: InteractionLogOverlay(
-                child: child ?? const SizedBox.shrink(),
+              child: NetworkAlertHost(
+                state: state,
+                routes: _networkRoutes,
+                enabled: !_showSplash,
+                child: InteractionLogOverlay(
+                  child: child ?? const SizedBox.shrink(),
+                ),
               ),
             ),
           ),
