@@ -28,11 +28,7 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
   ReportRange range = ReportRange.day;
   late WaterStatusMetric metric;
   int periodOffset = 0;
-  late Future<List<double>> history;
   bool initialized = false;
-
-  /// 上次取曲线时设备快照里的那一段历史，用来认出「涂鸦又推来了新的历史 DP」。
-  List<double> _loadedSeries = const <double>[];
 
   @override
   void initState() {
@@ -44,7 +40,6 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!initialized) {
-      history = _load();
       initialized = true;
       // 「为什么没有历史记录」只能在真机上分辨：把这一页的历史 DP（131–136）到货
       // 情况打进页面底部的联调日志框，一眼看出是设备没报还是报了解不出来。
@@ -64,27 +59,7 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
           metrics: const <String>{'waterLevel', 'soilMoisture'},
         ),
       );
-    } else if (FlowerpotScope.of(context).historyReportedSince(
-      widget.deviceId,
-      '需水状态',
-      metric.sensorMetric,
-      range,
-      _loadedSeries,
-    )) {
-      // 停在页面上时设备推来了新的 131–136：重取曲线（FutureBuilder 换 future 时
-      // 保留上一次的数据，不会闪回「正在读取」）。
-      history = _load();
     }
-  }
-
-  Future<List<double>> _load() {
-    final state = FlowerpotScope.of(context);
-    _loadedSeries = state.reportedHistory(
-      widget.deviceId,
-      metric.sensorMetric,
-      range,
-    );
-    return state.historyFor(widget.deviceId, metric.sensorMetric, range);
   }
 
   @override
@@ -100,6 +75,10 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
       device,
       language: FlowerpotScope.of(context).languageCode,
     );
+    // 和上面的读数一样现读：涂鸦一推送，页面重建，曲线跟着往前走。
+    final values = FlowerpotScope.of(
+      context,
+    ).chartSeries(widget.deviceId, metric.sensorMetric, range);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '需水状态', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -133,40 +112,15 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
                         : null,
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  FutureBuilder<List<double>>(
-                    future: history,
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError) {
-                        return const AppSurfaceCard(
-                          child: SizedBox(
-                            height: 220,
-                            child: AppErrorView(
-                              title: '水分历史读取失败',
-                              message: '请稍后重试。',
-                            ),
-                          ),
-                        );
-                      }
-                      if (!snapshot.hasData) {
-                        return const AppSurfaceCard(
-                          child: SizedBox(
-                            height: 236,
-                            child: AppLoading(label: '正在读取水分历史'),
-                          ),
-                        );
-                      }
-                      final values = snapshot.data!;
-                      if (values.isEmpty) {
-                        return const MetricHistoryEmptyCard(title: '暂无历史数据');
-                      }
-                      return WaterTrendChartCard(
-                        metric: metric,
-                        values: values,
-                        labels: _chartLabels(),
-                        onMetricChanged: _changeMetric,
-                      );
-                    },
-                  ),
+                  if (values.isEmpty)
+                    const MetricHistoryEmptyCard(title: '暂无历史数据')
+                  else
+                    WaterTrendChartCard(
+                      metric: metric,
+                      values: values,
+                      labels: _chartLabels(),
+                      onMetricChanged: _changeMetric,
+                    ),
                   const SizedBox(height: AppSpacing.lg),
                   CareAdviceCard(
                     message: summaryModel.advice,
@@ -186,7 +140,6 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
     setState(() {
       range = value;
       periodOffset = 0;
-      history = _load();
     });
   }
 
@@ -194,7 +147,6 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
     if (value == metric) return;
     setState(() {
       metric = value;
-      history = _load();
     });
   }
 

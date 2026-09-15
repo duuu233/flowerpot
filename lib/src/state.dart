@@ -13,6 +13,7 @@ import 'features/devices/pairing_gate.dart';
 import 'shared/l10n/app_language.dart';
 import 'tuya/tuya_config.dart';
 import 'tuya/tuya_gallery_codec.dart';
+import 'tuya/tuya_history_codec.dart';
 import 'tuya/tuya_memorial_codec.dart';
 import 'tuya/tuya_models.dart';
 import 'tuya/tuya_repository.dart';
@@ -1998,52 +1999,98 @@ class FlowerpotState extends ChangeNotifier {
     ReportRange range,
   ) => _repository.getHistory(id, metric, range);
 
-  /// 当前设备快照里解出的这段历史（设备没报过就是空）。
+  /// 状态页曲线的数据：和顶部读数一样在 build 里现读，涂鸦一推送就跟着重画。
   ///
-  /// 状态页取曲线时记下它，之后拿 [historyReportedSince] 比：涂鸦推来新的 131–139，
-  /// 仓库合并快照后重新解码、换掉设备，这一段就变了。
-  List<double> reportedHistory(
+  /// 2026-09-15 产品：「只要涂鸦推送了，报表就是要实时动，往前移动那种效果」「不需要做
+  /// 特殊处理，跟以前那些数据一样的渲染」。所以曲线不再是进页面取一次的 Future：
+  ///
+  /// - 底子是设备上报的历史包（日 131/134/137，周 132/135/138，月 133/136/139），
+  ///   在设备快照里；设备推来新包，快照一换，曲线跟着换。
+  /// - **日视图**再接上之后每次推送的实时值（105 水位、106 土壤湿度、109 照度、112 温度、
+  ///   114 湿度）：新点从右边进，超过 [liveChartWindow] 个点就把最左边挤掉，整条线往前移。
+  /// - 周、月是「每天一个平均值」，实时值不往里接，推来新的周包 / 月包时整段换。
+  ///
+  /// 温度、湿度没有历史 DP，日视图完全由推送攒出来：本次登录后还没收到过推送就是空态。
+  List<double> chartSeries(
     String deviceId,
     SensorMetric metric,
     ReportRange range,
-  ) => deviceById(deviceId)?.history.series(metric, range) ?? const <double>[];
-
-  /// 这一页的曲线自 [before]（上次取曲线时的 [reportedHistory]）之后有没有新的历史上报。
-  ///
-  /// 2026-09-15 产品问「报表数据会不会跟着涂鸦推送的 DP 实时变」。以前不会：四个状态页
-  /// 只在进页面、切日 / 周 / 月时取一次曲线，停在页面上时设备推来的 131–139 进了快照，
-  /// 图却不动（顶部实时值和状态会动，因为它们每次重建都从设备上读）。页面在
-  /// `didChangeDependencies` 里调这个方法，返回 true 就重取曲线。
-  ///
-  /// 比的是**这一页、这个范围**的那一段，不是整台设备：温度、电量这类无关上报不会让
-  /// 曲线重取，土壤湿度的历史变了也不会让「水位 · 日」重取。变了顺带在联调日志记一行。
-  bool historyReportedSince(
-    String deviceId,
-    String page,
-    SensorMetric metric,
-    ReportRange range,
-    List<double> before,
   ) {
-    final latest = reportedHistory(deviceId, metric, range);
-    if (listEquals(latest, before)) return false;
-    final identifier = switch (metric) {
-      SensorMetric.waterLevel => TuyaConfig.history['waterLevel'],
-      SensorMetric.soilMoisture => TuyaConfig.history['soilMoisture'],
-      SensorMetric.light => TuyaConfig.history['illuminance'],
-      _ => null,
-    }?[range.name];
-    final dpId = identifier == null ? null : TuyaConfig.dp[identifier];
-    // 这里在页面的 didChangeDependencies 里、也就是 build 阶段被调：直接记日志会
-    // notifyListeners，撞上「build 期间 markNeedsBuild」，所以推到这一帧之后再记。
-    unawaited(
-      Future<void>(() {
-        _logInteraction(
-          '上报 ← [$page] 历史${dpId == null ? '' : ' DP$dpId'} 有新数据'
-          '（${latest.length}点），曲线已刷新',
-        );
-      }),
+    final device = deviceById(deviceId);
+    if (device == null) return const <double>[];
+    // 同一份数据返回同一个列表：图表按列表是否换了来决定重置选中点，别的原因触发的
+    // 重建（比如记一行联调日志）不该把用户点选的那个点弄丢。
+    final key = '$deviceId/${metric.name}/${range.name}';
+    final cached = _chartSeriesCache[key];
+    if (cached != null &&
+        identical(cached.$1, device.history) &&
+        cached.$2 == _liveSampleRevision) {
+      return cached.$3;
+    }
+    final packet = device.history.series(metric, range);
+    final live = range == ReportRange.day
+        ? _liveSamples[deviceId]?[metric] ?? const <double>[]
+        : const <double>[];
+    final merged = <double>[...packet, ...live];
+    final series = List<double>.unmodifiable(
+      merged.length > liveChartWindow
+          ? merged.sublist(merged.length - liveChartWindow)
+          : merged,
     );
-    return true;
+    _chartSeriesCache[key] = (device.history, _liveSampleRevision, series);
+    return series;
+  }
+
+  /// 日视图最多画多少个点：和设备日包一样多（96 个，一刻钟一个）。
+  static const liveChartWindow = TuyaHistoryCodec.dailySamples;
+
+  /// 每个指标跟着哪条实时 DP 往曲线上接点、哪条日包 DP 到了就以包为准。
+  static const Map<SensorMetric, (String, String?)> _liveChartDps =
+      <SensorMetric, (String, String?)>{
+        SensorMetric.waterLevel: ('water_level', 'tank_level_daily_hist'),
+        SensorMetric.soilMoisture: ('soil_moist', 'soil_moist_daily_hist'),
+        SensorMetric.light: ('light_intensity', 'light_daily_hist'),
+        // 温度、湿度没有历史 DP。
+        SensorMetric.temperature: ('air_temperature', null),
+        SensorMetric.humidity: ('air_humidity', null),
+      };
+
+  /// 本次登录以来设备推来的实时值，按设备、指标存，给 [chartSeries] 的日视图接在历史包后面。
+  final Map<String, Map<SensorMetric, List<double>>> _liveSamples =
+      <String, Map<SensorMetric, List<double>>>{};
+  int _liveSampleRevision = 0;
+  final Map<String, (DeviceHistory, int, List<double>)> _chartSeriesCache =
+      <String, (DeviceHistory, int, List<double>)>{};
+
+  /// 一条推送进来：带了哪个指标的实时 DP，就往那条曲线后面接一个点。
+  ///
+  /// 看 [DeviceUpdate.changedDps]，不看前后值是否相同——设备报了就算一次，值没变也往前走。
+  /// 同一条推送里带了这个指标的日包，说明设备已经把这段时间算进包里了，之前接的点清掉，
+  /// 从新包往后接。
+  void _recordLiveSamples(SmartPlanterDevice device, Set<int> changedDps) {
+    if (changedDps.isEmpty) return;
+    final samples = _liveSamples.putIfAbsent(
+      device.id,
+      () => <SensorMetric, List<double>>{},
+    );
+    var changed = false;
+    _liveChartDps.forEach((metric, dps) {
+      final (realtime, dayPacket) = dps;
+      if (dayPacket != null &&
+          changedDps.contains(TuyaConfig.dp[dayPacket]) &&
+          samples.remove(metric) != null) {
+        changed = true;
+      }
+      if (changedDps.contains(TuyaConfig.dp[realtime])) {
+        final points = samples.putIfAbsent(metric, () => <double>[]);
+        points.add(device.sensors.valueFor(metric));
+        if (points.length > liveChartWindow) {
+          points.removeRange(0, points.length - liveChartWindow);
+        }
+        changed = true;
+      }
+    });
+    if (changed) _liveSampleRevision++;
   }
 
   /// The 纪念日 page's rows: the two fixed dates the device keeps on their own
@@ -3049,6 +3096,7 @@ class FlowerpotState extends ChangeNotifier {
       _backendAnimations.remove(removedId);
       _plantOverrides.remove(removedId);
       _settingsOverrides.remove(removedId);
+      _liveSamples.remove(removedId);
       if (_selectedDeviceId == removedId) {
         _selectedDeviceId = _devices.firstOrNull?.id;
       }
@@ -3061,6 +3109,7 @@ class FlowerpotState extends ChangeNotifier {
     // A report for a device the session does not hold: the next list refresh
     // is what introduces it.
     if (index < 0) return;
+    _recordLiveSamples(device, update.changedDps);
     _settingsOverrides[device.id] = device.settings;
     // 116 报 -1 = 植物被拔走了。`SmartPlanterDevice.plant` 是非空字段（详情页
     // 各处都直接读它），所以这里不动那个对象，只把本地的「这台设备有植物」缓存
@@ -3598,6 +3647,8 @@ class FlowerpotState extends ChangeNotifier {
     _plantedDevices.clear();
     _plantOverrides.clear();
     _settingsOverrides.clear();
+    _liveSamples.clear();
+    _chartSeriesCache.clear();
     _backendDevices.clear();
     _backendAnimations.clear();
     _knownPlantsByIdentifier.clear();

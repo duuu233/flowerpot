@@ -405,72 +405,92 @@ class MockTuyaRepository implements TuyaRepository {
       ReportRange.month => 30,
     };
     if (metric == SensorMetric.dli) return _dliSeries(count);
-    // Each metric gets its own shape. A single rescaled waveform made every
-    // status page look like a copy of the previous one.
     final device = _devices.firstWhere(
       (item) => item.id == deviceId,
       orElse: () => _devices.isEmpty ? _demoDevice() : _devices.first,
     );
     if (metric == SensorMetric.battery) return <double>[device.battery.toDouble()];
-    final current = device.sensors.valueFor(metric);
-    return switch (metric) {
-      SensorMetric.waterLevel => _series(
-        count,
-        // A watering top-up part way through the window, then slow uptake.
-        (progress) => progress < .38
-            ? 62 + progress * 24
-            : 88 - (progress - .38) * 26,
-        jitter: 1.4,
-        minimum: 30,
-        maximum: 100,
-      ),
-      SensorMetric.soilMoisture => _series(
-        count,
-        (progress) => 66 + math.sin(progress * math.pi * 1.6) * 7,
-        jitter: 1.2,
-        minimum: 35,
-        maximum: 96,
-      ),
-      SensorMetric.temperature => _series(
-        count,
-        // Cool before dawn, peak mid-afternoon.
-        (progress) => 23.4 + math.sin((progress - .22) * math.pi * 1.7) * 4.2,
-        jitter: .35,
-        minimum: 16,
-        maximum: 34,
-      ),
-      SensorMetric.humidity => _series(
-        count,
-        (progress) => 54 - math.sin((progress - .2) * math.pi * 1.7) * 9,
-        jitter: 1,
-        minimum: 30,
-        maximum: 85,
-      ),
-      SensorMetric.battery => _series(
-        count,
-        // The demo planter is charging, so the curve climbs and levels off.
-        (progress) => 62 + math.min(progress * 1.35, 1.0) * 32,
-        jitter: .6,
-        minimum: 20,
-        maximum: 100,
-      ),
-      SensorMetric.light => _series(
-        count,
-        (progress) => 120 + math.sin(progress * math.pi) * 260,
-        jitter: 12,
-        minimum: 0,
-        maximum: 900,
-      ),
-      SensorMetric.ppfd => _series(
-        count,
-        (progress) => 1.8 + math.sin(progress * math.pi) * 5.4,
-        jitter: .18,
-        minimum: 0,
-        maximum: 12,
-      ),
-      SensorMetric.dli => <double>[current],
-    };
+    return _shapeSeries(metric, count);
   }
+
+  /// Each metric gets its own shape. A single rescaled waveform made every
+  /// status page look like a copy of the previous one.
+  static List<double> _shapeSeries(SensorMetric metric, int count) =>
+      switch (metric) {
+        SensorMetric.waterLevel => _series(
+          count,
+          // A watering top-up part way through the window, then slow uptake.
+          (progress) => progress < .38
+              ? 62 + progress * 24
+              : 88 - (progress - .38) * 26,
+          jitter: 1.4,
+          minimum: 30,
+          maximum: 100,
+        ),
+        SensorMetric.soilMoisture => _series(
+          count,
+          (progress) => 66 + math.sin(progress * math.pi * 1.6) * 7,
+          jitter: 1.2,
+          minimum: 35,
+          maximum: 96,
+        ),
+        SensorMetric.temperature => _series(
+          count,
+          // Cool before dawn, peak mid-afternoon.
+          (progress) => 23.4 + math.sin((progress - .22) * math.pi * 1.7) * 4.2,
+          jitter: .35,
+          minimum: 16,
+          maximum: 34,
+        ),
+        SensorMetric.humidity => _series(
+          count,
+          (progress) => 54 - math.sin((progress - .2) * math.pi * 1.7) * 9,
+          jitter: 1,
+          minimum: 30,
+          maximum: 85,
+        ),
+        SensorMetric.battery => _series(
+          count,
+          // The demo planter is charging, so the curve climbs and levels off.
+          (progress) => 62 + math.min(progress * 1.35, 1.0) * 32,
+          jitter: .6,
+          minimum: 20,
+          maximum: 100,
+        ),
+        SensorMetric.light => _series(
+          count,
+          (progress) => 120 + math.sin(progress * math.pi) * 260,
+          jitter: 12,
+          minimum: 0,
+          maximum: 900,
+        ),
+        SensorMetric.ppfd => _series(
+          count,
+          (progress) => 1.8 + math.sin(progress * math.pi) * 5.4,
+          jitter: .18,
+          minimum: 0,
+          maximum: 12,
+        ),
+        SensorMetric.dli => _dliSeries(count),
+      };
+
+  /// 演示设备自带的历史包：状态页的曲线 2026-09-15 起直接读设备快照里的历史（和顶部
+  /// 读数一样现读，涂鸦推送就跟着动），不再调 [getHistory]。形状和 [getHistory] 一致。
+  static DeviceHistory _demoHistory() => DeviceHistory(<String, List<double>>{
+    for (final metric in const <SensorMetric>[
+      SensorMetric.waterLevel,
+      SensorMetric.soilMoisture,
+      SensorMetric.light,
+      SensorMetric.temperature,
+      SensorMetric.humidity,
+    ])
+      for (final range in ReportRange.values)
+        DeviceHistory.key(metric, range): _shapeSeries(metric, switch (range) {
+          ReportRange.day => 24,
+          ReportRange.week => 7,
+          ReportRange.month => 30,
+        }),
+  });
 
   /// Daily light integral, in the 0.5–1.3 range the bar chart can actually
   /// draw: its axis is floored at 1.0, so a peak below that renders as an
@@ -547,6 +567,7 @@ class MockTuyaRepository implements TuyaRepository {
     firmwareVersion: '1.0.8',
     macAddress: 'A4:C1:38:7B:2D:10',
     hardwareVersion: '26',
+    history: _demoHistory(),
   );
 }
 

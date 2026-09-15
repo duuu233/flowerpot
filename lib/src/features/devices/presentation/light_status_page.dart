@@ -23,17 +23,12 @@ class LightStatusPage extends StatefulWidget {
 class _LightStatusPageState extends State<LightStatusPage> {
   ReportRange range = ReportRange.week;
   int periodOffset = 0;
-  late Future<List<double>> history;
   bool initialized = false;
-
-  /// 上次取曲线时设备快照里的那一段历史，用来认出「涂鸦又推来了新的历史 DP」。
-  List<double> _loadedSeries = const <double>[];
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!initialized) {
-      history = _load();
       initialized = true;
       // 同需水状态页：进页面把 108/109/110 的原始上报值和 137–139 的到货情况打进
       // 联调日志框。
@@ -52,31 +47,7 @@ class _LightStatusPageState extends State<LightStatusPage> {
           metrics: const <String>{'illuminance'},
         ),
       );
-    } else if (FlowerpotScope.of(context).historyReportedSince(
-      widget.deviceId,
-      '光照状态',
-      SensorMetric.light,
-      range,
-      _loadedSeries,
-    )) {
-      // 同需水状态页：停在页面上时设备推来了新的 137–139，重取曲线。
-      history = _load();
     }
-  }
-
-  /// 光照历史读 137/138/139（`light_*_hist`，日 / 周 / 月），解出来是 lux。
-  ///
-  /// ⚠️ 2026-09-15 以前这里读的是 [SensorMetric.dli]，而仓库把 137–139 解出来存在
-  /// [SensorMetric.light] 名下——功能点表里压根没有 DLI 历史 DP，所以真机上这张图
-  /// 永远是「暂无 DLI 历史」，137–139 报上来也画不出来。和需水状态页一样按 DP 读。
-  Future<List<double>> _load() {
-    final state = FlowerpotScope.of(context);
-    _loadedSeries = state.reportedHistory(
-      widget.deviceId,
-      SensorMetric.light,
-      range,
-    );
-    return state.historyFor(widget.deviceId, SensorMetric.light, range);
   }
 
   @override
@@ -92,6 +63,14 @@ class _LightStatusPageState extends State<LightStatusPage> {
       device,
       language: FlowerpotScope.of(context).languageCode,
     );
+    // 光照历史读 137/138/139（`light_*_hist`，日 / 周 / 月），解出来是 lux；日视图再接上
+    // 109 的实时推送。和上面的读数一样现读，涂鸦一推送曲线就跟着往前走。
+    //
+    // ⚠️ 2026-09-15 以前这里读的是 [SensorMetric.dli]，而仓库把 137–139 解出来存在
+    // [SensorMetric.light] 名下——功能点表里压根没有 DLI 历史 DP，真机上永远空态。
+    final values = FlowerpotScope.of(
+      context,
+    ).chartSeries(widget.deviceId, SensorMetric.light, range);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '光照状态', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -125,59 +104,34 @@ class _LightStatusPageState extends State<LightStatusPage> {
                         : null,
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  FutureBuilder<List<double>>(
-                    future: history,
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError) {
-                        return const AppSurfaceCard(
-                          child: SizedBox(
-                            height: 220,
-                            child: AppErrorView(
-                              title: '光照历史读取失败',
-                              message: '请稍后重试。',
-                            ),
-                          ),
-                        );
-                      }
-                      if (!snapshot.hasData) {
-                        return const AppSurfaceCard(
-                          child: SizedBox(
-                            height: 236,
-                            child: AppLoading(label: '正在读取光照历史'),
-                          ),
-                        );
-                      }
-                      final values = snapshot.data!;
-                      if (values.isEmpty) {
-                        return const MetricHistoryEmptyCard(title: '暂无光照历史');
-                      }
-                      return MetricChartCard(
-                        leading: Image.asset(
-                          AppAssets.infoIcon,
-                          width: 16,
-                          height: 16,
-                          fit: BoxFit.contain,
-                          filterQuality: FilterQuality.high,
-                          excludeFromSemantics: true,
-                        ),
-                        // 137–139 报的是照度（lux，0–9000），不是 DLI：标题
-                        // 和单位跟着功能点走，不拿 lux 冒充 mol/m²/天。
-                        title: '光照强度',
-                        unit: 'lux',
-                        height: 188,
-                        titleStyle: AppTypography.body,
-                        unitStyle: AppTypography.body.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                        chart: LightDliBarChart(
-                          values: values,
-                          labels: _chartLabels(values.length),
-                          maxValue: _axisMax(values),
-                          decimals: 0,
-                        ),
-                      );
-                    },
-                  ),
+                  if (values.isEmpty)
+                    const MetricHistoryEmptyCard(title: '暂无光照历史')
+                  else
+                    MetricChartCard(
+                      leading: Image.asset(
+                        AppAssets.infoIcon,
+                        width: 16,
+                        height: 16,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                        excludeFromSemantics: true,
+                      ),
+                      // 137–139 报的是照度（lux，0–9000），不是 DLI：标题和单位跟着
+                      // 功能点走，不拿 lux 冒充 mol/m²/天。
+                      title: '光照强度',
+                      unit: 'lux',
+                      height: 188,
+                      titleStyle: AppTypography.body,
+                      unitStyle: AppTypography.body.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                      chart: LightDliBarChart(
+                        values: values,
+                        labels: _chartLabels(values.length),
+                        maxValue: _axisMax(values),
+                        decimals: 0,
+                      ),
+                    ),
                   const SizedBox(height: AppSpacing.lg),
                   CareAdviceCard(
                     message: summaryModel.advice,
@@ -196,7 +150,6 @@ class _LightStatusPageState extends State<LightStatusPage> {
     setState(() {
       range = value;
       periodOffset = 0;
-      history = _load();
     });
   }
 
