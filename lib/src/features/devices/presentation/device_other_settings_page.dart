@@ -771,7 +771,9 @@ class _SettingsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      minTileHeight: 42,
+      // 2026-09-15 产品：每一项列高适当调高一点，页面剩余高度足够。42 → 56（Material
+      // 单行列表的标准高度）；七行一共多出 98，375×812 仍是一屏放下。
+      minTileHeight: 56,
       contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
       leading: Image.asset(
         assetPath,

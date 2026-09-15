@@ -41,6 +41,19 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('LED设置和其它行同一个常规字重，不单独显粗', (tester) async {
+    // 2026-09-15 产品：LED 看着加粗。Android 上英文走 Roboto，w500 会画成中粗，
+    // 中文没有 w500 档仍是常规，所以列表标题统一用 w400。
+    await _pumpSettings(tester, const Size(375, 812));
+
+    FontWeight? weightOf(String label) =>
+        tester.widget<Text>(find.text(label)).style?.fontWeight;
+    expect(weightOf('LED设置'), FontWeight.w400);
+    expect(weightOf('显示'), FontWeight.w400);
+    expect(weightOf('其他设置'), FontWeight.w400);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('device settings content scrolls at 320x568', (tester) async {
     await _pumpSettings(tester, const Size(320, 568));
 
@@ -76,6 +89,11 @@ Future<void> _pumpSettings(
         kind: DeviceSettingsMenuKind.display,
         label: '显示',
         value: '自动',
+      ),
+      const DeviceSettingsMenuItem(
+        kind: DeviceSettingsMenuKind.led,
+        label: 'LED设置',
+        value: '已开启',
       ),
       const DeviceSettingsMenuItem(
         kind: DeviceSettingsMenuKind.hearing,

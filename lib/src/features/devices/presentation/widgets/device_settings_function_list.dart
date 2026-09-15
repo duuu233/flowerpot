@@ -46,7 +46,14 @@ class DeviceSettingsFunctionList extends StatelessWidget {
                 minTileHeight: 58,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 20),
                 leading: _LeadingIcon(kind: item.kind, label: item.label),
-                titleStyle: AppTypography.sectionTitle.copyWith(fontSize: 15),
+                // 字重用常规 w400，不用 sectionTitle 的 w500（2026-09-15 产品：「LED设置」的
+                // LED 看着加粗，要和其它行一致）。App 没有打包字体：Android 上中文落到
+                // 系统思源黑体，只有常规 / 粗体两档，w500 画出来就是常规；英文落到
+                // Roboto，它有 Medium，w500 真画成中粗——同一个样式，只有「LED」显粗。
+                titleStyle: AppTypography.sectionTitle.copyWith(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w400,
+                ),
                 // 默认的 trailing 只有取值和箭头，红点行得自己拼一遍。
                 trailing: item.badge ? _BadgedTrailing(value: item.value) : null,
                 onTap: () => onItemTap(item.kind),

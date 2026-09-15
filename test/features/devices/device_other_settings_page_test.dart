@@ -35,6 +35,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('每一行调高到 56，375x812 一屏放下七行', (tester) async {
+    // 2026-09-15 产品：列高适当调高一点，剩余高度足够。
+    await _pumpOtherSettings(tester, const Size(375, 812));
+
+    for (final key in const <String>[
+      'water-level-calibration-setting',
+      'firmware-update-setting',
+      'repair-network-setting',
+      'factory-reset-setting',
+      'remove-device-setting',
+    ]) {
+      expect(
+        tester.getSize(find.byKey(Key(key))).height,
+        greaterThanOrEqualTo(56),
+        reason: key,
+      );
+    }
+    // 最后一行不用滚动就在屏幕里。
+    expect(
+      tester.getRect(find.byKey(const Key('remove-device-setting'))).bottom,
+      lessThanOrEqualTo(812),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('other settings remain scrollable at 320x568', (tester) async {
     await _pumpOtherSettings(tester, const Size(320, 568));
 
