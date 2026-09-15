@@ -43,12 +43,23 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
     if (!initialized) {
       history = _load();
       initialized = true;
-      // 「为什么没有历史记录」只能在真机上分辨：把九条历史 DP 的到货情况打进页面
-      // 底部的联调日志框，一眼看出是设备没报还是报了解不出来。
+      // 「为什么没有历史记录」只能在真机上分辨：把这一页的历史 DP（131–136）到货
+      // 情况打进页面底部的联调日志框，一眼看出是设备没报还是报了解不出来。
+      // 光照、温度、湿度三个状态页照同一套写法，只是 DP 不同。
+      final state = FlowerpotScope.of(context);
       unawaited(
-        FlowerpotScope.of(
-          context,
-        ).logHistoryDiagnostics(widget.deviceId, '需水状态'),
+        state.logStatusDps(
+          widget.deviceId,
+          '需水状态',
+          WaterStatusPageModel.reportedDps,
+        ),
+      );
+      unawaited(
+        state.logHistoryDiagnostics(
+          widget.deviceId,
+          '需水状态',
+          metrics: const <String>{'waterLevel', 'soilMoisture'},
+        ),
       );
     }
   }

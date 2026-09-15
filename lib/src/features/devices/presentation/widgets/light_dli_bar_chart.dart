@@ -9,25 +9,46 @@ class LightDliBarChart extends StatelessWidget {
     required this.values,
     required this.labels,
     super.key,
+    this.maxValue = 1.0,
+    this.decimals = 1,
   });
 
   final List<double> values;
   final List<String> labels;
 
+  /// 纵轴上限。默认 1.0 是设计稿给 DLI 的刻度；光照状态页画 137–139 的 lux 时按
+  /// 数据传一个整刻度进来。
+  final double maxValue;
+
+  /// 纵轴刻度的小数位。
+  final int decimals;
+
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _DliBarChartPainter(values: values, labels: labels),
+      painter: _DliBarChartPainter(
+        values: values,
+        labels: labels,
+        maxValue: maxValue,
+        decimals: decimals,
+      ),
       child: const SizedBox.expand(),
     );
   }
 }
 
 class _DliBarChartPainter extends CustomPainter {
-  const _DliBarChartPainter({required this.values, required this.labels});
+  const _DliBarChartPainter({
+    required this.values,
+    required this.labels,
+    required this.maxValue,
+    required this.decimals,
+  });
 
   final List<double> values;
   final List<String> labels;
+  final double maxValue;
+  final int decimals;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -38,8 +59,7 @@ class _DliBarChartPainter extends CustomPainter {
     const bottom = 28.0;
     final chartWidth = size.width - left - right;
     final chartHeight = size.height - top - bottom;
-    // Fixed 0.0-1.0 axis, as in the design; taller days simply clip.
-    const maxValue = 1.0;
+    // Axis tops out at [maxValue]; taller bars clip.
     final gridPaint = Paint()
       ..color = AppColors.divider
       ..strokeWidth = 1;
@@ -63,7 +83,7 @@ class _DliBarChartPainter extends CustomPainter {
       }
       _paintText(
         canvas,
-        (maxValue * (1 - ratio)).toStringAsFixed(1),
+        (maxValue * (1 - ratio)).toStringAsFixed(decimals),
         Offset(0, y - 7),
         AppColors.textSecondary,
         10,
@@ -74,7 +94,7 @@ class _DliBarChartPainter extends CustomPainter {
     final barWidth = math.min(11.0, slotWidth * .45);
     final barPaint = Paint()..color = AppColors.brandPrimary;
     for (var index = 0; index < values.length; index++) {
-      final normalized = values[index] / maxValue;
+      final normalized = (values[index] / maxValue).clamp(0.0, 1.0);
       final x = left + slotWidth * index + (slotWidth - barWidth) / 2;
       final barHeight = chartHeight * normalized;
       canvas.drawRect(
@@ -135,5 +155,8 @@ class _DliBarChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_DliBarChartPainter oldDelegate) =>
-      oldDelegate.values != values || oldDelegate.labels != labels;
+      oldDelegate.values != values ||
+      oldDelegate.labels != labels ||
+      oldDelegate.maxValue != maxValue ||
+      oldDelegate.decimals != decimals;
 }

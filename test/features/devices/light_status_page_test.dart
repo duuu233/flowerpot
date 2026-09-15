@@ -76,6 +76,16 @@ void main() {
           .selected,
       ReportRange.week,
     );
+    // 历史图读的是 137–139 的光照（lux），不再是功能点表里没有的 DLI。
+    expect(find.text('光照强度'), findsOneWidget);
+    expect(find.text('DLI（每日光量积分）'), findsNothing);
+    expect(find.text('暂无光照历史'), findsNothing);
+    expect(find.byType(LightDliBarChart), findsOneWidget);
+    // 同需水状态页：进页面在联调日志里记这一页的 DP。
+    expect(
+      state.interactionLog.any((line) => line.contains('读取 ← [光照状态]')),
+      isTrue,
+    );
 
     await tester.tap(find.text('日'));
     await tester.pump();

@@ -12,6 +12,14 @@ class LightStatusPageModel {
     required this.advice,
   });
 
+  /// 这一页读的实时 / 状态 DP，写法同 `WaterStatusPageModel.reportedDps`。
+  /// 历史曲线另走 137–139，见 `TuyaConfig.history` 的 illuminance。
+  static const reportedDps = <String>[
+    'light_intensity', // 109
+    'light_ppfd_value', // 110
+    'lighting_condition', // 108
+  ];
+
   /// [language] 决定文案取中文还是英文表，见 [TuyaStatusCopy]。
   factory LightStatusPageModel.fromDevice(
     SmartPlanterDevice device, {

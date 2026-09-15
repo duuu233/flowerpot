@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -30,6 +32,15 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
         context,
       ).historyFor(widget.deviceId, SensorMetric.humidity, ReportRange.day);
       initialized = true;
+      // 同需水状态页：进页面把 114/115 的原始上报值打进联调日志框。
+      unawaited(
+        FlowerpotScope.of(context).logStatusDps(
+          widget.deviceId,
+          '相对湿度',
+          HumidityStatusPageModel.reportedDps,
+          hasHistoryDp: false,
+        ),
+      );
     }
   }
 

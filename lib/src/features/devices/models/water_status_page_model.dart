@@ -49,6 +49,15 @@ class WaterStatusPageModel {
     required this.advice,
   });
 
+  /// 这一页读的实时 / 状态 DP，进页面时连同原始上报值记进联调日志
+  /// （`FlowerpotState.logStatusDps`）。和 [fromDevice] 里实际取的字段一一对应。
+  /// 历史曲线另走 131–136，见 `TuyaConfig.history` 的 waterLevel / soilMoisture。
+  static const reportedDps = <String>[
+    'water_level', // 105
+    'soil_moist', // 106
+    'water_needs_status', // 107
+  ];
+
   /// [language] 决定文案取中文还是英文表，见 [TuyaStatusCopy]。
   factory WaterStatusPageModel.fromDevice(
     SmartPlanterDevice device, {

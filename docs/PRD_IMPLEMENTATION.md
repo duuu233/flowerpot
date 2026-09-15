@@ -12,7 +12,7 @@
 | 首页 | 已配网设备列表、在线/信号/电量/充电、添加和删除设备 | `features/home`、`features/devices` |
 | 配网 | 2.4 GHz Wi-Fi、Token、创建默认家庭；搜索/选择页按 `scanWifi` 列出设备热点，Wi-Fi 页只有 AP 一种方式、一次点击串完取令牌 → App 连热点 → 配网，平台不能连热点时回落手动引导；失败、退出页面、超时都释放热点与网络绑定并可取消 | `device_search_page.dart`、`device_selection_page.dart`、`pairing_page.dart`、`state.dart`、原生 Tuya bridge |
 | 首页与状态详情 | 植物、陪伴天数、天气、水位、土壤、光照/PPFD/DLI、温度、湿度、电池 | `features/home`、`features/devices/presentation/*_status_page.dart`、`reports_page.dart` |
-| 报表 | 水位/土壤湿度/光照日周月来自设备上报的 raw 历史包；温度、湿度、电池、PPFD、DLI 没有历史功能点，真机上是空态 | `reports_page.dart` |
+| 报表 | 水位/土壤湿度/光照日周月来自设备上报的 raw 历史包（光照状态页的历史图同样读 137–139 的 lux）；温度、湿度、电池、PPFD、DLI 没有历史功能点，真机上是空态 | `reports_page.dart`、`light_status_page.dart` |
 | 设备实时性 | DP 上报、上下线、远端解绑由原生监听推送，页面自动刷新 | `tuya_repository.dart`、`state.dart`、两端桥接 |
 | 设备图片 | APP 后端图片列表、上传、刷新、删除；硬件 142/143/144 显示协议仍待联调 | `core/backend`、`animations_page.dart` |
 | 植物 | 按设备产品加载后台植物列表与详情，绑定/替换用户植物；绑定成功后把后台 `tuYaRemark` 下发到 DP 116，DP 116 上报反向更新当前植物 | `core/backend`、`plant_picker_page.dart`、`plant_detail_page.dart`、`state.dart` |

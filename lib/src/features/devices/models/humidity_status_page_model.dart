@@ -10,6 +10,13 @@ class HumidityStatusPageModel {
     required this.advice,
   });
 
+  /// 这一页读的实时 / 状态 DP，写法同 `WaterStatusPageModel.reportedDps`。
+  /// 功能点表里**没有空气湿度历史 DP**，曲线只能是空态。
+  static const reportedDps = <String>[
+    'air_humidity', // 114，倍数 1：原值 ÷10
+    'air_humidity_status', // 115
+  ];
+
   /// [language] 决定文案取中文还是英文表，见 [TuyaStatusCopy]。
   factory HumidityStatusPageModel.fromDevice(
     SmartPlanterDevice device, {

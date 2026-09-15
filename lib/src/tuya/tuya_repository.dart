@@ -147,6 +147,18 @@ abstract class TuyaRepository {
   /// 返回**按指标分组**的一句话，例如
   /// `waterLevel → 日 DP131 hex 99字节/96点 · 周 DP132 无 · 月 DP133 无`。
   Future<Map<String, String>> historyDiagnostics(String deviceId);
+
+  /// 设备快照里这几条 DP 的**原始上报值**，给状态页进页面时的联调日志用。
+  ///
+  /// 和 [historyDiagnostics] 同一个出发点：页面上看到的数是解析过、可能还兜过底的
+  /// （没上报时水位是 0、状态按 App 阈值推），只看页面分不清「设备报的就是这个」
+  /// 还是「设备根本没报」。这里原样返回快照里的值：
+  /// - 返回 null：本次会话还没拉到这台设备的快照；
+  /// - 某个标识符对应 null：设备没报过这条 DP。
+  Future<Map<String, Object?>?> reportedDps(
+    String deviceId,
+    List<String> identifiers,
+  );
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
@@ -784,6 +796,22 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       report[metricKey] = parts.join(' · ');
     });
     return report;
+  }
+
+  @override
+  Future<Map<String, Object?>?> reportedDps(
+    String deviceId,
+    List<String> identifiers,
+  ) async {
+    final snapshot = _snapshots[deviceId];
+    if (snapshot == null) return null;
+    final dps = (snapshot['dps'] as Map<Object?, Object?>?) ??
+        <Object?, Object?>{};
+    return <String, Object?>{
+      for (final identifier in identifiers)
+        identifier:
+            dps['${TuyaConfig.dp[identifier]}'] ?? dps[TuyaConfig.dp[identifier]],
+    };
   }
 
   @override

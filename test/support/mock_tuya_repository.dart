@@ -385,6 +385,13 @@ class MockTuyaRepository implements TuyaRepository {
     return const <String, String>{'mock': '演示仓库直接造数据，没有原始历史 DP'};
   }
 
+  /// 演示仓库的设备是直接造出来的，没有原始 DP 快照。
+  @override
+  Future<Map<String, Object?>?> reportedDps(
+    String deviceId,
+    List<String> identifiers,
+  ) async => null;
+
   @override
   Future<List<double>> getHistory(
     String deviceId,

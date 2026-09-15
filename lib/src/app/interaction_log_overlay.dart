@@ -168,10 +168,12 @@ class InteractionLogRouteObserver extends NavigatorObserver {
     AppRoutes.plantDetail: '植物详情',
     AppRoutes.memorial: '纪念日',
     AppRoutes.memorialEdit: '编辑纪念日',
-    AppRoutes.lightStatus: '光照',
-    AppRoutes.waterStatus: '水位',
-    AppRoutes.temperatureStatus: '温度',
-    AppRoutes.humidityStatus: '湿度',
+    // 四个状态页和页面标题同名：页面自己记的 DP 行也用这个名字，进页面那一行和
+    // 下面的「读取 ← [需水状态] DP105 …」对得上。
+    AppRoutes.lightStatus: '光照状态',
+    AppRoutes.waterStatus: '需水状态',
+    AppRoutes.temperatureStatus: '空气温度',
+    AppRoutes.humidityStatus: '相对湿度',
     AppRoutes.batteryStatus: '电量',
     AppRoutes.deviceSearch: '搜索设备',
     AppRoutes.pairing: '配网',

@@ -18,6 +18,14 @@ class TemperatureStatusPageModel {
     this.settings = const DeviceControlSettings(),
   });
 
+  /// 这一页读的实时 / 状态 DP，写法同 `WaterStatusPageModel.reportedDps`。
+  /// 功能点表里**没有温度历史 DP**，曲线只能是空态。
+  static const reportedDps = <String>[
+    'air_temperature', // 112，倍数 1：原值 ÷10
+    'air_temperature_status', // 113
+    'temp_unit_convert', // 146：112 按哪个单位报
+  ];
+
   /// [language] 决定文案取中文还是英文表，见 [TuyaStatusCopy]。
   factory TemperatureStatusPageModel.fromDevice(
     SmartPlanterDevice device, {

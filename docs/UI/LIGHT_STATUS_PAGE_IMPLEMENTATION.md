@@ -8,7 +8,7 @@
 - 路由：`AppRoutes.lightStatus`，路径为 `/devices/light-status`。
 - 首页“光照状态”进入该页面。
 - 使用 Material 3、`AppPageScaffold`、`AppPageHeader`、`TimeRangeSelector`、`DateRangeNavigator` 和 `MetricChartCard`。
-- 日、周、月切换重新读取对应时间范围的 DLI 历史数据。
+- 日、周、月切换重新读取对应时间范围的光照历史（DP 137/138/139，lux）。
 
 ## Widget 拆分
 
@@ -31,7 +31,8 @@
 
 - lux：`SensorSnapshot.illuminance`。
 - PPFD：`SensorSnapshot.ppfd`。
-- DLI：`FlowerpotState.historyFor(deviceId, SensorMetric.dli, range)`。
+- 光照历史：`FlowerpotState.historyFor(deviceId, SensorMetric.light, range)`，即 DP 137–139 解出的照度（lux）。图表标题「光照强度」、单位 lux，纵轴上限按数据取整刻度。⚠️ 2026-09-15 以前这里读 `SensorMetric.dli`，功能点表没有 DLI 历史 DP，真机上永远空态；设计稿的「DLI（每日光量积分）」要等设备新增 DLI 历史 DP 或产品给定换算口径（见 `docs/PRODUCT_RULES.md` §4.5）。
+- 进页面在联调日志记 108/109/110 原始值与 137–139 到货情况（`logStatusDps` / `logHistoryDiagnostics`）。
 - 日期前后导航目前调整展示周期；历史接口扩展日期参数后可直接接入指定周期数据。
 - PPFD 全链路使用 `double`，保留设备上报的三位小数精度；体验模式数据使用截图中的 305 lux、5.642 μmol/m²/s 及周 DLI 示例。
 

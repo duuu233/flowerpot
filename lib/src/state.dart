@@ -1916,19 +1916,80 @@ class FlowerpotState extends ChangeNotifier {
   /// 所以"那边有、这边没有"完全可能同时成立：设备没把历史 DP 报上来，云端却有。
   /// 这个方法不修数据，只是把每条历史 DP 的原始长度和解出的点数打到页面上，
   /// 好分清是**设备没报**还是**报了解不出来**。
-  Future<void> logHistoryDiagnostics(String deviceId, String page) async {
+  ///
+  /// [metrics] 只留这一页用到的指标（`TuyaConfig.history` 的键）：光照页不该打出
+  /// 水位那三条。不传就九条全打（报表页）。
+  Future<void> logHistoryDiagnostics(
+    String deviceId,
+    String page, {
+    Set<String>? metrics,
+  }) async {
     try {
       final report = await _repository.historyDiagnostics(deviceId);
-      if (report.isEmpty) {
+      final lines = <String, String>{
+        for (final entry in report.entries)
+          // 「设备：还没拉到快照」这类不是指标的行照样打。
+          if (metrics == null ||
+              !TuyaConfig.history.containsKey(entry.key) ||
+              metrics.contains(entry.key))
+            entry.key: entry.value,
+      };
+      if (lines.isEmpty) {
         _logInteraction('读取 ← [$page] 历史 DP：一条都没有');
         return;
       }
-      report.forEach((metricKey, line) {
+      lines.forEach((metricKey, line) {
         _logInteraction('读取 ← [$page] 历史 $metricKey：$line');
       });
     } catch (error) {
       _logInteraction('读取 ← [$page] 历史 DP 体检失败 ✗ $error');
     }
+  }
+
+  /// 状态页进页面时，把这一页读的实时 / 状态 DP 连同设备的**原始上报值**记一行。
+  ///
+  /// 2026-09-15 产品要求「光照、温度、湿度等是否也按对应的 DP 读取」核一遍。以前只有
+  /// 需水状态页记了历史 DP，其余状态页进去联调日志里一条 DP 都没有，没法对着功能点表
+  /// 核。现在每个状态页都记，例如：
+  ///
+  /// `读取 ← [空气温度] DP112 air_temperature=246（÷10=24.6），DP113 air_temperature_status=suitable，DP146 temp_unit_convert=未上报`
+  ///
+  /// 「未上报」说明页面上那个数是 App 的默认值或阈值兜底，不是设备报的。
+  ///
+  /// [hasHistoryDp] 为 false 的页面（空气温度、相对湿度）再补一行说明：功能点表里没有
+  /// 这项的历史 DP，曲线空着是产品功能点决定的，不是没读到。
+  Future<void> logStatusDps(
+    String deviceId,
+    String page,
+    List<String> identifiers, {
+    bool hasHistoryDp = true,
+  }) async {
+    try {
+      final values = await _repository.reportedDps(deviceId, identifiers);
+      if (values == null) {
+        _logInteraction('读取 ← [$page] 实时 DP：本次会话还没拉到这台设备的快照');
+      } else {
+        final entries = <String>[
+          for (final identifier in identifiers)
+            _reportedDpEntry(identifier, values[identifier]),
+        ];
+        _logInteraction('读取 ← [$page] ${entries.join('，')}');
+      }
+    } catch (error) {
+      _logInteraction('读取 ← [$page] 实时 DP 读取失败 ✗ $error');
+    }
+    if (!hasHistoryDp) {
+      _logInteraction('读取 ← [$page] 历史：功能点表里没有这项的历史 DP（只有 131–139），曲线为空态');
+    }
+  }
+
+  static String _reportedDpEntry(String identifier, Object? value) {
+    final label = 'DP${TuyaConfig.dp[identifier]} $identifier';
+    if (value == null) return '$label=未上报';
+    final scale = TuyaConfig.dpScale[identifier];
+    final number = value is num ? value : num.tryParse('$value');
+    if (scale == null || number == null) return '$label=$value';
+    return '$label=$value（÷$scale=${number / scale}）';
   }
 
   Future<List<double>> historyFor(

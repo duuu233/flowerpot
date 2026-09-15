@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -30,6 +32,15 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
         context,
       ).historyFor(widget.deviceId, SensorMetric.temperature, ReportRange.day);
       initialized = true;
+      // 同需水状态页：进页面把 112/113/146 的原始上报值打进联调日志框。
+      unawaited(
+        FlowerpotScope.of(context).logStatusDps(
+          widget.deviceId,
+          '空气温度',
+          TemperatureStatusPageModel.reportedDps,
+          hasHistoryDp: false,
+        ),
+      );
     }
   }
 

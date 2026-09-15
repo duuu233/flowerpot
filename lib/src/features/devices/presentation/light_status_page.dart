@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -29,12 +32,34 @@ class _LightStatusPageState extends State<LightStatusPage> {
     if (!initialized) {
       history = _load();
       initialized = true;
+      // 同需水状态页：进页面把 108/109/110 的原始上报值和 137–139 的到货情况打进
+      // 联调日志框。
+      final state = FlowerpotScope.of(context);
+      unawaited(
+        state.logStatusDps(
+          widget.deviceId,
+          '光照状态',
+          LightStatusPageModel.reportedDps,
+        ),
+      );
+      unawaited(
+        state.logHistoryDiagnostics(
+          widget.deviceId,
+          '光照状态',
+          metrics: const <String>{'illuminance'},
+        ),
+      );
     }
   }
 
+  /// 光照历史读 137/138/139（`light_*_hist`，日 / 周 / 月），解出来是 lux。
+  ///
+  /// ⚠️ 2026-09-15 以前这里读的是 [SensorMetric.dli]，而仓库把 137–139 解出来存在
+  /// [SensorMetric.light] 名下——功能点表里压根没有 DLI 历史 DP，所以真机上这张图
+  /// 永远是「暂无 DLI 历史」，137–139 报上来也画不出来。和需水状态页一样按 DP 读。
   Future<List<double>> _load() => FlowerpotScope.of(
     context,
-  ).historyFor(widget.deviceId, SensorMetric.dli, range);
+  ).historyFor(widget.deviceId, SensorMetric.light, range);
 
   @override
   Widget build(BuildContext context) {
@@ -105,10 +130,8 @@ class _LightStatusPageState extends State<LightStatusPage> {
                         );
                       }
                       final values = snapshot.data!;
-                      // DLI is derived from PPFD, which has no history
-                      // function point; the product only reports光照 history.
                       if (values.isEmpty) {
-                        return const MetricHistoryEmptyCard(title: '暂无 DLI 历史');
+                        return const MetricHistoryEmptyCard(title: '暂无光照历史');
                       }
                       return MetricChartCard(
                         leading: Image.asset(
@@ -119,8 +142,10 @@ class _LightStatusPageState extends State<LightStatusPage> {
                           filterQuality: FilterQuality.high,
                           excludeFromSemantics: true,
                         ),
-                        title: 'DLI（每日光量积分）',
-                        unit: 'mol/m²/天',
+                        // 137–139 报的是照度（lux，0–9000），不是 DLI：标题
+                        // 和单位跟着功能点走，不拿 lux 冒充 mol/m²/天。
+                        title: '光照强度',
+                        unit: 'lux',
                         height: 188,
                         titleStyle: AppTypography.body,
                         unitStyle: AppTypography.body.copyWith(
@@ -129,6 +154,8 @@ class _LightStatusPageState extends State<LightStatusPage> {
                         chart: LightDliBarChart(
                           values: values,
                           labels: _chartLabels(values.length),
+                          maxValue: _axisMax(values),
+                          decimals: 0,
                         ),
                       );
                     },
@@ -194,13 +221,30 @@ class _LightStatusPageState extends State<LightStatusPage> {
       '周六',
       '周日',
     ],
-    ReportRange.day => List<String>.generate(
-      count,
-      (index) => index % 6 == 0 ? '$index时' : '',
-    ),
+    // 日包 96 个点、一刻钟一个（见 TuyaHistoryCodec），每 6 小时标一次。
+    ReportRange.day => List<String>.generate(count, (index) {
+      final perHour = count >= 24 ? count ~/ 24 : 1;
+      return index % (perHour * 6) == 0 ? '${index ~/ perHour}时' : '';
+    }),
     ReportRange.month => List<String>.generate(
       count,
       (index) => index % 5 == 0 ? '${index + 1}日' : '',
     ),
   };
+
+  /// 纵轴上限：比峰值大的第一个「整」刻度（1/2/5×10ⁿ 一格，共五格）。
+  ///
+  /// 柱状图原来是给 DLI 画的，纵轴写死 0–1；lux 动辄几百上千，不按数据定上限整根
+  /// 柱子都会顶出去。夜里全是 0 时按 5 lux 画，坐标轴不至于塌成一条线。
+  static double _axisMax(List<double> values) {
+    final peak = values.fold<double>(0, math.max);
+    final step = math.max(peak, 5.0) / 5;
+    var magnitude = 1.0;
+    while (true) {
+      for (final factor in const <double>[1, 2, 5]) {
+        if (factor * magnitude >= step) return factor * magnitude * 5;
+      }
+      magnitude *= 10;
+    }
+  }
 }
