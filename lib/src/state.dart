@@ -3072,7 +3072,21 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// 升级要几分钟，期间设备一直在下载和烧录，所以版本号只在收到 success 时才
   /// 更新——`startOta` 返回只代表升级发起成功。失败和进度都留在这里给界面读。
-  void _applyOtaProgress(OtaProgress progress) {
+  void _applyOtaProgress(OtaProgress incoming) {
+    final previous = _otaProgress[incoming.deviceId];
+    var progress = incoming;
+    if (incoming.status == OtaStatus.running) {
+      // 升级已经有了结论，迟到的「进行中」事件不能把它改回去。
+      if (previous != null && previous.status != OtaStatus.running) return;
+      // 只报阶段（涂鸦状态码）的事件不带百分比，只报百分比的不带阶段：两样各自沿用上一次的，
+      // 别把进度条打回 0，也别丢了「固件已下载到设备」。
+      progress = OtaProgress(
+        deviceId: incoming.deviceId,
+        status: OtaStatus.running,
+        percent: incoming.percent ?? previous?.percent,
+        stage: incoming.stage ?? previous?.stage,
+      );
+    }
     _otaProgress[progress.deviceId] = progress;
     _otaUpdatedAt[progress.deviceId] = DateTime.now();
     if (progress.status == OtaStatus.success) {

@@ -379,7 +379,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   }
 
 
-  /// 解析原生的 OTA 事件：`{deviceId, ota: {status, percent?, message?}}`。
+  /// 解析原生的 OTA 事件：`{deviceId, ota: {status, percent?, message?, stage?}}`。
   OtaProgress? _otaUpdate(Object? event) {
     if (event is! Map) return null;
     final ota = event['ota'];
@@ -399,6 +399,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       status: status,
       percent: percent is num ? percent.toInt().clamp(0, 100) : null,
       message: ota['message']?.toString(),
+      stage: OtaStage.fromTuya(ota['stage']),
     );
   }
 

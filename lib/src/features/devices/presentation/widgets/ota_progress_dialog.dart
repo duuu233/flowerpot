@@ -25,6 +25,30 @@ import '../../../../tuya/tuya_models.dart';
 /// bottom sheet 的下拉关闭、`isDismissible` 那套还得再一个个关掉；用 `showDialog` +
 /// `insetPadding: EdgeInsets.zero` + `alignment: bottomCenter` 更直接，遮罩也就是
 /// dialog 自己的 barrier。
+/// 升级进行中的那句状态，「其他设置」的功能行和进度弹层共用。
+///
+/// 2026-09-15 产品：设备还没开始回报进度时一直写「0%」，用户以为卡住了。所以按
+/// [OtaProgress.displayStage] 换文案：准备中 → 升级中（带百分比）→ 安装中。
+String otaRunningLabel(OtaProgress? ota, {bool withPercent = false}) {
+  final stage = ota?.displayStage ?? OtaStage.preparing;
+  return switch (stage) {
+    OtaStage.preparing => '固件准备中',
+    OtaStage.upgrading => withPercent
+        ? '固件升级中 ${(ota?.percent ?? 0).clamp(0, 100)}%'
+        : '固件升级中',
+    OtaStage.installing => '固件安装中',
+    OtaStage.waitingWake => '等待设备唤醒',
+  };
+}
+
+/// 进行中时标题下面那句提示。
+String _runningHint(OtaStage stage) => switch (stage) {
+  OtaStage.preparing => '正在准备固件，开始升级后会显示进度，请保持设备通电、不要断开 Wi-Fi。',
+  OtaStage.upgrading => '升级过程中请保持设备通电，不要断开 Wi-Fi。',
+  OtaStage.installing => '设备正在安装新固件，完成后会自动重启，请勿断电。',
+  OtaStage.waitingWake => '设备唤醒后会自动开始升级，请保持设备通电。',
+};
+
 Future<void> showOtaProgressDialog(
   BuildContext context, {
   required String deviceId,
@@ -50,6 +74,10 @@ class _OtaProgressDialog extends StatelessWidget {
     final status = ota?.status ?? OtaStatus.running;
     final percent = (ota?.percent ?? 0).clamp(0, 100);
     final running = status == OtaStatus.running;
+    final stage = ota?.displayStage ?? OtaStage.preparing;
+    // 准备中 / 安装中 / 等待唤醒没有可信的百分比：进度条改成来回走的动画、不写数字，
+    // 让人看得出在跑，而不是停在 0%。
+    final indeterminate = running && stage != OtaStage.upgrading;
     return PopScope(
       // 升级中不许返回键关掉：关了就再也看不到进度，用户只会以为升级没在跑。
       canPop: !running,
@@ -80,10 +108,11 @@ class _OtaProgressDialog extends StatelessWidget {
               children: <Widget>[
                 Text(
                   switch (status) {
-                    OtaStatus.running => '固件升级中',
+                    OtaStatus.running => otaRunningLabel(ota),
                     OtaStatus.success => '升级完成',
                     OtaStatus.failed => '升级失败',
                   },
+                  key: const Key('ota-progress-title'),
                   textAlign: TextAlign.center,
                   style: AppTypography.sectionTitle.copyWith(fontSize: 17),
                 ),
@@ -95,7 +124,11 @@ class _OtaProgressDialog extends StatelessWidget {
                     minHeight: 8,
                     // 失败时把进度条停在最后一次收到的百分比上，别归零——那看着
                     // 像从头再来。
-                    value: status == OtaStatus.success ? 1 : percent / 100,
+                    value: indeterminate
+                        ? null
+                        : status == OtaStatus.success
+                        ? 1
+                        : percent / 100,
                     backgroundColor: AppColors.canvas,
                     color: status == OtaStatus.failed
                         ? AppColors.danger
@@ -104,7 +137,12 @@ class _OtaProgressDialog extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 Text(
-                  status == OtaStatus.success ? '100%' : '$percent%',
+                  // 不写数字时留一行空白，弹层高度不跟着跳。
+                  indeterminate
+                      ? ''
+                      : status == OtaStatus.success
+                      ? '100%'
+                      : '$percent%',
                   key: const Key('ota-progress-percent'),
                   textAlign: TextAlign.center,
                   style: AppTypography.sectionTitle.copyWith(
@@ -115,7 +153,7 @@ class _OtaProgressDialog extends StatelessWidget {
                 const SizedBox(height: AppSpacing.sm),
                 Text(
                   switch (status) {
-                    OtaStatus.running => '升级过程中请保持设备通电，不要断开 Wi-Fi。',
+                    OtaStatus.running => _runningHint(stage),
                     OtaStatus.success => '设备已升级到新版本。',
                     OtaStatus.failed => ota?.message ?? '请稍后重试。',
                   },

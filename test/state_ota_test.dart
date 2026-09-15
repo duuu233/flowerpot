@@ -62,6 +62,83 @@ void main() {
     state.dispose();
   });
 
+  test('stage-only events keep the percent and never undo a result', () async {
+    final repository = _OtaRepository();
+    final state = await _state(repository);
+    await state.upgradeFirmware('device-01', '1.1.0');
+    expect(
+      state.otaProgressFor('device-01')?.displayStage,
+      OtaStage.preparing,
+    );
+
+    repository.pushOtaProgress(
+      const OtaProgress(
+        deviceId: 'device-01',
+        status: OtaStatus.running,
+        percent: 42,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    // 涂鸦只报阶段（6 固件已下载到设备）不带百分比：进度沿用 42，文案换成安装中。
+    repository.pushOtaProgress(
+      const OtaProgress(
+        deviceId: 'device-01',
+        status: OtaStatus.running,
+        stage: OtaStage.installing,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(state.otaProgressFor('device-01')?.percent, 42);
+    expect(
+      state.otaProgressFor('device-01')?.displayStage,
+      OtaStage.installing,
+    );
+
+    repository.pushOtaProgress(
+      const OtaProgress(deviceId: 'device-01', status: OtaStatus.success),
+    );
+    await Future<void>.delayed(Duration.zero);
+    // 迟到的进行中事件不能把「成功」改回去。
+    repository.pushOtaProgress(
+      const OtaProgress(
+        deviceId: 'device-01',
+        status: OtaStatus.running,
+        stage: OtaStage.upgrading,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
+    state.dispose();
+  });
+
+  test('display stage follows progress: 准备中 → 升级中 → 安装中', () {
+    OtaStage stageOf({int? percent, OtaStage? stage}) => OtaProgress(
+      deviceId: 'd',
+      status: OtaStatus.running,
+      percent: percent,
+      stage: stage,
+    ).displayStage;
+
+    expect(stageOf(percent: 0), OtaStage.preparing);
+    expect(stageOf(), OtaStage.preparing);
+    // 涂鸦报了「升级中」但设备还没回进度：仍说准备中，不写 0%。
+    expect(stageOf(percent: 0, stage: OtaStage.upgrading), OtaStage.preparing);
+    expect(stageOf(percent: 0, stage: OtaStage.waitingWake), OtaStage.waitingWake);
+    expect(stageOf(percent: 1), OtaStage.upgrading);
+    expect(stageOf(percent: 99), OtaStage.upgrading);
+    expect(stageOf(percent: 100), OtaStage.installing);
+    expect(stageOf(percent: 30, stage: OtaStage.installing), OtaStage.installing);
+
+    expect(OtaStage.fromTuya(13), OtaStage.preparing);
+    expect(OtaStage.fromTuya(14), OtaStage.preparing);
+    expect(OtaStage.fromTuya(100), OtaStage.preparing);
+    expect(OtaStage.fromTuya(2), OtaStage.upgrading);
+    expect(OtaStage.fromTuya(5), OtaStage.waitingWake);
+    expect(OtaStage.fromTuya(6), OtaStage.installing);
+    expect(OtaStage.fromTuya(3), isNull);
+    expect(OtaStage.fromTuya(null), isNull);
+  });
+
   test('a failure keeps the old version and carries the reason', () async {
     final repository = _OtaRepository();
     final state = await _state(repository);

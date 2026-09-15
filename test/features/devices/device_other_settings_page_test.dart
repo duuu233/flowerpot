@@ -262,9 +262,22 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     // 点「立即更新」只是通知涂鸦给设备下发升级：设备还在下载烧录，版本号不能
-    // 提前改，行上显示的是进度。
+    // 提前改。还没有进度时写「固件准备中」，不写「0%」（2026-09-15 产品：像卡住了）。
     expect(state.deviceById('device-01')?.firmwareVersion, '1.0.0');
-    expect(find.textContaining('升级中'), findsOneWidget);
+    expect(find.byKey(const Key('ota-progress-dialog')), findsOneWidget);
+    expect(find.text('固件准备中'), findsOneWidget);
+    expect(find.text('0%'), findsNothing);
+
+    repository.pushOtaProgress(
+      const OtaProgress(
+        deviceId: 'device-01',
+        status: OtaStatus.running,
+        percent: 42,
+      ),
+    );
+    await tester.pump();
+    expect(find.text('固件升级中'), findsOneWidget);
+    expect(find.text('42%'), findsOneWidget);
 
     repository.pushOtaProgress(
       const OtaProgress(deviceId: 'device-01', status: OtaStatus.success),

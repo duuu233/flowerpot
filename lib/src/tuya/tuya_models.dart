@@ -188,6 +188,7 @@ class OtaProgress {
     required this.status,
     this.percent,
     this.message,
+    this.stage,
   });
 
   final String deviceId;
@@ -198,9 +199,52 @@ class OtaProgress {
 
   /// 失败原因，仅 [OtaStatus.failed] 时有值。
   final String? message;
+
+  /// 原生报上来的升级阶段（涂鸦状态码换算），没报时为 null。见 [OtaStage.fromTuya]。
+  final OtaStage? stage;
+
+  /// 进行中时界面该说哪一句（2026-09-15 产品：一直停在「0%」像是卡住了，要动态换文案）。
+  ///
+  /// 以进度为主、涂鸦阶段为辅：
+  /// - 还没有进度（0%）→ 准备中；涂鸦报「等待设备唤醒」时说等待唤醒；
+  /// - 有进度（1–99%）→ 升级中；
+  /// - 进度到 100% 但还没收到成功，或涂鸦报「固件已下载到设备」→ 安装中（设备在写入、重启）。
+  OtaStage get displayStage {
+    if (stage == OtaStage.installing) return OtaStage.installing;
+    final value = percent ?? 0;
+    if (value >= 100) return OtaStage.installing;
+    if (value > 0) return OtaStage.upgrading;
+    return stage == OtaStage.waitingWake
+        ? OtaStage.waitingWake
+        : OtaStage.preparing;
+  }
 }
 
 enum OtaStatus { running, success, failed }
+
+/// 升级进行中的阶段。
+///
+/// 涂鸦（SDK 7.5.1 `DevUpgradeStatusEnum` 解包 + 官方文档）的进行中状态码：13 云端排队、
+/// 14 云端准备、100 App 准备、2 升级中、5 等待设备唤醒、6 固件已下载到设备。**没有**
+/// 独立的「下载中 / 传输中 / 安装中」，所以这里只分四段，文案由 [OtaProgress.displayStage]
+/// 按进度推出来。
+enum OtaStage {
+  preparing,
+  upgrading,
+  installing,
+  waitingWake;
+
+  static OtaStage? fromTuya(Object? raw) {
+    final value = raw is num ? raw.toInt() : int.tryParse('${raw ?? ''}');
+    return switch (value) {
+      13 || 14 || 100 => OtaStage.preparing,
+      2 => OtaStage.upgrading,
+      5 => OtaStage.waitingWake,
+      6 => OtaStage.installing,
+      _ => null,
+    };
+  }
+}
 
 /// 一个被分享到的接收方。
 ///

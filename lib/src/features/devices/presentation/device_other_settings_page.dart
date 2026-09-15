@@ -735,7 +735,7 @@ class _GeneralSettingsCard extends StatelessWidget {
             // 升级要跑几分钟，把设备回报的百分比顶到这一行，否则用户只能对着
             // 一个不动的加载态干等。
             value: switch (ota?.status) {
-              OtaStatus.running => '升级中 ${ota?.percent ?? 0}%',
+              OtaStatus.running => otaRunningLabel(ota, withPercent: true),
               OtaStatus.failed => ota?.message ?? '升级失败',
               _ => 'V${device.firmwareVersion}',
             },

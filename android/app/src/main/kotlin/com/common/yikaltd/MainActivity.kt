@@ -2583,6 +2583,17 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     emitOta(deviceId, "running", percent = percent)
                     defaultValue(method.returnType)
                 }
+                // IOtaListener.onStatusChanged(otaStatus, otaType)：涂鸦的升级阶段码。只转进行中的
+                // 那几个（13/14/100 准备、2 升级中、5 等待唤醒、6 固件已下载到设备，7.5.1
+                // DevUpgradeStatusEnum 解包核对）；成功 / 失败 / 超时由 onSuccess / onFailure 报，
+                // 这里再转一遍会把结论改回「进行中」。Dart 侧据此换「准备中 / 安装中」文案。
+                "onStatusChanged" -> {
+                    val code = (args?.firstOrNull() as? Number)?.toInt()
+                    if (code != null && code in setOf(2, 5, 6, 13, 14, 100)) {
+                        emitOta(deviceId, "running", stage = code)
+                    }
+                    defaultValue(method.returnType)
+                }
                 "onSuccess" -> {
                     onSuccess(args?.firstOrNull())
                     defaultValue(method.returnType)
@@ -2605,6 +2616,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         status: String,
         percent: Int? = null,
         message: String? = null,
+        stage: Int? = null,
     ) = emit(
         mapOf(
             "deviceId" to deviceId,
@@ -2612,6 +2624,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "status" to status,
                 "percent" to percent,
                 "message" to message,
+                "stage" to stage,
             ),
         ),
     )
