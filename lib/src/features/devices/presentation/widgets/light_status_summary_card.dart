@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../design_system/design_system.dart';
 import 'device_plant_artwork.dart';
+import 'status_metric_icon.dart';
 import '../../models/light_status_page_model.dart';
 
 class LightStatusSummaryCard extends StatelessWidget {
@@ -68,27 +69,41 @@ class LightStatusSummaryCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: _LightMetric(
-                  assetPath: AppAssets.statusLightIcon,
-                  value: '${model.illuminance}',
-                  unit: 'lux',
+          // 两组的排法照抄需水卡：整行左收 8、右收 4，两组各占一半且都靠左排，
+          // 中间竖线 1 宽、高 30、左右各留 9。原来两组在半边里居中、图标 32，
+          // 看着又小又往中间挤（2026-09-15 产品）。
+          Padding(
+            padding: const EdgeInsets.only(
+              left: StatusMetricIcon.rowInsetStart,
+              right: StatusMetricIcon.rowInsetEnd,
+            ),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: _LightMetric(
+                    key: const Key('light-metric-lux'),
+                    assetPath: AppAssets.metricLightIcon,
+                    value: '${model.illuminance}',
+                    unit: 'lux',
+                  ),
                 ),
-              ),
-              const SizedBox(
-                height: 38,
-                child: VerticalDivider(color: AppColors.divider),
-              ),
-              Expanded(
-                child: _LightMetric(
-                  assetPath: AppAssets.plantSelectionBadgeIcon,
-                  value: model.ppfd.toStringAsFixed(3),
-                  unit: 'μmol/m²/s',
+                Container(
+                  key: const Key('light-metric-divider'),
+                  width: 1,
+                  height: 30,
+                  margin: const EdgeInsets.symmetric(horizontal: 9),
+                  color: AppColors.divider,
                 ),
-              ),
-            ],
+                Expanded(
+                  child: _LightMetric(
+                    key: const Key('light-metric-ppfd'),
+                    assetPath: AppAssets.plantSelectionBadgeIcon,
+                    value: model.ppfd.toStringAsFixed(3),
+                    unit: 'μmol/m²/s',
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -101,6 +116,7 @@ class _LightMetric extends StatelessWidget {
     required this.assetPath,
     required this.value,
     required this.unit,
+    super.key,
   });
 
   final String assetPath;
@@ -110,16 +126,10 @@ class _LightMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
-        AppIconBadge(
-          assetPath: assetPath,
-          backgroundColor: Colors.transparent,
-          size: 32,
-          iconSize: 32,
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Flexible(
+        StatusMetricIcon(assetPath: assetPath),
+        const SizedBox(width: StatusMetricIcon.gap),
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[

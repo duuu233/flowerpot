@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../design_system/design_system.dart';
 import 'device_plant_artwork.dart';
+import 'status_metric_icon.dart';
 import '../../models/temperature_status_page_model.dart';
 
 class TemperatureStatusSummaryCard extends StatelessWidget {
@@ -70,17 +71,15 @@ class TemperatureStatusSummaryCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
+          // 图标大小、位置与需水卡一致，见 StatusMetricIcon。
           Row(
             children: <Widget>[
-              const SizedBox(width: 28),
-              const AppIconBadge(
-                assetPath: AppAssets.statusTemperatureIcon,
+              const SizedBox(width: StatusMetricIcon.rowInsetStart),
+              const StatusMetricIcon(
+                assetPath: AppAssets.metricTemperatureIcon,
                 semanticLabel: '空气温度',
-                backgroundColor: Colors.transparent,
-                size: 48,
-                iconSize: 48,
               ),
-              const SizedBox(width: AppSpacing.sm),
+              const SizedBox(width: StatusMetricIcon.gap),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

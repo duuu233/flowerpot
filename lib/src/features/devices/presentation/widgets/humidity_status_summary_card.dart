@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../design_system/design_system.dart';
 import 'device_plant_artwork.dart';
+import 'status_metric_icon.dart';
 import '../../models/humidity_status_page_model.dart';
 
 class HumidityStatusSummaryCard extends StatelessWidget {
@@ -64,11 +65,17 @@ class HumidityStatusSummaryCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
+          // 图标大小、位置与需水卡一致，见 StatusMetricIcon。湿度没有满幅的指标图标，
+          // 用顶部那张带透明边的，按比例放大到可见圆底 40。
           Row(
             children: <Widget>[
-              const SizedBox(width: 28),
-              const _HumidityBadge(size: 32),
-              const SizedBox(width: AppSpacing.sm),
+              const SizedBox(width: StatusMetricIcon.rowInsetStart),
+              const StatusMetricIcon(
+                assetPath: AppAssets.statusHumidityIcon,
+                transparentInset: StatusMetricIcon.statusIconInset,
+                semanticLabel: '相对湿度',
+              ),
+              const SizedBox(width: StatusMetricIcon.gap),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
