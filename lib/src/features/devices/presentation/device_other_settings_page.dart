@@ -11,10 +11,31 @@ import 'device_online_guard.dart';
 import 'widgets/ota_progress_dialog.dart';
 import 'widgets/water_level_calibration_dialog.dart';
 
-class DeviceOtherSettingsPage extends StatefulWidget {
-  const DeviceOtherSettingsPage({required this.deviceId, super.key});
+/// 「其他设置」的路由参数。老调用点传的裸 deviceId 字符串照样认。
+class DeviceOtherSettingsArguments {
+  const DeviceOtherSettingsArguments({
+    required this.deviceId,
+    this.startFirmwareUpgrade = false,
+  });
 
   final String deviceId;
+
+  /// 进页面就发起固件升级：固件升级提醒弹窗里点了「立刻更新」，用户已经确认过，
+  /// 不再弹「检查更新」确认框（2026-09-15 产品：跳转到其他设置并执行固件升级交互）。
+  final bool startFirmwareUpgrade;
+}
+
+class DeviceOtherSettingsPage extends StatefulWidget {
+  const DeviceOtherSettingsPage({
+    required this.deviceId,
+    super.key,
+    this.startFirmwareUpgrade = false,
+  });
+
+  final String deviceId;
+
+  /// 见 [DeviceOtherSettingsArguments.startFirmwareUpgrade]。
+  final bool startFirmwareUpgrade;
 
   @override
   State<DeviceOtherSettingsPage> createState() =>
@@ -33,7 +54,13 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     // FlowerpotState.refreshFirmwareUpdate。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      FlowerpotScope.of(context).refreshFirmwareUpdate(widget.deviceId);
+      final state = FlowerpotScope.of(context);
+      final device = state.deviceById(widget.deviceId);
+      if (widget.startFirmwareUpgrade && device != null) {
+        _checkFirmware(device, confirmed: true);
+        return;
+      }
+      state.refreshFirmwareUpdate(widget.deviceId);
     });
   }
 
@@ -155,7 +182,13 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
   /// 「发起」和「完成」是两件事：涂鸦的 `startOta` 返回时设备才刚开始下载，
   /// 之后几分钟的进度和最终成败都从事件通道回来（见 `FlowerpotState.otaUpdates`），
   /// 所以这里只负责起头，进度显示在功能行上。
-  Future<void> _checkFirmware(SmartPlanterDevice device) async {
+  ///
+  /// [confirmed] 为 true 时跳过「检查更新」确认框：用户已经在固件升级提醒弹窗里点过
+  /// 「立刻更新」，见 `FirmwareReminderHost`。
+  Future<void> _checkFirmware(
+    SmartPlanterDevice device, {
+    bool confirmed = false,
+  }) async {
     if (_updatingFirmware) return;
     final state = FlowerpotScope.of(context);
     // 升级发起后本地标志就复位了，真正的进行中状态在 state 里，否则用户能在
@@ -201,14 +234,16 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
         showAppMessage(context, '当前已是最新固件版本');
         return;
       }
-      setState(() => _updatingFirmware = false);
-      final confirmed = await showFirmwareUpdateDialog(
-        context,
-        currentVersion: currentVersion,
-        availableVersion: update.version,
-      );
-      if (!confirmed || !mounted) return;
-      setState(() => _updatingFirmware = true);
+      if (!confirmed) {
+        setState(() => _updatingFirmware = false);
+        final accepted = await showFirmwareUpdateDialog(
+          context,
+          currentVersion: currentVersion,
+          availableVersion: update.version,
+        );
+        if (!accepted || !mounted) return;
+        setState(() => _updatingFirmware = true);
+      }
       final result = await state.upgradeFirmware(
         widget.deviceId,
         update.version,

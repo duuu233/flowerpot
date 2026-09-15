@@ -25,6 +25,24 @@ void main() {
     expect(selected, <DeviceSettingsMenuKind>[DeviceSettingsMenuKind.display]);
   });
 
+  testWidgets('电池状态在设置页，图标和其它行一样大、没有底色', (tester) async {
+    // 2026-09-15 产品：电量状态从首页挪进设置，注意同步设置页面图标样式。
+    final selected = <DeviceSettingsMenuKind>[];
+    await _pumpSettings(tester, const Size(375, 812), onItemTap: selected.add);
+
+    final battery = find.text('电池状态');
+    expect(battery, findsOneWidget);
+    expect(find.text('94%'), findsOneWidget);
+    final icon = find.byKey(const Key('settings-battery-icon'));
+    expect(tester.getSize(icon), const Size(25, 25));
+
+    await tester.ensureVisible(battery);
+    await tester.pump();
+    await tester.tap(battery);
+    expect(selected, <DeviceSettingsMenuKind>[DeviceSettingsMenuKind.battery]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a waiting firmware puts a red dot on 其他设置', (tester) async {
     // 固件在「其他设置」里面，红点是用户在外面唯一能看见的提示。
     await _pumpSettings(tester, const Size(375, 812), firmwareUpdate: true);
@@ -113,6 +131,11 @@ Future<void> _pumpSettings(
       const DeviceSettingsMenuItem(
         kind: DeviceSettingsMenuKind.behavior,
         label: '行为',
+      ),
+      const DeviceSettingsMenuItem(
+        kind: DeviceSettingsMenuKind.battery,
+        label: '电池状态',
+        value: '94%',
       ),
       DeviceSettingsMenuItem(
         kind: DeviceSettingsMenuKind.other,

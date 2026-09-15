@@ -829,7 +829,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         }),
       );
 
-  /// 桥接回的是 `{version, currentVersion}`；装着旧原生包的机器只回一个版本号
+  /// 桥接回的是 `{version, currentVersion, upgradeType}`；装着旧原生包的机器只回一个版本号
   /// 字符串，那种情况按「只知道新版本」处理，不至于整块功能失效。
   static FirmwareUpdate? _firmwareUpdate(Object? raw) {
     String clean(Object? value) {
@@ -848,6 +848,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     return FirmwareUpdate(
       version: version,
       currentVersion: current.isEmpty ? null : current,
+      upgradeType: FirmwareUpgradeType.fromTuya(raw['upgradeType']),
     );
   }
 

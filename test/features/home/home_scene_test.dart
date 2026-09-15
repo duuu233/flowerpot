@@ -53,9 +53,10 @@ void main() {
 
     expect(findAssetImage(AppAssets.selectPlantIcon), findsOneWidget);
     expect(findAssetImage(AppAssets.plantIcon), findsNothing);
-    // 2026-09-14 起四项：定制动画 / 电池状态 / 帮助中心 / 设置。
+    // 2026-09-15 起三项：定制动画 / 帮助中心 / 设置（电池状态挪进设备设置页）。
     final chevrons = findAssetImage(AppAssets.chevronRightIcon);
-    expect(chevrons, findsNWidgets(4));
+    expect(chevrons, findsNWidgets(3));
+    expect(findAssetImage(AppAssets.batteryStatusIcon), findsNothing);
     expect(findAssetImage(AppAssets.helpCenterIcon), findsOneWidget);
     for (final image in tester.widgetList<Image>(chevrons)) {
       expect(image.width, AppTrailingChevron.dimension);

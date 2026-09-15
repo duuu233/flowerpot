@@ -307,6 +307,35 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('从升级提醒过来：不再弹检查更新框，直接发起升级', (tester) async {
+    // 2026-09-15 产品：提醒 / 强制升级弹框点「立刻更新」→ 跳到其他设置并执行固件升级交互。
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final state = await _stateWithDevice();
+    addTearDown(state.dispose);
+    await state.refreshFirmwareUpdate('device-01');
+
+    await tester.pumpWidget(
+      FlowerpotScope(
+        state: state,
+        child: MaterialApp(
+          theme: buildAppTheme(),
+          home: const DeviceOtherSettingsPage(
+            deviceId: 'device-01',
+            startFirmwareUpgrade: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byKey(const Key('firmware-update-dialog')), findsNothing);
+    expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('settings menu opens the full other settings page', (
     tester,
   ) async {

@@ -46,6 +46,9 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
-    return state.devices.isEmpty ? const HomePage() : const DeviceListPage();
+    // 手机没网、设备列表没读出来时不能落到「添加设备」页——那等于告诉用户账号下
+    // 没设备。进设备列表，由它画无网络缺省页（2026-09-15 产品）。
+    final showList = state.devices.isNotEmpty || state.deviceLoadOffline;
+    return showList ? const DeviceListPage() : const HomePage();
   }
 }

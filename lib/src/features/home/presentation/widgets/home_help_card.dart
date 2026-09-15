@@ -5,7 +5,7 @@ import '../../../../design_system/design_system.dart';
 /// 首页底部的使用帮助卡：「1. 首次使用指南」等几条。
 ///
 /// ⚠️ **纯文本，不可点**（2026-09-14 产品：去掉首次使用指南的点击跳转，只是纯文本展示）。
-/// 帮助中心的入口挪到了上面快捷列表里「电池状态」下方（`HomeActionKind.help`）。
+/// 帮助中心的入口挪到了上面快捷列表里（`HomeActionKind.help`）。
 class HomeHelpCard extends StatelessWidget {
   const HomeHelpCard({required this.topics, super.key});
 

@@ -139,9 +139,7 @@ abstract final class AppRoutes {
       deviceList => const DeviceListPage(),
       deviceHome => _deviceHomePage(settings.arguments),
       deviceInfo => DeviceInfoPage(deviceId: settings.arguments! as String),
-      deviceOtherSettings => DeviceOtherSettingsPage(
-        deviceId: settings.arguments! as String,
-      ),
+      deviceOtherSettings => _deviceOtherSettingsPage(settings.arguments),
       reports => ReportsPage(arguments: settings.arguments! as ReportArguments),
       lightStatus => LightStatusPage(deviceId: settings.arguments! as String),
       waterStatus => _waterStatusPage(settings.arguments),
@@ -239,6 +237,32 @@ abstract final class AppRoutes {
     }
     return HomePage(deviceId: arguments as String?, showBackButton: true);
   }
+
+  /// 其他设置：收 [DeviceOtherSettingsArguments]，也仍然收裸 deviceId 字符串。
+  static Widget _deviceOtherSettingsPage(Object? arguments) {
+    if (arguments is DeviceOtherSettingsArguments) {
+      return DeviceOtherSettingsPage(
+        deviceId: arguments.deviceId,
+        startFirmwareUpgrade: arguments.startFirmwareUpgrade,
+      );
+    }
+    return DeviceOtherSettingsPage(deviceId: arguments! as String);
+  }
+
+  /// 这一页是哪台设备的；参数里没带设备（例如植物详情）时返回 null。
+  ///
+  /// 设备页的参数有好几种：裸 deviceId 字符串，或带 deviceId 的参数对象。
+  static String? deviceIdOf(RouteSettings settings) =>
+      switch (settings.arguments) {
+        final String id => id,
+        HomeDeviceArguments(:final deviceId) => deviceId,
+        WaterStatusArguments(:final deviceId) => deviceId,
+        PlantPickerArguments(:final deviceId) => deviceId,
+        ReportArguments(:final deviceId) => deviceId,
+        MemorialEditArguments(:final deviceId) => deviceId,
+        DeviceOtherSettingsArguments(:final deviceId) => deviceId,
+        _ => null,
+      };
 
   static Widget _waterStatusPage(Object? arguments) {
     if (arguments is WaterStatusArguments) {

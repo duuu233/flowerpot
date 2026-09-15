@@ -10,6 +10,7 @@ enum DeviceSettingsMenuKind {
   vibration,
   behavior,
   memorial,
+  battery,
   other,
 }
 
@@ -97,8 +98,14 @@ class DeviceSettingsPageModel {
           kind: DeviceSettingsMenuKind.memorial,
           label: '纪念日',
         ),
-        // 帮助中心 2026-09-08 从「我的」搬到这里，2026-09-14 又按产品要求挪到首页快捷列表
-        // （电池状态下方），这里不再保留。
+        // 2026-09-15 产品：电池状态从首页快捷列表挪到这里。
+        DeviceSettingsMenuItem(
+          kind: DeviceSettingsMenuKind.battery,
+          label: '电池状态',
+          value: '${device.battery}%',
+        ),
+        // 帮助中心 2026-09-08 从「我的」搬到这里，2026-09-14 又按产品要求挪到首页快捷列表，
+        // 这里不再保留。
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.other,
           label: '其他设置',

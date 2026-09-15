@@ -8,62 +8,7 @@ import '../routes/app_routes.dart';
 import '../shared/l10n/app_l10n.dart';
 import '../shared/widgets/blocking_progress.dart';
 import '../state.dart';
-
-/// 根 Navigator 的路由栈。「网络异常」弹窗靠它知道：现在是哪一页（配网动线上不弹、
-/// 「重试」刷新哪一页），以及最上面是不是正盖着别的弹框。
-///
-/// 挂在 `FlowerpotApp` 的 `navigatorObservers` 上。
-class NetworkRouteTracker extends NavigatorObserver {
-  final List<Route<dynamic>> _routes = <Route<dynamic>>[];
-
-  /// 路由栈变了。由 [NetworkAlertHost] 设置。
-  VoidCallback? onChanged;
-
-  /// 最上面那一「页」；对话框、底部弹层、进度圈不算页。
-  Route<dynamic>? get currentPage {
-    for (final route in _routes.reversed) {
-      if (route is PageRoute) return route;
-    }
-    return null;
-  }
-
-  /// 最上面正盖着对话框 / 底部弹层 / 进度圈。
-  bool get popupOnTop => _routes.isNotEmpty && _routes.last is! PageRoute;
-
-  @override
-  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    _routes.add(route);
-    onChanged?.call();
-  }
-
-  @override
-  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    _routes.remove(route);
-    onChanged?.call();
-  }
-
-  @override
-  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    _routes.remove(route);
-    onChanged?.call();
-  }
-
-  @override
-  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
-    // didReplace 与 didRemove 谁先到不作假设：两边都按「在不在栈里」幂等处理。
-    final index = oldRoute == null ? -1 : _routes.indexOf(oldRoute);
-    if (newRoute != null && !_routes.contains(newRoute)) {
-      if (index >= 0) {
-        _routes[index] = newRoute;
-      } else {
-        _routes.add(newRoute);
-      }
-    } else if (index >= 0) {
-      _routes.removeAt(index);
-    }
-    onChanged?.call();
-  }
-}
+import 'app_route_tracker.dart';
 
 /// 登记了「重试时怎么刷新」的页面。见 [NetworkRetryAware]。
 final List<NetworkRetryAware> _retryPages = <NetworkRetryAware>[];
@@ -122,7 +67,7 @@ class NetworkAlertHost extends StatefulWidget {
   });
 
   final FlowerpotState state;
-  final NetworkRouteTracker routes;
+  final AppRouteTracker routes;
 
   /// 闪屏期间为 false；变成 true 的那一刻做冷启动那次检查。
   final bool enabled;
@@ -166,7 +111,7 @@ class _NetworkAlertHostState extends State<NetworkAlertHost>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    widget.routes.onChanged = _routesChanged;
+    widget.routes.addListener(_routesChanged);
     _failures = NetworkStatus.failures.listen((_) => unawaited(_check()));
     if (widget.enabled) _checkAfterFrame();
   }
@@ -175,8 +120,8 @@ class _NetworkAlertHostState extends State<NetworkAlertHost>
   void didUpdateWidget(covariant NetworkAlertHost oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.routes, widget.routes)) {
-      oldWidget.routes.onChanged = null;
-      widget.routes.onChanged = _routesChanged;
+      oldWidget.routes.removeListener(_routesChanged);
+      widget.routes.addListener(_routesChanged);
     }
     if (widget.enabled && !oldWidget.enabled) _checkAfterFrame();
   }
@@ -198,9 +143,7 @@ class _NetworkAlertHostState extends State<NetworkAlertHost>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    if (widget.routes.onChanged == _routesChanged) {
-      widget.routes.onChanged = null;
-    }
+    widget.routes.removeListener(_routesChanged);
     unawaited(_failures?.cancel());
     _resumeTimer?.cancel();
     _cooldown?.cancel();

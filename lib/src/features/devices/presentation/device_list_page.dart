@@ -52,6 +52,9 @@ class DeviceListPage extends StatelessWidget {
   Future<void> _reload(BuildContext context, FlowerpotState state) async {
     final result = await state.reloadDevices();
     if (!context.mounted || result.success) return;
+    // 没网时页面本身就写着「当前网络不可用」，全局「网络异常」弹窗也会出来，
+    // 再叠一条红色 toast 是第三遍。
+    if (state.deviceLoadOffline) return;
     showAppMessage(context, result.message, tone: AppMessageTone.error);
   }
 
@@ -87,7 +90,9 @@ class DeviceListPage extends StatelessWidget {
           padding: EdgeInsets.zero,
           // 读取失败和「账号下真的没有设备」要分开：都画成「暂无设备」的话，
           // 重新登录后列表拉不出来，用户看到的就是设备全部消失。
-          child: items.isEmpty && state.deviceLoadError != null
+          child: items.isEmpty && state.deviceLoadOffline
+              ? _DeviceListOffline(onRetry: () => _reload(context, state))
+              : items.isEmpty && state.deviceLoadError != null
               ? _DeviceListError(
                   message: state.deviceLoadError!,
                   diagnostics: state.sessionDiagnostics,
@@ -345,6 +350,59 @@ class _DeviceListError extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         _SessionDiagnosticsLine(text: diagnostics),
+      ],
+    );
+  }
+}
+
+/// 手机没网、设备列表没读出来时的缺省页（2026-09-15 产品）。
+///
+/// 文案固定「当前网络不可用，请检查网络后重试」+「重试」。和全局「网络异常」弹窗并存：
+/// 弹窗点「取消」之后，用户落在这一页上仍然知道发生了什么、还能再试。版式照
+/// [_EmptyDeviceList]：保持可下拉，下拉和「重试」走同一个刷新。
+class _DeviceListOffline extends StatelessWidget {
+  const _DeviceListOffline({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      key: const Key('device-list-offline'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.pageMargin,
+        180,
+        AppSpacing.pageMargin,
+        24,
+      ),
+      children: <Widget>[
+        const Icon(
+          Icons.wifi_off_rounded,
+          size: 54,
+          color: AppColors.brandPrimary,
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          '当前网络不可用，请检查网络后重试',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 16,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 24),
+        Center(
+          child: SizedBox(
+            width: 160,
+            child: AppPrimaryButton(
+              key: const Key('device-list-offline-retry'),
+              label: '重试',
+              onPressed: onRetry,
+            ),
+          ),
+        ),
       ],
     );
   }

@@ -424,7 +424,6 @@ class _HomePageState extends State<HomePage> with NetworkRetryAware<HomePage> {
     }
     final route = switch (kind) {
       HomeActionKind.animation => AppRoutes.animations,
-      HomeActionKind.battery => AppRoutes.batteryStatus,
       HomeActionKind.settings => AppRoutes.deviceSettings,
       HomeActionKind.help => AppRoutes.help,
     };

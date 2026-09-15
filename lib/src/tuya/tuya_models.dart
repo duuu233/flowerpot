@@ -1130,14 +1130,46 @@ enum PairingStage {
 /// 两个版本号必须来自同一条 OTA 记录：设备可能有 MCU、Wi-Fi 模块等几个可升级
 /// 组件，各自版本号不同。以前「当前版本」取的是设备列表里的字段、「新版本」取
 /// 的是 OTA 记录，两者根本不是同一个东西，弹窗上两行对不上。
+/// 涂鸦平台上给这次固件配的「升级方式」，即 OTA 记录的 `upgradeType`。
+///
+/// 取值 2026-09-15 解包 Android SDK 7.5.1 核对：`UpgradeInfoBean.UPGRADE_TYPE_REMIND = 0`、
+/// `UPGRADE_TYPE_FORCED = 2`、`UPGRADE_TYPE_CHECKING = 3`；iOS
+/// `ThingSmartFirmwareUpgradeModel.upgradeType` 同一套。平台上的说明：
+/// - App 提醒升级：用户进入设备面板主动提醒，用户可以选择是否升级；
+/// - App 强制升级：升级提醒主动推送给用户，用户无选择权利，必须升级；
+/// - App 检测升级：不主动推送，要用户主动发起版本检测才看得到。
+enum FirmwareUpgradeType {
+  remind,
+  force,
+  check;
+
+  /// 认不出的值（含老原生包不回这个字段）按「检测升级」处理：只亮小红点、不弹窗，
+  /// 也就是这个字段加进来之前的行为。
+  static FirmwareUpgradeType fromTuya(Object? raw) {
+    final value = raw is num ? raw.toInt() : int.tryParse('${raw ?? ''}');
+    return switch (value) {
+      0 => FirmwareUpgradeType.remind,
+      2 => FirmwareUpgradeType.force,
+      _ => FirmwareUpgradeType.check,
+    };
+  }
+}
+
 class FirmwareUpdate {
-  const FirmwareUpdate({required this.version, this.currentVersion});
+  const FirmwareUpdate({
+    required this.version,
+    this.currentVersion,
+    this.upgradeType = FirmwareUpgradeType.check,
+  });
 
   /// 待安装的新版本号。
   final String version;
 
   /// 涂鸦在同一条 OTA 记录里报的「该组件当前版本」，SDK 没给时为 null。
   final String? currentVersion;
+
+  /// 平台上配的升级方式，决定设备页弹不弹提醒，见 [FirmwareUpgradeType]。
+  final FirmwareUpgradeType upgradeType;
 }
 
 class WifiScan {

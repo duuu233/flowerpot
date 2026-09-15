@@ -153,6 +153,7 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage>
       DeviceSettingsMenuKind.vibration => AppRoutes.vibrationSettings,
       DeviceSettingsMenuKind.behavior => AppRoutes.behaviorSettings,
       DeviceSettingsMenuKind.memorial => AppRoutes.memorial,
+      DeviceSettingsMenuKind.battery => AppRoutes.batteryStatus,
       DeviceSettingsMenuKind.other => AppRoutes.deviceOtherSettings,
       DeviceSettingsMenuKind.plantDetection => AppRoutes.plantDetectionSettings,
     };

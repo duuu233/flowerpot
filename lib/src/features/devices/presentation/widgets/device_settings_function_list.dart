@@ -100,6 +100,16 @@ class _LeadingIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (kind == DeviceSettingsMenuKind.battery) {
+      return Semantics(
+        label: label,
+        child: const SizedBox.square(
+          key: Key('settings-battery-icon'),
+          dimension: 25,
+          child: CustomPaint(painter: _BatteryLinePainter()),
+        ),
+      );
+    }
     final asset = _assetFor(kind);
     if (asset == null) {
       return Icon(
@@ -129,6 +139,7 @@ class _LeadingIcon extends StatelessWidget {
     DeviceSettingsMenuKind.other => AppAssets.settingsOtherIcon,
     DeviceSettingsMenuKind.led ||
     DeviceSettingsMenuKind.memorial ||
+    DeviceSettingsMenuKind.battery ||
     DeviceSettingsMenuKind.plantDetection => null,
   };
 
@@ -137,4 +148,48 @@ class _LeadingIcon extends StatelessWidget {
     DeviceSettingsMenuKind.plantDetection => Icons.eco_outlined,
     _ => Icons.lightbulb_outline,
   };
+}
+
+/// 「电池状态」那一行的图标（2026-09-15 挪进设置页）。
+///
+/// 这一列的切图是品牌青 `#70AFB5`、无底色的描边图标（40 px 图里线宽约 2.5，画在 25 上
+/// 约 1.6），Figma 没给电池这一枚；Material 的电池图标是实心的，和旁边几枚对不上，
+/// 所以按同样的颜色和线宽自己画：圆角电池外框 + 正极 + 闪电。坐标按 24 格设计，随尺寸缩放。
+class _BatteryLinePainter extends CustomPainter {
+  const _BatteryLinePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final unit = size.shortestSide / 24;
+    final paint = Paint()
+      ..color = AppColors.brandPrimary
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5 * unit
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawRRect(
+      RRect.fromLTRBR(
+        2 * unit,
+        6.5 * unit,
+        19.5 * unit,
+        17.5 * unit,
+        Radius.circular(2.4 * unit),
+      ),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(22 * unit, 10.2 * unit),
+      Offset(22 * unit, 13.8 * unit),
+      paint,
+    );
+    final bolt = Path()
+      ..moveTo(12.2 * unit, 8.8 * unit)
+      ..lineTo(9.2 * unit, 12.3 * unit)
+      ..lineTo(12.3 * unit, 12.3 * unit)
+      ..lineTo(9.4 * unit, 15.2 * unit);
+    canvas.drawPath(bolt, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BatteryLinePainter oldDelegate) => false;
 }

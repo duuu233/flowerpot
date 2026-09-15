@@ -196,16 +196,17 @@ class InteractionLogRouteObserver extends NavigatorObserver {
     if (name == null || !name.startsWith('/devices/')) return;
     final label = pageLabels[name] ?? name;
     final keys = pageSettingKeys[name];
-    final arguments = route.settings.arguments;
+    // 其他设置的参数可能是 DeviceOtherSettingsArguments，统一按路由解出设备 id。
+    final deviceId = AppRoutes.deviceIdOf(route.settings);
 
     // didPush 发生在一帧当中，直接 notifyListeners 会撞上「build 期间
     // markNeedsBuild」，所以推到帧末再记。
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (keys == null || arguments is! String) {
+      if (keys == null || deviceId == null) {
         state.logPageEntry(label);
         return;
       }
-      state.logSettingsSnapshot(arguments, label, keys);
+      state.logSettingsSnapshot(deviceId, label, keys);
     });
   }
 }

@@ -2,40 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
-import '../../../tuya/tuya_models.dart';
 import '../models/battery_status_page_model.dart';
 import 'widgets/battery_status_summary_card.dart';
-import 'widgets/battery_trend_chart_card.dart';
-import 'widgets/metric_history_empty_card.dart';
 
-class BatteryStatusPage extends StatefulWidget {
+/// 电池状态。入口在设备设置页（2026-09-15 从首页快捷列表挪过去）。
+///
+/// 只有顶部这张摘要卡：功能点表里没有电池的历史 DP（只有 103 电量、104 状态、
+/// 145 充电中三个实时值），电量历史报表 2026-09-15 按产品要求删掉，日期切换一并去掉。
+class BatteryStatusPage extends StatelessWidget {
   const BatteryStatusPage({required this.deviceId, super.key});
 
   final String deviceId;
 
   @override
-  State<BatteryStatusPage> createState() => _BatteryStatusPageState();
-}
-
-class _BatteryStatusPageState extends State<BatteryStatusPage> {
-  int periodOffset = 0;
-  late Future<List<double>> history;
-  bool initialized = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!initialized) {
-      history = FlowerpotScope.of(
-        context,
-      ).historyFor(widget.deviceId, SensorMetric.battery, ReportRange.day);
-      initialized = true;
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final device = FlowerpotScope.of(context).deviceById(widget.deviceId);
+    final device = FlowerpotScope.of(context).deviceById(deviceId);
     if (device == null) {
       return AppPageScaffold(
         appBar: const AppPageHeader(title: '电池状态', leading: AppBackButton()),
@@ -56,72 +37,11 @@ class _BatteryStatusPageState extends State<BatteryStatusPage> {
                 AppSpacing.pageMargin,
                 32,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  BatteryStatusSummaryCard(model: summaryModel),
-                  const SizedBox(height: AppSpacing.sm),
-                  DateRangeNavigator(
-                    label: _dateLabel(),
-                    onPrevious: () => setState(() => periodOffset--),
-                    onNext: periodOffset < 0
-                        ? () => setState(() => periodOffset++)
-                        : null,
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  FutureBuilder<List<double>>(
-                    future: history,
-                    builder: (context, snapshot) {
-                      if (snapshot.hasError) {
-                        return const AppSurfaceCard(
-                          child: SizedBox(
-                            height: 220,
-                            child: AppErrorView(
-                              title: '电量历史读取失败',
-                              message: '请稍后重试。',
-                            ),
-                          ),
-                        );
-                      }
-                      if (!snapshot.hasData) {
-                        return const AppSurfaceCard(
-                          child: SizedBox(
-                            height: 236,
-                            child: AppLoading(label: '正在读取电量历史'),
-                          ),
-                        );
-                      }
-                      final values = snapshot.data!;
-                      // DP 103 reports the level, but the product has no
-                      // battery history function point, so this stays empty on
-                      // a real device.
-                      if (values.isEmpty) {
-                        return const MetricHistoryEmptyCard(title: '暂无电量历史');
-                      }
-                      return BatteryTrendChartCard(
-                        values: values,
-                        labels: const <String>[
-                          '00:00',
-                          '05:00',
-                          '10:00',
-                          '15:00',
-                          '20:00',
-                          '00:00',
-                        ],
-                      );
-                    },
-                  ),
-                ],
-              ),
+              child: BatteryStatusSummaryCard(model: summaryModel),
             ),
           ),
         ],
       ),
     );
-  }
-
-  String _dateLabel() {
-    final date = DateTime.now().add(Duration(days: periodOffset));
-    return '${date.month}月${date.day}日';
   }
 }

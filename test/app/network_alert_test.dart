@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flowerpot/src/app/app_route_tracker.dart';
 import 'package:flowerpot/src/app/network_alert.dart';
 import 'package:flowerpot/src/core/network/network_status.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
@@ -26,7 +27,7 @@ void main() {
       repository: MockTuyaRepository(latency: Duration.zero),
     );
     addTearDown(state.dispose);
-    final routes = NetworkRouteTracker();
+    final routes = AppRouteTracker();
     await tester.pumpWidget(
       MaterialApp(
         navigatorObservers: <NavigatorObserver>[routes],

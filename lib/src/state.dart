@@ -72,6 +72,12 @@ class FlowerpotState extends ChangeNotifier {
   /// 「暂无设备」，用户重新登录后设备读不出来，看起来就像设备全没了。
   String? _deviceLoadError;
 
+  /// 最近一次读设备列表失败时，手机是不是没网（失败后用 [NetworkStatus.probe] 查的）。
+  ///
+  /// 没网读不到设备，和「账号下没设备」是两回事：前者不能把用户落到「添加设备」页，
+  /// 要进设备列表的无网络缺省页（2026-09-15 产品）。读成功一次就清掉。
+  bool _deviceLoadOffline = false;
+
   /// 最近一次 APP 后端会话失效的原因，重新登录成功后清空。
   String? _backendSessionError;
 
@@ -172,6 +178,9 @@ class FlowerpotState extends ChangeNotifier {
   List<SmartPlanterDevice> get devices => List.unmodifiable(_devices);
 
   String? get deviceLoadError => _deviceLoadError;
+
+  /// 见 [_deviceLoadOffline]。
+  bool get deviceLoadOffline => _deviceLoadOffline;
 
   String? get lastHomeId => _lastHomeId;
 
@@ -3277,6 +3286,15 @@ class FlowerpotState extends ChangeNotifier {
     await _refreshDevicesForSession(ignoreErrors: true);
   }
 
+  /// 手机现在有没有网。判断不了时当有网：宁可落到原来的页面，也不冤枉网络。
+  static Future<bool> _networkAvailable() async {
+    try {
+      return await NetworkStatus.probe();
+    } catch (_) {
+      return true;
+    }
+  }
+
   static String _homeKey(String key) => 'tuyaHome:$key';
 
   static String _accountKeyStore(String uid) => 'backendUserId:$uid';
@@ -3506,6 +3524,7 @@ class FlowerpotState extends ChangeNotifier {
         if (epoch != _sessionEpoch) return;
       }
       _deviceLoadError = null;
+      _deviceLoadOffline = false;
       // 设备清单是按家庭查的，把这次用的家庭一起记下来：上面那次 getDevices 已经
       // 把家庭解析并缓存在原生侧，这里只是把它读回来，不会再触发一次云端查询。
       final home = await _repository.currentHomeId().catchError((_) => '?');
@@ -3526,6 +3545,8 @@ class FlowerpotState extends ChangeNotifier {
       if (epoch != _sessionEpoch) return;
       // 失败不清空已有列表：断网重进时保留上一次拿到的设备，比直接白屏好。
       _deviceLoadError = _deviceLoadMessage(error);
+      _deviceLoadOffline = !await _networkAvailable();
+      if (epoch != _sessionEpoch) return;
       _logDevices();
       notifyListeners();
       if (!ignoreErrors) rethrow;
@@ -3649,6 +3670,7 @@ class FlowerpotState extends ChangeNotifier {
     _user = null;
     _devices = <SmartPlanterDevice>[];
     _deviceLoadError = null;
+    _deviceLoadOffline = false;
     _pinnedHome = null;
     _backendSessionError = null;
     _plantedDevices.clear();

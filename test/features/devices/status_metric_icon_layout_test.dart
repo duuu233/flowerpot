@@ -1,8 +1,10 @@
 import 'package:flowerpot/src/design_system/design_system.dart';
+import 'package:flowerpot/src/features/devices/models/battery_status_page_model.dart';
 import 'package:flowerpot/src/features/devices/models/humidity_status_page_model.dart';
 import 'package:flowerpot/src/features/devices/models/light_status_page_model.dart';
 import 'package:flowerpot/src/features/devices/models/temperature_status_page_model.dart';
 import 'package:flowerpot/src/features/devices/models/water_status_page_model.dart';
+import 'package:flowerpot/src/features/devices/presentation/widgets/battery_status_summary_card.dart';
 import 'package:flowerpot/src/features/devices/presentation/widgets/humidity_status_summary_card.dart';
 import 'package:flowerpot/src/features/devices/presentation/widgets/light_status_summary_card.dart';
 import 'package:flowerpot/src/features/devices/presentation/widgets/status_metric_icon.dart';
@@ -12,7 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 2026-09-15 产品：光照、湿度、温度三个状态页卡片底部的图标太小、位置不对，
-/// 需水是正常的——三页的图标大小与位置都要和需水卡一致。
+/// 需水是正常的——三页的图标大小与位置都要和需水卡一致；电池状态随后提了同一个问题。
 void main() {
   const water = WaterStatusPageModel(
     deviceId: 'device-01',
@@ -37,6 +39,13 @@ void main() {
     description: '温度刚刚好，植物正舒服地长着呢，继续保持。',
     temperature: 26.9,
     advice: '适宜温度范围为18°C~28°C。',
+  );
+  const battery = BatteryStatusPageModel(
+    deviceId: 'device-01',
+    status: '充电中',
+    description: '已连接电源，建议长期连接电源使用。',
+    battery: 94,
+    charging: true,
   );
   const humidity = HumidityStatusPageModel(
     deviceId: 'device-01',
@@ -78,7 +87,7 @@ void main() {
     matching: find.byType(AppIconBadge),
   );
 
-  testWidgets('light, temperature and humidity icons match the water card', (
+  testWidgets('light, temperature, humidity and battery icons match water', (
     tester,
   ) async {
     final level = (await iconRects(
@@ -109,6 +118,7 @@ void main() {
     for (final card in const <Widget>[
       TemperatureStatusSummaryCard(model: temperature),
       HumidityStatusSummaryCard(model: humidity),
+      BatteryStatusSummaryCard(model: battery),
     ]) {
       final icon = (await iconRects(
         tester,

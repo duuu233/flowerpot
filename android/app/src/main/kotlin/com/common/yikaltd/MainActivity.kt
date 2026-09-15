@@ -2504,6 +2504,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                             "version" to optionalGetter(it, "getVersion")?.toString(),
                             "currentVersion" to
                                 optionalGetter(it, "getCurrentVersion")?.toString(),
+                            // 平台配的升级方式：0 提醒 / 2 强制 / 3 检测
+                            // （UpgradeInfoBean.UPGRADE_TYPE_*，7.5.1 解包核对）。
+                            "upgradeType" to
+                                (optionalGetter(it, "getUpgradeType") as? Number)?.toInt(),
                         )
                     },
                 )

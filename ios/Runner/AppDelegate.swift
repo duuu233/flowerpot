@@ -600,6 +600,8 @@ final class FlowerpotTuyaBridge: NSObject {
         result([
           "version": pending.version,
           "currentVersion": pending.currentVersion,
+          // 平台配的升级方式：0 提醒 / 2 强制 / 3 检测，与 Android 一致。
+          "upgradeType": pending.upgradeType,
         ])
       } else {
         result(nil)
