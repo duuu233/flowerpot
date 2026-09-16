@@ -36,6 +36,10 @@ dependencies:
   crypto: ^3.0.6
   cupertino_icons: ^1.0.8
   http: ^1.2.2
+  # 纯 Dart 的图像库，只用它的 JPEG 编码器：上传前把图片压到 48 万像素 / 1 MB
+  # （见 lib/src/shared/media/upload_image.dart）。解码和缩放仍走 dart:ui，
+  # dart:ui 只能编 PNG，所以编码这一步得靠它。
+  image: ^4.10.1
   image_picker: ^1.1.2
   shared_preferences: ^2.3.2
 

@@ -63,7 +63,7 @@ void main() {
       waterNeeds: WaterNeedsStatus.watery,
       lighting: LightingCondition.shortage,
     );
-    expect(TuyaStatusCopy.waterNeeds[device.waterNeeds]!.label, '喝撑了');
-    expect(TuyaStatusCopy.lighting[device.lighting]!.label, '晒不够');
+    expect(TuyaStatusCopy.waterNeeds[device.waterNeeds]!.label, '快淹了');
+    expect(TuyaStatusCopy.lighting[device.lighting]!.label, '天黑了吗');
   });
 }

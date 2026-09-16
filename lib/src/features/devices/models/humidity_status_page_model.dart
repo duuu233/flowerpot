@@ -11,7 +11,8 @@ class HumidityStatusPageModel {
   });
 
   /// 这一页读的实时 / 状态 DP，写法同 `WaterStatusPageModel.reportedDps`。
-  /// 功能点表里**没有空气湿度历史 DP**，曲线只能是空态。
+  /// 历史曲线另走 165（`humi_daily_hist`，只有日），见 `TuyaConfig.history` 的
+  /// humidity。
   static const reportedDps = <String>[
     'air_humidity', // 114，倍数 1：原值 ÷10
     'air_humidity_status', // 115

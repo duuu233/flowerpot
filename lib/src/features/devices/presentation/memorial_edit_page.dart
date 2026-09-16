@@ -7,6 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../shared/l10n/app_l10n.dart';
+import '../../../shared/media/upload_image.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_memorial_codec.dart';
 import 'device_online_guard.dart';
 
@@ -82,7 +84,16 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
       imageQuality: 88,
     );
     if (file == null || !mounted) return;
-    setState(() => _pickedImagePath = file.path);
+    // 纪念日图片和定制动画一样进花盆屏幕：选完就压到总像素 48 万、1 MB 以内，
+    // 见 [UploadImage]。压在这里而不是保存时，预览看到的就是真正会传上去的那张。
+    final path = await withBlockingProgress(
+      context,
+      () => UploadImage.prepare(file.path),
+    );
+    if (!mounted) return;
+    // withBlockingProgress 的返回值是可空的（泛型带的），prepare 自己不抛也不返回
+    // null，兜底回原图路径只是让类型收口。
+    setState(() => _pickedImagePath = path ?? file.path);
   }
 
   Future<void> _save() async {

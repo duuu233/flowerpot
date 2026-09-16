@@ -10,6 +10,7 @@ import '../models/light_status_page_model.dart';
 import 'widgets/light_dli_bar_chart.dart';
 import 'widgets/light_status_summary_card.dart';
 import 'widgets/metric_history_empty_card.dart';
+import 'widgets/water_trend_line_chart.dart';
 
 class LightStatusPage extends StatefulWidget {
   const LightStatusPage({required this.deviceId, super.key});
@@ -21,9 +22,23 @@ class LightStatusPage extends StatefulWidget {
 }
 
 class _LightStatusPageState extends State<LightStatusPage> {
-  ReportRange range = ReportRange.week;
+  /// 进页面默认看日历史（2026-09-16 产品）。以前默认是周，用户要多点一下才看得到
+  /// 今天。
+  ReportRange range = ReportRange.day;
   int periodOffset = 0;
   bool initialized = false;
+
+  /// 日视图横轴上的那几个时间点。和需水 / 温度 / 湿度页一样是**均分在轴上**的几个
+  /// 刻度，不是一点一个标签——[WaterTrendLineChart] 按标签个数均分，96 个点配 6 个
+  /// 刻度。
+  static const _dayLabels = <String>[
+    '00:00',
+    '05:00',
+    '10:00',
+    '15:00',
+    '20:00',
+    '00:00',
+  ];
 
   @override
   void didChangeDependencies() {
@@ -125,12 +140,23 @@ class _LightStatusPageState extends State<LightStatusPage> {
                       unitStyle: AppTypography.body.copyWith(
                         color: AppColors.textSecondary,
                       ),
-                      chart: LightDliBarChart(
-                        values: values,
-                        labels: _chartLabels(values.length),
-                        maxValue: _axisMax(values),
-                        decimals: 0,
-                      ),
+                      // 日视图画折线，周 / 月还是柱状图（2026-09-16 产品：日历史
+                      // 的柱状图「贼恐怖」）。日包是 96 个一刻钟一根的柱子，挤在
+                      // 一张 188 高的卡片里就是一片黑；周 7 根、月 31 根的柱子照旧。
+                      chart: range == ReportRange.day
+                          ? WaterTrendLineChart(
+                              values: values,
+                              labels: _dayLabels,
+                              unit: 'lux',
+                              maxValue: _axisMax(values),
+                              semanticsName: '光照强度趋势图',
+                            )
+                          : LightDliBarChart(
+                              values: values,
+                              labels: _chartLabels(values.length),
+                              maxValue: _axisMax(values),
+                              decimals: 0,
+                            ),
                     ),
                   const SizedBox(height: AppSpacing.lg),
                   CareAdviceCard(
@@ -182,6 +208,8 @@ class _LightStatusPageState extends State<LightStatusPage> {
 
   String _formatMonth(DateTime date) => '${date.year}年${date.month}月';
 
+  /// 柱状图的标签是**一根柱子一个**（[LightDliBarChart] 按下标取），所以要按点数
+  /// 生成。日视图已经改画折线、走 [_dayLabels]，这里只剩周和月。
   List<String> _chartLabels(int count) => switch (range) {
     ReportRange.week => const <String>[
       '周一',
@@ -192,11 +220,7 @@ class _LightStatusPageState extends State<LightStatusPage> {
       '周六',
       '周日',
     ],
-    // 日包 96 个点、一刻钟一个（见 TuyaHistoryCodec），每 6 小时标一次。
-    ReportRange.day => List<String>.generate(count, (index) {
-      final perHour = count >= 24 ? count ~/ 24 : 1;
-      return index % (perHour * 6) == 0 ? '${index ~/ perHour}时' : '';
-    }),
+    ReportRange.day => _dayLabels,
     ReportRange.month => List<String>.generate(
       count,
       (index) => index % 5 == 0 ? '${index + 1}日' : '',

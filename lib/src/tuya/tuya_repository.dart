@@ -785,6 +785,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
           raw,
           range: ReportRange.values.byName(rangeName),
           sampleBytes: sampleBytes,
+          variableLength: TuyaConfig.historyVariableFrames.contains(identifier),
         );
         // 编码和字节数一起打：SDK 交上来的是十六进制串（见 TuyaRaw），这里
         // 一眼能看出是不是又按错编码解了——`hex 99字节/96点` 才是日包的正常样子。
@@ -942,15 +943,22 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       TuyaConfig.history.forEach((metricKey, ranges) {
         final metric = _historyMetric(metricKey);
         final sampleBytes = TuyaConfig.historySampleBytes[metricKey] ?? 1;
+        // 温度、湿度的点位和它们的实时 DP 一样带倍数，画之前先还原成真值。
+        final scale = TuyaConfig.historyScale[metricKey];
         ranges.forEach((rangeName, identifier) {
           final range = ReportRange.values.byName(rangeName);
           final decoded = TuyaHistoryCodec.decode(
             dp(identifier),
             range: range,
             sampleBytes: sampleBytes,
+            variableLength: TuyaConfig.historyVariableFrames.contains(
+              identifier,
+            ),
           );
           if (decoded.isNotEmpty) {
-            series[DeviceHistory.key(metric, range)] = decoded;
+            series[DeviceHistory.key(metric, range)] = scale == null
+                ? decoded
+                : <double>[for (final point in decoded) point / scale];
           }
         });
       });
@@ -1096,9 +1104,14 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       entry.value: entry.key,
   };
 
+  /// `TuyaConfig.history` 的键换成图表用的指标。表里没有的键归到照度是历史遗留，
+  /// 2026-09-16 加温度、湿度时改成逐个列出——再落到 `_` 上，新指标会被悄悄画成
+  /// 光照曲线。
   static SensorMetric _historyMetric(String key) => switch (key) {
     'waterLevel' => SensorMetric.waterLevel,
     'soilMoisture' => SensorMetric.soilMoisture,
+    'temperature' => SensorMetric.temperature,
+    'humidity' => SensorMetric.humidity,
     _ => SensorMetric.light,
   };
 }

@@ -28,13 +28,21 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
     super.didChangeDependencies();
     if (!initialized) {
       initialized = true;
-      // 同需水状态页：进页面把 114/115 的原始上报值打进联调日志框。
+      // 同需水状态页：进页面把 114/115 的原始上报值，以及 165 日历史的到货情况
+      // 打进联调日志框。
+      final state = FlowerpotScope.of(context);
       unawaited(
-        FlowerpotScope.of(context).logStatusDps(
+        state.logStatusDps(
           widget.deviceId,
           '相对湿度',
           HumidityStatusPageModel.reportedDps,
-          hasHistoryDp: false,
+        ),
+      );
+      unawaited(
+        state.logHistoryDiagnostics(
+          widget.deviceId,
+          '相对湿度',
+          metrics: const <String>{'humidity'},
         ),
       );
     }
@@ -53,8 +61,8 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
       device,
       language: FlowerpotScope.of(context).languageCode,
     );
-    // 功能点表没有这项的历史 DP：曲线由涂鸦推来的实时值攒出来，每推一次往前走一格。
-    // 和上面的读数一样现读，不单独取数。
+    // 湿度日历史读 165（`humi_daily_hist`），解出来是十分之一个百分点、已经在仓库里
+    // 还原过；后面再接上 114 的实时推送。和上面的读数一样现读，推送一到就往前走一格。
     final values = FlowerpotScope.of(
       context,
     ).chartSeries(widget.deviceId, SensorMetric.humidity, ReportRange.day);

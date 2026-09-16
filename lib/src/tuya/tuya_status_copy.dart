@@ -18,9 +18,13 @@ class DeviceStatusCopy {
 /// DP 107 / 108 / 113 / 115 四条状态功能点的文案，以及设备没上报时的兜底判据。
 ///
 /// 键就是涂鸦平台导出的枚举值本身（`shortage`/`drinking`/`watery` 等），可以和
-/// `docs/智能花盆test(yciq4kssu1fv8umn)_09_07.xlsx` 逐行对照。文案只有这一份：
+/// `assets/智能花盆test(yciq4kssu1fv8umn)_09_16.xlsx` 逐行对照。文案只有这一份：
 /// 状态页顶部和首页的状态卡片读同一张表，同一台设备不会再一边写「喝水中」一边
 /// 写「偏湿」。
+///
+/// **2026-09-16 产品重写了这 12 条**：短标签、说明和建议全部换成植物第一人称，
+/// 说明只留一句话，建议是「请用户做什么」。改的是措辞不是判据——枚举到档位的
+/// 对应关系没动，只有 108 的 `very_good` 从「晒得正好」改口成「太晒了」。
 ///
 /// 113 和 115 在 Dart 侧共用 [ComfortLevel]（low/suitable/high），但设备的枚举名
 /// 和文案都不一样（cold/suitable/heat 对 dry/suitable/damp），所以分成两张表。
@@ -34,37 +38,40 @@ abstract final class TuyaStatusCopy {
   static const waterNeeds = <WaterNeedsStatus, DeviceStatusCopy>{
     WaterNeedsStatus.shortage: DeviceStatusCopy(
       '口渴了',
-      '水仓快见底了，根系快吸不到水了，该加水啦。',
-      '当前水分偏低，建议及时补充水分，避免因缺水导致叶片萎蔫及生长受阻。',
+      '有点缺水了。',
+      '水仓快见底了，给我补一点水吧。',
     ),
     WaterNeedsStatus.drinking: DeviceStatusCopy(
       '喝水中',
-      '植物正在从水仓中吸取水分，请保持当前状态。',
-      '当前水分适宜，建议保持现有浇水频率，避免盆土长期过湿，确保植物根系健康。',
+      '正在慢慢吸收水分。',
+      '让我喝一会儿，先不用加水。',
     ),
     WaterNeedsStatus.watery: DeviceStatusCopy(
-      '喝撑了',
-      '水仓里水太多，根系透不过气，先别加水了，通通风吧。',
-      '当前水分偏多，建议暂停浇水并加强通风，避免盆土积水引发根系缺氧腐烂。',
+      '快淹了',
+      '水好像有点多。',
+      '让我透透气，暂时先别加水了。',
     ),
   };
 
   /// `lighting_condition` (108)：shortage / good / very_good。
+  ///
+  /// ⚠️ `very_good` 在 2026-09-16 这版文案里说的是「太晒了」，不再是「晒得正好」。
+  /// 枚举名没变，变的只是产品对它的解读：光照三档是 弱 / 正好 / 过强。
   static const lighting = <LightingCondition, DeviceStatusCopy>{
     LightingCondition.shortage: DeviceStatusCopy(
-      '晒不够',
-      '光线有点弱，光合作用使不上劲，搬到亮堂点的地方吧。',
-      '当前光照偏弱，建议移至光线更充足的位置，避免因光照不足导致植株徒长。',
+      '天黑了吗',
+      '今天的阳光好像不太够。',
+      '光线有点弱，换个明亮一点的位置吧。',
     ),
     LightingCondition.good: DeviceStatusCopy(
-      '正合适',
-      '光线刚刚好，光合作用很顺畅，继续保持。',
-      '当前光照适宜，建议保持现有摆放位置，确保光合作用与呼吸代谢平衡。',
+      '阳光明媚',
+      '今天的阳光正好。',
+      '光线充足又柔和，待在这里很舒服。',
     ),
     LightingCondition.veryGood: DeviceStatusCopy(
-      '晒太阳中',
-      '阳光充足，光合作用正旺盛，继续保持。',
-      '当前光照充足，建议留意强光时段，避免叶片受到强光灼伤。',
+      '太晒了',
+      '阳光有点强。',
+      '晒得有些过了，帮我避开一点直射光吧。',
     ),
   };
 
@@ -72,18 +79,18 @@ abstract final class TuyaStatusCopy {
   static const airTemperature = <ComfortLevel, DeviceStatusCopy>{
     ComfortLevel.low: DeviceStatusCopy(
       '有点冷',
-      '温度偏低了，植物不太爱长，给它暖暖身子吧。',
-      '当前温度偏低，建议采取保温措施，避免因低温导致植株生长停滞或冷害。',
+      '温度有点低。',
+      '给我找个暖和一点的地方吧。',
     ),
     ComfortLevel.suitable: DeviceStatusCopy(
-      '正舒适',
-      '温度刚刚好，植物正舒服地长着呢，继续保持。',
-      '当前温度适宜，建议保持现有环境，确保植株生理代谢正常运转。',
+      '温度适宜',
+      '这个温度很舒服。',
+      '不冷也不热，正适合待着。',
     ),
     ComfortLevel.high: DeviceStatusCopy(
       '有点热',
-      '温度偏高了，叶子容易蔫，挪到阴凉点的地方吧。',
-      '当前温度偏高，建议移至阴凉通风处，避免因高温导致叶片灼伤及水分失衡。',
+      '温度有点高。',
+      '带我去凉快一点的地方吧。',
     ),
   };
 
@@ -91,18 +98,18 @@ abstract final class TuyaStatusCopy {
   static const airHumidity = <ComfortLevel, DeviceStatusCopy>{
     ComfortLevel.low: DeviceStatusCopy(
       '太干了',
-      '空气干巴巴的，叶子容易失去水分，喷点水雾吧。',
-      '当前空气偏干，建议增加喷雾增湿，避免因湿度不足导致叶片干尖或失水。',
+      '空气里的水分有点少。',
+      '叶片容易失去水分，可以给我一点水雾。',
     ),
     ComfortLevel.suitable: DeviceStatusCopy(
-      '正舒服',
-      '湿度刚刚好，叶子呼吸很顺畅，继续保持。',
-      '当前湿度适宜，建议保持现有环境，确保叶片蒸腾与根系吸水维持平衡。',
+      '很温润',
+      '空气湿润又舒服。',
+      '现在的状态刚刚好。',
     ),
     ComfortLevel.high: DeviceStatusCopy(
       '太潮了',
-      '空气湿乎乎的，容易滋生细菌，多通通风吧。',
-      '当前空气偏湿，建议加强环境通风，避免因湿度过高诱发病菌滋生。',
+      '空气有点潮湿。',
+      '感觉有些闷，帮我通通风吧。',
     ),
   };
 
@@ -110,79 +117,72 @@ abstract final class TuyaStatusCopy {
   static const waterNeedsEn = <WaterNeedsStatus, DeviceStatusCopy>{
     WaterNeedsStatus.shortage: DeviceStatusCopy(
       'Thirsty',
-      'The tank is nearly empty and the roots can barely drink. Time to add '
-          'water.',
-      'Water is running low. Top the tank up soon so the leaves do not wilt and growth is not held back.',
+      'I am running a little low on water.',
+      'The tank is nearly empty. Please top me up a little.',
     ),
     WaterNeedsStatus.drinking: DeviceStatusCopy(
       'Drinking',
-      'The plant is taking water from the tank. Keep things as they are.',
-      'Water is right where it should be. Keep the current watering rhythm and avoid letting the soil stay soaked.',
+      'I am slowly taking the water in.',
+      'Let me drink for a while. No need to add more just yet.',
     ),
     WaterNeedsStatus.watery: DeviceStatusCopy(
-      'Too full',
-      'There is too much water for the roots to breathe. Hold off on '
-          'refilling and let it air out.',
-      'There is too much water. Pause watering and improve airflow so the roots do not suffocate and rot.',
+      'Nearly flooded',
+      'That looks like a little too much water.',
+      'Let me air out. Please hold off on watering for now.',
     ),
   };
 
   static const lightingEn = <LightingCondition, DeviceStatusCopy>{
     LightingCondition.shortage: DeviceStatusCopy(
-      'Needs light',
-      'The light is a little weak for photosynthesis. Move it somewhere '
-          'brighter.',
-      'Light is on the low side. Move the planter somewhere brighter so the plant does not stretch out looking for it.',
+      'Is it dark?',
+      'There does not seem to be enough sun today.',
+      'The light is a little weak. Move me somewhere brighter.',
     ),
     LightingCondition.good: DeviceStatusCopy(
-      'Just right',
-      'The light is just right and photosynthesis is running smoothly. Keep '
-          'it that way.',
-      'Light is right where it should be. Keep the planter where it is so photosynthesis and respiration stay balanced.',
+      'Lovely sun',
+      'The sunshine is just right today.',
+      'The light is plentiful and gentle. It feels good right here.',
     ),
     LightingCondition.veryGood: DeviceStatusCopy(
-      'Sunbathing',
-      'Plenty of sun and photosynthesis is in full swing. Keep it that way.',
-      'Light is plentiful. Keep an eye on the harshest hours so the leaves do not scorch.',
+      'Too sunny',
+      'The sun is a little strong.',
+      'That is more sun than I need. Please keep me out of direct light.',
     ),
   };
 
   static const airTemperatureEn = <ComfortLevel, DeviceStatusCopy>{
     ComfortLevel.low: DeviceStatusCopy(
       'A bit cold',
-      'It is colder than the plant likes to grow in. Warm it up a little.',
-      'It is colder than the plant likes. Add some warmth so growth does not stall or the plant take cold damage.',
+      'It is a little cool in here.',
+      'Please find me a warmer spot.',
     ),
     ComfortLevel.suitable: DeviceStatusCopy(
-      'Comfortable',
-      'The temperature is just right and the plant is growing happily. Keep '
-          'it that way.',
-      'The temperature is right where it should be. Keep the current spot so the plant keeps growing steadily.',
+      'Just right',
+      'This temperature feels lovely.',
+      'Not too cold, not too warm. Perfect for staying put.',
     ),
     ComfortLevel.high: DeviceStatusCopy(
       'A bit hot',
-      'It is hotter than the leaves like. Move it somewhere cooler.',
-      'It is hotter than the plant likes. Move it somewhere cool and airy so the leaves do not scorch or dry out.',
+      'It is a little warm in here.',
+      'Please take me somewhere cooler.',
     ),
   };
 
   static const airHumidityEn = <ComfortLevel, DeviceStatusCopy>{
     ComfortLevel.low: DeviceStatusCopy(
       'Too dry',
-      'The air is dry and the leaves lose water easily. Give them a light '
-          'mist.',
-      'The air is dry. Mist around the plant so the leaf tips do not brown and dry out.',
+      'There is not much moisture in the air.',
+      'My leaves lose water easily. A little mist would help.',
     ),
     ComfortLevel.suitable: DeviceStatusCopy(
-      'Comfortable',
-      'The humidity is just right and the leaves breathe easily. Keep it '
-          'that way.',
-      'Humidity is right where it should be. Keep the current spot so transpiration and root uptake stay balanced.',
+      'Nicely humid',
+      'The air is moist and comfortable.',
+      'Things are just right as they are.',
     ),
     ComfortLevel.high: DeviceStatusCopy(
       'Too damp',
-      'The air is muggy and bacteria thrive in it. Let it air out more.',
-      'The air is muggy. Improve ventilation so high humidity does not invite disease.',
+      'The air is a little humid.',
+      'It feels stuffy in here. Please let some air through.',
     ),
   };
 

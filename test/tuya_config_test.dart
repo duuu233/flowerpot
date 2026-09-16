@@ -3,13 +3,18 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('the product DP table matches the platform export', () {
-    // 101–162 来自 docs/智能花盆test(yciq4kssu1fv8umn)_09_07.xlsx，163 是自动
-    // 检测植物开关的本地占位，平台补完导出后要回来核对这一行。
+    // 101–165 来自 assets/智能花盆test(yciq4kssu1fv8umn)_09_16.xlsx，一个不缺、
+    // 也没有多出来的号。
     expect(TuyaConfig.productId, 'yciq4kssu1fv8umn');
-    expect(TuyaConfig.dp.length, 63);
-    expect(TuyaConfig.dp.values.toSet().length, TuyaConfig.dp.length);
-    expect(TuyaConfig.dp.values.reduce((a, b) => a < b ? a : b), 101);
-    expect(TuyaConfig.dp.values.reduce((a, b) => a > b ? a : b), 163);
+    // ⚠️ **键比 DP 号多两个**：162（plant_present / plant_confirm）和 163
+    // （plant_confirm_switch / plant_detect_switch）各留了平台改名前后的两个
+    // 标识符，好让按旧名查的地方也能查到。所以这里不能拿 `dp.length` 当 DP 个数
+    // 比——2026-09-12 加别名时这条断言就是这么断的（`dp.length` 65 对 63）。
+    expect(TuyaConfig.dp.length, 67);
+    expect(
+      TuyaConfig.dp.values.toSet(),
+      List<int>.generate(65, (index) => 101 + index).toSet(),
+    );
     expect(TuyaConfig.dp['soil_moist'], 106);
     expect(TuyaConfig.dp['vibration_switch'], 122);
     expect(TuyaConfig.dp['water_level_calib'], 140);
@@ -24,10 +29,13 @@ void main() {
     expect(TuyaConfig.dp['memorial_birthday'], 158);
     expect(TuyaConfig.dp['memorial_wedding'], 159);
     expect(TuyaConfig.dp['op_result'], 160);
-    // 09-07 新增的两条植物功能点，加上还没进导出的检测开关。
+    // 09-07 新增的两条植物功能点，加上 09-12 正式导出的检测开关。
     expect(TuyaConfig.dp['plant_type'], 161);
     expect(TuyaConfig.dp['plant_confirm'], 162);
     expect(TuyaConfig.dp['plant_detect_switch'], 163);
+    // 09-16 新增的两条日历史。
+    expect(TuyaConfig.dp['temp_daily_hist'], 164);
+    expect(TuyaConfig.dp['humi_daily_hist'], 165);
   });
 
   test('植物分类只接受 161 的枚举值 1/2/3', () {
@@ -55,6 +63,16 @@ void main() {
     }
     for (final identifier in TuyaConfig.dpScale.keys) {
       expect(TuyaConfig.dp, contains(identifier));
+    }
+    for (final identifier in TuyaConfig.historyVariableFrames) {
+      expect(TuyaConfig.dp, contains(identifier));
+    }
+    // 按指标查的两张表，键必须是 history 里真有的指标。
+    for (final key in <String>[
+      ...TuyaConfig.historySampleBytes.keys,
+      ...TuyaConfig.historyScale.keys,
+    ]) {
+      expect(TuyaConfig.history, contains(key));
     }
   });
 

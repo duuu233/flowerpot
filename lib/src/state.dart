@@ -1967,8 +1967,10 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// 「未上报」说明页面上那个数是 App 的默认值或阈值兜底，不是设备报的。
   ///
-  /// [hasHistoryDp] 为 false 的页面（空气温度、相对湿度）再补一行说明：功能点表里没有
-  /// 这项的历史 DP，曲线空着是产品功能点决定的，不是没读到。
+  /// [hasHistoryDp] 为 false 的页面再补一行说明：功能点表里没有这项的历史 DP，曲线
+  /// 空着是产品功能点决定的，不是没读到。2026-09-16 的功能点表补了 164 / 165 之后，
+  /// 四个状态页都有历史 DP 了，这个参数眼下没有页面再传 false——电池这类以后没有
+  /// 历史包的页面还能用上。
   Future<void> logStatusDps(
     String deviceId,
     String page,
@@ -1990,7 +1992,7 @@ class FlowerpotState extends ChangeNotifier {
       _logInteraction('读取 ← [$page] 实时 DP 读取失败 ✗ $error');
     }
     if (!hasHistoryDp) {
-      _logInteraction('读取 ← [$page] 历史：功能点表里没有这项的历史 DP（只有 131–139），曲线为空态');
+      _logInteraction('读取 ← [$page] 历史：功能点表里没有这项的历史 DP，曲线为空态');
     }
   }
 
@@ -2014,13 +2016,14 @@ class FlowerpotState extends ChangeNotifier {
   /// 2026-09-15 产品：「只要涂鸦推送了，报表就是要实时动，往前移动那种效果」「不需要做
   /// 特殊处理，跟以前那些数据一样的渲染」。所以曲线不再是进页面取一次的 Future：
   ///
-  /// - 底子是设备上报的历史包（日 131/134/137，周 132/135/138，月 133/136/139），
-  ///   在设备快照里；设备推来新包，快照一换，曲线跟着换。
+  /// - 底子是设备上报的历史包（日 131/134/137，周 132/135/138，月 133/136/139；
+  ///   温度 164、湿度 165 只有日包），在设备快照里；设备推来新包，快照一换，曲线跟着换。
   /// - **日视图**再接上之后每次推送的实时值（105 水位、106 土壤湿度、109 照度、112 温度、
   ///   114 湿度）：新点从右边进，超过 [liveChartWindow] 个点就把最左边挤掉，整条线往前移。
   /// - 周、月是「每天一个平均值」，实时值不往里接，推来新的周包 / 月包时整段换。
   ///
-  /// 温度、湿度没有历史 DP，日视图完全由推送攒出来：本次登录后还没收到过推送就是空态。
+  /// 温度、湿度 2026-09-16 起也有日包（164 / 165），和其它指标一个走法；它们**只有
+  /// 日包**，周 / 月视图仍然没有设备历史。
   List<double> chartSeries(
     String deviceId,
     SensorMetric metric,
@@ -2063,9 +2066,9 @@ class FlowerpotState extends ChangeNotifier {
         SensorMetric.waterLevel: ('water_level', 'tank_level_daily_hist'),
         SensorMetric.soilMoisture: ('soil_moist', 'soil_moist_daily_hist'),
         SensorMetric.light: ('light_intensity', 'light_daily_hist'),
-        // 温度、湿度没有历史 DP。
-        SensorMetric.temperature: ('air_temperature', null),
-        SensorMetric.humidity: ('air_humidity', null),
+        // 2026-09-16 的功能点表补了 164 / 165 两条日历史，温度和湿度也有底子了。
+        SensorMetric.temperature: ('air_temperature', 'temp_daily_hist'),
+        SensorMetric.humidity: ('air_humidity', 'humi_daily_hist'),
       };
 
   /// 本次登录以来设备推来的实时值，按设备、指标存，给 [chartSeries] 的日视图接在历史包后面。

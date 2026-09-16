@@ -9,13 +9,16 @@
 - 首页“光照状态”进入该页面。
 - 使用 Material 3、`AppPageScaffold`、`AppPageHeader`、`TimeRangeSelector`、`DateRangeNavigator` 和 `MetricChartCard`。
 - 日、周、月切换重新读取对应时间范围的光照历史（DP 137/138/139，lux）。
+- **2026-09-16 起进页面默认是「日」**（原来是「周」），且**日视图画折线**（复用
+  `WaterTrendLineChart`），周 / 月仍用 `LightDliBarChart`：日包 96 个点，柱状图画出来挤成一片。
 
 ## Widget 拆分
 
 | Widget | 文件 | 职责 |
 | --- | --- | --- |
 | `LightStatusSummaryCard` | `presentation/widgets/light_status_summary_card.dart` | 设备占位、光照等级、说明、lux 和 PPFD |
-| `LightDliBarChart` | `presentation/widgets/light_dli_bar_chart.dart` | DLI 柱状图、网格、刻度和时间标签 |
+| `LightDliBarChart` | `presentation/widgets/light_dli_bar_chart.dart` | 周 / 月的柱状图、网格、刻度和时间标签（纵轴上限由页面按数据传入） |
+| `WaterTrendLineChart` | `presentation/widgets/water_trend_line_chart.dart` | 日视图的折线（2026-09-16 起），与需水 / 温度 / 湿度页同一张图 |
 
 页面继续复用 `AppDevicePlaceholder`、`AppSurfaceCard`、`AppIconBadge`、`CareAdviceCard` 和公共范围选择组件，没有重复实现卡片、日期导航或信息提示。`MetricChartCard` 增加了向后兼容的标题前置图标和文本样式参数，`AppInfoCard` 增加强调式图标布局，供截图中的 DLI 标题和建议卡复用。
 

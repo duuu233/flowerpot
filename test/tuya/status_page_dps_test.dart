@@ -17,6 +17,15 @@ const _eventChannel = 'test/tuya_status_dps_events';
 const _lightWeeklyHex =
     '1a090807' '0064' '012c' '01f4' '00c8' '0000' '0258' '0320';
 
+/// 空气温度日历史（DP 164）：变长日帧，**3 字节头**（年偏移 26、月 9、日 16）
+/// 后面直接跟 uint16 BE 的点（十分之一度）。帧长 9，奇数，不可能是「4 字节头 +
+/// N×2」，所以按 3 字节头解。
+const _tempDailyHex = '1a0910' '00f6' '0102' '00d2';
+
+/// 空气湿度日历史（DP 165）：09-16 的导出把它写成**4 字节头**（年 月 日 点数），
+/// 点数 3、帧长 10，正好等于 4 + 3×2，所以按 4 字节头解。
+const _humidityDailyHex = '1a091003' '0229' '01f4' '0258';
+
 Map<Object?, Object?> _deviceMap() => <Object?, Object?>{
   'deviceId': 'dev-1',
   'name': '客厅的绿意',
@@ -33,6 +42,8 @@ Map<Object?, Object?> _deviceMap() => <Object?, Object?>{
     '114': 553, // air_humidity，十分之一个百分点
     '115': 'damp', // air_humidity_status
     '138': _lightWeeklyHex, // light_weekly_hist
+    '164': _tempDailyHex, // temp_daily_hist
+    '165': _humidityDailyHex, // humi_daily_hist
   },
 };
 
@@ -79,15 +90,57 @@ void main() {
     expect(TemperatureStatusPageModel.reportedDps.map(dp), <int>[112, 113, 146]);
     expect(HumidityStatusPageModel.reportedDps.map(dp), <int>[114, 115]);
 
-    // 历史 DP 只有水位、土壤湿度、光照三组；温度、湿度没有。
+    // 2026-09-16 的功能点表给温度、湿度补了日历史（164 / 165），周 / 月仍然没有。
     expect(TuyaConfig.history.keys, <String>[
       'waterLevel',
       'soilMoisture',
       'illuminance',
+      'temperature',
+      'humidity',
     ]);
     expect(
       TuyaConfig.history['illuminance']!.values.map(dp),
       <int>[137, 138, 139],
+    );
+    expect(TuyaConfig.history['temperature'], <String, String>{
+      'day': 'temp_daily_hist',
+    });
+    expect(TuyaConfig.history['humidity'], <String, String>{
+      'day': 'humi_daily_hist',
+    });
+    expect(dp('temp_daily_hist'), 164);
+    expect(dp('humi_daily_hist'), 165);
+  });
+
+  test('164 / 165 的日历史解出来是还原过倍数的真值', () async {
+    await repository.getDevices();
+
+    // 164：3 字节头，uint16 BE，十分之一度。
+    expect(
+      await repository.getHistory(
+        'dev-1',
+        SensorMetric.temperature,
+        ReportRange.day,
+      ),
+      <double>[24.6, 25.8, 21],
+    );
+    // 165：4 字节头（第 4 个字节是点数），十分之一个百分点。
+    expect(
+      await repository.getHistory(
+        'dev-1',
+        SensorMetric.humidity,
+        ReportRange.day,
+      ),
+      <double>[55.3, 50, 60],
+    );
+    // 只有日包，周 / 月没有。
+    expect(
+      await repository.getHistory(
+        'dev-1',
+        SensorMetric.temperature,
+        ReportRange.week,
+      ),
+      isEmpty,
     );
   });
 
@@ -133,13 +186,11 @@ void main() {
       'dev-1',
       '空气温度',
       TemperatureStatusPageModel.reportedDps,
-      hasHistoryDp: false,
     );
     await state.logStatusDps(
       'dev-1',
       '相对湿度',
       HumidityStatusPageModel.reportedDps,
-      hasHistoryDp: false,
     );
     await state.logStatusDps(
       'dev-1',
@@ -169,10 +220,28 @@ void main() {
         'DP110 light_ppfd_value=5，DP108 lighting_condition=good',
       ),
     );
-    // 温度、湿度补一行「没有历史 DP」；光照有历史 DP，不补。
+    // 2026-09-16 起四个状态页都有历史 DP，谁也不再补那一行。
     expect(
       state.interactionLog.where((line) => line.contains('没有这项的历史 DP')),
-      hasLength(2),
+      isEmpty,
+    );
+  });
+
+  test('温度、湿度状态页的历史体检只打自己那一条', () async {
+    final state = FlowerpotState(repository: repository);
+    addTearDown(state.dispose);
+    await repository.getDevices();
+
+    await state.logHistoryDiagnostics(
+      'dev-1',
+      '空气温度',
+      metrics: const <String>{'temperature'},
+    );
+
+    expect(state.interactionLog, hasLength(1));
+    expect(
+      state.interactionLog.single,
+      contains('读取 ← [空气温度] 历史 temperature：日 DP164 hex 9字节/3点'),
     );
   });
 

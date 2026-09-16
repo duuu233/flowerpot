@@ -154,8 +154,9 @@ class HomeDashboardModel {
   /// `HomeCareBanner` 轮播。
   ///
   /// 文案和状态详情页读同一张 [TuyaStatusCopy] 表：以前这里是自己写的一句总结，
-  /// 卡片说「偏湿」而这条说「今天状态良好」的情况就是这么来的。`very_good` 不算
-  /// 警告——按 DP 108 的定义那是「光合效率高」的好状态。
+  /// 卡片说「偏湿」而这条说「今天状态良好」的情况就是这么来的。这里不按档位挑
+  /// 「哪条算警告」，四条一律轮播——2026-09-16 产品把 108 的 `very_good` 改口成
+  /// 「太晒了」，任何在这里写死好坏的判断都会跟着文案过期。
   static List<String> _careMessages({
     required WaterNeedsStatus waterNeeds,
     required LightingCondition lighting,

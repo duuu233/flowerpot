@@ -79,7 +79,7 @@ void main() {
       ),
     );
 
-    // 没有设备时四条状态走兜底档：喝水中 / 正合适 / 正舒适 / 正舒服。
+    // 没有设备时四条状态走兜底档：喝水中 / 阳光明媚 / 温度适宜 / 很温润。
     expect(model.careMessages, hasLength(4));
     expect(find.text('今日养护'), findsOneWidget);
     expect(find.text(model.careMessages[0]), findsOneWidget);

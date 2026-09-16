@@ -135,9 +135,7 @@ class _ReportsPageState extends State<ReportsPage>
                     );
                   }
                   final values = snapshot.data!;
-                  // Only water level, soil moisture and light have history
-                  // function points; the rest have no data source yet and are
-                  // left empty rather than drawn from the current reading.
+                  // 没有历史功能点的指标留空，不拿当前读数画一条假曲线。
                   if (values.isEmpty) {
                     return GlassCard(
                       child: SizedBox(
@@ -147,10 +145,14 @@ class _ReportsPageState extends State<ReportsPage>
                             // ⚠️ **「还没上报」和「根本没有这个数据源」要分开说**
                             // （2026-09-11 产品反馈「报表里电池数据为空」）。
                             //
-                            // 设备只导出 9 个历史 DP（131–139）：水位 / 土壤湿度 / 光照
-                            // 各三个周期。**电池、温度、湿度、PPFD、DLI 没有历史 DP**，
-                            // 再等也不会有。说成「还没有上报」会让人一直等一个不存在的东西。
-                            _MetricInfo.hasHistorySource(widget.arguments.metric)
+                            // 历史 DP 是 131–139 加 164/165：水位 / 土壤湿度 / 光照
+                            // 各三个周期，空气温度 / 空气湿度**只有日**。
+                            // **电池、PPFD、DLI 没有历史 DP**，再等也不会有。
+                            // 说成「还没有上报」会让人一直等一个不存在的东西。
+                            _MetricInfo.hasHistorySource(
+                                  widget.arguments.metric,
+                                  range,
+                                )
                                 ? '设备还没有上报${info.title}历史数据。'
                                 : '${info.title}没有历史曲线：设备当前的功能点里没有导出'
                                       '这一项的历史数据，只有实时值。',
@@ -289,17 +291,21 @@ class _MetricInfo {
     );
   }
 
-  /// 这个指标有没有**历史数据源**。
+  /// 这个指标在这个周期上到底**有没有历史 DP**。
   ///
-  /// 设备导出的历史 DP 只有 131–139 九个：水位（131/132/133）、土壤湿度（134/135/136）、
-  /// 光照（137/138/139），各对应日 / 周 / 月。其余指标（电池、温度、湿度、PPFD、DLI）
-  /// **只有实时值、没有历史曲线**——这是产品功能点决定的，不是"还没上报"。
-  static bool hasHistorySource(SensorMetric metric) => switch (metric) {
-    SensorMetric.waterLevel ||
-    SensorMetric.soilMoisture ||
-    SensorMetric.light => true,
-    _ => false,
-  };
+  /// 水位（131/132/133）、土壤湿度（134/135/136）、光照（137/138/139）各有日 / 周 / 月；
+  /// 空气温度（164）和空气湿度（165）是 2026-09-16 补的，**只有日**。电池、PPFD、DLI
+  /// 一个都没有。没有的那些**只有实时值、没有历史曲线**——这是产品功能点决定的，
+  /// 不是"还没上报"，两种情况在空态里要分开说。
+  static bool hasHistorySource(SensorMetric metric, ReportRange range) =>
+      switch (metric) {
+        SensorMetric.waterLevel ||
+        SensorMetric.soilMoisture ||
+        SensorMetric.light => true,
+        SensorMetric.temperature ||
+        SensorMetric.humidity => range == ReportRange.day,
+        _ => false,
+      };
 
   static _MetricInfo of(SensorMetric metric) => switch (metric) {
     SensorMetric.waterLevel => const _MetricInfo(

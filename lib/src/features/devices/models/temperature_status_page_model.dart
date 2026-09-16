@@ -19,7 +19,8 @@ class TemperatureStatusPageModel {
   });
 
   /// 这一页读的实时 / 状态 DP，写法同 `WaterStatusPageModel.reportedDps`。
-  /// 功能点表里**没有温度历史 DP**，曲线只能是空态。
+  /// 历史曲线另走 164（`temp_daily_hist`，只有日），见 `TuyaConfig.history` 的
+  /// temperature。
   static const reportedDps = <String>[
     'air_temperature', // 112，倍数 1：原值 ÷10
     'air_temperature_status', // 113

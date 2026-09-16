@@ -42,8 +42,9 @@ class HomeCareBanner extends StatefulWidget {
 }
 
 class _HomeCareBannerState extends State<HomeCareBanner> {
-  /// 文字区固定两行高。建议长短不一（「继续保持。」和「水仓快见底了，根系快吸
-  /// 不到水了，该加水啦。」差一倍），不固定住的话每切一条卡片就会抽一下。
+  /// 文字区固定两行高。轮播的四句长短不一（2026-09-16 那版文案里「水好像有点多。」
+  /// 和「空气里的水分有点少。」就差着几个字，以后换稿还会更长），不固定住的话每切
+  /// 一条卡片就会抽一下。
   static const double _messageHeight = 36;
 
   /// 图标和它右边那一截（有植物时是「今日养护」，没植物时是提示语）之间的间距。

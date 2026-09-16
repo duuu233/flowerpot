@@ -28,13 +28,21 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
     super.didChangeDependencies();
     if (!initialized) {
       initialized = true;
-      // 同需水状态页：进页面把 112/113/146 的原始上报值打进联调日志框。
+      // 同需水状态页：进页面把 112/113/146 的原始上报值，以及 164 日历史的到货
+      // 情况打进联调日志框。
+      final state = FlowerpotScope.of(context);
       unawaited(
-        FlowerpotScope.of(context).logStatusDps(
+        state.logStatusDps(
           widget.deviceId,
           '空气温度',
           TemperatureStatusPageModel.reportedDps,
-          hasHistoryDp: false,
+        ),
+      );
+      unawaited(
+        state.logHistoryDiagnostics(
+          widget.deviceId,
+          '空气温度',
+          metrics: const <String>{'temperature'},
         ),
       );
     }
@@ -53,8 +61,8 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
       device,
       language: FlowerpotScope.of(context).languageCode,
     );
-    // 功能点表没有这项的历史 DP：曲线由涂鸦推来的实时值攒出来，每推一次往前走一格。
-    // 和上面的读数一样现读，不单独取数。
+    // 温度日历史读 164（`temp_daily_hist`），解出来是十分之一度、已经在仓库里还原过；
+    // 后面再接上 112 的实时推送。和上面的读数一样现读，涂鸦一推送曲线就往前走一格。
     final values = FlowerpotScope.of(
       context,
     ).chartSeries(widget.deviceId, SensorMetric.temperature, ReportRange.day);

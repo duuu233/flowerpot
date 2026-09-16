@@ -94,7 +94,7 @@ void main() {
     expect(state.chartSeries(id, SensorMetric.waterLevel, ReportRange.day), next);
   });
 
-  testWidgets('空气温度没有历史 DP：推一次 112 曲线就出来，再推往前走', (tester) async {
+  testWidgets('设备还没推 164 日包时：推一次 112 曲线就出来，再推往前走', (tester) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final repository = MockTuyaRepository(latency: Duration.zero);
@@ -102,7 +102,7 @@ void main() {
     addTearDown(state.dispose);
     await tester.runAsync(() async {
       await _start(state);
-      // 真机上温度没有历史包：把演示设备的历史清空。
+      // 设备还没报 164 的那一段：把演示设备的历史清空，曲线只能靠推送攒。
       await _push(
         repository,
         state,

@@ -117,6 +117,59 @@ void main() {
     );
   });
 
+  group('164 / 165 的变长日帧按帧长判帧头', () {
+    test('3 字节头：帧长是奇数，不可能是「4 字节头 + N×2」', () {
+      final decoded = TuyaHistoryCodec.decode(
+        _payload(<int>[26, 9, 16, 0x00, 0xf6, 0x01, 0x02, 0x00, 0xd2]),
+        range: ReportRange.day,
+        sampleBytes: 2,
+        variableLength: true,
+      );
+
+      expect(decoded, <double>[246, 258, 210]);
+    });
+
+    test('4 字节头：帧长正好等于 4 + 点数 × 点宽', () {
+      final decoded = TuyaHistoryCodec.decode(
+        _payload(<int>[26, 9, 16, 3, 0x02, 0x29, 0x01, 0xf4, 0x02, 0x58]),
+        range: ReportRange.day,
+        sampleBytes: 2,
+        variableLength: true,
+      );
+
+      expect(decoded, <double>[553, 500, 600]);
+    });
+
+    test('第 4 个字节对不上帧长时按 3 字节头解，不当点数', () {
+      // 点数字节写 3 却只给了 2 个点：4 + 3×2 = 10 ≠ 8，退回 3 字节头。
+      final decoded = TuyaHistoryCodec.decode(
+        _payload(<int>[26, 9, 16, 3, 0x02, 0x29, 0x01, 0xf4]),
+        range: ReportRange.day,
+        sampleBytes: 2,
+        variableLength: true,
+      );
+
+      // 8 字节按 3 字节头只解得出 2 个点，剩下的半个点丢掉。
+      expect(decoded, <double>[0x0302, 0x2901]);
+    });
+
+    test('变长帧最多还是 96 个点', () {
+      final decoded = TuyaHistoryCodec.decode(
+        _payload(<int>[
+          26,
+          9,
+          16,
+          for (var i = 0; i < 200; i++) ...<int>[0, 1],
+        ]),
+        range: ReportRange.day,
+        sampleBytes: 2,
+        variableLength: true,
+      );
+
+      expect(decoded, hasLength(TuyaHistoryCodec.dailySamples));
+    });
+  });
+
   test('a raw byte list decodes the same as its base64 form', () {
     final bytes = <int>[26, 8, 14, 7, 1, 2, 3, 4, 5, 6, 7];
 

@@ -8,6 +8,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../app/network_alert.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
+import '../../../shared/media/upload_image.dart';
 import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
 import 'device_online_guard.dart';
@@ -166,14 +167,18 @@ class _AnimationsPageState extends State<AnimationsPage>
       imageQuality: 88,
     );
     if (file == null || !context.mounted) return;
-    // 上传要走一次文件上传 + 一次下发，最慢的一步，必须挡住重复点击。
-    final result = await _run(
-      () => state.addAnimation(
+    // 上传要走一次文件上传 + 一次下发，最慢的一步，必须挡住重复点击。压缩也罩在
+    // 同一个进度圈里：解码 + 编码有几百毫秒，露在外面用户会以为没点上。
+    final result = await _run(() async {
+      // 花盆那块屏幕用不上原图：总像素压到 48 万以内、文件压到 1 MB 以内再传，
+      // 见 [UploadImage]。压不动时它会原样返回原图路径，不挡上传。
+      final path = await UploadImage.prepare(file.path);
+      return state.addAnimation(
         widget.deviceId,
-        name: file.name,
-        path: file.path,
-      ),
-    );
+        name: path.split(RegExp(r'[/\\]')).last,
+        path: path,
+      );
+    });
     if (result == null || !context.mounted) return;
     showDeviceActionResult(context, result, announceSuccess: true);
   }

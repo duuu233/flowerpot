@@ -41,12 +41,14 @@ abstract final class TuyaConfig {
   /// character. App-facing names resolve through [setting] and [history];
   /// sensor reads name their identifier at the point of use.
   ///
-  /// Source: `docs/智能花盆test(yciq4kssu1fv8umn)_09_07.xlsx`, sheet 功能点,
-  /// exported 2026-09-07. Same PID as the 09-03 export, which it reproduces row
-  /// for row and extends with 161 (植物分类) and 162 (植物确认); 09-03 in turn
-  /// had added 151–160 (standby, language, memorial days, photo management and
-  /// the operation receipt) over the 08-20 table. The one row that is *not* in
-  /// any export is 163 — see its TODO below.
+  /// Source: `assets/智能花盆test(yciq4kssu1fv8umn)_09_16.xlsx`, sheet 功能点,
+  /// exported 2026-09-16. Same PID as the 09-07 export, which it reproduces row
+  /// for row and extends with 164 (空气温度日历史) and 165 (空气湿度日历史);
+  /// 09-07 in turn had added 161 (植物分类) and 162 (植物确认, since renamed
+  /// 弹窗提醒) over 09-03, and 09-03 had added 151–160 (standby, language,
+  /// memorial days, photo management and the operation receipt) over 08-20.
+  /// 163 (自动检测植物开关) started out as a local placeholder and is in the
+  /// export since 09-12.
   static const dp = <String, int>{
     // Reported state.
     'device_status': 101, // string, rw
@@ -138,6 +140,12 @@ abstract final class TuyaConfig {
     // 类型 bool 都对得上。两个名字都留着：下发按 DP 号走，改名不影响行为。
     'plant_confirm_switch': 163, // bool, rw
     'plant_detect_switch': 163, // bool, rw（本地旧名，平台已改用上面那个）
+
+    // Added by the 09-16 export: the two daily history packets the 温度 / 湿度
+    // status pages had been missing. Variable-length frames, see
+    // [historyVariableFrames] and `TuyaHistoryCodec`.
+    'temp_daily_hist': 164, // raw, ro：空气温度日历史
+    'humi_daily_hist': 165, // raw, ro：空气湿度日历史
   };
 
   /// DPs the device transmits as an integer scaled by a power of ten (涂鸦
@@ -192,11 +200,42 @@ abstract final class TuyaConfig {
       'week': 'light_weekly_hist',
       'month': 'light_monthly_hist',
     },
+    // 2026-09-16 的功能点表补了这两条日历史。**只有日，没有周和月**：DP 表里
+    // 就只导出了 164 / 165 两行，所以这两个指标的周 / 月视图依旧没有设备包。
+    'temperature': <String, String>{'day': 'temp_daily_hist'},
+    'humidity': <String, String>{'day': 'humi_daily_hist'},
   };
 
-  /// Bytes per sample in the raw history DPs. Everything but light is a single
-  /// unsigned byte.
-  static const historySampleBytes = <String, int>{'illuminance': 2};
+  /// Bytes per sample in the raw history DPs. Water level and soil moisture fit
+  /// in a single unsigned byte; light, air temperature and air humidity do not.
+  ///
+  /// 164 / 165 的功能点表没有写「点宽」，这里跟着它们的实时 DP 走：112 的量程是
+  /// 0–2200（倍数 1），114 是 0–1000（倍数 1），一个字节都装不下，所以按 uint16 BE
+  /// 解，和 137–139 的照度同一套。真机上先看 `historyDiagnostics` 打的
+  /// 「字节数/点数」对不对得上，再改这里。
+  static const historySampleBytes = <String, int>{
+    'illuminance': 2,
+    'temperature': 2,
+    'humidity': 2,
+  };
+
+  /// 历史点位上报时被放大的倍数（同 [dpScale]，只是按指标而不是按标识符查）。
+  /// 温度、湿度的历史点和它们的实时 DP 一样是十分之一度 / 十分之一个百分点。
+  static const historyScale = <String, int>{'temperature': 10, 'humidity': 10};
+
+  /// 帧头长度要按帧长现算的历史 DP。
+  ///
+  /// 131–139 的帧头是定死的（日 3 字节、周 / 月 4 字节）；164 / 165 是 2026-09-16
+  /// 新加的**变长**日帧，而且那版导出里两行写得不一样——164 是「年 月 日 +
+  /// N×点数据」（3 字节头），165 是「年 月 日 N + N×点数据」（4 字节头），可 165
+  /// 那格的说明整段是周 / 月的口径（「日均值」「有效天数」「满 7/31 滚动」），
+  /// 像是抄串了。两种解法认错一个，曲线就是一整条错位的垃圾数据，所以不认死，
+  /// 交给 `TuyaHistoryCodec` 按帧长判（点宽 2 时两种解释的帧长奇偶不同，判定是
+  /// 精确的）。真机确认之后可以把这里收紧成固定帧头。
+  static const historyVariableFrames = <String>{
+    'temp_daily_hist',
+    'humi_daily_hist',
+  };
 
   /// `temp_unit_convert` enum values against the labels the settings sheet
   /// uses.

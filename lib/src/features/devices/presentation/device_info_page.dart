@@ -68,7 +68,8 @@ class DeviceInfoPage extends StatelessWidget {
       '【电池】',
       'DP 103 battery_level：${device.battery}%',
       'DP 104/145 充电中：${device.charging}',
-      '⚠️ 电池**没有历史 DP**（设备只导出 131–139：水位/土壤湿度/光照），',
+      '⚠️ 电池**没有历史 DP**（历史只有 131–139 水位/土壤湿度/光照，'
+          '加 164/165 空气温度/湿度的日历史），',
       '所以报表里的电池曲线永远为空——要曲线需要设备侧新增历史 DP。',
       '',
       '【设备】',

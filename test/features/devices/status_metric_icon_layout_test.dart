@@ -19,15 +19,15 @@ void main() {
   const water = WaterStatusPageModel(
     deviceId: 'device-01',
     status: '喝水中',
-    description: '植物正在从水仓中吸取水分，请保持当前状态。',
+    description: '正在慢慢吸收水分。',
     waterLevel: 80,
     soilMoisture: 97,
     advice: '当前湿度适宜。',
   );
   const light = LightStatusPageModel(
     deviceId: 'device-01',
-    status: '正合适',
-    description: '光线刚刚好，光合作用很顺畅，继续保持。',
+    status: '阳光明媚',
+    description: '今天的阳光正好。',
     illuminance: 305,
     ppfd: 5.642,
     dliValues: <double>[.74, .67, .58, .61, .90, .63, .45],
@@ -35,8 +35,8 @@ void main() {
   );
   const temperature = TemperatureStatusPageModel(
     deviceId: 'device-01',
-    status: '正舒适',
-    description: '温度刚刚好，植物正舒服地长着呢，继续保持。',
+    status: '温度适宜',
+    description: '这个温度很舒服。',
     temperature: 26.9,
     advice: '适宜温度范围为18°C~28°C。',
   );
@@ -49,8 +49,8 @@ void main() {
   );
   const humidity = HumidityStatusPageModel(
     deviceId: 'device-01',
-    status: '正舒服',
-    description: '湿度刚刚好，叶子呼吸很顺畅，继续保持。',
+    status: '很温润',
+    description: '空气湿润又舒服。',
     humidity: 52,
     advice: '当前湿度适宜。',
   );
