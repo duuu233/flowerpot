@@ -28,9 +28,13 @@ class _AnimationsPageState extends State<AnimationsPage>
     with NetworkRetryAware<AnimationsPage> {
   bool loadingStarted = false;
 
-  /// Files ticked in the gallery. 图库管理（v2）是多选删除，所以选中态属于页面
-  /// 而不是每个格子。
-  final Set<String> _selected = <String>{};
+  /// 图库里当前选中的那一张（[AnimationAsset.id]），没选中是 null。选中态属于
+  /// 页面而不是每个格子——底部那条操作栏要按「有没有选中」换面孔。
+  ///
+  /// ⚠️ **只能单选**（2026-09-17 产品）：这里从 `Set<String>` 改成一个可空 id，
+  /// 「同时选中两张」在类型上就不成立了，不是靠「点的时候记得把别的清掉」这种
+  /// 约定维持的。DP 157（置顶）本来也只认一个文件名。
+  String? _selectedId;
 
   /// 本页正在跑一件要等的事。
   ///
@@ -116,7 +120,7 @@ class _AnimationsPageState extends State<AnimationsPage>
                       else
                         _UploadedFilesCard(
                           files: files,
-                          selected: _selected,
+                          selectedId: _selectedId,
                           onToggle: _toggleSelection,
                           onPin: (file) => _pinFile(context, file),
                         ),
@@ -131,20 +135,20 @@ class _AnimationsPageState extends State<AnimationsPage>
             right: 0,
             bottom: 0,
             child: _GalleryActionBar(
-              hasSelection: _selected.isNotEmpty,
+              hasSelection: _selectedId != null,
               onUpload: state.busy || _busy || files.length >= 10
                   ? null
                   : () => _pickFile(context),
-              // DP 157 一次只认一个文件名，所以只在**恰好选中一张**时可用。
-              onPinSelected: state.busy || _busy || _selected.length != 1
+              // DP 157 一次只认一个文件名；单选之后「选中的」本来就只有一张。
+              onPinSelected: state.busy || _busy || _selectedId == null
                   ? null
                   : () => _pinSelected(context, files),
-              onDeleteSelected: state.busy || _busy || _selected.isEmpty
+              onDeleteSelected: state.busy || _busy || _selectedId == null
                   ? null
                   : () => _deleteSelected(context, files),
-              onClearSelection: _busy || _selected.isEmpty
+              onClearSelection: _busy || _selectedId == null
                   ? null
-                  : () => setState(_selected.clear),
+                  : () => setState(() => _selectedId = null),
             ),
           ),
         ],
@@ -186,60 +190,68 @@ class _AnimationsPageState extends State<AnimationsPage>
     showDeviceActionResult(context, result, announceSuccess: true);
   }
 
+  /// 点一下切换选中。**单选**：点另一张就是把选中换过去，攒不出第二张；再点一次
+  /// 当前这张是取消选中（等价于底部的「取消选择」）。
   void _toggleSelection(AnimationAsset file) {
-    setState(() {
-      if (!_selected.remove(file.id)) _selected.add(file.id);
-    });
+    setState(() => _selectedId = _selectedId == file.id ? null : file.id);
   }
 
-  /// 删除选中的文件。
+  /// 当前选中的那张文件，没选中或者列表里已经没有它了都返回 null。
+  ///
+  /// 不直接用 `_selectedId` 取对象：删除或刷新之后列表会换，选中的 id 可能已经
+  /// 不在列表里，这时候按钮该点不动，而不是拿着一个失效 id 去发 DP。
+  AnimationAsset? _selectedFile(List<AnimationAsset> files) {
+    for (final file in files) {
+      if (file.id == _selectedId) return file;
+    }
+    return null;
+  }
+
+  /// 删除选中的那一张。
   ///
   /// 云端那份由 [FlowerpotState.deleteAnimation] 删；设备本地那份要另外下发
-  /// DP 155（按文件名删一张）或 156（全清），否则花盆屏幕上还会继续放这些图。
-  /// 全选时用 156：一次下发比逐张删可靠，也少几十条 DP。
+  /// DP 155（按文件名删一张）或 156（全清），否则花盆屏幕上还会继续放这张图。
+  ///
+  /// 单选之后「删的正好是全部」只剩一种情况：图库里就这一张。这时候仍然走 156
+  /// （全清）——一次下发比 155 可靠，设备侧也不用按文件名去匹配。
   Future<void> _deleteSelected(
     BuildContext context,
     List<AnimationAsset> files,
   ) async {
-    final targets = files
-        .where((item) => _selected.contains(item.id))
-        .toList(growable: false);
-    if (targets.isEmpty) {
+    final target = _selectedFile(files);
+    if (target == null) {
       showAppMessage(context, '请先选择要删除的文件', tone: AppMessageTone.info);
       return;
     }
-    final all = targets.length == files.length;
+    final all = files.length == 1;
     final confirmed = await showAppConfirmDialog(
       context,
       title: all ? '清空全部文件' : '删除选中文件',
       message: all
-          ? '设备上的 ${files.length} 个文件都会被清空，确定继续吗？'
-          : '选中的 ${targets.length} 个文件会从云端和设备上移除，确定继续吗？',
+          ? '设备上这 1 个文件会被清空，确定继续吗？'
+          : '选中的文件会从云端和设备上移除，确定继续吗？',
       confirmLabel: '删除',
       destructive: true,
       icon: Icons.delete_outline,
     );
     if (!confirmed || !context.mounted) return;
     final state = FlowerpotScope.of(context);
-    // ⚠️ **整串请求一起罩住**：下面是逐张删（云端 + DP155），两次请求之间
-    // `FlowerpotState.busy` 会掉回 false，按钮闪回可点，用户再点一次就会删两遍。
+    // ⚠️ **两条请求一起罩住**：删云端 + 下发 DP 之间 `FlowerpotState.busy` 会掉回
+    // false，按钮闪回可点，用户再点一次就会删两遍。
     final failed = await _run(() async {
+      var count = 0;
       if (all) {
         final cleared = await state.deleteAllDevicePhotos(widget.deviceId);
         if (!cleared.success) return -1;
+      } else {
+        final removed = await state.deleteDevicePhoto(
+          widget.deviceId,
+          target.name,
+        );
+        if (!removed.success) count++;
       }
-      var count = 0;
-      for (final file in targets) {
-        if (!all) {
-          final removed = await state.deleteDevicePhoto(
-            widget.deviceId,
-            file.name,
-          );
-          if (!removed.success) count++;
-        }
-        final result = await state.deleteAnimation(widget.deviceId, file.id);
-        if (!result.success) count++;
-      }
+      final result = await state.deleteAnimation(widget.deviceId, target.id);
+      if (!result.success) count++;
       return count;
     });
     if (failed == null || !context.mounted) return;
@@ -247,30 +259,28 @@ class _AnimationsPageState extends State<AnimationsPage>
       showAppMessage(context, '清空设备图片失败，请重试', tone: AppMessageTone.error);
       return;
     }
-    setState(_selected.clear);
+    setState(() => _selectedId = null);
     showAppMessage(
       context,
-      failed == 0 ? '已删除 ${targets.length} 个文件' : '有 $failed 个文件删除失败，请重试',
+      failed == 0 ? '已删除 1 个文件' : '文件删除失败，请重试',
       tone: failed == 0 ? AppMessageTone.success : AppMessageTone.error,
     );
   }
 
   /// 底部第一颗钮：把**当前选中的那一张**置顶。
   ///
-  /// DP 157 `pin_photo` 一次只带一个文件名，所以按钮只在恰好选中一张时可用；
-  /// 这里再兜一次，防止状态和界面对不上时误发。
+  /// DP 157 `pin_photo` 一次只带一个文件名。单选之后这里只兜一次「选中的还在不在
+  /// 列表里」，防止列表刚换过、按钮状态还没跟上时拿失效 id 去发 DP。
   Future<void> _pinSelected(
     BuildContext context,
     List<AnimationAsset> files,
   ) async {
-    final targets = files
-        .where((item) => _selected.contains(item.id))
-        .toList(growable: false);
-    if (targets.length != 1) {
-      showAppMessage(context, '一次只能置顶一张图片', tone: AppMessageTone.info);
+    final target = _selectedFile(files);
+    if (target == null) {
+      showAppMessage(context, '请先选择要置顶的图片', tone: AppMessageTone.info);
       return;
     }
-    await _pinFile(context, targets.single);
+    await _pinFile(context, target);
   }
 
   /// DP 157：让设备优先显示这张图。云端列表的顺序也跟着挪，两边看到的第一张
@@ -480,19 +490,22 @@ class _UploadCard extends StatelessWidget {
 
 /// 已上传文件（`docs/UI/v2/智能花盆ysplanter/定制动画-已上传图片（图库管理）.png`）。
 ///
-/// 三列缩略图 + 右上角勾选圈。设计稿里那排圆按钮搬到了页面底部的
-/// [_GalleryActionBar]，卡片本身只管网格。长按一张是「置顶」（DP 157），
-/// frame 里没有按钮位置，放在长按上。
+/// 三列缩略图，**选中的那一张**右上角画一个勾选圈（没选中的格子不画空圈，
+/// 2026-09-17 产品）。设计稿里那排圆按钮搬到了页面底部的 [_GalleryActionBar]，
+/// 卡片本身只管网格。长按一张是「置顶」（DP 157），frame 里没有按钮位置，放在
+/// 长按上。
 class _UploadedFilesCard extends StatelessWidget {
   const _UploadedFilesCard({
     required this.files,
-    required this.selected,
+    required this.selectedId,
     required this.onToggle,
     required this.onPin,
   });
 
   final List<AnimationAsset> files;
-  final Set<String> selected;
+
+  /// 当前选中的文件 id，没选中是 null。**单选**，见 `_AnimationsPageState`。
+  final String? selectedId;
   final ValueChanged<AnimationAsset> onToggle;
   final ValueChanged<AnimationAsset> onPin;
 
@@ -526,8 +539,9 @@ class _UploadedFilesCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 6),
+          // 「支持多选」2026-09-17 去掉了：现在只能单选，写着支持多选是错的。
           const Text(
-            '支持多选，选中后可删除；长按可置顶',
+            '选中后可删除；长按可置顶',
             style: TextStyle(color: AppColors.textTertiary, fontSize: 14),
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -543,7 +557,7 @@ class _UploadedFilesCard extends StatelessWidget {
             itemBuilder: (context, index) => _GalleryTile(
               file: files[index],
               index: index,
-              selected: selected.contains(files[index].id),
+              selected: files[index].id == selectedId,
               onTap: () => onToggle(files[index]),
               onLongPress: () => onPin(files[index]),
             ),
@@ -704,28 +718,29 @@ class _GalleryTile extends StatelessWidget {
           fit: StackFit.expand,
           children: <Widget>[
             _Thumbnail(path: file.path),
-            Positioned(
-              top: 6,
-              right: 6,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: selected
-                      ? AppColors.brandPrimary
-                      : AppColors.surface.withValues(alpha: .72),
-                  shape: BoxShape.circle,
-                ),
-                child: SizedBox.square(
-                  dimension: 26,
-                  child: selected
-                      ? const Icon(
-                          Icons.check,
-                          size: 16,
-                          color: AppColors.surface,
-                        )
-                      : null,
+            // 选中才画勾选圈。**没选中的格子什么都不画**（2026-09-17 产品：去掉
+            // 未选中时的多选框，只保留选中后的样式）——原来每张图右上角都顶着一个
+            // 半透明空圈，九宫格看着像一排待勾的复选框。
+            if (selected)
+              Positioned(
+                key: Key('animation-tile-selected-$index'),
+                top: 6,
+                right: 6,
+                child: const DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: AppColors.brandPrimary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: SizedBox.square(
+                    dimension: 26,
+                    child: Icon(
+                      Icons.check,
+                      size: 16,
+                      color: AppColors.surface,
+                    ),
+                  ),
                 ),
               ),
-            ),
             if (!file.synced)
               const Positioned(
                 left: 6,

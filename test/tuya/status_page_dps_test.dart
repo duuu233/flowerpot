@@ -244,7 +244,12 @@ void main() {
     expect(state.interactionLog, hasLength(1));
     expect(
       state.interactionLog.single,
-      contains('读取 ← [空气温度] 历史 temperature：日 DP164 hex 9字节/3点'),
+      // 日包那一格 2026-09-17 起打「认出来的是哪种帧」：7 天帧没有功能点表，App 是
+      // 按帧长认的，真机上只有这一行能看出认对没认对。这条 fixture 只有 3 个点，
+      // 两种 7 天布局都对不上，退回按老单天帧解。
+      contains(
+        '读取 ← [空气温度] 历史 temperature：日 DP164 hex 9字节/1天×3点（旧单天帧）09-16',
+      ),
     );
   });
 
