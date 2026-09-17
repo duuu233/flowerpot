@@ -2005,11 +2005,25 @@ class FlowerpotState extends ChangeNotifier {
     return '$label=$value（÷$scale=${number / scale}）';
   }
 
+  /// 报表页那条曲线的点。
+  ///
+  /// [date] 只对日视图有意义：2026-09-17 起设备日包一次带 7 天（当天 + 往前 6 天），
+  /// 报表按用户左右切到的那一天取。不传就是日包里最新那天。
   Future<List<double>> historyFor(
     String id,
     SensorMetric metric,
-    ReportRange range,
-  ) => _repository.getHistory(id, metric, range);
+    ReportRange range, {
+    DateTime? date,
+  }) => _repository.getHistory(id, metric, range, date: date);
+
+  /// 报表日视图能往前翻几天：设备日包一次就带这么多天
+  /// （[TuyaHistoryCodec.maxDailyWindow] = 7，即当天 + 往前 6 天）。
+  static const reportDayWindow = TuyaHistoryCodec.maxDailyWindow;
+
+  /// 日包里**有数据**的那几天（`MM-DD`）。报表用它把「设备没报这一天」和「这个
+  /// 指标压根没有历史 DP」分开说。
+  Set<String> reportedDays(String deviceId, SensorMetric metric) =>
+      deviceById(deviceId)?.history.reportedDays(metric) ?? const <String>{};
 
   /// 状态页曲线的数据：和顶部读数一样在 build 里现读，涂鸦一推送就跟着重画。
   ///

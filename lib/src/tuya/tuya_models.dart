@@ -125,22 +125,52 @@ class DeviceStatusReport {
 /// Sensor history the device reports as raw DPs, already decoded into one
 /// series per metric and range.
 class DeviceHistory {
-  const DeviceHistory(this._series);
+  const DeviceHistory(
+    this._series, [
+    this._daily = const <String, Map<String, List<double>>>{},
+  ]);
 
   static const empty = DeviceHistory(<String, List<double>>{});
 
   final Map<String, List<double>> _series;
 
+  /// 日包**按天**分好的点：`metric.name` → `MM-DD` → 那一天的 96 个点。
+  ///
+  /// 2026-09-17 的固件一次上报 7 天（当天 + 往前 6 天），报表要按用户选中的日期
+  /// 取其中一天，所以日包除了进 [_series]（那份是最新那天，给状态页那条曲线）还
+  /// 另存一份按天的。周 / 月包不进这里——它们本来就是「每天一个平均值」的一整段。
+  final Map<String, Map<String, List<double>>> _daily;
+
   static String key(SensorMetric metric, ReportRange range) =>
       '${metric.name}.${range.name}';
 
+  /// 按天取数用的键：`MM-DD`。**不含年**——日期头的「年偏移」基准功能点表没写，
+  /// 而 7 天窗口里 (月, 日) 不会重复。
+  static String dayKey(int month, int day) =>
+      '${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+
+  static String dayKeyOf(DateTime date) => dayKey(date.month, date.day);
+
   /// Empty when the product has no history DP for [metric], or when the device
   /// has not reported that window yet.
+  ///
+  /// 日视图给的是**最新那天**（设备日包里最后一天，通常就是今天）。要某一天看
+  /// [daySeries]。
   List<double> series(SensorMetric metric, ReportRange range) =>
       _series[key(metric, range)] ?? const <double>[];
 
   bool has(SensorMetric metric, ReportRange range) =>
       (_series[key(metric, range)] ?? const <double>[]).isNotEmpty;
+
+  /// [date] 那一天的日曲线。设备日包里没有这一天就是空的——报表按空态处理，不拿
+  /// 别的一天顶上。
+  List<double> daySeries(SensorMetric metric, DateTime date) =>
+      _daily[metric.name]?[dayKeyOf(date)] ?? const <double>[];
+
+  /// 日包里有数据的那几天（`MM-DD`）。给报表判断某一天是「设备没报」还是「这个
+  /// 指标压根没有历史 DP」用。
+  Set<String> reportedDays(SensorMetric metric) =>
+      _daily[metric.name]?.keys.toSet() ?? const <String>{};
 }
 
 /// A change the planter pushed on its own, rather than an answer to a call the

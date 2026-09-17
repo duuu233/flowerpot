@@ -74,10 +74,268 @@ abstract final class TuyaHistoryCodec {
   static bool _hasCountByte(List<int> bytes, int sampleBytes) =>
       bytes.length >= 4 && bytes.length == 4 + bytes[3] * sampleBytes;
 
+  /// 日包最多带几天：**当天 + 往前 6 天**（2026-09-17 固件改成一次上报 7 天）。
+  /// 报表左右切日期的窗口也是这一个数。
+  static const maxDailyWindow = 7;
+
+  /// 把一条**日包** DP 解成按天分好的数据。
+  ///
+  /// 固件 2026-09-17 起一次上报 7 天，而功能点表还没导出新帧格式，所以这里
+  /// **按帧长认**，依次试三种：
+  ///
+  /// ```text
+  /// A 每天一块  [年偏移 月 日 (点数) + N点] × D   len == D × (头 + N×点宽)
+  /// B 一个帧头  [年偏移 月 日] + 96点 × D         len == 3 + 96×D×点宽
+  /// C 旧单天    [年偏移 月 日 + 96点]              兜底，长度对不齐也尽力解
+  /// ```
+  ///
+  /// A 和 B 的帧长撞不上：点宽 1 时 A 是 99D（99 / 198 / … / 693），B 是 675；
+  /// 点宽 2 时 A 是 195D（195 / … / 1365），B 是 1347。都不在对方的取值里。
+  ///
+  /// 认出长度之后还要过日期头这道校验：月 1–12、日 1–31，多天之间**逐日连续**
+  /// （升序降序都行，降序翻成升序返回）。光看长度不够——一段点数据凑巧凑出合法
+  /// 帧长的概率不低，日期头才是能把它挡住的那一关。
+  ///
+  /// 真机上核对看联调日志里 [DailyHistoryFrames.label] 那一段：认的是哪种帧、几天、
+  /// 每天几点、覆盖哪几天，都在那一行里。
+  static DailyHistoryFrames decodeDaily(
+    Object? value, {
+    required int sampleBytes,
+    bool variableLength = false,
+  }) {
+    final bytes = TuyaRaw.bytes(value);
+    if (bytes == null || bytes.isEmpty) return DailyHistoryFrames.empty;
+
+    // 变长帧（164 / 165）的块头可能带点数字节，3 和 4 两种头都试；131–139 的日帧
+    // 只有 3 字节头。
+    final headers = variableLength ? const <int>[3, 4] : const <int>[3];
+    for (final headerBytes in headers) {
+      final days = _perDayBlocks(
+        bytes,
+        headerBytes: headerBytes,
+        sampleBytes: sampleBytes,
+      );
+      if (days != null) {
+        return DailyHistoryFrames(DailyHistoryLayout.perDayBlocks, days);
+      }
+    }
+    final concatenated = _singleHeaderDays(bytes, sampleBytes: sampleBytes);
+    if (concatenated != null) {
+      return DailyHistoryFrames(DailyHistoryLayout.singleHeader, concatenated);
+    }
+    // 兜底：长度对不上任何一种（固件又改了、或者包被截断），按老单天帧解一条出来，
+    // 总比整页空着好。
+    final samples = decode(
+      value,
+      range: ReportRange.day,
+      sampleBytes: sampleBytes,
+      variableLength: variableLength,
+    );
+    if (samples.isEmpty) return DailyHistoryFrames.empty;
+    return DailyHistoryFrames(
+      DailyHistoryLayout.legacySingleDay,
+      <DailyHistorySlice>[
+        DailyHistorySlice(
+          yearOffset: bytes[0],
+          month: bytes[1],
+          day: bytes[2],
+          samples: samples,
+        ),
+      ],
+    );
+  }
+
+  /// A：每天一个独立块。返回 null 表示这种解法不成立，换下一种。
+  static List<DailyHistorySlice>? _perDayBlocks(
+    List<int> bytes, {
+    required int headerBytes,
+    required int sampleBytes,
+  }) {
+    if (bytes.length < headerBytes + sampleBytes) return null;
+    // 3 字节头的块内点数定死 96（09_12 功能点表的日帧）；4 字节头的点数写在第 4 个
+    // 字节里，按第一块的值算——D 个块必须一样长，否则块边界无从算起，所以下面每
+    // 块再核一次那个字节。
+    final points = headerBytes == 4 ? bytes[3] : dailySamples;
+    if (points <= 0) return null;
+    final blockLength = headerBytes + points * sampleBytes;
+    if (bytes.length % blockLength != 0) return null;
+    final dayCount = bytes.length ~/ blockLength;
+    if (dayCount < 1 || dayCount > maxDailyWindow) return null;
+    final days = <DailyHistorySlice>[];
+    for (var index = 0; index < dayCount; index++) {
+      final offset = index * blockLength;
+      final month = bytes[offset + 1];
+      final day = bytes[offset + 2];
+      if (!_isPlausibleDate(month, day)) return null;
+      if (headerBytes == 4 && bytes[offset + 3] != points) return null;
+      days.add(
+        DailyHistorySlice(
+          yearOffset: bytes[offset],
+          month: month,
+          day: day,
+          samples: <double>[
+            for (var point = 0; point < points; point++)
+              _sample(
+                bytes,
+                offset + headerBytes + point * sampleBytes,
+                sampleBytes,
+              ),
+          ],
+        ),
+      );
+    }
+    return _ascending(days);
+  }
+
+  /// B：一个帧头 + 多天的点连排。帧头那个日期按**起始日**算（和周 / 月包的
+  /// 「起始日」同一个口径），后面的日期逐日往后推。
+  ///
+  /// 只认 3 字节头：4 字节头那个点数字节最大 255，装不下 7 × 96 = 672 个点，这种
+  /// 组合不存在。D == 1 归 A 管（那就是老单天帧），所以这里从 2 天起。
+  static List<DailyHistorySlice>? _singleHeaderDays(
+    List<int> bytes, {
+    required int sampleBytes,
+  }) {
+    const headerBytes = 3;
+    final dayLength = dailySamples * sampleBytes;
+    if (bytes.length <= headerBytes) return null;
+    if ((bytes.length - headerBytes) % dayLength != 0) return null;
+    final dayCount = (bytes.length - headerBytes) ~/ dayLength;
+    if (dayCount < 2 || dayCount > maxDailyWindow) return null;
+    if (!_isPlausibleDate(bytes[1], bytes[2])) return null;
+    // 往后推第 index 天：交给 `DateTime` 的构造函数进位（`day + index` 越界会自动
+    // 跨月）。年份取 2000 + 年偏移，涂鸦「年偏移」的惯例基准——它只影响 2 月末怎么
+    // 进位，匹配用的键是 (月, 日)，不是年。
+    final start = DateTime(2000 + bytes[0], bytes[1], bytes[2]);
+    final days = <DailyHistorySlice>[];
+    for (var index = 0; index < dayCount; index++) {
+      final date = DateTime(start.year, start.month, start.day + index);
+      final offset = headerBytes + index * dayLength;
+      days.add(
+        DailyHistorySlice(
+          yearOffset: bytes[0],
+          month: date.month,
+          day: date.day,
+          samples: <double>[
+            for (var point = 0; point < dailySamples; point++)
+              _sample(bytes, offset + point * sampleBytes, sampleBytes),
+          ],
+        ),
+      );
+    }
+    return days;
+  }
+
+  /// 日期头像不像个日期。只查月 1–12、日 1–31，**不查每月实际天数**：没有可信的
+  /// 年份，2 月 29 也可能是对的。这一关的用处是把「点数据被当成日期头」挡掉。
+  static bool _isPlausibleDate(int month, int day) =>
+      month >= 1 && month <= 12 && day >= 1 && day <= 31;
+
+  /// 多天必须**逐日连续**，升序降序都算；降序翻成升序返回，好让调用方一律按
+  /// 「最后一个是最新那天」用。不连续返回 null——那说明这种解法认错了。
+  static List<DailyHistorySlice>? _ascending(List<DailyHistorySlice> days) {
+    if (days.length == 1) return days;
+    if (_isConsecutive(days)) return days;
+    final reversed = days.reversed.toList(growable: false);
+    if (_isConsecutive(reversed)) return reversed;
+    return null;
+  }
+
+  /// 相邻两天是不是「后一天正好是前一天的第二天」。没有年份，所以跨月只按「下个
+  /// 月 1 号」算：不查上个月有几天，28 / 29 / 30 / 31 号接 1 号都认。
+  static bool _isConsecutive(List<DailyHistorySlice> days) {
+    for (var index = 1; index < days.length; index++) {
+      final previous = days[index - 1];
+      final current = days[index];
+      final sameMonth =
+          current.month == previous.month && current.day == previous.day + 1;
+      final nextMonth =
+          current.day == 1 &&
+          previous.day >= 28 &&
+          current.month == previous.month % 12 + 1;
+      if (!sameMonth && !nextMonth) return false;
+    }
+    return true;
+  }
+
   static double _sample(List<int> bytes, int offset, int sampleBytes) {
     if (sampleBytes == 2) {
       return ((bytes[offset] << 8) | bytes[offset + 1]).toDouble();
     }
     return bytes[offset].toDouble();
+  }
+}
+
+/// 一天的日历史：帧里那三个日期字节 + 那天的点。
+///
+/// **不带年**：日期头第一个字节是「年偏移」，功能点表没写基准年（2000 还是别的），
+/// 而 App 需要的只是「这一天是不是我选中的那一天」——7 天窗口里 (月, 日) 不会
+/// 重复，所以匹配按 `MM-DD` 走，年偏移只留着打进联调日志。
+class DailyHistorySlice {
+  const DailyHistorySlice({
+    required this.yearOffset,
+    required this.month,
+    required this.day,
+    required this.samples,
+  });
+
+  final int yearOffset;
+  final int month;
+  final int day;
+  final List<double> samples;
+
+  /// `MM-DD`，与 [DeviceHistory.dayKey] 同一个格式。
+  String get dayKey => DeviceHistory.dayKey(month, day);
+}
+
+/// 日包认出来的是哪一种帧。联调日志里要打明文——两种帧解错一个，整条曲线就是
+/// 错位的垃圾数据，真机上得能一眼看出 App 认的是哪种。
+enum DailyHistoryLayout {
+  /// 每天一个独立块，块头带日期：`[年偏移 月 日 (点数) + N 点] × D`。
+  perDayBlocks('每天一块带日期头'),
+
+  /// 一个帧头 + 多天的点连排：`[年偏移 月 日] + 96 点 × D`，帧头标的是**起始日**
+  /// （和周 / 月包的「起始日」同一个口径），后面逐日往后排。
+  singleHeader('一个帧头+多天点连排'),
+
+  /// 长度对不上前两种时的兜底：按 09_12 功能点表那个单天帧尽力解一条曲线出来。
+  legacySingleDay('旧单天帧'),
+
+  /// 一个点都没解出来。
+  none('解不出');
+
+  const DailyHistoryLayout(this.label);
+
+  final String label;
+}
+
+/// 一条日包 DP 解出来的全部天数。
+class DailyHistoryFrames {
+  const DailyHistoryFrames(this.layout, this.days);
+
+  static const empty = DailyHistoryFrames(
+    DailyHistoryLayout.none,
+    <DailyHistorySlice>[],
+  );
+
+  final DailyHistoryLayout layout;
+
+  /// 按日期**从旧到新**排好；设备按哪个方向排都在 [TuyaHistoryCodec] 里归一化过。
+  final List<DailyHistorySlice> days;
+
+  bool get isEmpty => days.isEmpty;
+
+  /// 最新那一天。状态页和首页那条曲线要的就是这天（以前日包只有一天，就是它）。
+  DailyHistorySlice? get newest => days.isEmpty ? null : days.last;
+
+  /// 联调日志里那一行：`7天×96点（每天一块带日期头）09-11→09-17`。
+  String get label {
+    if (days.isEmpty) return layout.label;
+    final points = days.map((item) => item.samples.length).toSet();
+    final width = points.length == 1 ? '${points.single}点' : '点数不齐$points';
+    final span = days.length == 1
+        ? days.single.dayKey
+        : '${days.first.dayKey}→${days.last.dayKey}';
+    return '${days.length}天×$width（${layout.label}）$span';
   }
 }

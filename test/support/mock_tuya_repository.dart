@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flowerpot/src/tuya/tuya_config.dart';
+import 'package:flowerpot/src/tuya/tuya_history_codec.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'plant_catalog.dart';
@@ -396,9 +397,16 @@ class MockTuyaRepository implements TuyaRepository {
   Future<List<double>> getHistory(
     String deviceId,
     SensorMetric metric,
-    ReportRange range,
-  ) async {
+    ReportRange range, {
+    DateTime? date,
+  }) async {
     await _wait();
+    // 演示数据每天都造得出来：报表左右切日期时曲线得跟着换一条，不然看不出切没切。
+    // 往前第 N 天的相位挪一格，形状还是那一个。
+    final daysAgo = date == null ? 0 : _daysAgo(date);
+    if (daysAgo < 0 || daysAgo >= TuyaHistoryCodec.maxDailyWindow) {
+      return const <double>[];
+    }
     final count = switch (range) {
       ReportRange.day => 24,
       ReportRange.week => 7,
@@ -410,7 +418,20 @@ class MockTuyaRepository implements TuyaRepository {
       orElse: () => _devices.isEmpty ? _demoDevice() : _devices.first,
     );
     if (metric == SensorMetric.battery) return <double>[device.battery.toDouble()];
-    return _shapeSeries(metric, count);
+    final series = _shapeSeries(metric, count);
+    if (daysAgo == 0 || series.isEmpty) return series;
+    return <double>[
+      for (var index = 0; index < series.length; index++)
+        series[(index + daysAgo) % series.length],
+    ];
+  }
+
+  /// [date] 距今几天（同一天 = 0）。只看年月日，不看时分。
+  static int _daysAgo(DateTime date) {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day)
+        .difference(DateTime(date.year, date.month, date.day))
+        .inDays;
   }
 
   /// Each metric gets its own shape. A single rescaled waveform made every
