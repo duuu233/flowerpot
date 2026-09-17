@@ -33,7 +33,8 @@
 | [`PRODUCT_RULES.md`](PRODUCT_RULES.md) | Active | **产品口径与硬性要求**（必须怎样 / 绝对不要怎样）。动手前先读；与它冲突的改动先停下来问。技术事实在 `AI_CONTEXT.md`，试错过程在 `history/`。 |
 | [`TUYA_CAPABILITY_AUDIT.md`](TUYA_CAPABILITY_AUDIT.md) | Active | 项目功能点逐条对照涂鸦官方文档：哪些已用官方 API、哪些涂鸦不支持只能自研、哪些接错了 SDK。 |
 | [`reference/`](reference/) | Reference | 涂鸦官方文档的本地存档（AP 热点模式 Android / iOS、扩展 SDK），仅作依据引用，不是本项目口径。 |
-| [`更新说明-2026-09-16.md`](更新说明-2026-09-16.md) | Historical | 2026-09-16 那一轮改了哪些地方的速览（状态文案、温湿度日历史 164/165、光照默认日 + 折线、上传前压缩）。 |
+| [`更新说明-2026-09-17.md`](更新说明-2026-09-17.md) | Historical | 2026-09-17 那一轮改了哪些地方的速览（上传图片改成设备口径 Baseline 4:2:0 / 320×240 / 500KB，DP165 按 2 字节解）。 |
+| [`更新说明-2026-09-16.md`](更新说明-2026-09-16.md) | Historical | 2026-09-16 那一轮改了哪些地方的速览（状态文案、温湿度日历史 164/165、光照默认日 + 折线、上传前压缩）。⚠️ 其中第 5 条「上传前裁剪压缩」的尺寸与失败口径已被 09-17 那份覆盖。 |
 | [`history/README.md`](history/README.md) | Active | 本地操作更新记录规则、模板与索引。 |
 
 `FIGMA_DESIGN_ANALYSIS.md` 和 `UI/*_IMPLEMENTATION.md` 是设计分析或页面级说明；使用前核对其日期和当前源码。[`TEMP_STATIC_PAGE_PREVIEW.md`](TEMP_STATIC_PAGE_PREVIEW.md) 描述当前静态演示构建的动线与开关，不承担生产配置说明。原始 DOCX 和 PNG 是输入资料，不是当前代码事实。
@@ -67,4 +68,4 @@ codegraph sync .
 
 记录路径为 `history/YYYY-MM/YYYY-MM-DD-topic.md`。一次集中修改对应一份记录，不维护无限增长的单文件日志。不得记录 Token、涂鸦密钥、安全组件、签名资料、Wi-Fi 密码、个人数据或完整本地配置。
 
-最近记录：[`history/2026-09/2026-09-16-状态文案改版-温湿度日历史164-165-光照图-上传压缩.md`](history/2026-09/2026-09-16-状态文案改版-温湿度日历史164-165-光照图-上传压缩.md)。
+最近记录：[`history/2026-09/2026-09-17-上传图片改设备口径-DP165两字节.md`](history/2026-09/2026-09-17-上传图片改设备口径-DP165两字节.md)。

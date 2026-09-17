@@ -170,9 +170,12 @@ class _AnimationsPageState extends State<AnimationsPage>
     // 上传要走一次文件上传 + 一次下发，最慢的一步，必须挡住重复点击。压缩也罩在
     // 同一个进度圈里：解码 + 编码有几百毫秒，露在外面用户会以为没点上。
     final result = await _run(() async {
-      // 花盆那块屏幕用不上原图：总像素压到 48 万以内、文件压到 1 MB 以内再传，
-      // 见 [UploadImage]。压不动时它会原样返回原图路径，不挡上传。
+      // 花盆那块屏幕只有 320 × 240：压到框以内、Baseline 4:2:0、500 KB 以内再传，
+      // 见 [UploadImage]。压不出合格的图就不传——设备下载完也显示不了（固件 1.0.12）。
       final path = await UploadImage.prepare(file.path);
+      if (path == null) {
+        return const ActionResult(false, '图片处理失败，换一张图片再试');
+      }
       return state.addAnimation(
         widget.deviceId,
         name: path.split(RegExp(r'[/\\]')).last,

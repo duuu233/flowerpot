@@ -22,9 +22,12 @@ const _lightWeeklyHex =
 /// N×2」，所以按 3 字节头解。
 const _tempDailyHex = '1a0910' '00f6' '0102' '00d2';
 
-/// 空气湿度日历史（DP 165）：09-16 的导出把它写成**4 字节头**（年 月 日 点数），
-/// 点数 3、帧长 10，正好等于 4 + 3×2，所以按 4 字节头解。
-const _humidityDailyHex = '1a091003' '0229' '01f4' '0258';
+/// 空气湿度日历史（DP 165）：固件 1.0.12 起**与 164 对称**——3 字节头 + uint16 BE
+/// ×10 的点（此前是 1 字节整数 %）。帧长 9、奇数，同样按 3 字节头解。
+///
+/// 09-16 的导出把这一行写成 4 字节头（年 月 日 点数），那种帧 App 也照样解得出，
+/// 见 `tuya_history_codec_test.dart` 里「4 字节头」那条。
+const _humidityDailyHex = '1a0910' '0229' '01f4' '0258';
 
 Map<Object?, Object?> _deviceMap() => <Object?, Object?>{
   'deviceId': 'dev-1',
@@ -124,7 +127,7 @@ void main() {
       ),
       <double>[24.6, 25.8, 21],
     );
-    // 165：4 字节头（第 4 个字节是点数），十分之一个百分点。
+    // 165：固件 1.0.12 起和 164 对称——3 字节头、uint16 BE、十分之一个百分点。
     expect(
       await repository.getHistory(
         'dev-1',

@@ -61,7 +61,8 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
       device,
       language: FlowerpotScope.of(context).languageCode,
     );
-    // 湿度日历史读 165（`humi_daily_hist`），解出来是十分之一个百分点、已经在仓库里
+    // 湿度日历史读 165（`humi_daily_hist`）：固件 1.0.12 起每点是 2 字节大端 ×10
+    // （与 164 对称，此前是 1 字节整数 %），解出来的十分之一个百分点已经在仓库里
     // 还原过；后面再接上 114 的实时推送。和上面的读数一样现读，推送一到就往前走一格。
     final values = FlowerpotScope.of(
       context,

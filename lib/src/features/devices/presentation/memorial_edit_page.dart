@@ -84,16 +84,21 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
       imageQuality: 88,
     );
     if (file == null || !mounted) return;
-    // 纪念日图片和定制动画一样进花盆屏幕：选完就压到总像素 48 万、1 MB 以内，
-    // 见 [UploadImage]。压在这里而不是保存时，预览看到的就是真正会传上去的那张。
+    // 纪念日图片和定制动画一样进花盆屏幕：选完就压到 320 × 240 的框以内、
+    // Baseline 4:2:0、500 KB 以内，见 [UploadImage]。压在这里而不是保存时，
+    // 预览看到的就是真正会传上去的那张。
     final path = await withBlockingProgress(
       context,
       () => UploadImage.prepare(file.path),
     );
     if (!mounted) return;
-    // withBlockingProgress 的返回值是可空的（泛型带的），prepare 自己不抛也不返回
-    // null，兜底回原图路径只是让类型收口。
-    setState(() => _pickedImagePath = path ?? file.path);
+    // null = 没做出一张设备能显示的图（也可能是页面已经被弹走）。不退回原图：
+    // 超框或者 Progressive 的图传上去，花盆下载完是一片空白，手机上却看不出问题。
+    if (path == null) {
+      showAppMessage(context, '图片处理失败，换一张图片再试', tone: AppMessageTone.error);
+      return;
+    }
+    setState(() => _pickedImagePath = path);
   }
 
   Future<void> _save() async {
