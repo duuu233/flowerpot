@@ -220,9 +220,17 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
   `DeviceHistory` 因此多存一份 `_daily`（`metric.name` → `MM-DD` → 96 点，键不含年——年偏移的基准年
   功能点表没写，而 7 天窗口里 (月, 日) 唯一）；`series(metric, day)` 仍然返回**最新那天**，所以状态页和
   首页那条曲线（`chartSeries`）一行没改。报表页按选中日期取 `getHistory(..., date:)` →
-  `DeviceHistory.daySeries`，日期窗口 `TuyaHistoryCodec.maxDailyWindow` = 7（当天 + 往前 6 天），
-  切换条是 `reports_page.dart` 的 `_DayPicker`（`Key('report-day-prev'/'-next'/'-label')`）。
-  周 / 月包不进 `_daily`，它们本来就是「每天一个平均值」的一整段。
+  `DeviceHistory.daySeries`；四个状态页按 `periodOffset` 取
+  `chartSeries(..., date: HistoryPeriod.dayFor(periodOffset))`（过去某天走 `daySeries` 且
+  **不接实时推送点**——实时值只属于今天）。周 / 月包不进 `_daily`，它们本来就是「每天一个
+  平均值」的一整段。
+- **日期切换窗口只有一处定义**：`features/devices/models/history_period.dart` 的
+  `HistoryPeriod`（`maxBack`：日 6 / 周 0 / 月 0，跟着 `TuyaHistoryCodec.maxDailyWindow` 走）。
+  用它的有五处控件：四个状态页顶部的 `DateRangeNavigator`（需水 / 光照 / 空气温度 / 相对湿度
+  ——**用户日常点的就是这个**）+ 报表页日视图的 `_DayPicker`
+  （`Key('report-day-prev'/'-next'/'-label')`）。⚠️ 2026-09-17 修过一个 BUG：四个状态页原来是
+  裸的 `periodOffset--`，能无限往前翻；而且 `chartSeries` 压根不看 `periodOffset`，标签翻了、
+  曲线还是今天那条。**页面里不要再自己算天数。**
 - raw 功能点（131–139 与 164/165 历史、154/155/157/158/159 纪念日与动画）**在 App 侧上报和下发都是十六进制串**：2026-09-13 解包 SDK 7.5.1 确认 `DevUtil.decodeRaw` 把云端的 base64 先转成十六进制再交给 `onDpUpdate` / `DeviceBean.getDps()`，`encodeRaw` 下发时反向转回 base64。上报统一走 `TuyaRaw.bytes`（先认 hex、再兜底 base64），下发走 `TuyaMemorialCodec.encodeRaw`；此前按 base64 解上报，历史报表因此「日志有数据、页面暂无」，158/159 读回也是乱码。仍未真机验证。设备不回报整份自定义纪念日列表；当前已接后端纪念日接口，**整组按涂鸦 `deviceId` 传参**（2026-09-13 起，swagger `ClientProductAnniversaryAddApiIn.deviceId`；`getUserProductList` / `getUserProductDetail` / `getProductList` / `addUserProduct` / `editUserProduct` / `delUserProduct` 已从 swagger 下线），后端会话可用时分配 id、保存并刷新列表，本地 `deviceMemorials` 是缓存，后端不可用时保留本地路径。退出登录暂不清此缓存，账号隔离及迟到响应仍需加固。
 - 2026-09-03 的两轮配网改动都只做了静态复核，`flutter test` 与真机均未跑（本机没有 Flutter 工具链）：热点识别放宽、选择页原始扫描结果回退、Android `scanWifi` 等待新一轮扫描结果，以及同日更早补的失败释放（`PairingResult` 包装、`cancelPairing`、Dart 侧 `leaveDeviceHotspot`）与手动回落路径。
 - iOS 桥接已补齐配网前置、`joinDeviceHotspot`（`NEHotspotConfigurationManager`，需要 Hotspot Configuration entitlement，未配置时回 `hotspot_join_unsupported` 走手动路径）、`cancelPairing`、DP 上报与 OTA，但 iOS 侧全部改动尚未经过 Xcode 编译或真机验证；`createShareLink` 在 iOS 上仍是明确错误码（Home SDK 只有按账号分享）。

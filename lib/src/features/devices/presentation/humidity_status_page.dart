@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
+import '../models/history_period.dart';
 import '../models/humidity_status_page_model.dart';
 import 'widgets/humidity_status_summary_card.dart';
 import 'widgets/humidity_trend_chart_card.dart';
@@ -64,9 +65,15 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
     // 湿度日历史读 165（`humi_daily_hist`）：固件 1.0.12 起每点是 2 字节大端 ×10
     // （与 164 对称，此前是 1 字节整数 %），解出来的十分之一个百分点已经在仓库里
     // 还原过；后面再接上 114 的实时推送。和上面的读数一样现读，推送一到就往前走一格。
-    final values = FlowerpotScope.of(
-      context,
-    ).chartSeries(widget.deviceId, SensorMetric.humidity, ReportRange.day);
+    final values = FlowerpotScope.of(context).chartSeries(
+      widget.deviceId,
+      SensorMetric.humidity,
+      ReportRange.day,
+      // 曲线要跟着上面那条日期条走：翻到过去某天就画那天的日包
+      // （2026-09-17 起日包一次带 7 天）。⚠️ 原来这里不传日期，标签翻了、曲线
+      // 还是今天那条，看着像「翻了没反应」。
+      date: HistoryPeriod.dayFor(periodOffset),
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '相对湿度', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -87,8 +94,14 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
                   const SizedBox(height: AppSpacing.sm),
                   DateRangeNavigator(
                     label: _dateLabel(),
-                    onPrevious: () => setState(() => periodOffset--),
-                    onNext: periodOffset < 0
+                    // 窗口就是设备日包的 7 天（当天 + 往前 6 天），到边点不动。
+                    // ⚠️ 原来这里是裸的 `periodOffset--`，能一直往前翻到去年，
+                    // 而设备没有那些天的数据（2026-09-17 用户实测报的 BUG）。
+                    onPrevious:
+                        HistoryPeriod.canGoBack(ReportRange.day, periodOffset)
+                        ? () => setState(() => periodOffset--)
+                        : null,
+                    onNext: HistoryPeriod.canGoForward(periodOffset)
                         ? () => setState(() => periodOffset++)
                         : null,
                   ),
@@ -122,7 +135,7 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
   }
 
   String _dateLabel() {
-    final date = DateTime.now().add(Duration(days: periodOffset));
+    final date = HistoryPeriod.dayFor(periodOffset);
     return '${date.month}月${date.day}日';
   }
 }

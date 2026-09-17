@@ -6,8 +6,8 @@ import '../../../app/app_theme.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../app/network_alert.dart';
 import '../../../shared/shared.dart';
-import '../../../tuya/tuya_history_codec.dart';
 import '../../../tuya/tuya_models.dart';
+import '../models/history_period.dart';
 
 class ReportArguments {
   const ReportArguments({required this.deviceId, required this.metric});
@@ -340,9 +340,9 @@ String _dayLabel(DateTime date) {
 
 /// 日视图的日期切换条。
 ///
-/// **窗口固定 7 天：当天 + 往前 6 天**（`TuyaHistoryCodec.maxDailyWindow`，
-/// 2026-09-17 产品）。设备的日包一次就带这么多天，窗口外的日期设备根本没报，所以
-/// 这里不是一个能一直往前翻的日历——**到边箭头就点不动**，而不是翻过去看一页空的。
+/// **窗口固定 7 天：当天 + 往前 6 天**（规则在 [HistoryPeriod]，跟着设备日包一次带
+/// 的天数走）。窗口外的日期设备根本没报，所以这里不是一个能一直往前翻的日历——
+/// **到边箭头就点不动**，而不是翻过去看一页空的。
 class _DayPicker extends StatelessWidget {
   const _DayPicker({required this.date, required this.onChanged});
 
@@ -355,14 +355,15 @@ class _DayPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final daysAgo = _daysAgo(date);
+    // 窗口规则和四个状态页共用一处（[HistoryPeriod]）：那边按 `periodOffset`
+    // 记「往前第几期」，这边记的是日期本身，换算一下就是 `-daysAgo`。
+    final offset = -_daysAgo(date);
     return Row(
       children: <Widget>[
         IconButton(
           key: prevKey,
           tooltip: '前一天',
-          // 最多翻到 6 天前：窗口一共 7 天，当天算一天。
-          onPressed: daysAgo < TuyaHistoryCodec.maxDailyWindow - 1
+          onPressed: HistoryPeriod.canGoBack(ReportRange.day, offset)
               ? () => onChanged(_shiftDay(date, -1))
               : null,
           icon: const Icon(Icons.chevron_left),
@@ -379,7 +380,9 @@ class _DayPicker extends StatelessWidget {
           key: nextKey,
           tooltip: '后一天',
           // 今天就是最右边，没有「明天」可看。
-          onPressed: daysAgo > 0 ? () => onChanged(_shiftDay(date, 1)) : null,
+          onPressed: HistoryPeriod.canGoForward(offset)
+              ? () => onChanged(_shiftDay(date, 1))
+              : null,
           icon: const Icon(Icons.chevron_right),
         ),
       ],

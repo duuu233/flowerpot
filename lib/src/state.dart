@@ -2041,24 +2041,39 @@ class FlowerpotState extends ChangeNotifier {
   List<double> chartSeries(
     String deviceId,
     SensorMetric metric,
-    ReportRange range,
-  ) {
+    ReportRange range, {
+    DateTime? date,
+  }) {
     final device = deviceById(deviceId);
     if (device == null) return const <double>[];
+    // **翻到过去某一天**：给那天的日包（2026-09-17 起日包一次带 7 天）。
+    // `null` 表示看的是当期——今天 / 本周 / 本月，走原来那条路。
+    //
+    // ⚠️ 过去那几天**不接实时点**：实时推送是「现在」这个值，接在历史某天的曲线
+    // 后面就是一条假曲线（昨天的图右端冒出今天的读数）。实时只属于今天。
+    final past = range == ReportRange.day && date != null && _daysAgoOf(date) > 0
+        ? date
+        : null;
     // 同一份数据返回同一个列表：图表按列表是否换了来决定重置选中点，别的原因触发的
     // 重建（比如记一行联调日志）不该把用户点选的那个点弄丢。
-    final key = '$deviceId/${metric.name}/${range.name}';
+    // 日期进 key：不然翻了一天还命中前一天那条缓存。
+    final key = past == null
+        ? '$deviceId/${metric.name}/${range.name}'
+        : '$deviceId/${metric.name}/${range.name}/${DeviceHistory.dayKeyOf(past)}';
     final cached = _chartSeriesCache[key];
     if (cached != null &&
         identical(cached.$1, device.history) &&
         cached.$2 == _liveSampleRevision) {
       return cached.$3;
     }
-    final packet = device.history.series(metric, range);
+    final packet = past == null
+        ? device.history.series(metric, range)
+        : device.history.daySeries(metric, past);
     // ⚠️ 别写成 `cond ? map[a]?[b] ?? x : y`：三元分支里的 `?[` 会被解析器当成嵌套三元的
     // `?`，release 打包直接编译失败（2026-09-15 打包报 Expected ':' before this）。
     final liveByMetric = _liveSamples[deviceId];
-    final live = range == ReportRange.day && liveByMetric != null
+    final live =
+        past == null && range == ReportRange.day && liveByMetric != null
         ? liveByMetric[metric] ?? const <double>[]
         : const <double>[];
     final merged = <double>[...packet, ...live];
@@ -2073,6 +2088,14 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 日视图最多画多少个点：和设备日包一样多（96 个，一刻钟一个）。
   static const liveChartWindow = TuyaHistoryCodec.dailySamples;
+
+  /// [date] 距今几天：今天 0，昨天 1。只看年月日，不看时分。
+  static int _daysAgoOf(DateTime date) {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day)
+        .difference(DateTime(date.year, date.month, date.day))
+        .inDays;
+  }
 
   /// 每个指标跟着哪条实时 DP 往曲线上接点、哪条日包 DP 到了就以包为准。
   static const Map<SensorMetric, (String, String?)> _liveChartDps =

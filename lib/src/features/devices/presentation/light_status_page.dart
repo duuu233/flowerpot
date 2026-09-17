@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
+import '../models/history_period.dart';
 import '../models/light_status_page_model.dart';
 import 'widgets/light_dli_bar_chart.dart';
 import 'widgets/light_status_summary_card.dart';
@@ -83,9 +84,15 @@ class _LightStatusPageState extends State<LightStatusPage> {
     //
     // ⚠️ 2026-09-15 以前这里读的是 [SensorMetric.dli]，而仓库把 137–139 解出来存在
     // [SensorMetric.light] 名下——功能点表里压根没有 DLI 历史 DP，真机上永远空态。
-    final values = FlowerpotScope.of(
-      context,
-    ).chartSeries(widget.deviceId, SensorMetric.light, range);
+    final values = FlowerpotScope.of(context).chartSeries(
+      widget.deviceId,
+      SensorMetric.light,
+      range,
+      // 曲线跟着日期条走：日视图翻到过去某天就画那天的日包（2026-09-17 起日包
+      // 一次带 7 天）。周 / 月只有当期一包，传了也用不上。⚠️ 原来这里不传日期，
+      // 标签翻了、曲线还是今天那条，看着像「翻了没反应」。
+      date: HistoryPeriod.dayFor(periodOffset),
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '光照状态', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -113,8 +120,14 @@ class _LightStatusPageState extends State<LightStatusPage> {
                   const SizedBox(height: AppSpacing.sm),
                   DateRangeNavigator(
                     label: _dateLabel(),
-                    onPrevious: () => setState(() => periodOffset--),
-                    onNext: periodOffset < 0
+                    // 窗口按周期来：日 = 设备日包的 7 天（当天 + 往前 6 天）；
+                    // 周 / 月设备只有当期那一包，往前没有第二份，所以一格都不给翻。
+                    // ⚠️ 原来这里是裸的 `periodOffset--`，能一直往前翻到去年
+                    // （2026-09-17 用户实测报的 BUG）。规则见 [HistoryPeriod]。
+                    onPrevious: HistoryPeriod.canGoBack(range, periodOffset)
+                        ? () => setState(() => periodOffset--)
+                        : null,
+                    onNext: HistoryPeriod.canGoForward(periodOffset)
                         ? () => setState(() => periodOffset++)
                         : null,
                   ),
@@ -188,7 +201,7 @@ class _LightStatusPageState extends State<LightStatusPage> {
   String _dateLabel() {
     final now = DateTime.now();
     return switch (range) {
-      ReportRange.day => _formatDay(now.add(Duration(days: periodOffset))),
+      ReportRange.day => _formatDay(HistoryPeriod.dayFor(periodOffset)),
       ReportRange.week => _formatWeek(
         now.add(Duration(days: periodOffset * 7)),
       ),
