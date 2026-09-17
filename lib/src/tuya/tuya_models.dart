@@ -203,16 +203,25 @@ class OtaProgress {
   /// 原生报上来的升级阶段（涂鸦状态码换算），没报时为 null。见 [OtaStage.fromTuya]。
   final OtaStage? stage;
 
+  /// 进度到这个百分比就当设备已经在装了，界面改说「固件安装中」（2026-09-17 产品）。
+  ///
+  /// 涂鸦的进度到 98% 之后会**停在那儿等设备写完固件再重启**，这一段是整条升级里
+  /// 最长的一截，停在「固件升级中 98%」看着就像卡死了。98% 往后那两格并没有可信的
+  /// 进度可言，所以干脆并进安装中：进度条换成来回走的动画、不写数字（和「固件准备中」
+  /// 同一套动效），等涂鸦报成功再走原来的「升级完成」。
+  static const installingPercent = 98;
+
   /// 进行中时界面该说哪一句（2026-09-15 产品：一直停在「0%」像是卡住了，要动态换文案）。
   ///
   /// 以进度为主、涂鸦阶段为辅：
   /// - 还没有进度（0%）→ 准备中；涂鸦报「等待设备唤醒」时说等待唤醒；
-  /// - 有进度（1–99%）→ 升级中；
-  /// - 进度到 100% 但还没收到成功，或涂鸦报「固件已下载到设备」→ 安装中（设备在写入、重启）。
+  /// - 有进度（1–97%）→ 升级中；
+  /// - 进度到 [installingPercent] 但还没收到成功，或涂鸦报「固件已下载到设备」
+  ///   → 安装中（设备在写入、重启）。
   OtaStage get displayStage {
     if (stage == OtaStage.installing) return OtaStage.installing;
     final value = percent ?? 0;
-    if (value >= 100) return OtaStage.installing;
+    if (value >= installingPercent) return OtaStage.installing;
     if (value > 0) return OtaStage.upgrading;
     return stage == OtaStage.waitingWake
         ? OtaStage.waitingWake

@@ -111,7 +111,7 @@ void main() {
     state.dispose();
   });
 
-  test('display stage follows progress: 准备中 → 升级中 → 安装中', () {
+  test('display stage follows progress: 准备中 → 升级中 → 98% 起安装中', () {
     OtaStage stageOf({int? percent, OtaStage? stage}) => OtaProgress(
       deviceId: 'd',
       status: OtaStatus.running,
@@ -125,7 +125,10 @@ void main() {
     expect(stageOf(percent: 0, stage: OtaStage.upgrading), OtaStage.preparing);
     expect(stageOf(percent: 0, stage: OtaStage.waitingWake), OtaStage.waitingWake);
     expect(stageOf(percent: 1), OtaStage.upgrading);
-    expect(stageOf(percent: 99), OtaStage.upgrading);
+    expect(stageOf(percent: 97), OtaStage.upgrading);
+    // 2026-09-17 产品：98% 起就算安装中——涂鸦在 98 停一大段等设备写固件、重启。
+    expect(stageOf(percent: 98), OtaStage.installing);
+    expect(stageOf(percent: 99), OtaStage.installing);
     expect(stageOf(percent: 100), OtaStage.installing);
     expect(stageOf(percent: 30, stage: OtaStage.installing), OtaStage.installing);
 

@@ -29,6 +29,9 @@ import '../../../../tuya/tuya_models.dart';
 ///
 /// 2026-09-15 产品：设备还没开始回报进度时一直写「0%」，用户以为卡住了。所以按
 /// [OtaProgress.displayStage] 换文案：准备中 → 升级中（带百分比）→ 安装中。
+///
+/// 2026-09-17 产品：安装中从 **[OtaProgress.installingPercent]%（98）** 就开始——
+/// 涂鸦的进度走到 98 之后要停一大段等设备写固件、重启，停在「固件升级中 98%」像卡死了。
 String otaRunningLabel(OtaProgress? ota, {bool withPercent = false}) {
   final stage = ota?.displayStage ?? OtaStage.preparing;
   return switch (stage) {
@@ -76,7 +79,8 @@ class _OtaProgressDialog extends StatelessWidget {
     final running = status == OtaStatus.running;
     final stage = ota?.displayStage ?? OtaStage.preparing;
     // 准备中 / 安装中 / 等待唤醒没有可信的百分比：进度条改成来回走的动画、不写数字，
-    // 让人看得出在跑，而不是停在 0%。
+    // 让人看得出在跑，而不是停在 0%（或者 2026-09-17 之后的 98%）。三段共用同一套
+    // 动效，产品口径就是「98% 之后换成最开始那个动效」。
     final indeterminate = running && stage != OtaStage.upgrading;
     return PopScope(
       // 升级中不许返回键关掉：关了就再也看不到进度，用户只会以为升级没在跑。
