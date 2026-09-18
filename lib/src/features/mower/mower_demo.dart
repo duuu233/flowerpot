@@ -348,6 +348,12 @@ abstract final class MowerAssets {
   /// 设备列表 / 搜索列表里那颗 50×50 的圆角方图标（`设备图标 / 割草机`）。
   static const String listIcon = 'assets/images/mower_list_icon.png';
 
+  /// 设备列表卡片里那张整机俯视图（`设备卡片 / YSmower-01`）。
+  ///
+  /// ⚠️ 稿子里这张是把导出的横图**逆时针转 90°**摆的（车头朝上），导出件本身是横的；
+  /// 已经转好再入库，页面不要再转一次。
+  static const String deviceThumb = 'assets/images/mower_device_thumb.png';
+
   static const String navHomeIcon = 'assets/images/mower_nav_home_icon.png';
   static const String navPlanIcon = 'assets/images/mower_nav_plan_icon.png';
   static const String navSettingsIcon =

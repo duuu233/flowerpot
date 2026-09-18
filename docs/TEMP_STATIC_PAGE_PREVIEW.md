@@ -54,10 +54,13 @@ static const bool enabled = false;
 与上面那条演示动线**是两回事**：这一套不依赖 Mock 后端，也不经过 `TuyaRepository`——
 `lib/src/features/mower/` 里的页面把数字全写死在 `mower_demo.dart` 里，纯粹是给产品看版式的。
 
-- **入口**：搜索设备页（`/devices/search`）已发现设备列表**下面**固定的一行「YSmower-01」，
-  点「连接」进 `/mower`。这一行不是扫出来的，行上写明「静态演示数据」。
+- **入口有两处，都是写死的静态数据，都归 `MowerDemo.enabled` 管**：
+  - **设备列表**（`/devices/list`）最后一张卡「YSmower-01 / 在线」，点它进 `/mower`。
+    它不经过 `state.devices`，花盆设备那条线一点没动；列表为空（「暂无设备」缺省页）时不画。
+  - **搜索设备页**（`/devices/search`）已发现设备列表**下面**固定的一行「YSmower-01」，
+    点「连接」进 `/mower`。这一行不是扫出来的，行上写明「静态演示数据」。
 - **开关**：`MowerDemo.enabled`（`lib/src/features/mower/mower_demo.dart`）。置 `false` 后
-  那一行消失，页面代码保留。
+  两个入口一起消失，页面代码保留。
 - **页面**：外壳 `/mower` 带底部导航（首页 / 割草计划 / 设置），二级页
   `/mower/parameters`、`/mower/zones`、`/mower/rain`、`/mower/time-sync`、`/mower/language`；
   消息通知由设置页直接 push（要带一个「退回来切到哪一栏」的回调，命名路由塞不进去）。

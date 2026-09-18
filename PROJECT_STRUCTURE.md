@@ -50,4 +50,4 @@ lib/
 5. REST 请求统一经过 `core/network/ApiClient`，页面不得直接发起 HTTP 请求。
 6. 设备图片同步依赖硬件 PID 的文件传输协议；统计报表依赖涂鸦设备数据统计服务或自有后端，未开通时返回明确配置错误。
 7. `features/devtools/` 只服务于 SDK 联调，不属于产品动线；它同样经过 `FlowerpotState` 与 `TuyaRepository`，只是额外展示失败码。开关放在 `core/config/debug_tools_config.dart`。
-8. `features/mower/` 是割草机的**静态页面**（2026-09-18）：不连 SDK、不发 DP、不读后端，页面上的数字全部来自 `mower_demo.dart`。入口是搜索设备页列表下面那条固定数据，开关是 `MowerDemo.enabled`。
+8. `features/mower/` 是割草机的**静态页面**（2026-09-18）：不连 SDK、不发 DP、不读后端，页面上的数字全部来自 `mower_demo.dart`。入口有两处（设备列表最后一张卡、搜索设备页列表下面那条），都是写死的静态数据，开关是 `MowerDemo.enabled`。
