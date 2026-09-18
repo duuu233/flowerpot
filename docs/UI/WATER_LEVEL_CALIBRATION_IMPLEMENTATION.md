@@ -6,8 +6,8 @@
 
 - 入口文件：`lib/src/features/devices/presentation/device_other_settings_page.dart`
 - 页面继续使用 `AppPageScaffold`、`AppPageHeader`、`ResponsiveContent`、`AppSurfaceCard` 和统一设置列表样式。
-- 点击“水位传感器校准”打开四步向导；第三步确认后由 Page 调用 `FlowerpotState.runMaintenance(deviceId, 'calibrateWaterLevel')`。
-- 维护指令成功后进入第四步完成状态；失败时保留当前步骤并使用 Design System 的错误 Snackbar 反馈。
+- 点击“水位传感器校准”打开四步向导；Page 把每一步接到 `FlowerpotState.calibrateWaterLevel(deviceId, step)`（DP 140）与 `cancelWaterLevelCalibration`（`step5`）。
+- **下发时机是“卡片出现”**：弹窗一打开就发 `step0`，之后每点一次“下一步”先发下一张卡片的 step，成功才切卡；失败时保留当前步骤并用 Design System 的错误 Snackbar 反馈。
 
 ## Widget 拆分
 
@@ -36,12 +36,12 @@ Widget 只消费页面 Model；设备维护调用仍由 Page 负责。
 
 ## 交互与状态
 
-1. 第一步：移出植物内胆并倒空水仓。
-2. 第二步：向水仓倒入 30mL 水。
-3. 第三步：再次倒入 30mL 水并提交设备校准指令。
-4. 第四步：展示校准完成状态，“关闭”和“完成”均退出向导。
+1. 第一步：移出植物内胆并倒空水仓（弹窗出现时已下发 `step0`）。
+2. 第二步：向水仓倒入 30mL 水（进入时下发 `step1`）。
+3. 第三步：再次倒入 30mL 水（进入时下发 `step2`）。
+4. 第四步：展示校准完成状态（进入时下发 `step3`），“关闭”和“完成”都只退出向导，不再下发。
 
-前三步“取消”直接关闭弹窗；提交维护指令期间禁用两个操作并显示品牌色进度指示器，避免重复发送。
+前三步的“取消”下发 `step5` 后关闭弹窗，第四步的“关闭”不发（四步已走完）；下发期间禁用两个操作并显示品牌色进度指示器，避免重复发送。
 
 ## 尺寸适配与测试
 

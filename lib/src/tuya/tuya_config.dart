@@ -278,11 +278,11 @@ abstract final class TuyaConfig {
   static const standbyDelayMin = 1;
   static const standbyDelayMax = 180;
 
-  /// Steps of `water_level_calib`, indexed by the calibration dialog step the
-  /// user just confirmed.
+  /// `water_level_calib` 的阶段值，下标就是校准弹窗**正要展示**的那张卡片。
   ///
-  /// The confirmed sequence is step0 → step1 → step2 → step3. step4 is
-  /// reserved and must not be sent; cancelling at any active step sends step5.
+  /// 顺序 step0 → step1 → step2 → step3，**每一步在卡片出现时下发**，不是等用户
+  /// 确认完再补（2026-09-18 产品口径：第一步就要下发 step0，弹窗一开设备就进校准
+  /// 模式）。step4 保留、任何路径都不发；半途退出发 step5 取消。
   static const calibrationSteps = <String>['step0', 'step1', 'step2', 'step3'];
   static const calibrationCancel = 'step5';
 

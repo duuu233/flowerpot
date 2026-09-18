@@ -2623,9 +2623,11 @@ class FlowerpotState extends ChangeNotifier {
 
   /// Advances `water_level_calib` (DP 140) by one step.
   ///
-  /// The DP is an enum of stages rather than a single "calibrate" command, so
-  /// the dialog reports which step the user just confirmed and the device
-  /// samples at that point.
+  /// The DP is an enum of stages rather than a single "calibrate" command: the
+  /// dialog reports the step it is **about to show**, so the device is already
+  /// in that stage while the user performs the action written on the card.
+  /// step0 therefore goes out as the dialog opens, before the user does
+  /// anything.
   Future<ActionResult> calibrateWaterLevel(String id, int step) =>
       _guard(() async {
         if (step < 0 || step >= TuyaConfig.calibrationSteps.length) {
