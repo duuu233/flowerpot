@@ -20,7 +20,7 @@
 | 感知设置 | 自动亮度、声音/触摸开关与灵敏度、振动 | `device_settings_page.dart` |
 | 行为 | 中午小憩、夜间睡眠时间段和开关 | `device_settings_page.dart` |
 | 本地化 | 温标与 12/24 小时既下发设备，App 自身展示也跟随（`DeviceControlSettings` 的格式化入口） | `device_other_settings_page.dart`、`tuya_models.dart` |
-| 维护 | 水位校准按 `step0`→`step3` 逐步下发、取消发 `step5`（不发 `step4`）；修复系统文件、重新配网 | `device_settings_page.dart`、`water_level_calibration_dialog.dart` |
+| 维护 | 水位校准按 `step0`→`step3` 逐步下发，**每张卡片出现时发**（弹窗一打开就发 `step0`）、半途退出发 `step5`（不发 `step4`）；修复系统文件、重新配网 | `device_settings_page.dart`、`water_level_calibration_dialog.dart` |
 | 我的 | 中英文、消息开关、App 升级、帮助、隐私、协议、关于 | `features/profile` |
 
 ## 需要平台参数后联调

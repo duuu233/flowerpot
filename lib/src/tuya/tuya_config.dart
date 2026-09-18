@@ -209,10 +209,17 @@ abstract final class TuyaConfig {
   /// Bytes per sample in the raw history DPs. Water level and soil moisture fit
   /// in a single unsigned byte; light, air temperature and air humidity do not.
   ///
-  /// 164 / 165 的功能点表没有写「点宽」，这里跟着它们的实时 DP 走：112 的量程是
-  /// 0–2200（倍数 1），114 是 0–1000（倍数 1），一个字节都装不下，所以按 uint16 BE
-  /// 解，和 137–139 的照度同一套。真机上先看 `historyDiagnostics` 打的
-  /// 「字节数/点数」对不对得上，再改这里。
+  /// 164 / 165 的功能点表没有写「点宽」，09-16 那轮是按它们实时 DP 的量程推的：
+  /// 112 的量程是 0–2200（倍数 1），114 是 0–1000（倍数 1），一个字节都装不下，
+  /// 所以按 uint16 BE 解，和 137–139 的照度同一套。
+  ///
+  /// **固件 1.0.12 把这个推断坐实了**：165（空气湿度日历史）的点从「1 字节整数 %」
+  /// 改成与 164 对称的 **2 字节大端 ×10**，产品口径是「App 按 2B 解析即可」。所以
+  /// 这张表不按固件版本分叉。
+  ///
+  /// ⚠️ 1.0.12 以下的固件 165 报的还是 1 字节点，App 按 2 字节解出来是一条错位的
+  /// 曲线。帧长分不出 1B / 2B（3 + N 和 3 + 2N 都可能是任意长度），认不出来也兜不了，
+  /// 只能是设备先升级。真机上照 `historyDiagnostics` 打的「字节数/点数」核一眼。
   static const historySampleBytes = <String, int>{
     'illuminance': 2,
     'temperature': 2,
@@ -225,13 +232,17 @@ abstract final class TuyaConfig {
 
   /// 帧头长度要按帧长现算的历史 DP。
   ///
-  /// 131–139 的帧头是定死的（日 3 字节、周 / 月 4 字节）；164 / 165 是 2026-09-16
+  /// 131–139 的帧头是定死的（日 3 字节、周 4 字节、**月 5 字节**——月帧 2026-09-18
+  /// 起是「年 月 日 段号 总段数」，见设备端 1.0.13 §2.4 与 tuya_history_codec.dart）；
+  /// 164 / 165 是 2026-09-16
   /// 新加的**变长**日帧，而且那版导出里两行写得不一样——164 是「年 月 日 +
   /// N×点数据」（3 字节头），165 是「年 月 日 N + N×点数据」（4 字节头），可 165
   /// 那格的说明整段是周 / 月的口径（「日均值」「有效天数」「满 7/31 滚动」），
-  /// 像是抄串了。两种解法认错一个，曲线就是一整条错位的垃圾数据，所以不认死，
-  /// 交给 `TuyaHistoryCodec` 按帧长判（点宽 2 时两种解释的帧长奇偶不同，判定是
-  /// 精确的）。真机确认之后可以把这里收紧成固定帧头。
+  /// 像是抄串了。固件 1.0.12 把 165 做成**与 164 对称**，按对称口径它就是 3 字节头。
+  ///
+  /// 即便如此这里**仍然不认死帧头**：导出那一行还写着 4 字节头，两种解法认错一个
+  /// 曲线就是一整条错位的垃圾数据，而 `TuyaHistoryCodec` 按帧长判的代价是零——点宽
+  /// 2 时两种解释的帧长奇偶不同，判定是精确的，对称与否都解得出来。
   static const historyVariableFrames = <String>{
     'temp_daily_hist',
     'humi_daily_hist',
@@ -267,11 +278,11 @@ abstract final class TuyaConfig {
   static const standbyDelayMin = 1;
   static const standbyDelayMax = 180;
 
-  /// Steps of `water_level_calib`, indexed by the calibration dialog step the
-  /// user just confirmed.
+  /// `water_level_calib` 的阶段值，下标就是校准弹窗**正要展示**的那张卡片。
   ///
-  /// The confirmed sequence is step0 → step1 → step2 → step3. step4 is
-  /// reserved and must not be sent; cancelling at any active step sends step5.
+  /// 顺序 step0 → step1 → step2 → step3，**每一步在卡片出现时下发**，不是等用户
+  /// 确认完再补（2026-09-18 产品口径：第一步就要下发 step0，弹窗一开设备就进校准
+  /// 模式）。step4 保留、任何路径都不发；半途退出发 step5 取消。
   static const calibrationSteps = <String>['step0', 'step1', 'step2', 'step3'];
   static const calibrationCancel = 'step5';
 

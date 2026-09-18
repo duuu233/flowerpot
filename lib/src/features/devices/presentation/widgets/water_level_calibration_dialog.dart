@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import '../../../../design_system/design_system.dart';
 import '../../models/water_level_calibration_model.dart';
 
-/// Reports the step the user just confirmed, and returns whether the device
-/// accepted it. `water_level_calib` is an enum of stages, not a single command,
-/// so the device has to be told about each one as it happens.
+/// 下发弹窗**正要展示**的那一步，返回设备有没有收下。
+///
+/// `water_level_calib` 是一串阶段枚举、不是一条「开始校准」命令，所以每进入一张
+/// 卡片就要把对应的 stepN 告诉设备：卡片上写的动作是「设备处在 stepN 时用户该做的事」，
+/// 下发必须发生在用户动手之前。第一张卡片（倒空水仓）也一样——弹窗一出现就发 step0。
 typedef WaterLevelCalibrationCallback = Future<bool> Function(int step);
 
 /// Called when the user backs out before the sequence finishes.
@@ -50,12 +52,38 @@ class _WaterLevelCalibrationDialogState
   int _currentStep = 0;
   bool _submitting = false;
 
+  /// 当前这张卡片对应的 stepN 有没有下发成功。
+  ///
+  /// 开场那次 step0 失败时停在 false，等用户点「下一步」时先补发——设备没进校准
+  /// 模式，后面几步全是白发。到达后面几张卡片的前提就是它们的 step 已经发成功，
+  /// 所以那几张卡上它恒为 true。
+  bool _stepDelivered = false;
+
   WaterLevelCalibrationStepModel get _step =>
       WaterLevelCalibrationModel.steps[_currentStep];
 
-  /// The closing "校准完成" card confirms and reports step 3.
+  /// 最后那张「校准完成」卡片：step3 在它出现时就已经发过了，两个按钮都只是关闭。
   bool get _onSummaryStep =>
       _currentStep == WaterLevelCalibrationModel.steps.length - 1;
+
+  @override
+  void initState() {
+    super.initState();
+    // 第一步就要下发 step0：弹窗一出现设备就得进校准模式，不能等用户倒完水才发。
+    // 放在首帧之后是因为下发失败要 setState 回显，initState 里还不能标记重建。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _deliverEntryStep());
+  }
+
+  Future<void> _deliverEntryStep() async {
+    if (!mounted) return;
+    setState(() => _submitting = true);
+    final delivered = await widget.onCalibrate(0);
+    if (!mounted) return;
+    setState(() {
+      _submitting = false;
+      _stepDelivered = delivered;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -176,26 +204,32 @@ class _WaterLevelCalibrationDialogState
   }
 
   Future<void> _handlePrimaryAction() async {
-    setState(() => _submitting = true);
-    final succeeded = await widget.onCalibrate(_currentStep);
-    if (!mounted) return;
-    if (_onSummaryStep && succeeded) {
+    // 「完成」不下发任何东西：step3 在这张卡片出现时就发过了，四步已经走完。
+    if (_onSummaryStep) {
       Navigator.pop(context, true);
       return;
     }
+    setState(() => _submitting = true);
+    // 开场那次 step0 没成功就先补上，再发下一张卡片的 step。
+    final entered =
+        _stepDelivered || await widget.onCalibrate(_currentStep);
+    final advanced = entered && await widget.onCalibrate(_currentStep + 1);
+    if (!mounted) return;
     setState(() {
       _submitting = false;
-      if (succeeded) _currentStep += 1;
+      // 补发成功但下一步失败时仍停在本卡，本卡的 step 已经在设备那边生效。
+      _stepDelivered = entered;
+      if (advanced) _currentStep += 1;
     });
   }
 
   Future<void> _handleSecondaryAction() async {
-    // Step 3 is only confirmed by the summary card's primary “完成” action.
-    // Leaving through its secondary “关闭” action is therefore still an
-    // incomplete sequence and must release the firmware with cancel (step 5).
-    await widget.onCancel();
+    // 半途退出才是「取消」，要用 step5 把设备从校准模式里放出来。
+    // 最后那张卡上的「关闭」不是取消：step0–step3 已经全部发完，再补一条 step5
+    // 等于让固件把刚校准好的结果作废。
+    if (!_onSummaryStep) await widget.onCancel();
     if (!mounted) return;
-    Navigator.pop(context, false);
+    Navigator.pop(context, _onSummaryStep);
   }
 }
 

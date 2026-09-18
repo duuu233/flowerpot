@@ -125,22 +125,52 @@ class DeviceStatusReport {
 /// Sensor history the device reports as raw DPs, already decoded into one
 /// series per metric and range.
 class DeviceHistory {
-  const DeviceHistory(this._series);
+  const DeviceHistory(
+    this._series, [
+    this._daily = const <String, Map<String, List<double>>>{},
+  ]);
 
   static const empty = DeviceHistory(<String, List<double>>{});
 
   final Map<String, List<double>> _series;
 
+  /// 日包**按天**分好的点：`metric.name` → `MM-DD` → 那一天的 96 个点。
+  ///
+  /// 2026-09-17 的固件一次上报 7 天（当天 + 往前 6 天），报表要按用户选中的日期
+  /// 取其中一天，所以日包除了进 [_series]（那份是最新那天，给状态页那条曲线）还
+  /// 另存一份按天的。周 / 月包不进这里——它们本来就是「每天一个平均值」的一整段。
+  final Map<String, Map<String, List<double>>> _daily;
+
   static String key(SensorMetric metric, ReportRange range) =>
       '${metric.name}.${range.name}';
 
+  /// 按天取数用的键：`MM-DD`。**不含年**——日期头的「年偏移」基准功能点表没写，
+  /// 而 7 天窗口里 (月, 日) 不会重复。
+  static String dayKey(int month, int day) =>
+      '${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+
+  static String dayKeyOf(DateTime date) => dayKey(date.month, date.day);
+
   /// Empty when the product has no history DP for [metric], or when the device
   /// has not reported that window yet.
+  ///
+  /// 日视图给的是**最新那天**（设备日包里最后一天，通常就是今天）。要某一天看
+  /// [daySeries]。
   List<double> series(SensorMetric metric, ReportRange range) =>
       _series[key(metric, range)] ?? const <double>[];
 
   bool has(SensorMetric metric, ReportRange range) =>
       (_series[key(metric, range)] ?? const <double>[]).isNotEmpty;
+
+  /// [date] 那一天的日曲线。设备日包里没有这一天就是空的——报表按空态处理，不拿
+  /// 别的一天顶上。
+  List<double> daySeries(SensorMetric metric, DateTime date) =>
+      _daily[metric.name]?[dayKeyOf(date)] ?? const <double>[];
+
+  /// 日包里有数据的那几天（`MM-DD`）。给报表判断某一天是「设备没报」还是「这个
+  /// 指标压根没有历史 DP」用。
+  Set<String> reportedDays(SensorMetric metric) =>
+      _daily[metric.name]?.keys.toSet() ?? const <String>{};
 }
 
 /// A change the planter pushed on its own, rather than an answer to a call the
@@ -203,16 +233,25 @@ class OtaProgress {
   /// 原生报上来的升级阶段（涂鸦状态码换算），没报时为 null。见 [OtaStage.fromTuya]。
   final OtaStage? stage;
 
+  /// 进度到这个百分比就当设备已经在装了，界面改说「固件安装中」（2026-09-17 产品）。
+  ///
+  /// 涂鸦的进度到 98% 之后会**停在那儿等设备写完固件再重启**，这一段是整条升级里
+  /// 最长的一截，停在「固件升级中 98%」看着就像卡死了。98% 往后那两格并没有可信的
+  /// 进度可言，所以干脆并进安装中：进度条换成来回走的动画、不写数字（和「固件准备中」
+  /// 同一套动效），等涂鸦报成功再走原来的「升级完成」。
+  static const installingPercent = 98;
+
   /// 进行中时界面该说哪一句（2026-09-15 产品：一直停在「0%」像是卡住了，要动态换文案）。
   ///
   /// 以进度为主、涂鸦阶段为辅：
   /// - 还没有进度（0%）→ 准备中；涂鸦报「等待设备唤醒」时说等待唤醒；
-  /// - 有进度（1–99%）→ 升级中；
-  /// - 进度到 100% 但还没收到成功，或涂鸦报「固件已下载到设备」→ 安装中（设备在写入、重启）。
+  /// - 有进度（1–97%）→ 升级中；
+  /// - 进度到 [installingPercent] 但还没收到成功，或涂鸦报「固件已下载到设备」
+  ///   → 安装中（设备在写入、重启）。
   OtaStage get displayStage {
     if (stage == OtaStage.installing) return OtaStage.installing;
     final value = percent ?? 0;
-    if (value >= 100) return OtaStage.installing;
+    if (value >= installingPercent) return OtaStage.installing;
     if (value > 0) return OtaStage.upgrading;
     return stage == OtaStage.waitingWake
         ? OtaStage.waitingWake

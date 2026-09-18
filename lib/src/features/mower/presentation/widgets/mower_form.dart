@@ -1,0 +1,207 @@
+import 'package:flutter/material.dart';
+
+import '../../mower_demo.dart';
+
+/// 稿子上每一页底部那颗「保存」：335×50、12 圆角、品牌色实心。
+class MowerSaveButton extends StatelessWidget {
+  const MowerSaveButton({
+    required this.onPressed,
+    super.key,
+    this.label = '保存',
+    this.buttonKey,
+  });
+
+  final VoidCallback? onPressed;
+  final String label;
+  final Key? buttonKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 50,
+      width: double.infinity,
+      child: FilledButton(
+        key: buttonKey,
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: MowerColors.brand,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: MowerColors.brand.withValues(alpha: .5),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+          ),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+        ),
+        child: Text(label),
+      ),
+    );
+  }
+}
+
+/// 「标题 + 副标题 + 开关」的一行。雨淋设置、时间同步两页反复用它。
+class MowerSwitchRow extends StatelessWidget {
+  const MowerSwitchRow({
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    super.key,
+    this.subtitle,
+    this.switchKey,
+    this.padding = const EdgeInsets.fromLTRB(20, 16, 16, 16),
+  });
+
+  final String title;
+  final String? subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  final Key? switchKey;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: padding,
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: MowerColors.ink,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (subtitle case final String text) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Text(
+                    text,
+                    style: const TextStyle(
+                      color: MowerColors.inkSecondary,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Transform.scale(
+            scale: .9,
+            alignment: Alignment.centerRight,
+            child: Switch(key: switchKey, value: value, onChanged: onChanged),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 一根滚轮。雨淋设置的「时 / 分」和计划编辑弹窗的「开始 / 结束」共用它。
+///
+/// 透视压到最小：这一版设计里滚轮是平的，不要 iOS 那种圆筒感——和花盆那边的休眠
+/// 延迟弹窗同一套参数，两处滚起来手感一致。
+class MowerWheel extends StatelessWidget {
+  const MowerWheel({
+    required this.controller,
+    required this.count,
+    required this.selected,
+    required this.onSelected,
+    super.key,
+    this.itemExtent = 56,
+    this.unit,
+    this.wheelKey,
+    this.activeFontSize = 28,
+  });
+
+  final FixedExtentScrollController controller;
+  final int count;
+  final int selected;
+  final ValueChanged<int> onSelected;
+  final double itemExtent;
+
+  /// 选中那一格右边跟着的单位（「时」「分」）；null 表示不画。
+  final String? unit;
+  final Key? wheelKey;
+  final double activeFontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListWheelScrollView.useDelegate(
+      key: wheelKey,
+      controller: controller,
+      itemExtent: itemExtent,
+      physics: const FixedExtentScrollPhysics(),
+      perspective: 0.001,
+      diameterRatio: 20,
+      onSelectedItemChanged: onSelected,
+      childDelegate: ListWheelChildBuilderDelegate(
+        childCount: count,
+        builder: (context, index) {
+          final active = index == selected;
+          return Center(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: <Widget>[
+                Text(
+                  index.toString().padLeft(2, '0'),
+                  style: TextStyle(
+                    color: active
+                        ? MowerColors.ink
+                        : MowerColors.inkTertiary,
+                    fontSize: active ? activeFontSize : activeFontSize - 6,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+                if (active && unit != null) ...<Widget>[
+                  const SizedBox(width: 8),
+                  Text(
+                    unit!,
+                    style: const TextStyle(
+                      color: MowerColors.ink,
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// 卡片下面那几行灰色说明（区域设置的两条规则）。
+class MowerNoteList extends StatelessWidget {
+  const MowerNoteList({required this.notes, super.key});
+
+  final List<String> notes;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        for (final note in notes)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              note,
+              style: const TextStyle(
+                color: MowerColors.inkSecondary,
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}

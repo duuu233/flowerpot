@@ -121,6 +121,52 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('图库只能单选：点第二张就把选中换过去', (tester) async {
+    final state = await _uploadMany(tester, 3);
+    await _pumpWithState(tester, state, const Size(375, 812));
+
+    await tester.tap(find.byKey(const Key('animation-tile-0')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('animation-tile-selected-0')), findsOneWidget);
+
+    // 点第二张：选中换过去，**第一张的勾要没了**——攒不出两张
+    // （2026-09-17 产品：只允许单选）。
+    await tester.tap(find.byKey(const Key('animation-tile-1')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('animation-tile-selected-0')), findsNothing);
+    expect(find.byKey(const Key('animation-tile-selected-1')), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+
+    // 再点一次当前这张＝取消选中，底部切回长按钮。
+    await tester.tap(find.byKey(const Key('animation-tile-1')));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.check), findsNothing);
+    expect(find.byKey(const Key('animation-upload-action')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('没选中的格子不画多选框，说明文字也不再写「支持多选」', (tester) async {
+    final state = await _uploadMany(tester, 3);
+    await _pumpWithState(tester, state, const Size(375, 812));
+
+    expect(find.text('支持多选，选中后可删除；长按可置顶'), findsNothing);
+    expect(find.text('选中后可删除；长按可置顶'), findsOneWidget);
+    // 三张图都没选中：一个勾选圈都不画（以前每张右上角都顶着一个半透明空圈）。
+    for (var index = 0; index < 3; index++) {
+      expect(
+        find.byKey(Key('animation-tile-selected-$index')),
+        findsNothing,
+        reason: 'tile $index',
+      );
+    }
+
+    await tester.tap(find.byKey(const Key('animation-tile-2')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('animation-tile-selected-2')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('底部按钮悬浮固定，滚到底最后一行也不会被压住', (tester) async {
     // 九张图三行网格，矮屏上一定滚得动。
     final state = await _uploadMany(tester, 9);

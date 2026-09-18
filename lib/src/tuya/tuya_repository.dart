@@ -131,11 +131,17 @@ abstract class TuyaRepository {
   Future<void> publishDps(String deviceId, Map<int, Object> dps);
   Future<void> renameDevice(String deviceId, String name);
   Future<void> removeDevice(String deviceId, {required bool resetFactory});
+
+  /// 一条曲线的点。
+  ///
+  /// [date] 只对日视图有意义：2026-09-17 起日包一次带 7 天，报表按用户选中的那天
+  /// 取。不传就是最新那天（状态页那条曲线要的就是它）。
   Future<List<double>> getHistory(
     String deviceId,
     SensorMetric metric,
-    ReportRange range,
-  );
+    ReportRange range, {
+    DateTime? date,
+  });
 
   /// 历史 DP 的**到货情况**，给联调日志框用。
   ///
@@ -753,8 +759,16 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   Future<List<double>> getHistory(
     String deviceId,
     SensorMetric metric,
-    ReportRange range,
-  ) async => _history[deviceId]?.series(metric, range) ?? const <double>[];
+    ReportRange range, {
+    DateTime? date,
+  }) async {
+    final history = _history[deviceId];
+    if (history == null) return const <double>[];
+    if (range == ReportRange.day && date != null) {
+      return history.daySeries(metric, date);
+    }
+    return history.series(metric, range);
+  }
 
   @override
   Future<Map<String, String>> historyDiagnostics(String deviceId) async {
@@ -781,11 +795,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
           parts.add('$label DP$id 无');
           return;
         }
-        final decoded = TuyaHistoryCodec.decode(
-          raw,
-          range: ReportRange.values.byName(rangeName),
-          sampleBytes: sampleBytes,
-          variableLength: TuyaConfig.historyVariableFrames.contains(identifier),
+        final range = ReportRange.values.byName(rangeName);
+        final variableLength = TuyaConfig.historyVariableFrames.contains(
+          identifier,
         );
         // 编码和字节数一起打：SDK 交上来的是十六进制串（见 TuyaRaw），这里
         // 一眼能看出是不是又按错编码解了——`hex 99字节/96点` 才是日包的正常样子。
@@ -793,6 +805,24 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         final size = raw is String || raw is List
             ? '${TuyaRaw.encodingOf(raw)} ${bytes?.length ?? 0}字节'
             : '${raw.runtimeType}';
+        // 日包**认的是哪一种帧**必须打出来：7 天帧没有功能点表，App 是按帧长认的
+        // （见 `TuyaHistoryCodec.decodeDaily`），认错一种整条曲线就是错位的垃圾
+        // 数据，真机上只有这一行能看出来。
+        if (range == ReportRange.day) {
+          final frames = TuyaHistoryCodec.decodeDaily(
+            raw,
+            sampleBytes: sampleBytes,
+            variableLength: variableLength,
+          );
+          parts.add('$label DP$id $size/${frames.label}');
+          return;
+        }
+        final decoded = TuyaHistoryCodec.decode(
+          raw,
+          range: range,
+          sampleBytes: sampleBytes,
+          variableLength: variableLength,
+        );
         parts.add('$label DP$id $size/${decoded.length}点');
       });
       report[metricKey] = parts.join(' · ');
@@ -940,29 +970,50 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
     DeviceHistory decodeHistory() {
       final series = <String, List<double>>{};
+      final daily = <String, Map<String, List<double>>>{};
       TuyaConfig.history.forEach((metricKey, ranges) {
         final metric = _historyMetric(metricKey);
         final sampleBytes = TuyaConfig.historySampleBytes[metricKey] ?? 1;
         // 温度、湿度的点位和它们的实时 DP 一样带倍数，画之前先还原成真值。
         final scale = TuyaConfig.historyScale[metricKey];
+        List<double> restore(List<double> points) => scale == null
+            ? points
+            : <double>[for (final point in points) point / scale];
         ranges.forEach((rangeName, identifier) {
           final range = ReportRange.values.byName(rangeName);
+          final variableLength = TuyaConfig.historyVariableFrames.contains(
+            identifier,
+          );
+          // 日包 2026-09-17 起一次带 7 天：按天解一份给报表按日期取，同时把**最新
+          // 那天**放进 series，状态页和首页那条曲线照旧读它，不用跟着改。
+          if (range == ReportRange.day) {
+            final frames = TuyaHistoryCodec.decodeDaily(
+              dp(identifier),
+              sampleBytes: sampleBytes,
+              variableLength: variableLength,
+            );
+            final newest = frames.newest;
+            if (newest == null) return;
+            daily[metric.name] = <String, List<double>>{
+              for (final slice in frames.days)
+                slice.dayKey: restore(slice.samples),
+            };
+            series[DeviceHistory.key(metric, range)] = restore(newest.samples);
+            return;
+          }
           final decoded = TuyaHistoryCodec.decode(
             dp(identifier),
             range: range,
             sampleBytes: sampleBytes,
-            variableLength: TuyaConfig.historyVariableFrames.contains(
-              identifier,
-            ),
+            variableLength: variableLength,
           );
           if (decoded.isNotEmpty) {
-            series[DeviceHistory.key(metric, range)] = scale == null
-                ? decoded
-                : <double>[for (final point in decoded) point / scale];
+            series[DeviceHistory.key(metric, range)] = restore(decoded);
           }
         });
       });
-      return series.isEmpty ? DeviceHistory.empty : DeviceHistory(series);
+      if (series.isEmpty && daily.isEmpty) return DeviceHistory.empty;
+      return DeviceHistory(series, daily);
     }
 
     final batteryStatus = reported(

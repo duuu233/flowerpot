@@ -29,6 +29,8 @@ NULLABLE_HELPERS = (
     "withBlockingProgress",
     # 定制动画页自己的一层包装，透传 withBlockingProgress 的可空返回。
     "_run",
+    # 2026-09-17 起返回 String?：null = 没做出一张设备能显示的图，必须中止上传。
+    r"UploadImage\.prepare",
 )
 
 ASSIGN = re.compile(
