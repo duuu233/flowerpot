@@ -541,6 +541,13 @@ class MockTuyaRepository implements TuyaRepository {
   }
 
   @override
+  Future<Map<String, Object?>> deviceMessages({int limit = 50}) async =>
+      <String, Object?>{
+        'ok': false,
+        'diagnostic': <String>['Mock 仓库没有涂鸦消息中心，只有真机能答这个问题'],
+      };
+
+  @override
   Future<String> createShareLink(String deviceId) async {
     await _wait();
     return 'https://app.flowerpot.example/share/$deviceId?code=PLANT88';

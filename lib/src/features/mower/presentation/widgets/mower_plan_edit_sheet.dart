@@ -1,123 +1,92 @@
 import 'package:flutter/material.dart';
 
 import '../../mower_demo.dart';
+import '../../mower_dp.dart';
 import 'mower_form.dart';
 
-/// 编辑弹窗里一个时段的草稿。
-class MowerSlotDraft {
-  const MowerSlotDraft({
-    required this.startMinutes,
-    required this.endMinutes,
-    this.trim = false,
-  });
-
-  final int startMinutes;
-  final int endMinutes;
-  final bool trim;
-
-  int get durationMinutes => endMinutes - startMinutes;
-
-  MowerSlotDraft copyWith({int? startMinutes, int? endMinutes, bool? trim}) {
-    return MowerSlotDraft(
-      startMinutes: startMinutes ?? this.startMinutes,
-      endMinutes: endMinutes ?? this.endMinutes,
-      trim: trim ?? this.trim,
-    );
-  }
-
-  String get rangeLabel =>
-      '${MowerPlanSlot.formatMinutes(startMinutes)}–'
-      '${MowerPlanSlot.formatMinutes(endMinutes)}';
-}
-
-/// 一整天两个时段的草稿。弹窗一次编辑一天，两个时段在两个标签页里。
+/// 编辑弹窗里一整天的草稿（对应 DP101 的一组 11 字节）。
 class MowerPlanDraft {
   const MowerPlanDraft({
     required this.day,
     required this.one,
     required this.two,
     this.activeSlot = 1,
+    this.edge = false,
     this.copyWeek = false,
   });
 
-  /// 那一天还没有任何时段时，弹窗按稿子给的默认值开：时段 1 是 09:00–11:30。
+  /// 从 DP 解析出来的那一天开编辑器；那天还没有时段就用稿子上的默认值。
   factory MowerPlanDraft.forDay(
     int day,
-    List<MowerPlanSlot> slots, {
+    List<MowerScheduleDay> week, {
     int activeSlot = 1,
   }) {
-    MowerSlotDraft draftFor(int slot, MowerSlotDraft fallback) {
-      for (final item in slots) {
-        if (item.day == day && item.slot == slot) {
-          return MowerSlotDraft(
-            startMinutes: item.startMinutes,
-            endMinutes: item.endMinutes,
-            trim: item.trim,
-          );
-        }
-      }
-      return fallback;
-    }
-
+    final source = day < week.length ? week[day] : const MowerScheduleDay();
     return MowerPlanDraft(
       day: day,
       activeSlot: activeSlot,
-      one: draftFor(
-        1,
-        const MowerSlotDraft(startMinutes: 540, endMinutes: 690),
-      ),
-      two: draftFor(
-        2,
-        const MowerSlotDraft(startMinutes: 840, endMinutes: 900),
-      ),
+      one:
+          source.slotOne ??
+          const MowerScheduleSlot(
+            startMinutes: 540,
+            endMinutes: 690,
+            enabled: true,
+          ),
+      two:
+          source.slotTwo ??
+          const MowerScheduleSlot(
+            startMinutes: 840,
+            endMinutes: 900,
+            enabled: true,
+          ),
+      edge: source.edge,
     );
   }
 
   final int day;
-  final MowerSlotDraft one;
-  final MowerSlotDraft two;
+  final MowerScheduleSlot one;
+  final MowerScheduleSlot two;
   final int activeSlot;
 
-  /// 「复制整周」：保存时把这一天的两个时段铺到七天。
+  /// 修边（沿边割草）。⚠️ DP101 里它是**每组一个字节**（整天一个开关），
+  /// 不是每个时段一个——稿子把它画在时段编辑里，这里就按整天生效。
+  final bool edge;
+
+  /// 「复制整周」：保存时把这一天铺到七天。
   final bool copyWeek;
 
-  MowerPlanDraft copyWith({
-    MowerSlotDraft? one,
-    MowerSlotDraft? two,
-    int? activeSlot,
-    bool? copyWeek,
-  }) {
-    return MowerPlanDraft(
-      day: day,
-      one: one ?? this.one,
-      two: two ?? this.two,
-      activeSlot: activeSlot ?? this.activeSlot,
-      copyWeek: copyWeek ?? this.copyWeek,
-    );
-  }
+  MowerScheduleSlot get active => activeSlot == 1 ? one : two;
 
-  /// 两个时段重叠了就返回稿子上那句话，没重叠返回 null。
-  ///
-  /// 端点相接（前一段 11:30 结束、后一段 11:30 开始）**不算重叠**——设备是按
-  /// 区间跑的，闭区间会让「接着干」这种排法永远保存不了。
-  String? get overlapMessage {
-    if (one.startMinutes < two.endMinutes &&
-        two.startMinutes < one.endMinutes) {
-      return '时段 2 与时段 1（${one.rangeLabel}）重叠';
-    }
-    return null;
-  }
+  MowerScheduleDay get day0 =>
+      MowerScheduleDay(slotOne: one, slotTwo: two, edge: edge);
+
+  /// 两个时段都开着且相交时给出提示；端点相接不算重叠。
+  String? get overlapMessage => day0.overlapMessage;
+
+  MowerPlanDraft copyWith({
+    MowerScheduleSlot? one,
+    MowerScheduleSlot? two,
+    int? activeSlot,
+    bool? edge,
+    bool? copyWeek,
+  }) => MowerPlanDraft(
+    day: day,
+    one: one ?? this.one,
+    two: two ?? this.two,
+    activeSlot: activeSlot ?? this.activeSlot,
+    edge: edge ?? this.edge,
+    copyWeek: copyWeek ?? this.copyWeek,
+  );
 }
 
-/// 保存成功；[draft] 已经过重叠校验。
+/// 保存成功；[draft] 已过重叠与时长校验。
 class MowerPlanEditSaved {
   const MowerPlanEditSaved(this.draft);
 
   final MowerPlanDraft draft;
 }
 
-/// 保存时撞上重叠：弹窗先关掉，由页面弹「时间段重叠」提示，点「返回修改」再带着
-/// 同一份草稿把弹窗开回来——稿子上那张图的背景就是计划页，不是这张弹窗。
+/// 保存时撞上重叠：弹窗先关，由页面弹「时间段重叠」，点「返回修改」再带着同一份草稿开回来。
 class MowerPlanEditOverlap {
   const MowerPlanEditOverlap(this.draft, this.message);
 
@@ -151,9 +120,9 @@ class _MowerPlanEditSheet extends StatefulWidget {
 class _MowerPlanEditSheetState extends State<_MowerPlanEditSheet> {
   late MowerPlanDraft _draft = widget.draft;
 
-  MowerSlotDraft get _active => _draft.activeSlot == 1 ? _draft.one : _draft.two;
+  MowerScheduleSlot get _active => _draft.active;
 
-  void _updateActive(MowerSlotDraft slot) {
+  void _updateActive(MowerScheduleSlot slot) {
     setState(() {
       _draft = _draft.activeSlot == 1
           ? _draft.copyWith(one: slot)
@@ -173,9 +142,10 @@ class _MowerPlanEditSheetState extends State<_MowerPlanEditSheet> {
   @override
   Widget build(BuildContext context) {
     final duration = _active.durationMinutes;
+    final enabled = _active.enabled;
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * .82,
+        maxHeight: MediaQuery.sizeOf(context).height * .88,
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -228,50 +198,76 @@ class _MowerPlanEditSheetState extends State<_MowerPlanEditSheet> {
                             child: _SlotTab(
                               slot: slot,
                               active: _draft.activeSlot == slot,
+                              // 关掉的时段在标签上就看得出来，不用切进去才发现是灰的
+                              enabled: slot == 1
+                                  ? _draft.one.enabled
+                                  : _draft.two.enabled,
                               onTap: () => setState(
-                                () => _draft = _draft.copyWith(
-                                  activeSlot: slot,
-                                ),
+                                () => _draft = _draft.copyWith(activeSlot: slot),
                               ),
                             ),
                           ),
                       ],
                     ),
-                    const SizedBox(height: 18),
-                    _TimePickers(
-                      // 换标签页要把滚轮重建：controller 在 initState 里按当时的
-                      // 时段定位，不换 key 的话切过去看到的还是上一个时段的数字。
-                      key: ValueKey<int>(_draft.activeSlot),
-                      slot: _active,
-                      onChanged: _updateActive,
-                    ),
                     const SizedBox(height: 14),
-                    Container(
-                      height: 56,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: MowerColors.brand.withValues(alpha: .08),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        duration <= 0
-                            ? '结束时间需晚于开始时间'
-                            : '时长 ${duration ~/ 60} 小时 ${duration % 60} 分',
-                        key: const Key('mower-plan-edit-duration'),
-                        style: const TextStyle(
-                          color: MowerColors.brand,
-                          fontSize: 15,
+                    // 时段总开关（2026-09-18 用户要求：在修边上面加，分别管时段 1 / 2；
+                    // 关着时下面整块置灰禁用；默认开启）。对应 DP101 每组的「时段 N 有效」字节。
+                    _SheetSwitchCard(
+                      title: '启用时段${_draft.activeSlot}',
+                      subtitle: '关闭后该时段不下发（DP101 有效位=0）',
+                      value: enabled,
+                      switchKey: const Key('mower-plan-edit-slot-enabled'),
+                      onChanged: (value) =>
+                          _updateActive(_active.copyWith(enabled: value)),
+                    ),
+                    const SizedBox(height: 12),
+                    // 关掉之后整块变灰且点不动——这是"置灰禁用"，不是藏起来：
+                    // 用户要能看见自己关掉的是哪一段时间。
+                    IgnorePointer(
+                      ignoring: !enabled,
+                      child: Opacity(
+                        opacity: enabled ? 1 : .4,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            _TimePickers(
+                              key: ValueKey<int>(_draft.activeSlot),
+                              slot: _active,
+                              onChanged: _updateActive,
+                            ),
+                            const SizedBox(height: 14),
+                            Container(
+                              height: 56,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: MowerColors.brand.withValues(alpha: .08),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              // 时长是**端上自己算的**（2026-09-18 用户明确），不是设备给的。
+                              // ⚠️ 设备只认 >10 分钟的时段，短了会被丢弃，所以这里直接说出来。
+                              child: Text(
+                                _durationText(duration),
+                                key: const Key('mower-plan-edit-duration'),
+                                style: TextStyle(
+                                  color: duration > 10
+                                      ? MowerColors.brand
+                                      : MowerColors.danger,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
                     const SizedBox(height: 12),
                     _SheetSwitchCard(
                       title: '修边',
-                      subtitle: '此时段执行沿边修剪',
-                      value: _active.trim,
+                      subtitle: '先绕边再割草（DP101 沿边位，整天生效）',
+                      value: _draft.edge,
                       switchKey: const Key('mower-plan-edit-trim'),
                       onChanged: (value) =>
-                          _updateActive(_active.copyWith(trim: value)),
+                          setState(() => _draft = _draft.copyWith(edge: value)),
                     ),
                     const SizedBox(height: 10),
                     _SheetSwitchCard(
@@ -318,17 +314,27 @@ class _MowerPlanEditSheetState extends State<_MowerPlanEditSheet> {
       ),
     );
   }
+
+  /// 时长文案。⚠️ 结束早于开始、或不足 10 分钟都要当场说清楚——
+  /// 前者是用户拨错了，后者会被设备直接丢掉（V2.2 §5.1）。
+  static String _durationText(int minutes) {
+    if (minutes <= 0) return '结束时间需晚于开始时间';
+    if (minutes <= 10) return '时长 $minutes 分（不足 10 分，设备会丢弃）';
+    return '时长 ${minutes ~/ 60} 小时 ${minutes % 60} 分';
+  }
 }
 
 class _SlotTab extends StatelessWidget {
   const _SlotTab({
     required this.slot,
     required this.active,
+    required this.enabled,
     required this.onTap,
   });
 
   final int slot;
   final bool active;
+  final bool enabled;
   final VoidCallback onTap;
 
   @override
@@ -340,9 +346,11 @@ class _SlotTab extends StatelessWidget {
       child: Column(
         children: <Widget>[
           Text(
-            '时段$slot',
+            '时段$slot${enabled ? '' : '（已关闭）'}',
             style: TextStyle(
-              color: active ? MowerColors.brand : MowerColors.ink,
+              color: active
+                  ? MowerColors.brand
+                  : (enabled ? MowerColors.ink : MowerColors.inkTertiary),
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
@@ -364,9 +372,8 @@ class _SlotTab extends StatelessWidget {
 
 /// 开始 / 结束两组滚轮。
 ///
-/// ⚠️ **分钟是 1 分一格，稿子上画的是 10 分一格。** 稿子自己的图表里有 16:23 这种
-/// 时间，10 分一格根本选不出来——版式一模一样，只是相邻两行的数字不同。产品若坚持
-/// 10 分一档，把 [_minuteStep] 改成 10 并同步图表里的数据即可。
+/// ⚠️ **分钟是 1 分一格，稿子上画的是 10 分一格**——稿子自己的图表里有 16:23 这种时间，
+/// 10 分一格根本选不出来。版式一样，只是相邻两行的数字不同。
 class _TimePickers extends StatefulWidget {
   const _TimePickers({
     required this.slot,
@@ -374,8 +381,8 @@ class _TimePickers extends StatefulWidget {
     super.key,
   });
 
-  final MowerSlotDraft slot;
-  final ValueChanged<MowerSlotDraft> onChanged;
+  final MowerScheduleSlot slot;
+  final ValueChanged<MowerScheduleSlot> onChanged;
 
   @override
   State<_TimePickers> createState() => _TimePickersState();
@@ -503,8 +510,8 @@ class _PickerSide extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        Row(
-          children: const <Widget>[
+        const Row(
+          children: <Widget>[
             Expanded(child: _PickerHeader(text: '小时')),
             Expanded(child: _PickerHeader(text: '分钟')),
           ],
@@ -547,7 +554,6 @@ class _PickerSide extends StatelessWidget {
                   ),
                 ],
               ),
-              // 选中那一行中间的冒号，压在两根滚轮之间。
               const Center(
                 child: Text(
                   ':',

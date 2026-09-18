@@ -208,7 +208,13 @@ abstract final class AppRoutes {
       mine => const MinePage(),
       profile => const ProfilePage(),
       AppRoutes.settings => const AccountSecurityPage(),
-      help => const HelpPage(),
+      // 参数是「按哪个产品筛常见问题」的产品 ID（割草机设置页会传自己的）；
+      // 不传就是花盆那条默认口径。
+      help => HelpPage(
+        productId: settings.arguments is String
+            ? settings.arguments! as String
+            : null,
+      ),
       privacy => const LegalPage(privacy: true),
       agreement => const LegalPage(privacy: false),
       about => const AboutPage(),

@@ -10,12 +10,28 @@ import '../../mower_demo.dart';
 /// 这里也不画底，直接落在页面渐变上。四种电量态（[MowerPowerState]）换的只是环的
 /// 两个颜色和环下面那行字。
 class MowerStatusCard extends StatelessWidget {
-  const MowerStatusCard({required this.state, super.key, this.onTapRing});
+  const MowerStatusCard({
+    required this.tone,
+    required this.percent,
+    required this.statusLabel,
+    super.key,
+    this.onTapRing,
+    this.onLongPressRing,
+  });
 
-  final MowerPowerState state;
+  /// 视觉态，由 DP13（电量）与 DP117（充电状态）换算，见 `MowerControlPage._tone`。
+  final MowerPowerState tone;
 
-  /// 点环切下一种电量态——**排查用**，见 `MowerControlPage`。
+  /// DP13 电量。
+  final int percent;
+
+  /// DP5 工作状态，画在状态胶囊里。
+  final String statusLabel;
+
   final VoidCallback? onTapRing;
+
+  /// 长按环 = 打开模拟上报面板（没有真设备，只读 DP 得有地方改）。
+  final VoidCallback? onLongPressRing;
 
   /// 环的直径，和稿子一致（263）。
   static const double ringSize = 263;
@@ -32,6 +48,7 @@ class MowerStatusCard extends StatelessWidget {
             child: GestureDetector(
               key: const Key('mower-battery-ring'),
               onTap: onTapRing,
+              onLongPress: onLongPressRing,
               behavior: HitTestBehavior.opaque,
               child: SizedBox.square(
                 dimension: ringSize,
@@ -41,9 +58,9 @@ class MowerStatusCard extends StatelessWidget {
                     CustomPaint(
                       size: const Size.square(ringSize),
                       painter: _MowerRingPainter(
-                        progress: state.percent / 100,
-                        color: state.ringColor,
-                        trackColor: state.ringTrackColor,
+                        progress: percent / 100,
+                        color: tone.ringColor,
+                        trackColor: tone.ringTrackColor,
                       ),
                     ),
                     // 整机图比环心低 8 px（稿子上它压在环的下半圈里）。
@@ -62,8 +79,8 @@ class MowerStatusCard extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(top: 222, child: _BatteryLine(state: state)),
-          const Positioned(top: 256, child: _StatusChips()),
+          Positioned(top: 222, child: _BatteryLine(tone: tone, percent: percent)),
+          Positioned(top: 256, child: _StatusChips(label: statusLabel)),
         ],
       ),
     );
@@ -72,16 +89,17 @@ class MowerStatusCard extends StatelessWidget {
 
 /// 环下面那行：默认态只有「电量 78%」，其余三态是「图标 + 状态词 + 百分比」。
 class _BatteryLine extends StatelessWidget {
-  const _BatteryLine({required this.state});
+  const _BatteryLine({required this.tone, required this.percent});
 
-  final MowerPowerState state;
+  final MowerPowerState tone;
+  final int percent;
 
   @override
   Widget build(BuildContext context) {
-    final label = state.statusLabel;
+    final label = tone.statusLabel;
     if (label == null) {
       return Text(
-        '电量 ${state.percent}%',
+        '电量 $percent%',
         key: const Key('mower-battery-label'),
         style: const TextStyle(
           color: MowerColors.ink,
@@ -100,7 +118,7 @@ class _BatteryLine extends StatelessWidget {
           alignment: Alignment.center,
           width: 28,
           height: 28,
-          decoration: state.showChargingHalo
+          decoration: tone.showChargingHalo
               ? BoxDecoration(
                   shape: BoxShape.circle,
                   color: MowerColors.brand.withValues(alpha: .1),
@@ -111,7 +129,7 @@ class _BatteryLine extends StatelessWidget {
                 )
               : null,
           child: Image.asset(
-            state.statusIcon!,
+            tone.statusIcon!,
             width: 22,
             height: 16,
             fit: BoxFit.contain,
@@ -120,10 +138,10 @@ class _BatteryLine extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 5),
-        Text(label, style: textStyle.copyWith(color: state.statusColor)),
+        Text(label, style: textStyle.copyWith(color: tone.statusColor)),
         const SizedBox(width: 5),
         Text(
-          '${state.percent}%',
+          '$percent%',
           style: textStyle.copyWith(color: MowerColors.ink),
         ),
       ],
@@ -132,8 +150,12 @@ class _BatteryLine extends StatelessWidget {
 }
 
 /// 状态胶囊 + 两颗连接图标。稿子上它们压在环的下沿上。
+///
+/// 胶囊里的字是 **DP5 工作状态**（待机 / 割草中 / 已暂停 / 回桩中…），不是写死的「待机」。
 class _StatusChips extends StatelessWidget {
-  const _StatusChips();
+  const _StatusChips({required this.label});
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -147,10 +169,10 @@ class _StatusChips extends StatelessWidget {
             color: MowerColors.chipFill,
             borderRadius: BorderRadius.all(Radius.circular(30)),
           ),
-          child: const Row(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              SizedBox.square(
+              const SizedBox.square(
                 dimension: 6,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -159,10 +181,11 @@ class _StatusChips extends StatelessWidget {
                   ),
                 ),
               ),
-              SizedBox(width: 6),
+              const SizedBox(width: 6),
               Text(
-                '待机',
-                style: TextStyle(
+                label,
+                key: const Key('mower-status-chip'),
+                style: const TextStyle(
                   color: MowerColors.brand,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,

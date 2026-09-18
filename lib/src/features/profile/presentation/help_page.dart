@@ -14,10 +14,16 @@ import 'widgets/help_center_faq_list.dart';
 /// 答案是后台富文本编辑器（wangEditor）存的 HTML，交给 [HelpCenterFaqList] 里的
 /// [AppRichHtml] 渲染，不能当纯文本显示。
 class HelpPage extends StatefulWidget {
-  const HelpPage({super.key, this.pageModel});
+  const HelpPage({super.key, this.pageModel, this.productId});
 
   /// 测试和预览用。传了就不请求后台。
   final HelpCenterPageModel? pageModel;
+
+  /// 按哪个产品筛常见问题（`getProductFaqList` 的 `broadcastId`）。
+  ///
+  /// 割草机的设置页带 [MowerDp.productId] 进来；花盆那条路不传，走
+  /// [FlowerpotState.loadFaqs] 的默认口径（优先匹配花盆产品 ID，匹配不到取第一个）。
+  final String? productId;
 
   @override
   State<HelpPage> createState() => _HelpPageState();
@@ -65,7 +71,7 @@ class _HelpPageState extends State<HelpPage> with NetworkRetryAware<HelpPage> {
       setState(() => _remoteItems = const <HelpCenterFaqItem>[]);
       return;
     }
-    final faqs = await state.loadFaqs();
+    final faqs = await state.loadFaqs(productId: widget.productId);
     if (!mounted) return;
     setState(() {
       _remoteItems = faqs

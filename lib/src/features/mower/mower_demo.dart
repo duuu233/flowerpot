@@ -35,37 +35,34 @@ abstract final class MowerDemoDevice {
   /// 首页那圈电量环：默认态 78%（`割草机-控制.png`）。
   static const int batteryPercent = 78;
 
-  /// 今日计划卡（`割草机-控制.png`）。
-  static const String todayDate = '2026.08.31 · 周一';
-  static const String todayRange = '09:00  →  12:30';
-  static const String todayTaskLabel = '修边';
-  static const String todayNext = '下一任务 16:00 - 20:00';
-
   static const String safetyTip = '开始割草前，请清理草坪中的障碍物';
 
-  /// 周计划页顶上的合计（`割草机-割草计划.png`）。
-  static const String weeklyTotal = '总工作时间：5小时23分钟';
-
-  static const String timeZone = '(UTC+08:00) 北京、重庆、香港';
-  static const String language = '简体中文';
+  // ⚠️ 今日计划、周合计、时区、语言这几条静态值 2026-09-18 接 DP 之后**已删**：
+  // 今日计划和周合计现在从 DP101 解析（`MowerDevice.schedule`），时区来自 DP107、
+  // 语言来自 DP109。留着它们只会让人以为页面还在读写死的数据。
 }
 
-/// 首页那张状态卡的四种态，对应设计稿的四张图。
+/// 首页那张状态卡的四种**视觉**态，对应设计稿的四张图。
 ///
-/// 差别只有三处：电量环的两种颜色、环下面那行字、以及有没有充电光晕。其余（整机图、
-/// 状态胶囊、安全提醒、今日计划、操作面板）四张图逐像素一致，所以页面只写一遍。
+/// ⚠️ 2026-09-18 接 DP 之后它只管**长相**，不再自带数字：电量来自 DP13、
+/// 是不是充电中来自 DP117，由 `MowerControlPage._tone` 换算成这里的四个值之一。
 enum MowerPowerState {
   /// `割草机-控制.png`
   idle,
 
-  /// `割草机-控制-充电中.png`
+  /// `割草机-控制-充电中.png`（DP117=charging/full）
   charging,
 
-  /// `割草机-控制-电量告警.png`
+  /// `割草机-控制-电量告警.png`（电量 ≤ [warningPercent]）
   batteryWarning,
 
-  /// `割草机-控制-低电量.png`
+  /// `割草机-控制-低电量.png`（电量 ≤ [lowPercent]）
   batteryLow;
+
+  /// 🔶 这两条阈值**协议里没有**（DP13 只是 0-100 的电量），是端上为了把稿子那两张
+  /// 图用起来定的。产品另有口径就改这两个数。
+  static const int warningPercent = 30;
+  static const int lowPercent = 10;
 
   /// 环的进度色。
   Color get ringColor => switch (this) {
@@ -79,12 +76,6 @@ enum MowerPowerState {
     idle || charging => MowerColors.ringTrack,
     batteryWarning => MowerColors.warnRingTrack,
     batteryLow => MowerColors.lowRingTrack,
-  };
-
-  int get percent => switch (this) {
-    idle || charging => MowerDemoDevice.batteryPercent,
-    batteryWarning => 30,
-    batteryLow => 10,
   };
 
   /// 环下面那行字的前半段；[idle] 没有前半段（它只写「电量 78%」）。
@@ -111,24 +102,11 @@ enum MowerPowerState {
 
   /// 充电态在图标背后多一圈光晕（`充电动效 / 光晕`）。
   bool get showChargingHalo => this == MowerPowerState.charging;
-
-  /// 排查用：四个态在页面上轮着看。见 `MowerControlPage`。
-  MowerPowerState get next =>
-      MowerPowerState.values[(index + 1) % MowerPowerState.values.length];
 }
 
-/// 首页操作面板上的四颗按钮（`割草机操作面板 / 四按钮 / v2`）。
-enum MowerAction {
-  auto('自动', MowerAssets.actionAutoIcon),
-  spot('定点', MowerAssets.actionSpotIcon),
-  returnHome('回归', MowerAssets.actionReturnIcon),
-  stop('停止', MowerAssets.actionStopIcon);
-
-  const MowerAction(this.label, this.icon);
-
-  final String label;
-  final String icon;
-}
+// ⚠️ 原来这里有个 `MowerAction` 枚举（自动/定点/回归/停止）。2026-09-18 接 DP 之后
+// 左边三颗直接用 DP3 的 `MowerMode`（smart/spot/goto_charge），最右那颗是 DP2 的开关，
+// 图标与文案在 `MowerControlPage._ActionPanel` 里就地对应，不再单独维护一份枚举。
 
 /// 割草计划里的一个时段。
 ///
@@ -245,51 +223,11 @@ abstract final class MowerDemoMessages {
   ];
 }
 
-/// 区域设置页的一行（`割草机-区域设置.png`）。
-class MowerZone {
-  const MowerZone({
-    required this.name,
-    required this.percent,
-    required this.meters,
-  });
-
-  final String name;
-  final int percent;
-  final int meters;
-}
-
-abstract final class MowerDemoZones {
-  static const List<MowerZone> zones = <MowerZone>[
-    MowerZone(name: '区域 1', percent: 10, meters: 30),
-    MowerZone(name: '区域 2', percent: 15, meters: 50),
-    MowerZone(name: '区域 3', percent: 20, meters: 80),
-    MowerZone(name: '区域 4', percent: 25, meters: 120),
-    MowerZone(name: '区域 5', percent: 30, meters: 60),
-  ];
-
-  static const List<String> notes = <String>[
-    '1. 区域设置总和不能大于 100%',
-    '2. 距离最大可设置 200 米',
-  ];
-
-  /// 稿子上写的上限，滑块和距离都按它钳。
-  static const int maxMeters = 200;
-}
-
-abstract final class MowerDemoTimeZones {
-  static const List<String> options = <String>[
-    '(UTC+12:00) 奥克兰、惠灵顿',
-    '(UTC+09:00) 东京、首尔',
-    '(UTC+08:00) 北京、重庆、香港',
-    '(UTC+01:00) 巴黎、柏林',
-    '(UTC+00:00) 伦敦、里斯本',
-    '(UTC-05:00) 纽约、多伦多',
-  ];
-}
-
-abstract final class MowerDemoLanguages {
-  static const List<String> options = <String>['简体中文', 'English', '繁體中文'];
-}
+// ⚠️ 区域（`MowerZone` / `MowerDemoZones`）、时区（`MowerDemoTimeZones`）、
+// 语言（`MowerDemoLanguages`）三块静态数据 2026-09-18 接 DP 之后**已删**：
+// 它们现在由功能点表给——分别是 `MowerZoneConfig`（DP103）、`MowerTimezone`（DP107 的
+// 25 个枚举）、`MowerLanguage`（DP109 的 18 个枚举），见 `mower_dp.dart`。
+// 稿子上那几个中文时区/语言名留在 `MowerTimezone._cities` 与 `MowerLanguage.label` 里。
 
 /// 割草机那套图里用到的、[AppColors] 里没有的颜色。
 ///

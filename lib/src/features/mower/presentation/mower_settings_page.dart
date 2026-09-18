@@ -2,18 +2,28 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../mower_demo.dart';
+import '../mower_device.dart';
+import '../mower_dp.dart';
 import 'mower_messages_page.dart';
 import 'widgets/mower_bottom_nav.dart';
 import 'widgets/mower_card.dart';
 
 /// 割草机设置页（`割草机-设置.png`）。
 ///
-/// 八项设置一张卡、消息通知单独一张、最后是删除设备。稿子里出了图的五项
-/// （设备参数 / 区域设置 / 雨淋设置 / 时间同步 / 语言切换）直接跳；没出图的三项
-/// （重新配网 / 设备升级 / 帮助中心）点了给一句话，不假装有页面。
+/// 八项设置一张卡、消息通知单独一张、最后是删除设备。
+///
+/// | 入口 | 这一轮的去处 |
+/// | --- | --- |
+/// | 设备参数 / 区域设置 / 雨淋设置 / 时间同步 / 语言切换 | 各自的页面（已接 DP） |
+/// | 帮助中心 | 帮助中心页，**按割草机的产品 ID 拉常见问题**（[MowerDp.productId]） |
+/// | 重新配网 / 设备升级 / 删除设备 | 提示「当前还没有支持的 DPID」（2026-09-18 用户口径） |
+///
+/// ⚠️ 设备升级对应的是 DP116 ota_status（只上报），本轮没有升级动线，所以也归到
+/// 「还没有支持的 DPID」那一档，不假装有页面。
 class MowerSettingsPage extends StatelessWidget {
   const MowerSettingsPage({required this.onTabRequested, super.key});
 
@@ -32,6 +42,14 @@ class MowerSettingsPage extends StatelessWidget {
   ];
 
   Future<void> _open(BuildContext context, String entry) async {
+    if (entry == '帮助中心') {
+      // 帮助中心按**产品**筛常见问题：割草机要带自己的产品 ID，不能跟着花盆那条走
+      // （后台 getBasicData 的 deviceIdList 里两款都有，见 FlowerpotState._faqProductId）。
+      await Navigator.of(
+        context,
+      ).pushNamed(AppRoutes.help, arguments: MowerDp.productId);
+      return;
+    }
     final route = switch (entry) {
       '设备参数' => AppRoutes.mowerParameters,
       '区域设置' => AppRoutes.mowerZones,
@@ -41,7 +59,8 @@ class MowerSettingsPage extends StatelessWidget {
       _ => null,
     };
     if (route == null) {
-      showAppMessage(context, '$entry：本轮没有出图', tone: AppMessageTone.info);
+      MowerDevice.instance.logUnsupported(FlowerpotScope.of(context), entry);
+      showAppMessage(context, '当前还没有支持的 DPID', tone: AppMessageTone.info);
       return;
     }
     await Navigator.of(context).pushNamed(route);
@@ -68,11 +87,7 @@ class MowerSettingsPage extends StatelessWidget {
           Center(
             child: GestureDetector(
               key: const Key('mower-settings-help'),
-              onTap: () => showAppMessage(
-                context,
-                '帮助中心：本轮没有出图',
-                tone: AppMessageTone.info,
-              ),
+              onTap: () => unawaited(_open(context, '帮助中心')),
               child: Container(
                 width: 28,
                 height: 28,
@@ -123,11 +138,17 @@ class MowerSettingsPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _DeleteDeviceButton(
-              onTap: () => showAppMessage(
-                context,
-                '静态页面：不会真的删除设备',
-                tone: AppMessageTone.info,
-              ),
+              onTap: () {
+                MowerDevice.instance.logUnsupported(
+                  FlowerpotScope.of(context),
+                  '删除设备',
+                );
+                showAppMessage(
+                  context,
+                  '当前还没有支持的 DPID',
+                  tone: AppMessageTone.info,
+                );
+              },
             ),
           ],
         ),

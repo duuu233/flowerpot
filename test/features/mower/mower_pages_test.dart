@@ -3,6 +3,8 @@ import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/pairing_gate.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_search_page.dart';
 import 'package:flowerpot/src/features/mower/mower_demo.dart';
+import 'package:flowerpot/src/features/mower/mower_device.dart';
+import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/features/mower/presentation/mower_home_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
@@ -12,7 +14,12 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../support/mock_tuya_repository.dart';
 
 void main() {
-  tearDown(MowerDemo.reset);
+  // ⚠️ MowerDevice 是单例：上一条用例改过的开关会漏到下一条，每条前后都要复位。
+  setUp(MowerDevice.instance.resetForTest);
+  tearDown(() {
+    MowerDemo.reset();
+    MowerDevice.instance.resetForTest();
+  });
 
   testWidgets('搜索页的设备列表下面固定列着割草机，点「连接」进割草机首页', (tester) async {
     await _pumpSearchPage(tester);
@@ -53,27 +60,98 @@ void main() {
     expect(find.byKey(const Key('mower-today-plan')), findsOneWidget);
     expect(find.text('09:00  →  12:30'), findsOneWidget);
     expect(find.byKey(const Key('mower-safety-notice')), findsOneWidget);
-    for (final action in MowerAction.values) {
-      expect(
-        find.byKey(Key('mower-action-${action.name}')),
-        findsOneWidget,
-      );
+    // 左三＝DP3 的三个可下发模式，最右＝DP2 开关
+    for (final key in <String>[
+      'mower-action-smart',
+      'mower-action-spot',
+      'mower-action-gotoCharge',
+      'mower-action-switch',
+    ]) {
+      expect(find.byKey(Key(key)), findsOneWidget);
     }
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('点电量环轮着看四种电量态', (tester) async {
+  testWidgets('停止态下左边三颗点不动，点「继续」（DP2=true）之后才能点', (tester) async {
     await _pumpMowerHome(tester);
 
-    expect(find.text('电量 78%'), findsOneWidget);
-    await _tapRing(tester);
-    expect(find.text('充电中'), findsOneWidget);
-    await _tapRing(tester);
-    expect(find.text('电量告警'), findsOneWidget);
-    await _tapRing(tester);
-    expect(find.text('低电量'), findsOneWidget);
-    await _tapRing(tester);
-    expect(find.text('电量 78%'), findsOneWidget);
+    // 初始 DP2=false：按钮显示「继续」，左三点了没反应（状态胶囊仍是待机）
+    expect(find.text('继续'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('mower-action-smart')));
+    await tester.pump();
+    expect(find.text('待机'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    await tester.pump();
+    // DP2=true：按钮变「停止」，这时「自动」才点得动（DP3=smart → DP5=mowing）
+    expect(find.text('停止'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('mower-action-smart')));
+    await tester.pump();
+    expect(find.text('割草中'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('同一个模式不重复下发：点过「自动」之后它置灰', (tester) async {
+    await _pumpMowerHome(tester);
+    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mower-action-smart')));
+    await tester.pump();
+
+    expect(MowerDevice.instance.isCurrentMode(MowerMode.smart), isTrue);
+    // 再点一次不该有任何变化（按钮此时 onTap 为 null）
+    await tester.tap(find.byKey(const Key('mower-action-smart')));
+    await tester.pump();
+    expect(MowerDevice.instance.mode, MowerMode.smart);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('停止再启动，按上一次点过的模式走（记忆）', (tester) async {
+    await _pumpMowerHome(tester);
+    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mower-action-spot')));
+    await tester.pump();
+    expect(find.text('定点割草'), findsOneWidget);
+
+    // 停止
+    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    await tester.pump();
+    expect(find.text('已暂停'), findsOneWidget);
+
+    // 再启动：回到「定点」，不是回到待机
+    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    await tester.pump();
+    expect(MowerDevice.instance.mode, MowerMode.spot);
+    expect(find.text('定点割草'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('盖子没合（DP118=false）时点「自动」弹窗且不下发', (tester) async {
+    await _pumpMowerHome(tester);
+
+    // 没有真机，只读 DP 由模拟上报面板改：长按电量环 → 点盖子那一行
+    await tester.longPress(find.byKey(const Key('mower-battery-ring')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mower-report-cover')));
+    await tester.pumpAndSettle();
+    expect(MowerDevice.instance.coverClosed, isFalse);
+    Navigator.of(
+      tester.element(find.byKey(const Key('mower-report-cover'))),
+    ).pop();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mower-action-smart')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('盖子未合上'), findsOneWidget);
+    expect(
+      MowerDevice.instance.mode,
+      isNot(MowerMode.smart),
+      reason: '弹窗之后不许下发 DP3',
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -137,14 +215,25 @@ Future<void> _tapRing(WidgetTester tester) async {
 Future<void> _pumpMowerHome(WidgetTester tester) async {
   await tester.binding.setSurfaceSize(const Size(375, 812));
   addTearDown(() => tester.binding.setSurfaceSize(null));
+  // ⚠️ 必须套 FlowerpotScope：割草机各页进页面都会往联调日志里记一条
+  // （`FlowerpotScope.of(context).logMowerInteraction`），没有 scope 会断言失败。
+  final state = FlowerpotState(
+    repository: MockTuyaRepository(latency: Duration.zero),
+  );
+  addTearDown(state.dispose);
   await tester.pumpWidget(
-    MaterialApp(
-      theme: buildAppTheme(),
-      home: const MowerHomePage(),
-      onGenerateRoute: (settings) =>
-          AppRoutes.onGenerateRoute(settings, authenticated: true),
+    FlowerpotScope(
+      state: state,
+      child: MaterialApp(
+        theme: buildAppTheme(),
+        home: const MowerHomePage(),
+        onGenerateRoute: (settings) =>
+            AppRoutes.onGenerateRoute(settings, authenticated: true),
+      ),
     ),
   );
+  // 各页的 postFrameCallback（记日志、弹「还没有支持的 DPID」）在这一拍跑完
+  await tester.pump();
   await tester.pump();
 }
 

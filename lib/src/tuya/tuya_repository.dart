@@ -165,6 +165,15 @@ abstract class TuyaRepository {
     String deviceId,
     List<String> identifiers,
   );
+  /// 涂鸦**消息中心**的原始消息（排查用，2026-09-18）。
+  ///
+  /// 为了回答「设备消息推送里有没有类型字段」——原生把每条消息 bean 的所有无参 getter
+  /// 原样 dump 上来，页面上的调试板直接打印。**不做字段映射**：一映射就把要查的东西盖住了。
+  ///
+  /// 返回结构：`{ok, instance?, method?, count?, items?: List<Map>, diagnostic: List<String>,
+  /// code?, message?}`。**永远不抛错**——查不到也要把「试过什么、看到什么」带回去。
+  Future<Map<String, Object?>> deviceMessages({int limit});
+
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
@@ -844,6 +853,39 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         identifier:
             dps['${TuyaConfig.dp[identifier]}'] ?? dps[TuyaConfig.dp[identifier]],
     };
+  }
+
+  @override
+  Future<Map<String, Object?>> deviceMessages({int limit = 50}) async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>(
+        'deviceMessages',
+        <String, Object?>{'limit': limit},
+      );
+      if (raw == null) {
+        return <String, Object?>{
+          'ok': false,
+          'diagnostic': <String>['原生侧返回了 null'],
+        };
+      }
+      return raw;
+    } on MissingPluginException {
+      // iOS 侧没接这个方法：那边的桥接是直接引 SDK 类型写的，本机没有 SDK 包、
+      // 也编译不了，与其猜类名把 iOS 构建搞挂，不如在这里如实说明。
+      return <String, Object?>{
+        'ok': false,
+        'diagnostic': <String>[
+          '本端未接入 deviceMessages：这一轮只做了 Android 侧桥接，iOS 待补',
+        ],
+      };
+    } on PlatformException catch (error) {
+      return <String, Object?>{
+        'ok': false,
+        'code': error.code,
+        'message': error.message,
+        'diagnostic': <String>['原生抛错：${error.code} ${error.message}'],
+      };
+    }
   }
 
   @override

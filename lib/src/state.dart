@@ -1079,6 +1079,35 @@ class FlowerpotState extends ChangeNotifier {
   /// 进到某个页面时记一条。
   void logPageEntry(String page) => _logInteraction('进入 ← [$page]');
 
+  /// 拉一次**涂鸦消息中心**的原始消息（排查用，2026-09-18）。
+  ///
+  /// 产品要回答的问题是「设备消息推送里有没有类型字段」——所以这里不解析、不映射，
+  /// 原样把 `{ok, instance, method, items, diagnostic}` 交给页面上的调试板打印。
+  /// 不抛错：查不到也要把「试过什么、看到什么」带回去（见 [TuyaRepository.deviceMessages]）。
+  Future<Map<String, Object?>> loadDeviceMessages({int limit = 50}) async {
+    _logInteraction('消息中心 → 拉取原始消息 limit=$limit');
+    final data = await _repository.deviceMessages(limit: limit);
+    if (data['ok'] == true) {
+      _logInteraction(
+        '消息中心 ← ${data['count'] ?? 0} 条'
+        '（${data['method']}@${data['instance']}）',
+      );
+    } else {
+      _logInteraction(
+        '消息中心 ✗ ${data['message'] ?? (data['diagnostic'] as List<Object?>?)?.join('；') ?? '未知原因'}',
+      );
+    }
+    return data;
+  }
+
+  /// 割草机页面的 DP 记账入口（2026-09-18）。
+  ///
+  /// ⚠️ 这一轮**没有割草机真机**：下发不经过涂鸦 SDK，由 `MowerDevice` 拼好行文
+  /// 直接写进同一个日志框（产品要的就是「点一下能在日志里看到 DPID」）。
+  /// 行首一律带「割草机」，与花盆那些行区分开；模拟出来的上报还会带「［模拟］」。
+  /// 接了真机之后，`MowerDevice._deliver` 换成 [publishDps]，这个入口可以只留给日志。
+  void logMowerInteraction(String line) => _logInteraction(line);
+
   /// 配网失败的完整原因（提示 + 失败码 + 各步耗时）记一条。
   ///
   /// 失败页 2026-09-14 起只画一句「设备未能成功连接到当前Wi-Fi网络」（产品要求删掉原因那段），
@@ -2909,7 +2938,7 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// 请求本身只打在 debug 控制台，产品在真机上看不到——所以带了什么参数、回来几条，
   /// 在联调日志里记一行（2026-09-14 产品要核对「接口是不是传了产品 ID」）。
-  Future<List<BackendFaq>> loadFaqs() async {
+  Future<List<BackendFaq>> loadFaqs({String? productId}) async {
     if (!_backend.enabled || !_backend.hasSession) {
       // 以前这一支静默返回空：页面画「暂无常见问题」，联调日志里什么都没有，看起来
       // 就像「后台配了数据却不显示」。没发请求要说出来（2026-09-14）。
@@ -2931,12 +2960,12 @@ class FlowerpotState extends ChangeNotifier {
     } catch (error) {
       basicError = error;
     }
-    final (productId, source) = _faqProductId(basicError);
-    final request = productId.isEmpty
+    final (resolved, source) = _faqProductId(basicError, productId);
+    final request = resolved.isEmpty
         ? 'getProductFaqList 未带 broadcastId（$source）'
-        : 'getProductFaqList broadcastId=$productId（取自$source）';
+        : 'getProductFaqList broadcastId=$resolved（取自$source）';
     try {
-      final faqs = await _backend.getFaqs(broadcastId: productId);
+      final faqs = await _backend.getFaqs(broadcastId: resolved);
       _logInteraction('帮助中心 ← $request，返回 ${faqs.length} 条');
       return faqs;
     } catch (error) {
@@ -2959,13 +2988,28 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// ⛔ 也不走 `/Client/Product/getProductList`：那条路径在 swagger 里没有，线上返回和
   /// 不存在的路径一模一样的 500（2026-09-14 已从 App 里整条删掉）。
-  String get faqBroadcastId => _faqProductId().$1;
+  String get faqBroadcastId => _faqProductId(null, TuyaConfig.productId).$1;
 
   /// [faqBroadcastId] 连同它是从哪来的，调试信息里要把来源一起打出来。
-  (String, String) _faqProductId([Object? basicDataError]) {
+  ///
+  /// ⚠️ **2026-09-18 起 `deviceIdList` 里不止一款产品**（后台新增了割草机
+  /// `mz7g3yzaufvoh4ls`）。再无脑「取第一个」，花盆的常见问题会随后台排序变成割草机的。
+  /// 所以这里先按 [preferred] 在列表里**找本产品**，找到就用它；找不到才退回原来的
+  /// 「取第一个」——**仍然不写死兜底**（产品 2026-09-14「不要写死数据」）：
+  /// 回落用的是接口给的第一个，不是 App 里的常量。
+  (String, String) _faqProductId([Object? basicDataError, String? preferred]) {
     final ids = _basicData.deviceIdList;
+    if (preferred != null && preferred.isNotEmpty && ids.contains(preferred)) {
+      return (
+        preferred,
+        'getBasicData deviceIdList 里匹配到本产品（共 ${ids.length} 个）',
+      );
+    }
     if (ids.isNotEmpty) {
-      return (ids.first, 'getBasicData deviceIdList 第 1 个（共 ${ids.length} 个）');
+      final why = preferred == null || preferred.isEmpty
+          ? 'getBasicData deviceIdList 第 1 个（共 ${ids.length} 个）'
+          : 'getBasicData deviceIdList 里没有本产品 $preferred，退回第 1 个（共 ${ids.length} 个）';
+      return (ids.first, why);
     }
     final why = basicDataError == null
         ? 'getBasicData 没有返回 deviceIdList'

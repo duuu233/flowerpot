@@ -445,6 +445,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     "设备数据统计服务需要在涂鸦平台开通后配置统计 API",
                     null,
                 )
+                "deviceMessages" -> deviceMessages(call, result)
                 "checkFirmware" -> checkFirmware(call, result)
                 "startFirmwareUpgrade" -> startFirmwareUpgrade(call, result)
                 "uploadAnimation" -> result.error(
@@ -2474,6 +2475,145 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             },
             onError = { code, message -> error(result, code, message) },
         )
+    }
+
+    /**
+     * 涂鸦**消息中心**的原始消息，用来回答一个具体问题：
+     * 「设备消息推送里到底有没有类型字段？」（2026-09-18 产品，为割草机-消息通知那三个
+     * 分类页 日志 / 提醒 / 告警 定技术可行性）。
+     *
+     * ⚠️ **这是排查接口，不是产品功能。** 它把每条消息 bean 的**所有无参 getter** 原样
+     * dump 成 map 交给 Dart，由页面底部的调试板打印——字段名和取值不靠猜，真机跑一次就有结论。
+     *
+     * ⚠️ **本机没有涂鸦 SDK 包可解包**，所以方法名按 7.x 的公开命名**逐个探**：
+     * 拿不到实例或方法时**不抛错**，而是把「试过哪些名字」「这个类上实际有哪些方法」
+     * 一并回给 Dart —— 那份诊断本身就是答案的一部分（哪怕探错了，也能一眼看出正确的名字）。
+     */
+    private fun deviceMessages(call: MethodCall, result: MethodChannel.Result) {
+        val limit = (call.argument<Number>("limit"))?.toInt() ?: 50
+        val diagnostic = mutableListOf<String>()
+        val sdk = runCatching { sdkClass() }.getOrElse { error ->
+            success(
+                result,
+                mapOf("ok" to false, "diagnostic" to listOf("涂鸦 SDK 未链接：$error")),
+            )
+            return
+        }
+        val instanceNames = listOf(
+            "getMessageInstance",
+            "getThingMessageInstance",
+            "getTuyaMessageInstance",
+            "getMessageCenterInstance",
+        )
+        var instance: Any? = null
+        for (name in instanceNames) {
+            instance = runCatching { invokeStatic(sdk, name) }.getOrNull()
+            if (instance != null) {
+                diagnostic += "消息中心实例 ← $name()"
+                break
+            }
+            diagnostic += "试过 $name() → 没有"
+        }
+        val target = instance
+        if (target == null) {
+            diagnostic += "SDK 上所有 get*Instance()：" +
+                sdk.methods.filter { it.name.startsWith("get") && it.name.endsWith("Instance") }
+                    .joinToString { it.name }
+            success(result, mapOf("ok" to false, "diagnostic" to diagnostic))
+            return
+        }
+        diagnostic += "实例类型 ${target.javaClass.name}"
+        diagnostic += "实例方法：" + target.javaClass.methods
+            .filterNot { it.declaringClass == Any::class.java }
+            .joinToString { m -> m.name + "(" + m.parameterTypes.joinToString { it.simpleName } + ")" }
+
+        // 先试带分页的重载，再试无参的；只要找得到「若干参数 + 一个回调接口」就调它。
+        val attempts = listOf<Pair<String, Array<Any?>>>(
+            "getMessageList" to arrayOf<Any?>(0, limit),
+            "getMessageList" to arrayOf<Any?>(),
+            "getMessageListWithOffset" to arrayOf<Any?>(0, limit),
+            "getMessageListByMsgType" to arrayOf<Any?>(0, limit),
+        )
+        for ((name, args) in attempts) {
+            optionalCallbackMethod(target.javaClass, name, args) ?: continue
+            diagnostic += "调用 $name(${args.joinToString()}) + callback"
+            invokeWithCallback(
+                target,
+                name,
+                *args,
+                onSuccess = { value ->
+                    val items = messageItems(value)
+                    success(
+                        result,
+                        mapOf(
+                            "ok" to true,
+                            "instance" to target.javaClass.name,
+                            "method" to name,
+                            "count" to items.size,
+                            "items" to items,
+                            "diagnostic" to diagnostic,
+                        ),
+                    )
+                },
+                onError = { code, message ->
+                    success(
+                        result,
+                        mapOf(
+                            "ok" to false,
+                            "code" to code,
+                            "message" to message,
+                            "diagnostic" to diagnostic,
+                        ),
+                    )
+                },
+            )
+            return
+        }
+        diagnostic += "没找到任何「参数 + 回调」形态的消息列表方法"
+        success(result, mapOf("ok" to false, "diagnostic" to diagnostic))
+    }
+
+    /** 回调给回来的可能是 List，也可能是包一层的分页 bean；两种都拆开。 */
+    private fun messageItems(value: Any?): List<Map<String, Any?>> {
+        val list: List<*> = when (value) {
+            null -> emptyList<Any?>()
+            is List<*> -> value
+            else -> (optionalGetter(value, "getDatas") as? List<*>)
+                ?: (optionalGetter(value, "getDataList") as? List<*>)
+                ?: (optionalGetter(value, "getList") as? List<*>)
+                ?: listOf(value)
+        }
+        return list.filterNotNull().map { beanMap(it) }
+    }
+
+    /**
+     * 把一个 bean 的**所有无参 getter** dump 成 map。
+     *
+     * 这就是「有没有类型字段」那个问题的答案来源：字段名原样出来（`msgType` / `msgTypeContent`
+     * / `msgSrcId` …），不做任何挑选，也不映射成我们自己的名字。
+     * 非基本类型一律 `toString()`，MethodChannel 只认得基本类型和容器。
+     */
+    private fun beanMap(bean: Any): Map<String, Any?> {
+        val map = LinkedHashMap<String, Any?>()
+        for (method in bean.javaClass.methods) {
+            if (method.parameterTypes.isNotEmpty()) continue
+            if (method.declaringClass == Any::class.java) continue
+            val name = method.name
+            val key = when {
+                name.startsWith("get") && name.length > 3 ->
+                    name.substring(3).replaceFirstChar { it.lowercase() }
+                name.startsWith("is") && name.length > 2 ->
+                    name.substring(2).replaceFirstChar { it.lowercase() }
+                else -> continue
+            }
+            val value = runCatching { method.invoke(bean) }.getOrNull()
+            map[key] = when (value) {
+                null -> null
+                is String, is Number, is Boolean -> value
+                else -> value.toString()
+            }
+        }
+        return map
     }
 
     private fun checkFirmware(call: MethodCall, result: MethodChannel.Result) {
