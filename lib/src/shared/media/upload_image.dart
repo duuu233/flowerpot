@@ -20,6 +20,11 @@ import 'package:image/image.dart' as img;
 ///   `yuv444`，**必须显式传**，漏了就是 4:4:4。
 /// - **尺寸 ≤ [maxWidth] × [maxHeight]**：宽、高**各自**不超过一边，等比缩放，
 ///   任意宽高比都行（设备居中显示）。**小图不放大。**
+/// - **宽、高都必须是偶数**（设备端 1.0.13 §1.1 新增的硬约束，`w &= ~1; h &= ~1`）：
+///   设备输出 RGB565，宽度为奇数时解码器直接失败、屏上显示失败页，而**手机这边
+///   一点提示都没有**。实测案例：179 × 240 除了宽是奇数其余全合格，照样解不出来；
+///   9:16 的竖图（1080 × 1920）等比缩进框会得到 135 × 240，同样中招 —— 也就是说
+///   凡是非 4:3 的图都可能踩上，不是个别现象。
 /// - **单文件 ≤ [maxBytes]**。
 ///
 /// ⚠️ 尺寸口径和 2026-09-16 那一版不一样：上一版是「总像素 ≤ 480,000」，按总像素
@@ -101,24 +106,41 @@ abstract final class UploadImage {
     }
   }
 
-  /// 等比缩进 [maxWidth] × [maxHeight] 的框之后的宽高。已经在框里就原样返回
-  /// （**小图不放大**）。
+  /// 等比缩进 [maxWidth] × [maxHeight] 的框、并把宽高各自**向下取偶**之后的尺寸。
+  /// 已经在框里的不放大，但奇数边仍会被削掉 1 像素（取偶是设备的硬约束，见类文档）。
   ///
   /// 单独抽出来是为了能直接测：这一步是整段逻辑里唯一会算错的地方（缩放系数、
   /// 取整之后又超回去、1 像素宽的图被算成 0）。
   static (int, int) targetSize(int width, int height) {
     if (width <= 0 || height <= 0) return (width, height);
-    if (width <= maxWidth && height <= maxHeight) return (width, height);
-    // 两个方向各自的余量取小的那个，长边贴边、短边留白，长宽比不变。
-    final scale = math.min(maxWidth / width, maxHeight / height);
-    // floor 只会往小取，正常不会再超；math.min 那一层是防浮点误差把 320 算成
-    // 320.000000001，以及极扁的图（100000 × 4）缩完把短边算成 0。
-    final scaledWidth = (width * scale).floor();
-    final scaledHeight = (height * scale).floor();
-    final targetWidth = math.min(maxWidth, math.max(1, scaledWidth));
-    final targetHeight = math.min(maxHeight, math.max(1, scaledHeight));
-    return (targetWidth, targetHeight);
+    // 已经在框里也要过一遍取偶：**奇数边本身就是不合格的图**，不只是超框才要处理
+    //（135 × 240 就在框里，设备照样解不出来）。
+    if (width <= maxWidth && height <= maxHeight) {
+      return (_even(width), _even(height));
+    }
+    // 先判**哪条边先顶到框**，再让那条边取整数框值、另一条按比例算。
+    //
+    // ⚠️ 原来是「算一个 scale 再两边各乘一遍」，会被浮点咬：16:9 的 1920 × 1080
+    // 走 `scale = 320/1920 = 0.16666666666666666`，`1920 × scale = 319.99999999999994`，
+    // floor 之后是 **319**（高同理成 179）—— 最常见的手机横拍照片反而两边都成了奇数，
+    // 正是设备解不出来的那种图。按下面这样算，先顶到框的那条边直接取 320 / 240，
+    // 另一条是整数乘除（`1080 × 320 ÷ 1920 = 180.0`，没有误差）。
+    final widthHitsFirst = maxWidth * height <= maxHeight * width;
+    final fitWidth = widthHitsFirst
+        ? maxWidth
+        : math.max(1, (width * maxHeight / height).floor());
+    final fitHeight = widthHitsFirst
+        ? math.max(1, (height * maxWidth / width).floor())
+        : maxHeight;
+    return (_even(fitWidth), _even(fitHeight));
   }
+
+  /// 向下取偶，**下限 2**（设备端 1.0.13 §1.1 #4：`w &= ~1`）。
+  ///
+  /// 往下取而不是往上取：往上会超出 320 × 240 那个框。下限给 2 而不是 0 ——
+  /// 1 像素宽的图取偶会变成 0，那就没有图了；这种退化尺寸本来也显示不出什么，
+  /// 给 2 只是别让它变成一张非法的空图。
+  static int _even(int value) => value <= 2 ? 2 : value & ~1;
 
   /// 后台 isolate 里跑：RGBA → Baseline 4:2:0 JPEG，超过 [maxBytes] 就降一档
   /// 质量重编；最低一档还超就返回 null（宁可不传，也不给设备一张它显示不了的图）。

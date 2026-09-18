@@ -36,7 +36,7 @@ void main() {
     expect(decoded, <double>[9000, 100]);
   });
 
-  test('week and month packets take their length from the count byte', () {
+  test('week packets take their length from the count byte', () {
     final week = TuyaHistoryCodec.decode(
       _payload(<int>[26, 8, 14, 7, 10, 20, 30, 40, 50, 60, 70]),
       range: ReportRange.week,
@@ -44,12 +44,81 @@ void main() {
     );
     expect(week, <double>[10, 20, 30, 40, 50, 60, 70]);
 
-    final month = TuyaHistoryCodec.decode(
-      _payload(<int>[26, 8, 1, 3, 11, 12, 13]),
-      range: ReportRange.month,
+    // 设备端 1.0.13 起周帧的 N 是「环内有效天数 ≤ 28」（4 周的日均值），
+    // 不是早期导出写的 7。字节位置没变，这里顺带钉一条满环的帧。
+    final fourWeeks = TuyaHistoryCodec.decode(
+      _payload(<int>[26, 9, 15, 28, for (var i = 1; i <= 28; i++) i]),
+      range: ReportRange.week,
       sampleBytes: 1,
     );
-    expect(month, <double>[11, 12, 13]);
+    expect(fourWeeks.length, 28);
+    expect(fourWeeks.last, 28);
+  });
+
+  /// 月帧：设备端 1.0.13 §2.4 把帧头改成 5 字节（年 月 日 **段号 总段数**），
+  /// **没有点数字节**，点数由帧长推。
+  ///
+  /// 按旧口径（4 字节头 + 点数字节）解会把**段号当点数**：段 0 的 `bytes[3] == 0`
+  /// ⇒ 解出 0 个点、月视图整条空白；段 1 ⇒ 只剩 1 个点。错得不报错，只有真机看得出来。
+  group('月帧（1.0.13 的 5 字节头 + 分段）', () {
+    test('段 0 满帧解出 90 个点——旧口径这里会是 0 个', () {
+      final month = TuyaHistoryCodec.decode(
+        _payload(<int>[
+          26, 9, 15, 0, 2, //  年偏移 月 日 段号=0 总段数=2
+          for (var i = 1; i <= 90; i++) i,
+        ]),
+        range: ReportRange.month,
+        sampleBytes: 1,
+      );
+      expect(month.length, 90);
+      expect(month.first, 1);
+      expect(month.last, 90);
+    });
+
+    test('段 1 只带剩下那几天——旧口径这里只剩 1 个点', () {
+      final month = TuyaHistoryCodec.decode(
+        _payload(<int>[26, 9, 15, 1, 2, 91, 92, 93]),
+        range: ReportRange.month,
+        sampleBytes: 1,
+      );
+      expect(month, <double>[91, 92, 93]);
+    });
+
+    test('不满 90 天时只有段 0（总段数 1）', () {
+      final month = TuyaHistoryCodec.decode(
+        _payload(<int>[26, 9, 15, 0, 1, 11, 12, 13]),
+        range: ReportRange.month,
+        sampleBytes: 1,
+      );
+      expect(month, <double>[11, 12, 13]);
+    });
+
+    test('光照的月帧是 2 字节大端点', () {
+      final month = TuyaHistoryCodec.decode(
+        _payload(<int>[26, 9, 15, 0, 1, 0x0B, 0xB8, 0x00, 0x64]),
+        range: ReportRange.month,
+        sampleBytes: 2,
+      );
+      expect(month, <double>[3000, 100]);
+    });
+
+    test('段号与总段数能取出来，供以后拼接两段用', () {
+      expect(
+        TuyaHistoryCodec.monthSegment(
+          _payload(<int>[26, 9, 15, 1, 2, 91, 92]),
+        ),
+        (1, 2),
+      );
+      // 段号越界 / 总段数为 0 的不认作段帧，避免把旧固件的月帧误判成分段。
+      expect(
+        TuyaHistoryCodec.monthSegment(_payload(<int>[26, 9, 15, 2, 2, 91])),
+        isNull,
+      );
+      expect(
+        TuyaHistoryCodec.monthSegment(_payload(<int>[26, 9, 15, 0, 0, 91])),
+        isNull,
+      );
+    });
   });
 
   test('a packet shorter than its count byte claims is not padded', () {

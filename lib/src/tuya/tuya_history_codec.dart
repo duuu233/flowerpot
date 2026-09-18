@@ -8,15 +8,27 @@ import 'tuya_raw.dart';
 /// platform export:
 ///
 /// ```text
-/// byte      0        1     2         3          4..
-/// day     年偏移     月     日      ── 96 samples ──
-/// week    年偏移     月   起始日   点数(7)    samples
-/// month   年偏移     月   起始日   点数(31)   samples
+/// byte      0        1     2       3        4        5..
+/// day     年偏移     月     日    ──── 96 点（今天那帧变长）────
+/// week    年偏移     月     日   点数N(≤28)  ──── N 点 ────
+/// month   年偏移     月     日    段号    总段数   ── 本段点 ──
 /// ```
 ///
 /// The 131–139 day packet has no count byte — it is always 96 quarter-hour
 /// samples. Water level and soil moisture take one unsigned byte per sample;
 /// light, air temperature and air humidity take two, big endian.
+///
+/// ⚠️ **月帧 2026-09-18 起是 5 字节头**（设备端 1.0.13 更新说明 §2.4）：第 4、5 字节
+/// 是**段号**与**总段数**，**没有点数字节**，点数由帧长推（`(len − 5) ÷ 点宽`）。
+/// 一整期最多 180 天、每段 90 点，所以满数据时是**两帧**（段 0 = 第 0~89 天、
+/// 段 1 = 第 90~179 天），N < 90 时只有段 0。
+///
+/// 按旧口径（4 字节头 + 点数字节）解 1.0.13 的月帧会把**段号当成点数**：
+/// 段 0 的那一帧 `bytes[3] == 0` ⇒ 解出 0 个点、月曲线整条空白；段 1 ⇒ 只剩 1 个点。
+/// 这是个不报错的错解，只有真机上「月视图没数据」看得出来。
+///
+/// 周帧的点数字节仍在，但含义是**环内有效天数 ≤ 28**（4 周的日均值），
+/// 不是早期导出写的「7」。取值从字节里读，这个变化不影响解码。
 ///
 /// 164（空气温度日历史）和 165（空气湿度日历史）是**变长**日帧，而且 09-16 那版
 /// 导出把两行写成了不同的帧头：164 是「年 月 日 + N×点数据」（3 字节头），165 是
@@ -34,6 +46,31 @@ import 'tuya_raw.dart';
 abstract final class TuyaHistoryCodec {
   /// Samples in a day packet, one per quarter hour.
   static const dailySamples = 96;
+
+  /// 月帧的帧头长度：年偏移 + 月 + 日 + 段号 + 总段数（设备端 1.0.13 §2.4）。
+  static const monthHeaderBytes = 5;
+
+  /// 月帧一段最多几个点（设备端 1.0.13：总点数 ≤180，每段 90）。
+  static const monthSegmentSamples = 90;
+
+  /// 取月帧的**段号与总段数**，不是月帧（或读不出来）返回 null。
+  ///
+  /// 一整期满数据时设备分两帧发（段 0 = 第 0~89 天、段 1 = 第 90~179 天），
+  /// 两帧走的是**同一个 DP**。涂鸦交上来的设备状态只保留每个 DP 的最后一个值，
+  /// 所以 App 这边拿到的通常只有**后到的那一段**。
+  ///
+  /// ⚠️ 要画满半年就得把两段按段号拼起来，而拼接需要跨推送把两帧都留住 ——
+  /// 那是状态层的事（`DeviceHistory` 现在是「一个 (指标, 周期) 一条序列」），
+  /// 本方法先把段信息暴露出来，接的时候不用再回来改解码。
+  static (int index, int total)? monthSegment(Object? value) {
+    final bytes = TuyaRaw.bytes(value);
+    if (bytes == null || bytes.length <= monthHeaderBytes) return null;
+    final index = bytes[3];
+    final total = bytes[4];
+    // 段号必须落在总段数里，总段数至少 1；不满足就不是段帧（可能是旧固件的月帧）。
+    if (total < 1 || index >= total) return null;
+    return (index, total);
+  }
 
   /// Decodes one raw DP payload, or returns an empty list when the payload is
   /// missing, unreadable or shorter than its own header claims.
@@ -53,15 +90,28 @@ abstract final class TuyaHistoryCodec {
     final bytes = TuyaRaw.bytes(value);
     if (bytes == null) return const <double>[];
 
-    final counted = variableLength
+    // 三种帧头，按 range 定（164 / 165 那两条变长日帧另按帧长判，见 [_hasCountByte]）：
+    //   日 3 字节、周 4 字节（末位是点数）、**月 5 字节（段号 + 总段数，没有点数）**。
+    final int headerBytes;
+    // 帧里**声明**的点数；月帧没有这个字节，用 null 表示「点数看帧长」。
+    final int? declared;
+    if (range == ReportRange.month && !variableLength) {
+      headerBytes = monthHeaderBytes;
+      declared = null;
+    } else if (variableLength
         ? _hasCountByte(bytes, sampleBytes)
-        : range != ReportRange.day;
-    final headerBytes = counted ? 4 : 3;
+        : range != ReportRange.day) {
+      headerBytes = 4;
+      declared = bytes.length > 3 ? bytes[3] : 0;
+    } else {
+      headerBytes = 3;
+      declared = dailySamples;
+    }
     if (bytes.length <= headerBytes) return const <double>[];
 
     final available = (bytes.length - headerBytes) ~/ sampleBytes;
-    final declared = counted ? bytes[3] : dailySamples;
-    final count = declared < available ? declared : available;
+    // 声明的点数只用来**截短**，不用来补长：帧被截断时按实际有的解，别读过界。
+    final count = declared == null || declared > available ? available : declared;
     if (count <= 0) return const <double>[];
 
     return <double>[
