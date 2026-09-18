@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../app/flowerpot_app.dart';
@@ -32,8 +34,14 @@ import '../../../../tuya/tuya_models.dart';
 ///
 /// 2026-09-17 产品：安装中从 **[OtaProgress.installingPercent]%（98）** 就开始——
 /// 涂鸦的进度走到 98 之后要停一大段等设备写固件、重启，停在「固件升级中 98%」像卡死了。
-String otaRunningLabel(OtaProgress? ota, {bool withPercent = false}) {
-  final stage = ota?.displayStage ?? OtaStage.preparing;
+/// [stageOverride] 用于弹层里「98% 先亮一拍」那段：那一刻模型已经算进安装中了，
+/// 但界面还要再说一句「固件升级中」。只有弹层会传，功能行照常跟着模型走。
+String otaRunningLabel(
+  OtaProgress? ota, {
+  bool withPercent = false,
+  OtaStage? stageOverride,
+}) {
+  final stage = stageOverride ?? ota?.displayStage ?? OtaStage.preparing;
   return switch (stage) {
     OtaStage.preparing => '固件准备中',
     OtaStage.upgrading => withPercent
@@ -65,19 +73,64 @@ Future<void> showOtaProgressDialog(
   );
 }
 
-class _OtaProgressDialog extends StatelessWidget {
+class _OtaProgressDialog extends StatefulWidget {
   const _OtaProgressDialog({required this.deviceId});
 
   final String deviceId;
 
   @override
+  State<_OtaProgressDialog> createState() => _OtaProgressDialogState();
+}
+
+class _OtaProgressDialogState extends State<_OtaProgressDialog> {
+  /// 切进「固件安装中」之前，先把 98% 亮够这么久。
+  ///
+  /// 2026-09-18 用户：涂鸦的进度常常从 9x **直接**跳进安装中，98% 一闪而过、甚至根本
+  /// 没露过面，看上去就是「92% 之后忽然换了一句话」，很突兀。先让 98% 站住一拍再换，
+  /// 过渡才接得上。
+  ///
+  /// 这**只是显示上的一拍**：设备该写固件还写固件，成功事件随时来随时切「升级完成」
+  /// （[_holding] 第一条就把非 running 排除了），不会因为这 0.9 秒少显示什么。
+  static const _holdAt98 = Duration(milliseconds: 900);
+
+  Timer? _holdTimer;
+  bool _held98 = false;
+
+  @override
+  void dispose() {
+    _holdTimer?.cancel();
+    super.dispose();
+  }
+
+  /// 此刻是否正处在「98% 亮相」那一拍。
+  ///
+  /// ⚠️ 只拦「进度自己走到了 98」这一条路径。涂鸦直接报阶段 6（固件已下载到设备）
+  /// 而进度还很低时**不能**假装 98%——那是个设备从没报过的数字。
+  bool _holding(OtaProgress? ota, OtaStage rawStage) {
+    if (_held98) return false;
+    if (ota?.status != OtaStatus.running) return false;
+    if (rawStage != OtaStage.installing) return false;
+    if ((ota?.percent ?? 0) < OtaProgress.installingPercent) return false;
+    _holdTimer ??= Timer(_holdAt98, () {
+      if (!mounted) return;
+      setState(() => _held98 = true);
+    });
+    return true;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
-    final ota = state.otaProgressFor(deviceId);
+    final ota = state.otaProgressFor(widget.deviceId);
     final status = ota?.status ?? OtaStatus.running;
-    final percent = (ota?.percent ?? 0).clamp(0, 100);
     final running = status == OtaStatus.running;
-    final stage = ota?.displayStage ?? OtaStage.preparing;
+    final rawStage = ota?.displayStage ?? OtaStage.preparing;
+    // 亮相那一拍：文案回到「固件升级中」、进度条钉在 98%，一拍过后才换成安装中。
+    final holdingAt98 = _holding(ota, rawStage);
+    final stage = holdingAt98 ? OtaStage.upgrading : rawStage;
+    final percent = holdingAt98
+        ? OtaProgress.installingPercent
+        : (ota?.percent ?? 0).clamp(0, 100);
     // 准备中 / 安装中 / 等待唤醒没有可信的百分比：进度条改成来回走的动画、不写数字，
     // 让人看得出在跑，而不是停在 0%（或者 2026-09-17 之后的 98%）。三段共用同一套
     // 动效，产品口径就是「98% 之后换成最开始那个动效」。
@@ -112,7 +165,10 @@ class _OtaProgressDialog extends StatelessWidget {
               children: <Widget>[
                 Text(
                   switch (status) {
-                    OtaStatus.running => otaRunningLabel(ota),
+                    OtaStatus.running => otaRunningLabel(
+                      ota,
+                      stageOverride: stage,
+                    ),
                     OtaStatus.success => '升级完成',
                     OtaStatus.failed => '升级失败',
                   },
