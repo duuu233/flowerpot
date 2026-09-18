@@ -39,6 +39,12 @@ import '../features/profile/presentation/mine_page.dart';
 import '../features/profile/presentation/modify_password_page.dart';
 import '../features/profile/presentation/profile_page.dart';
 import '../features/home/presentation/home_page.dart';
+import '../features/mower/presentation/mower_home_page.dart';
+import '../features/mower/presentation/mower_language_page.dart';
+import '../features/mower/presentation/mower_parameters_page.dart';
+import '../features/mower/presentation/mower_rain_page.dart';
+import '../features/mower/presentation/mower_time_sync_page.dart';
+import '../features/mower/presentation/mower_zones_page.dart';
 import '../features/shell/presentation/shell_page.dart';
 import '../tuya/tuya_models.dart';
 
@@ -84,6 +90,16 @@ abstract final class AppRoutes {
   static const memorialEdit = '/devices/memorial-edit';
   static const behaviorSettings = '/devices/behavior';
   static const animations = '/devices/animations';
+
+  // 割草机静态页（2026-09-18）。入口是搜索页上那条固定数据，见 `MowerDemo`。
+  // 首页 / 割草计划 / 设置 三个一级页由 `MowerHomePage` 这层外壳带着，
+  // 所以这里只登记外壳和几个二级页。
+  static const mowerHome = '/mower';
+  static const mowerParameters = '/mower/parameters';
+  static const mowerZones = '/mower/zones';
+  static const mowerRain = '/mower/rain';
+  static const mowerTimeSync = '/mower/time-sync';
+  static const mowerLanguage = '/mower/language';
   static const profile = '/profile';
   static const mine = '/mine';
   static const settings = '/settings';
@@ -183,6 +199,12 @@ abstract final class AppRoutes {
         deviceId: settings.arguments! as String,
       ),
       animations => AnimationsPage(deviceId: settings.arguments! as String),
+      mowerHome => const MowerHomePage(),
+      mowerParameters => const MowerParametersPage(),
+      mowerZones => const MowerZonesPage(),
+      mowerRain => const MowerRainPage(),
+      mowerTimeSync => const MowerTimeSyncPage(),
+      mowerLanguage => const MowerLanguagePage(),
       mine => const MinePage(),
       profile => const ProfilePage(),
       AppRoutes.settings => const AccountSecurityPage(),

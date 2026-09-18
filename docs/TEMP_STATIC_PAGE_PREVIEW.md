@@ -48,3 +48,20 @@ static const bool enabled = false;
 
 置为 `false` 后，Mock 仓库重新预置 `planter-demo-01`，登录后直接进入设备列表。
 启动入口、鉴权分流和页面导航在两种取值下完全一致。
+
+## 割草机静态页面（2026-09-18）
+
+与上面那条演示动线**是两回事**：这一套不依赖 Mock 后端，也不经过 `TuyaRepository`——
+`lib/src/features/mower/` 里的页面把数字全写死在 `mower_demo.dart` 里，纯粹是给产品看版式的。
+
+- **入口**：搜索设备页（`/devices/search`）已发现设备列表**下面**固定的一行「YSmower-01」，
+  点「连接」进 `/mower`。这一行不是扫出来的，行上写明「静态演示数据」。
+- **开关**：`MowerDemo.enabled`（`lib/src/features/mower/mower_demo.dart`）。置 `false` 后
+  那一行消失，页面代码保留。
+- **页面**：外壳 `/mower` 带底部导航（首页 / 割草计划 / 设置），二级页
+  `/mower/parameters`、`/mower/zones`、`/mower/rain`、`/mower/time-sync`、`/mower/language`；
+  消息通知由设置页直接 push（要带一个「退回来切到哪一栏」的回调，命名路由塞不进去）。
+- **怎么看那几张状态图**：点首页的电量环轮着切默认 / 充电中 / 电量告警 / 低电量；
+  割草计划页点色块进编辑弹窗、把两个时段调重叠就能看到「时间段重叠」，右上角「恢复默认」看确认框。
+- 设计稿：`docs/UI/v2/割草机/`；本轮的完整记录见
+  [`history/2026-09/2026-09-18-割草机静态页面.md`](history/2026-09/2026-09-18-割草机静态页面.md)。

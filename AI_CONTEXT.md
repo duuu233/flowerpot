@@ -91,6 +91,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 | `lib/src/state.dart` | 当前集中式应用状态与业务编排。 |
 | `lib/src/routes/` | 命名路由、鉴权分流和页面参数。 |
 | `lib/src/features/` | auth、home、devices、profile 等业务页面；调试台与体验模式目录已删除。 |
+| `lib/src/features/mower/` | 割草机静态页面（2026-09-18）：首页 / 割草计划 / 设置三个一级页加五个二级页，数据全部写死在 `mower_demo.dart`，不经 `TuyaRepository`、不发 DP。入口是搜索设备页里那条固定数据，门禁 `MowerDemo.enabled`。 |
 | `lib/src/design_system/` | Design Token、资源索引和公共视觉组件。 |
 | `lib/src/shared/` | 跨 Feature 复用组件；`media/upload_image.dart` 是上传前的图片压缩（2026-09-17 随固件 1.0.12 改成设备口径：JPG Baseline + 4:2:0、≤ 320 × 240 的框、≤ 500 KB，小图不放大；做不出合格的图返回 null，两处调用中止上传）。 |
 | `lib/src/core/network/` | REST 请求、会话、异常和重试。 |
