@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/config/debug_log_gate.dart';
 import '../design_system/design_system.dart';
 import '../features/home/presentation/widgets/interaction_log_panel.dart';
 import '../routes/app_routes.dart';
@@ -31,6 +32,8 @@ class _InteractionLogOverlayState extends State<InteractionLogOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    // 2026-09-19：调试日志整块屏蔽（门禁见 [DebugLogGate]，翻回 true 就全回来）。
+    if (!DebugLogGate.interactionLog) return widget.child;
     final state = FlowerpotScope.maybeOf(context);
     // 闪屏和登录页没有设备交互，不挂。
     if (state == null || !state.authenticated) return widget.child;

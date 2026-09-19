@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/backend/backend.dart';
+import 'core/config/debug_log_gate.dart';
 import 'core/cache/image_cache_cleanup.dart';
 import 'core/network/api_exception.dart';
 import 'core/network/network_status.dart';
@@ -1049,7 +1050,11 @@ class FlowerpotState extends ChangeNotifier {
   static const int _interactionLogLimit = 60;
 
   /// 记一条交互日志。带时分秒——联调时要对着设备那边的时间看。
+  ///
+  /// ⚠️ **2026-09-19 起默认不记**（[DebugLogGate.interactionLog]）：调试日志整块屏蔽了。
+  /// 在这里断而不是只藏浮层——只藏界面的话日志还在后台一条条攒，白占内存也白发通知。
   void _logInteraction(String line) {
+    if (!DebugLogGate.interactionLog) return;
     final now = DateTime.now();
     String two(int value) => value.toString().padLeft(2, '0');
     _interactionLog.add(
@@ -2960,7 +2965,13 @@ class FlowerpotState extends ChangeNotifier {
     } catch (error) {
       basicError = error;
     }
-    final (resolved, source) = _faqProductId(basicError, productId);
+    // 不传就是花盆那条：同样**先在 deviceIdList 里找花盆的产品 ID**，找不到才退回第一个。
+    // ⚠️ 这一行不能省——后台把割草机也加进同一个列表之后，「取第一个」会随后台排序
+    // 把花盆的常见问题换成割草机的。
+    final (resolved, source) = _faqProductId(
+      basicError,
+      productId ?? TuyaConfig.productId,
+    );
     final request = resolved.isEmpty
         ? 'getProductFaqList 未带 broadcastId（$source）'
         : 'getProductFaqList broadcastId=$resolved（取自$source）';

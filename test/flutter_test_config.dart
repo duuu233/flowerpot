@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flowerpot/src/core/config/debug_log_gate.dart';
 import 'package:flowerpot/src/core/network/network_status.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +16,10 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
     // 「网络异常」弹窗默认去解析后端域名；用例里一律当有网，不做真 DNS，也不让
     // 弹窗冒出来挡住别的断言。专门验弹窗的用例自己换成 false。
     NetworkStatus.probe = () async => true;
+    // 联调日志 2026-09-19 起在生产里默认关闭（[DebugLogGate]）。**用例里一律开着**：
+    // 好几个用例断言的就是日志内容（帮助中心带没带产品 ID、状态页读了哪些 DP……），
+    // 关着的话它们验的东西根本不产生。专门验这道闸的用例自己改回 false。
+    DebugLogGate.interactionLog = true;
   });
   await testMain();
 }

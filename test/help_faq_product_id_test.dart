@@ -40,6 +40,46 @@ void main() {
     );
   });
 
+  test('列表里有两款产品时按本产品取，不看排在第几个（2026-09-18 后台新增割草机）', () async {
+    // 后台把割草机 mz7g3yzaufvoh4ls 加进了同一个 deviceIdList，而且排在花盆前面。
+    // 再按「取第一个」，花盆的常见问题会变成割草机的。
+    final backend = _FaqBackend(
+      deviceIds: const <String>['mz7g3yzaufvoh4ls', 'yciq4kssu1fv8umn'],
+    );
+    final state = FlowerpotState(
+      repository: MockTuyaRepository(latency: Duration.zero),
+      backendRepository: backend,
+    );
+    addTearDown(state.dispose);
+
+    // 花盆这条（不传产品 ID）要拿到花盆的
+    await state.loadFaqs();
+    expect(backend.requestedBroadcastIds.last, 'yciq4kssu1fv8umn');
+
+    // 割草机那条自己带产品 ID 进来
+    await state.loadFaqs(productId: 'mz7g3yzaufvoh4ls');
+    expect(backend.requestedBroadcastIds.last, 'mz7g3yzaufvoh4ls');
+  });
+
+  test('列表里没有本产品时退回第一个（仍然不写死兜底）', () async {
+    final backend = _FaqBackend(
+      deviceIds: const <String>['other-product', 'second-id'],
+    );
+    final state = FlowerpotState(
+      repository: MockTuyaRepository(latency: Duration.zero),
+      backendRepository: backend,
+    );
+    addTearDown(state.dispose);
+
+    await state.loadFaqs();
+
+    expect(backend.requestedBroadcastIds.last, 'other-product');
+    expect(
+      state.interactionLog.any((line) => line.contains('退回第 1 个')),
+      isTrue,
+    );
+  });
+
   test('不写死兜底：deviceIdList 为空就不带 broadcastId', () async {
     final backend = _FaqBackend(deviceIds: const <String>[]);
     final state = FlowerpotState(

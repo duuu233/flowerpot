@@ -91,6 +91,7 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 | `lib/src/state.dart` | 当前集中式应用状态与业务编排。 |
 | `lib/src/routes/` | 命名路由、鉴权分流和页面参数。 |
 | `lib/src/features/` | auth、home、devices、profile 等业务页面；调试台与体验模式目录已删除。 |
+| `lib/src/core/config/debug_log_gate.dart` | 联调日志总闸（2026-09-19 起**生产默认关闭**）。关着时 `_logInteraction` 不记录、浮层也不挂；翻回 `true` 整套回来。⚠️ 割草机的 DP 下发/上报走的就是这个日志框，联调割草机要先翻开它；用例里由 `flutter_test_config` 统一开着。 |
 | `lib/src/features/mower/` | 割草机（产品 ID `mz7g3yzaufvoh4ls`，与花盆按**基础信息接口的 deviceIdList** 区分）。页面：首页 / 割草计划 / 设置三个一级页 + 设备参数、区域设置、雨淋设置、时间同步、语言切换、消息通知。**2026-09-18 已接功能点**：`mower_dp.dart` 是 DP 表与 DP101/DP103 的编解码，`mower_device.dart` 是当前 DP 值与**唯一下发出口**（⚠️ 没有真机，下发只写联调日志 + 本地回显，只读 DP 由长按电量环的模拟面板代劳，模拟行带「［模拟］」）。入口是设备列表最后一张卡和搜索设备页那条固定数据（都不经过 `state.devices`），门禁 `MowerDemo.enabled`。 |
 | `lib/src/design_system/` | Design Token、资源索引和公共视觉组件。 |
 | `lib/src/shared/` | 跨 Feature 复用组件；`media/upload_image.dart` 是上传前的图片压缩（2026-09-17 随固件 1.0.12 改成设备口径：JPG Baseline + 4:2:0、≤ 320 × 240 的框、≤ 500 KB，小图不放大；做不出合格的图返回 null，两处调用中止上传）。 |
