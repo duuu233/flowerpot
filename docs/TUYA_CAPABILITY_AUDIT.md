@@ -158,19 +158,30 @@ void cancelAll();
 
 ### 5.2 类型与等级字段：有
 
-- `MessageType`（枚举，`getValue()` / `parseInt(int)`）只有三个常量：
-  **`MSG_REPORT`**（设备 / 告警类上报，设备消息推送看这个）、`MSG_FAMILY`、`MSG_NOTIFY`。
+- `MessageType`（枚举，`getValue()` / `parseInt(int)`）只有三个常量，**对应消息中心的三档**
+  （值是从 `<clinit>` 字节码里读出来的，不是猜的）：
+  **`MSG_REPORT` = 1（告警，设备消息推送落在这一档）**、`MSG_FAMILY` = 2（家庭）、
+  `MSG_NOTIFY` = 3（通知）。
 - `MessageListBean`：`getDatas()` + `getTotalCount()`。
 - `MessageBean` 上的字段（这就是「有没有类型字段」的答案）：
-  `int msgType` + 四个常量 `MSG_TYPE_SYSTEM` / `MSG_TYPE_NEW_DEVICE` / `MSG_TYPE_NEW_FRIEND` /
-  **`MSG_TYPE_PRD_WARN`**、`String msgTypeContent`（类型文案）、`String msgCode`、
+  `int msgType` + 四个常量（ConstantValue 读出来的值）`MSG_TYPE_SYSTEM` = 0 /
+  `MSG_TYPE_NEW_DEVICE` = 1 / `MSG_TYPE_NEW_FRIEND` = 2 / **`MSG_TYPE_PRD_WARN` = 4**
+  （产品预警，也就是告警那一类）、`String msgTypeContent`（类型文案）、`String msgCode`、
   `String msgContent`、`String msgSrcId`（= 设备 ID）、**`int alarmType`**、
   `String extendParams` / `JSONObject extendJson`、`String actionURL`、`dateTime` / `long time`、
   `icon`、`homeId` / `homeName`、`hasNotRead`、附件三件套（图 / 视频 / 音频）。
 - **后台配的「推送等级」（轻微 / …）落在哪个字段还没确认**：候选是 `alarmType`、`msgCode`、
   `extendParams`。调试板照旧**原样打印全部字段**，真机拉一次就能定这一条。
 
-### 5.3 iOS 不是同名方法
+### 5.3 拉不到东西时怎么查
+
+桥接支持 `msgType: "ALL"`：**三档依次各取一次**，结果里 `perType` 写明每一档返回几条
+（某一档失败记 `-1`，原因进诊断）。三档都是 0 时，再自动探两个**无参只读**接口
+`getMessageMaxTime()`（消息中心最新一条的时间）和 `requestMessageNew()`（有没有新消息），
+结果同样写进诊断 —— 用来区分「是这台设备没有消息」还是「整个消息中心就是空的（账号/家庭不对、
+推送没真的发出去）」。**任何情况下都不会退回聚合的 `getMessageList`。**
+
+### 5.4 iOS 不是同名方法
 
 iOS 侧要调的是 `ThingSmartMessage` 的
 **`fetchEncryptMessageDetailListWithListRequestModel:success:failure:`**（请求模型里带

@@ -256,11 +256,16 @@ class _MessageDebugPanel extends StatefulWidget {
 }
 
 class _MessageDebugPanelState extends State<_MessageDebugPanel> {
-  /// 涂鸦的消息类型枚举（解包核对：`MessageType` 只有这三个常量）。
+  /// 涂鸦的消息类型（解包核对：`MessageType` 只有三个常量，`getValue()` 依次是 1 / 2 / 3）。
+  ///
+  /// 消息中心的三档就是**告警 / 家庭 / 通知**，设备消息推送落在告警那一档（`MSG_REPORT`），
+  /// 所以默认选它。`ALL` 是本地约定：原生会把三档依次取一遍，结果里 `perType` 写明每档几条——
+  /// 拉不到东西时用它判断「是这台设备没有」还是「哪一档都空」。
   static const Map<String, String> _types = <String, String>{
-    'MSG_REPORT': '设备消息',
-    'MSG_FAMILY': '家庭消息',
-    'MSG_NOTIFY': '通知消息',
+    'MSG_REPORT': '告警',
+    'MSG_FAMILY': '家庭',
+    'MSG_NOTIFY': '通知',
+    'ALL': '三档都试',
   };
 
   final TextEditingController _deviceId = TextEditingController();
@@ -321,7 +326,11 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
       ..writeln('ok=${result['ok']}')
       ..writeln('instance=${result['instance']}')
       ..writeln('method=${result['method']}')
-      ..writeln('count=${result['count']}');
+      ..writeln('msgSrcId=${result['msgSrcId']}')
+      ..writeln('msgType=${result['msgType']}')
+      ..writeln('perType=${result['perType']}')
+      ..writeln('count=${result['count']}')
+      ..writeln('totalCount=${result['totalCount']}');
     final items = (result['items'] as List<Object?>?) ?? const <Object?>[];
     for (var i = 0; i < items.length; i++) {
       buffer.writeln('--- 第 ${i + 1} 条 ---');
@@ -369,9 +378,9 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
             ),
             const SizedBox(height: 6),
             Text(
-              '按设备 ID 拉一次涂鸦消息中心（getMessageListByMsgSrcId），把每条消息的字段'
-              '原样打印，用来确认"类型"和后台配的推送等级落在哪个字段'
-              '（目标产品 ${TuyaConfig.broadcastId}）。长按可复制。',
+              '按设备 ID 拉一次涂鸦消息中心（getMessageListByMsgSrcId，默认取告警那一档），'
+              '把每条消息的字段原样打印，用来确认后台配的推送等级落在哪个字段'
+              '（目标产品 ${TuyaConfig.broadcastId}）。拉不到就选「三档都试」。长按可复制。',
               style: const TextStyle(
                 color: MowerColors.inkSecondary,
                 fontSize: 12,
@@ -436,6 +445,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                 '  totalCount=${result['totalCount'] ?? '-'}\n'
                 'msgSrcId=${result['msgSrcId'] ?? '-'}'
                 '  msgType=${result['msgType'] ?? '-'}\n'
+                'perType=${result['perType'] ?? '-'}\n'
                 'instance=${result['instance'] ?? '-'}\n'
                 'method=${result['method'] ?? '-'}',
                 style: const TextStyle(

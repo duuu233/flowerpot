@@ -2516,8 +2516,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val limit = (call.argument<Number>("limit"))?.toInt() ?: 50
         val offset = (call.argument<Number>("offset"))?.toInt() ?: 0
         val msgSrcId = call.argument<String>("deviceId")?.trim().orEmpty()
-        val msgTypeName = call.argument<String>("msgType")?.trim().orEmpty()
-            .ifEmpty { "MSG_REPORT" }
+        // 默认取告警那一档：涂鸦消息中心的三档就是 MSG_REPORT(告警) / MSG_FAMILY(家庭) / MSG_NOTIFY(通知)。
+        // 传 "ALL" 则三档依次取一遍，结果里 perType 会写明每一档各返回几条。
+        val requested = call.argument<String>("msgType")?.trim().orEmpty().ifEmpty { "MSG_REPORT" }
         val diagnostic = mutableListOf<String>()
         if (msgSrcId.isEmpty()) {
             success(
@@ -2567,7 +2568,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             .filterNot { it.declaringClass == Any::class.java }
             .joinToString { m -> m.name + "(" + m.parameterTypes.joinToString { it.simpleName } + ")" }
 
-        // 消息类型是枚举，反射**按名字**取常量（不猜它的整数值）。
+        // 消息类型是枚举，反射**按名字**取常量（解包核对：MSG_REPORT=1 / MSG_FAMILY=2 / MSG_NOTIFY=3，
+        // 但值不写死在这里——取常量自己的 getValue()）。
         val typeClass = runCatching {
             Class.forName(
                 "com.thingclips.smart.sdk.bean.message.MessageType",
@@ -2579,90 +2581,135 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         diagnostic += if (typeClass == null) {
             "找不到 MessageType 枚举类"
         } else {
-            "MessageType 常量：" + constants.joinToString { it.name }
-        }
-        val messageType = constants.firstOrNull { it.name == msgTypeName }
-        if (messageType == null && constants.isNotEmpty()) {
-            diagnostic += "MessageType 里没有 $msgTypeName"
+            "MessageType 常量：" + constants.joinToString { constant ->
+                constant.name + "=" + (enumValueOfType(constant) ?: "?")
+            }
         }
 
-        // 只按设备取。解包核对（7.5.1）这个方法有四个重载，按参数少的先试：
-        //   (int, int, MessageType, String, cb)
-        //   (int, int, MessageType, String, boolean encryptImage, cb)
-        //   (int, int, MessageType, String, boolean, boolean splitImageKey, cb)
-        //   (int, int, int,         String, boolean, boolean, cb)   ← 类型收成 int 的那版
-        val attempts = mutableListOf<Pair<String, Array<Any?>>>()
-        if (messageType != null) {
-            attempts += "getMessageListByMsgSrcId" to
-                arrayOf<Any?>(offset, limit, messageType, msgSrcId)
-            attempts += "getMessageListByMsgSrcId" to
-                arrayOf<Any?>(offset, limit, messageType, msgSrcId, false)
-            attempts += "getMessageListByMsgSrcId" to
-                arrayOf<Any?>(offset, limit, messageType, msgSrcId, false, false)
+        val wanted = if (requested.uppercase() == "ALL") {
+            constants.map { it.name }
+        } else {
+            listOf(requested)
         }
-        // int 版：值取枚举自己的 getValue()，不写死数字。
-        val typeValue = messageType?.let { value ->
-            runCatching { value.javaClass.getMethod("getValue").invoke(value) as? Int }.getOrNull()
+        val items = mutableListOf<Map<String, Any?>>()
+        val perType = LinkedHashMap<String, Int>()
+        var usedMethod: String? = null
+        var totalCount: Int? = null
+
+        fun reply() {
+            success(
+                result,
+                mapOf(
+                    "ok" to true,
+                    "instance" to target.javaClass.name,
+                    "method" to usedMethod,
+                    "msgSrcId" to msgSrcId,
+                    "msgType" to requested,
+                    "perType" to perType,
+                    "count" to items.size,
+                    "totalCount" to totalCount,
+                    "items" to items,
+                    "diagnostic" to diagnostic,
+                ),
+            )
         }
-        if (typeValue != null) {
-            attempts += "getMessageListByMsgSrcId" to
-                arrayOf<Any?>(offset, limit, typeValue, msgSrcId, false, false)
-        }
-        for ((name, args) in attempts) {
-            val method = optionalCallbackMethod(target.javaClass, name, args)
-            if (method == null) {
-                diagnostic += "试过 $name(${args.size} 参 + 回调) → 这个类上没有匹配的重载"
-                continue
+
+        // 一条条探这些**无参**只读接口，结果写进诊断。空结果时才跑：
+        // 用来区分「是这台设备没有消息」还是「整个消息中心就是空的」。
+        fun probeExtras(index: Int, names: List<String>, done: () -> Unit) {
+            if (index >= names.size) {
+                done()
+                return
             }
-            diagnostic += "调用 ${method.name}(" +
-                method.parameterTypes.joinToString { it.simpleName } +
-                ") msgType=$msgTypeName msgSrcId=$msgSrcId offset=$offset limit=$limit"
+            val name = names[index]
+            if (optionalCallbackMethod(target.javaClass, name, emptyArray<Any?>()) == null) {
+                diagnostic += "没有 $name()"
+                probeExtras(index + 1, names, done)
+                return
+            }
             invokeWithCallback(
                 target,
                 name,
-                *args,
                 onSuccess = { value ->
-                    val items = messageItems(value)
-                    // MessageListBean 上的总数；optionalGetter 要非空目标，所以先过一层 let
+                    diagnostic += "$name() → $value"
+                    probeExtras(index + 1, names, done)
+                },
+                onError = { code, message ->
+                    diagnostic += "$name() ✗ $code $message"
+                    probeExtras(index + 1, names, done)
+                },
+            )
+        }
+
+        // 按类型依次取。一档失败不影响别的档：失败写进 perType（-1）和诊断，继续下一档。
+        fun fetch(index: Int) {
+            if (index >= wanted.size) {
+                if (items.isEmpty()) {
+                    probeExtras(0, listOf("getMessageMaxTime", "requestMessageNew")) { reply() }
+                } else {
+                    reply()
+                }
+                return
+            }
+            val typeName = wanted[index]
+            val messageType = constants.firstOrNull { it.name == typeName }
+            if (messageType == null) {
+                diagnostic += "MessageType 里没有 $typeName"
+                fetch(index + 1)
+                return
+            }
+            val typeValue = enumValueOfType(messageType)
+            // 解包核对（7.5.1）这个方法有四个重载，按参数少的先试；最后一个是类型收成 int 的那版。
+            val attempts = mutableListOf(
+                arrayOf<Any?>(offset, limit, messageType, msgSrcId),
+                arrayOf<Any?>(offset, limit, messageType, msgSrcId, false),
+                arrayOf<Any?>(offset, limit, messageType, msgSrcId, false, false),
+            )
+            if (typeValue != null) {
+                attempts += arrayOf<Any?>(offset, limit, typeValue, msgSrcId, false, false)
+            }
+            val name = "getMessageListByMsgSrcId"
+            val picked = attempts.firstOrNull {
+                optionalCallbackMethod(target.javaClass, name, it) != null
+            }
+            if (picked == null) {
+                // 不退回聚合的 getMessageList：那条拿回来的不是这台设备的全量消息。
+                diagnostic += "$typeName：没有匹配的 $name 重载（不退回聚合接口）"
+                fetch(index + 1)
+                return
+            }
+            val method = optionalCallbackMethod(target.javaClass, name, picked)
+            usedMethod = name + "(" + method?.parameterTypes?.joinToString { it.simpleName } + ")"
+            diagnostic += "$typeName(value=$typeValue) → $usedMethod " +
+                "msgSrcId=$msgSrcId offset=$offset limit=$limit"
+            invokeWithCallback(
+                target,
+                name,
+                *picked,
+                onSuccess = { value ->
+                    val got = messageItems(value)
+                    perType[typeName] = got.size
+                    items += got
                     val total = value?.let {
                         (optionalGetter(it, "getTotalCount") as? Number)?.toInt()
                     }
-                    success(
-                        result,
-                        mapOf(
-                            "ok" to true,
-                            "instance" to target.javaClass.name,
-                            "method" to method.name,
-                            "msgType" to msgTypeName,
-                            "msgSrcId" to msgSrcId,
-                            "count" to items.size,
-                            "totalCount" to total,
-                            "items" to items,
-                            "diagnostic" to diagnostic,
-                        ),
-                    )
+                    if (total != null) totalCount = (totalCount ?: 0) + total
+                    fetch(index + 1)
                 },
                 onError = { code, message ->
-                    success(
-                        result,
-                        mapOf(
-                            "ok" to false,
-                            "code" to code,
-                            "message" to message,
-                            "msgType" to msgTypeName,
-                            "msgSrcId" to msgSrcId,
-                            "diagnostic" to diagnostic,
-                        ),
-                    )
+                    perType[typeName] = -1
+                    diagnostic += "$typeName ✗ $code $message"
+                    fetch(index + 1)
                 },
             )
-            return
         }
-        // 走到这里说明这个 SDK 上没有按设备取的方法。**不退回聚合的 getMessageList**
-        // （那条拿回来的不是这台设备的全量消息，看着就"不对"），把方法清单交回去人工看。
-        diagnostic += "没有找到 getMessageListByMsgSrcId 的任何重载；不退回聚合的 getMessageList"
-        success(result, mapOf("ok" to false, "diagnostic" to diagnostic))
+        fetch(0)
     }
+
+    /** 枚举常量自己的 `getValue()`（MessageType 有这个方法），取不到返回 null。 */
+    private fun enumValueOfType(constant: Enum<*>): Int? = runCatching {
+        constant.javaClass.getMethod("getValue").invoke(constant) as? Int
+    }.getOrNull()
 
     /** 回调给回来的可能是 List，也可能是包一层的分页 bean；两种都拆开。 */
     private fun messageItems(value: Any?): List<Map<String, Any?>> {
