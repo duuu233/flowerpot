@@ -2478,20 +2478,60 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     }
 
     /**
-     * 涂鸦**消息中心**的原始消息，用来回答一个具体问题：
-     * 「设备消息推送里到底有没有类型字段？」（2026-09-18 产品，为割草机-消息通知那三个
-     * 分类页 日志 / 提醒 / 告警 定技术可行性）。
+     * 涂鸦**消息中心**里某台设备的消息（设备消息推送 / 告警）。
      *
-     * ⚠️ **这是排查接口，不是产品功能。** 它把每条消息 bean 的**所有无参 getter** 原样
-     * dump 成 map 交给 Dart，由页面底部的调试板打印——字段名和取值不靠猜，真机跑一次就有结论。
+     * ## 只走 `getMessageListByMsgSrcId`（2026-09-20 产品口径）
      *
-     * ⚠️ **本机没有涂鸦 SDK 包可解包**，所以方法名按 7.x 的公开命名**逐个探**：
-     * 拿不到实例或方法时**不抛错**，而是把「试过哪些名字」「这个类上实际有哪些方法」
-     * 一并回给 Dart —— 那份诊断本身就是答案的一部分（哪怕探错了，也能一眼看出正确的名字）。
+     * 标准的 `getMessageList` 是**聚合**结果，按它分页拿不到某台设备的全量消息，
+     * 所以这里**只按设备取**：
+     *
+     * ```java
+     * IThingMessage#getMessageListByMsgSrcId(
+     *     int offset, int limit, MessageType msgType, String msgSrcId, IThingDataCallback<MessageListBean>)
+     * ```
+     *
+     * 签名是解包核对过的（`thingsmart` 7.5.1 → `thingsmart-personal-api` →
+     * `com/thingclips/smart/sdk/api/IThingMessage.class`）：`msgType` 是**枚举**
+     * `com.thingclips.smart.sdk.bean.message.MessageType`，只有三个常量
+     * `MSG_REPORT`（设备/告警类上报）、`MSG_FAMILY`（家庭）、`MSG_NOTIFY`（通知）；
+     * `msgSrcId` 就是**设备 ID**；回调给回来的是 `MessageListBean`（`getDatas()` + `getTotalCount()`）。
+     * 另有 5→6→7 参的重载（多 `encryptImage`、`splitImageKey` 两个 boolean），这里按 5 参的取，
+     * 找不到再退到带 boolean 的那两个。
+     *
+     * ⚠️ **不要退回 `getMessageList`**：那条是聚合口径，拿回来的东西看着就"不对"（2026-09-20 踩过）。
+     * 没给设备 ID 时直接如实返回「要设备 ID」，不偷偷换成聚合接口。
+     *
+     * ⚠️ **iOS 侧不是同名方法**：那边是
+     * `fetchEncryptMessageDetailListWithListRequestModel:success:failure:`
+     * （`ThingSmartMessage` + 请求模型），本轮 iOS 未接，见 `TuyaRepository.deviceMessages` 的注释。
+     *
+     * ## 仍然是排查接口，不是产品功能
+     *
+     * 它把每条消息 bean 的**所有无参 getter** 原样 dump 成 map 交给 Dart，由页面底部的调试板打印。
+     * `MessageBean` 解包出来确实有类型字段（`getMsgType` / `getMsgTypeContent`，另有
+     * `getMsgCode` / `getAlarmType` / `getExtendParams`）—— 后台配的「推送等级」落在哪个字段上
+     * 要真机跑一次才知道，所以**照旧原样打印、不挑不映射**。
      */
     private fun deviceMessages(call: MethodCall, result: MethodChannel.Result) {
         val limit = (call.argument<Number>("limit"))?.toInt() ?: 50
+        val offset = (call.argument<Number>("offset"))?.toInt() ?: 0
+        val msgSrcId = call.argument<String>("deviceId")?.trim().orEmpty()
+        val msgTypeName = call.argument<String>("msgType")?.trim().orEmpty()
+            .ifEmpty { "MSG_REPORT" }
         val diagnostic = mutableListOf<String>()
+        if (msgSrcId.isEmpty()) {
+            success(
+                result,
+                mapOf(
+                    "ok" to false,
+                    "diagnostic" to listOf(
+                        "要设备 ID：消息只按 getMessageListByMsgSrcId(设备ID) 取，" +
+                            "聚合的 getMessageList 拿不到某台设备的全量消息",
+                    ),
+                ),
+            )
+            return
+        }
         val sdk = runCatching { sdkClass() }.getOrElse { error ->
             success(
                 result,
@@ -2527,29 +2567,76 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             .filterNot { it.declaringClass == Any::class.java }
             .joinToString { m -> m.name + "(" + m.parameterTypes.joinToString { it.simpleName } + ")" }
 
-        // 先试带分页的重载，再试无参的；只要找得到「若干参数 + 一个回调接口」就调它。
-        val attempts = listOf<Pair<String, Array<Any?>>>(
-            "getMessageList" to arrayOf<Any?>(0, limit),
-            "getMessageList" to arrayOf<Any?>(),
-            "getMessageListWithOffset" to arrayOf<Any?>(0, limit),
-            "getMessageListByMsgType" to arrayOf<Any?>(0, limit),
-        )
+        // 消息类型是枚举，反射**按名字**取常量（不猜它的整数值）。
+        val typeClass = runCatching {
+            Class.forName(
+                "com.thingclips.smart.sdk.bean.message.MessageType",
+                false,
+                target.javaClass.classLoader ?: activity.classLoader,
+            )
+        }.getOrNull()
+        val constants = typeClass?.enumConstants?.filterIsInstance<Enum<*>>().orEmpty()
+        diagnostic += if (typeClass == null) {
+            "找不到 MessageType 枚举类"
+        } else {
+            "MessageType 常量：" + constants.joinToString { it.name }
+        }
+        val messageType = constants.firstOrNull { it.name == msgTypeName }
+        if (messageType == null && constants.isNotEmpty()) {
+            diagnostic += "MessageType 里没有 $msgTypeName"
+        }
+
+        // 只按设备取。解包核对（7.5.1）这个方法有四个重载，按参数少的先试：
+        //   (int, int, MessageType, String, cb)
+        //   (int, int, MessageType, String, boolean encryptImage, cb)
+        //   (int, int, MessageType, String, boolean, boolean splitImageKey, cb)
+        //   (int, int, int,         String, boolean, boolean, cb)   ← 类型收成 int 的那版
+        val attempts = mutableListOf<Pair<String, Array<Any?>>>()
+        if (messageType != null) {
+            attempts += "getMessageListByMsgSrcId" to
+                arrayOf<Any?>(offset, limit, messageType, msgSrcId)
+            attempts += "getMessageListByMsgSrcId" to
+                arrayOf<Any?>(offset, limit, messageType, msgSrcId, false)
+            attempts += "getMessageListByMsgSrcId" to
+                arrayOf<Any?>(offset, limit, messageType, msgSrcId, false, false)
+        }
+        // int 版：值取枚举自己的 getValue()，不写死数字。
+        val typeValue = messageType?.let { value ->
+            runCatching { value.javaClass.getMethod("getValue").invoke(value) as? Int }.getOrNull()
+        }
+        if (typeValue != null) {
+            attempts += "getMessageListByMsgSrcId" to
+                arrayOf<Any?>(offset, limit, typeValue, msgSrcId, false, false)
+        }
         for ((name, args) in attempts) {
-            optionalCallbackMethod(target.javaClass, name, args) ?: continue
-            diagnostic += "调用 $name(${args.joinToString()}) + callback"
+            val method = optionalCallbackMethod(target.javaClass, name, args)
+            if (method == null) {
+                diagnostic += "试过 $name(${args.size} 参 + 回调) → 这个类上没有匹配的重载"
+                continue
+            }
+            diagnostic += "调用 ${method.name}(" +
+                method.parameterTypes.joinToString { it.simpleName } +
+                ") msgType=$msgTypeName msgSrcId=$msgSrcId offset=$offset limit=$limit"
             invokeWithCallback(
                 target,
                 name,
                 *args,
                 onSuccess = { value ->
                     val items = messageItems(value)
+                    // MessageListBean 上的总数；optionalGetter 要非空目标，所以先过一层 let
+                    val total = value?.let {
+                        (optionalGetter(it, "getTotalCount") as? Number)?.toInt()
+                    }
                     success(
                         result,
                         mapOf(
                             "ok" to true,
                             "instance" to target.javaClass.name,
-                            "method" to name,
+                            "method" to method.name,
+                            "msgType" to msgTypeName,
+                            "msgSrcId" to msgSrcId,
                             "count" to items.size,
+                            "totalCount" to total,
                             "items" to items,
                             "diagnostic" to diagnostic,
                         ),
@@ -2562,6 +2649,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                             "ok" to false,
                             "code" to code,
                             "message" to message,
+                            "msgType" to msgTypeName,
+                            "msgSrcId" to msgSrcId,
                             "diagnostic" to diagnostic,
                         ),
                     )
@@ -2569,7 +2658,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             )
             return
         }
-        diagnostic += "没找到任何「参数 + 回调」形态的消息列表方法"
+        // 走到这里说明这个 SDK 上没有按设备取的方法。**不退回聚合的 getMessageList**
+        // （那条拿回来的不是这台设备的全量消息，看着就"不对"），把方法清单交回去人工看。
+        diagnostic += "没有找到 getMessageListByMsgSrcId 的任何重载；不退回聚合的 getMessageList"
         success(result, mapOf("ok" to false, "diagnostic" to diagnostic))
     }
 

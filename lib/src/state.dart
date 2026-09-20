@@ -1084,14 +1084,28 @@ class FlowerpotState extends ChangeNotifier {
   /// 进到某个页面时记一条。
   void logPageEntry(String page) => _logInteraction('进入 ← [$page]');
 
-  /// 拉一次**涂鸦消息中心**的原始消息（排查用，2026-09-18）。
+  /// 拉一次**涂鸦消息中心**里某台设备的原始消息（排查用，2026-09-18 起）。
   ///
   /// 产品要回答的问题是「设备消息推送里有没有类型字段」——所以这里不解析、不映射，
   /// 原样把 `{ok, instance, method, items, diagnostic}` 交给页面上的调试板打印。
   /// 不抛错：查不到也要把「试过什么、看到什么」带回去（见 [TuyaRepository.deviceMessages]）。
-  Future<Map<String, Object?>> loadDeviceMessages({int limit = 50}) async {
-    _logInteraction('消息中心 → 拉取原始消息 limit=$limit');
-    final data = await _repository.deviceMessages(limit: limit);
+  ///
+  /// ⚠️ **必须带设备 ID**（= 涂鸦的 `msgSrcId`，产品口径 2026-09-20）：聚合的
+  /// `getMessageList` 拿不到某台设备的全量消息。[msgType] 只有 `MSG_REPORT` /
+  /// `MSG_FAMILY` / `MSG_NOTIFY` 三个取值，设备消息推送看的是默认那个 `MSG_REPORT`。
+  Future<Map<String, Object?>> loadDeviceMessages({
+    required String deviceId,
+    String msgType = 'MSG_REPORT',
+    int offset = 0,
+    int limit = 50,
+  }) async {
+    _logInteraction('消息中心 → 按设备取 $deviceId（$msgType）limit=$limit');
+    final data = await _repository.deviceMessages(
+      deviceId: deviceId,
+      msgType: msgType,
+      offset: offset,
+      limit: limit,
+    );
     if (data['ok'] == true) {
       _logInteraction(
         '消息中心 ← ${data['count'] ?? 0} 条'

@@ -541,11 +541,17 @@ class MockTuyaRepository implements TuyaRepository {
   }
 
   @override
-  Future<Map<String, Object?>> deviceMessages({int limit = 50}) async =>
-      <String, Object?>{
-        'ok': false,
-        'diagnostic': <String>['Mock 仓库没有涂鸦消息中心，只有真机能答这个问题'],
-      };
+  Future<Map<String, Object?>> deviceMessages({
+    required String deviceId,
+    String msgType = 'MSG_REPORT',
+    int offset = 0,
+    int limit = 50,
+  }) async => <String, Object?>{
+    'ok': false,
+    'msgSrcId': deviceId,
+    'msgType': msgType,
+    'diagnostic': <String>['Mock 仓库没有涂鸦消息中心，只有真机能答这个问题'],
+  };
 
   @override
   Future<String> createShareLink(String deviceId) async {

@@ -17,6 +17,7 @@ developer.tuya.com 上的官方文档。下面每条都注明依据；**没有�
 | DP 下发与监听 | `publishDps` / `onDpUpdate` `onDevInfoUpdate` `onRemoved` | `newDeviceInstance` + `registerDevListener` |
 | 固件检查与升级 | `checkFirmware` `startFirmwareUpgrade` | `newOTAInstance(devId)` |
 | 配网取令牌 | `prepareActivatorToken` | `getActivatorInstance().getActivatorToken(homeId, …)` |
+| 设备消息（消息中心） | `deviceMessages` | `getMessageInstance().getMessageListByMsgSrcId(...)`，见下面「五」 |
 | AP 热点配网（新流程） | `apQueryDeviceWifi` `apStartPairing` `apStopPairing` | `ThingApActivatorBuilder` → `newOptimizedActivator` → `queryDeviceConfigState` / `startActivator` |
 
 这一档不需要改动。
@@ -120,3 +121,58 @@ App SDK 的设备管理文档里**没有**历史数据 / 趋势 / 统计接口�
   时间内自动去连接 AP 热点」，未展开。
 - ~~设备固件 TuyaOS 是否 ≥ 3.6.1~~ —— **2026-09-10 已由设备团队确认 > 3.6.1**，新流程的固件前提成立。
 - 本文所有接口签名均来自官方文档，**未在本项目内编译或真机验证**。
+
+---
+
+## 五、消息中心（设备消息推送）—— 2026-09-20 解包核对
+
+来源不是文档，是**解包**：`com.thingclips.smart:thingsmart:7.5.1` 的父 POM → 模块
+`thingsmart-personal-api` → `thingsmart-personal-api-7.5.1.aar` → `classes.jar`，
+用 `tools/aar_class_dump.py` 打签名。**以下都是类文件里实际存在的东西，不是推测。**
+
+### 5.1 入口与签名
+
+`ThingHomeSdk.getMessageInstance()` → `com.thingclips.smart.sdk.api.IThingMessage`
+（`ThingHomeSdk` 上确实有 `getMessageInstance`，同类还有 `getPushInstance`）：
+
+```java
+void getMessageList(IThingDataCallback<List<MessageBean>>);                    // 聚合
+void getMessageList(int offset, int limit, IThingDataCallback<MessageListBean>);        // 聚合
+void getMessageList(int offset, int limit, long startTime, long endTime, cb);           // 聚合
+void getMessageListByMsgType(int offset, int limit, MessageType msgType, cb);
+void getMessageListByMsgSrcId(int offset, int limit, MessageType msgType, String msgSrcId, cb);   // ← 用这个
+void getMessageListByMsgSrcId(int, int, MessageType, String, boolean encryptImage, cb);
+void getMessageListByMsgSrcId(int, int, MessageType, String, boolean, boolean splitImageKey, cb);
+void getMessageListByMsgSrcId(int, int, int /*类型值*/, String, boolean, boolean, cb);
+void deleteMessages(List<String> mIds, IBooleanCallback);
+void deleteMessageWithType(int, List, List, IBooleanCallback);
+void requestMessageNew(IThingDataCallback<MessageHasNew>);
+void getMessageMaxTime(IThingDataCallback<Integer>);
+void cancelAll();
+// 另有一整套免打扰（DND）与隐私授权方法，本项目不涉及。
+```
+
+⚠️ **必须用 `getMessageListByMsgSrcId`，不要用 `getMessageList`**（产品口径 2026-09-20）：
+标准接口是**聚合**结果，按它分页拿不到某台设备的全量消息 —— 2026-09-18 那版调的就是它，
+打出来的内容明显不对。桥接现在没给设备 ID 会直接如实返回「要设备 ID」，**不会**偷偷退回聚合接口。
+
+### 5.2 类型与等级字段：有
+
+- `MessageType`（枚举，`getValue()` / `parseInt(int)`）只有三个常量：
+  **`MSG_REPORT`**（设备 / 告警类上报，设备消息推送看这个）、`MSG_FAMILY`、`MSG_NOTIFY`。
+- `MessageListBean`：`getDatas()` + `getTotalCount()`。
+- `MessageBean` 上的字段（这就是「有没有类型字段」的答案）：
+  `int msgType` + 四个常量 `MSG_TYPE_SYSTEM` / `MSG_TYPE_NEW_DEVICE` / `MSG_TYPE_NEW_FRIEND` /
+  **`MSG_TYPE_PRD_WARN`**、`String msgTypeContent`（类型文案）、`String msgCode`、
+  `String msgContent`、`String msgSrcId`（= 设备 ID）、**`int alarmType`**、
+  `String extendParams` / `JSONObject extendJson`、`String actionURL`、`dateTime` / `long time`、
+  `icon`、`homeId` / `homeName`、`hasNotRead`、附件三件套（图 / 视频 / 音频）。
+- **后台配的「推送等级」（轻微 / …）落在哪个字段还没确认**：候选是 `alarmType`、`msgCode`、
+  `extendParams`。调试板照旧**原样打印全部字段**，真机拉一次就能定这一条。
+
+### 5.3 iOS 不是同名方法
+
+iOS 侧要调的是 `ThingSmartMessage` 的
+**`fetchEncryptMessageDetailListWithListRequestModel:success:failure:`**（请求模型里带
+`msgSrcId` / 类型 / 分页），**不是**安卓的 `getMessageListByMsgSrcId`（产品 2026-09-20 提供，
+是之前踩过的坑）。iOS 桥接本轮仍未接，Dart 侧的 `MissingPluginException` 分支已经把这行方法名带回去。

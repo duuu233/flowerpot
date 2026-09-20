@@ -237,12 +237,17 @@ class _MessageCard extends StatelessWidget {
 
 /// 涂鸦消息中心调试板（**排查设施，不是产品功能**）。
 ///
-/// 点「拉取」→ 原生反射拿消息中心实例、调列表方法、把每条消息 bean 的所有无参 getter
-/// dump 上来（见 `MainActivity.deviceMessages`）。这里只负责**原样打印**：
+/// 点「拉取」→ 原生按**设备 ID** 调 `getMessageListByMsgSrcId`、把每条消息 bean 的
+/// 所有无参 getter dump 上来（见 `MainActivity.deviceMessages`）。这里只负责**原样打印**：
 ///
 /// - 每条消息的全部字段（键名里带 `type` 的会被标成品牌色，那就是问题的答案）；
-/// - 拿不到时把原生的诊断行（试过哪些方法名、这个类上实际有哪些方法）打出来；
+/// - 拿不到时把原生的诊断行（试过哪个重载、MessageType 有哪些常量、这个类上有哪些方法）打出来；
 /// - 长按整块复制，产品截图/贴给设备端都行。
+///
+/// ⚠️ **必须按设备取**（产品口径 2026-09-20）：标准的 `getMessageList` 是聚合结果，
+/// 按它分页拿不到某台设备的全量消息 —— 之前调的就是它，打出来的东西明显不对。
+/// 所以这块板上有设备 ID 输入框（默认填已绑定的第一台）和消息类型三选一
+/// （`MSG_REPORT` 设备消息 / `MSG_FAMILY` 家庭 / `MSG_NOTIFY` 通知）。
 class _MessageDebugPanel extends StatefulWidget {
   const _MessageDebugPanel();
 
@@ -251,13 +256,52 @@ class _MessageDebugPanel extends StatefulWidget {
 }
 
 class _MessageDebugPanelState extends State<_MessageDebugPanel> {
+  /// 涂鸦的消息类型枚举（解包核对：`MessageType` 只有这三个常量）。
+  static const Map<String, String> _types = <String, String>{
+    'MSG_REPORT': '设备消息',
+    'MSG_FAMILY': '家庭消息',
+    'MSG_NOTIFY': '通知消息',
+  };
+
+  final TextEditingController _deviceId = TextEditingController();
   bool _loading = false;
+  bool _prefilled = false;
+  String _msgType = 'MSG_REPORT';
   Map<String, Object?>? _result;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 默认填已绑定的第一台设备，省得每次手打 22 位 ID；填错了直接改这一格。
+    if (_prefilled) return;
+    final devices = FlowerpotScope.of(context).devices;
+    if (devices.isEmpty) return;
+    _deviceId.text = devices.first.id;
+    _prefilled = true;
+  }
+
+  @override
+  void dispose() {
+    _deviceId.dispose();
+    super.dispose();
+  }
 
   Future<void> _load() async {
     final state = FlowerpotScope.of(context);
+    final deviceId = _deviceId.text.trim();
+    if (deviceId.isEmpty) {
+      showAppMessage(
+        context,
+        '先填设备 ID（涂鸦的 msgSrcId）',
+        tone: AppMessageTone.info,
+      );
+      return;
+    }
     setState(() => _loading = true);
-    final data = await state.loadDeviceMessages();
+    final data = await state.loadDeviceMessages(
+      deviceId: deviceId,
+      msgType: _msgType,
+    );
     if (!mounted) return;
     setState(() {
       _loading = false;
@@ -325,13 +369,49 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
             ),
             const SizedBox(height: 6),
             Text(
-              '拉一次涂鸦消息中心，把每条消息的字段原样打印，'
-              '用来确认有没有"类型"字段（目标产品 ${TuyaConfig.broadcastId}）。长按可复制。',
+              '按设备 ID 拉一次涂鸦消息中心（getMessageListByMsgSrcId），把每条消息的字段'
+              '原样打印，用来确认"类型"和后台配的推送等级落在哪个字段'
+              '（目标产品 ${TuyaConfig.broadcastId}）。长按可复制。',
               style: const TextStyle(
                 color: MowerColors.inkSecondary,
                 fontSize: 12,
                 height: 1.5,
               ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('mower-messages-debug-device'),
+              controller: _deviceId,
+              style: const TextStyle(
+                color: MowerColors.ink,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
+              decoration: const InputDecoration(
+                labelText: '设备 ID（msgSrcId）',
+                isDense: true,
+                border: OutlineInputBorder(),
+                labelStyle: TextStyle(
+                  color: MowerColors.inkSecondary,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              children: <Widget>[
+                for (final entry in _types.entries)
+                  ChoiceChip(
+                    key: Key('mower-messages-debug-type-${entry.key}'),
+                    label: Text(
+                      entry.value,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    selected: _msgType == entry.key,
+                    onSelected: (_) => setState(() => _msgType = entry.key),
+                  ),
+              ],
             ),
             const SizedBox(height: 12),
             SizedBox(
@@ -352,7 +432,10 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
             if (result != null) ...<Widget>[
               const SizedBox(height: 12),
               SelectableText(
-                'ok=${result['ok']}  count=${result['count'] ?? 0}\n'
+                'ok=${result['ok']}  count=${result['count'] ?? 0}'
+                '  totalCount=${result['totalCount'] ?? '-'}\n'
+                'msgSrcId=${result['msgSrcId'] ?? '-'}'
+                '  msgType=${result['msgType'] ?? '-'}\n'
                 'instance=${result['instance'] ?? '-'}\n'
                 'method=${result['method'] ?? '-'}',
                 style: const TextStyle(

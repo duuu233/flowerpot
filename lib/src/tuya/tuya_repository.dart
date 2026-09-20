@@ -165,14 +165,34 @@ abstract class TuyaRepository {
     String deviceId,
     List<String> identifiers,
   );
-  /// 涂鸦**消息中心**的原始消息（排查用，2026-09-18）。
+  /// 涂鸦**消息中心**里某台设备的消息（排查用，2026-09-18 起；2026-09-20 改成按设备取）。
   ///
-  /// 为了回答「设备消息推送里有没有类型字段」——原生把每条消息 bean 的所有无参 getter
-  /// 原样 dump 上来，页面上的调试板直接打印。**不做字段映射**：一映射就把要查的东西盖住了。
+  /// [deviceId] 就是涂鸦的 `msgSrcId`，**必填**；[msgType] 是消息类型枚举名，
+  /// 只有三个取值：`MSG_REPORT`（设备 / 告警类上报，默认）、`MSG_FAMILY`、`MSG_NOTIFY`。
   ///
-  /// 返回结构：`{ok, instance?, method?, count?, items?: List<Map>, diagnostic: List<String>,
-  /// code?, message?}`。**永远不抛错**——查不到也要把「试过什么、看到什么」带回去。
-  Future<Map<String, Object?>> deviceMessages({int limit});
+  /// ⚠️ **必须按设备取**（产品口径 2026-09-20）：安卓走
+  /// `IThingMessage#getMessageListByMsgSrcId(offset, limit, MessageType, msgSrcId, callback)`；
+  /// 标准的 `getMessageList` 是**聚合**结果，按它分页拿不到某台设备的全量消息，
+  /// 之前就是拿它调的，打出来的东西明显不对。原生侧因此**不会**退回聚合接口。
+  ///
+  /// ⚠️ **iOS 不是同名方法**：那边是 `ThingSmartMessage` 的
+  /// `fetchEncryptMessageDetailListWithListRequestModel:success:failure:`（带请求模型），
+  /// 本轮 iOS 桥接未接——调用会走下面的 MissingPluginException 分支如实返回。
+  ///
+  /// 原生把每条消息 bean 的所有无参 getter 原样 dump 上来，页面上的调试板直接打印。
+  /// **不做字段映射**：一映射就把要查的东西盖住了。`MessageBean` 上确实有类型字段
+  /// （`msgType` / `msgTypeContent`，另有 `msgCode` / `alarmType` / `extendParams`），
+  /// 后台配的「推送等级」落在哪个字段要真机跑一次才知道。
+  ///
+  /// 返回结构：`{ok, instance?, method?, msgType?, msgSrcId?, count?, totalCount?,
+  /// items?: List<Map>, diagnostic: List<String>, code?, message?}`。
+  /// **永远不抛错**——查不到也要把「试过什么、看到什么」带回去。
+  Future<Map<String, Object?>> deviceMessages({
+    required String deviceId,
+    String msgType,
+    int offset,
+    int limit,
+  });
 
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
@@ -856,11 +876,21 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   }
 
   @override
-  Future<Map<String, Object?>> deviceMessages({int limit = 50}) async {
+  Future<Map<String, Object?>> deviceMessages({
+    required String deviceId,
+    String msgType = 'MSG_REPORT',
+    int offset = 0,
+    int limit = 50,
+  }) async {
     try {
       final raw = await _channel.invokeMapMethod<String, Object?>(
         'deviceMessages',
-        <String, Object?>{'limit': limit},
+        <String, Object?>{
+          'deviceId': deviceId,
+          'msgType': msgType,
+          'offset': offset,
+          'limit': limit,
+        },
       );
       if (raw == null) {
         return <String, Object?>{
@@ -872,10 +902,14 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     } on MissingPluginException {
       // iOS 侧没接这个方法：那边的桥接是直接引 SDK 类型写的，本机没有 SDK 包、
       // 也编译不了，与其猜类名把 iOS 构建搞挂，不如在这里如实说明。
+      // 接的时候要用的方法名产品已经给了（2026-09-20），照抄下面这行，别再去猜同名的安卓方法。
       return <String, Object?>{
         'ok': false,
         'diagnostic': <String>[
-          '本端未接入 deviceMessages：这一轮只做了 Android 侧桥接，iOS 待补',
+          '本端未接入 deviceMessages：只做了 Android 侧桥接，iOS 待补',
+          'iOS 要调的是 ThingSmartMessage 的 '
+              'fetchEncryptMessageDetailListWithListRequestModel:success:failure:'
+              '（请求模型里带 msgSrcId / 类型 / 分页），不是安卓那个 getMessageListByMsgSrcId',
         ],
       };
     } on PlatformException catch (error) {
