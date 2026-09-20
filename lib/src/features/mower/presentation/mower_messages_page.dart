@@ -268,6 +268,13 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     'ALL': '三档都试',
   };
 
+  /// 联调用的测试设备 ID：涂鸦后台「设备消息监控列表」里那条 `text2` 推送挂在它上面
+  /// （产品 2026-09-20 给的）。调试板默认填它，省得每次手打 22 位。
+  ///
+  /// 换账号 / 换设备就在输入框里改；**把这里置空**则默认回到「已绑定设备里的第一台」。
+  /// ⚠️ 这只是调试板的默认值，不参与任何业务逻辑。
+  static const String _defaultDeviceId = '6c2649322ed1365a00cadl';
+
   final TextEditingController _deviceId = TextEditingController();
   bool _loading = false;
   bool _prefilled = false;
@@ -277,8 +284,13 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // 默认填已绑定的第一台设备，省得每次手打 22 位 ID；填错了直接改这一格。
     if (_prefilled) return;
+    // 默认填联调那台；没配就退回「已绑定设备里的第一台」。填错了直接改这一格。
+    if (_defaultDeviceId.isNotEmpty) {
+      _deviceId.text = _defaultDeviceId;
+      _prefilled = true;
+      return;
+    }
     final devices = FlowerpotScope.of(context).devices;
     if (devices.isEmpty) return;
     _deviceId.text = devices.first.id;
@@ -404,6 +416,19 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                   color: MowerColors.inkSecondary,
                   fontSize: 12,
                 ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            // 把已绑定设备列出来：查不到消息时，先看这台设备到底在不在当前账号里。
+            SelectableText(
+              products.isEmpty
+                  ? '当前账号没有已绑定设备'
+                  : '已绑定：${products.keys.join('、')}',
+              style: const TextStyle(
+                color: MowerColors.inkSecondary,
+                fontSize: 11,
+                height: 1.45,
+                fontFamily: 'monospace',
               ),
             ),
             const SizedBox(height: 10),

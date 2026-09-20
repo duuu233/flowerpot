@@ -193,6 +193,9 @@ void cancelAll();
   解包后就三个 boolean：**`alarm` / `family` / `notification`**（再次印证三档就是告警/家庭/通知）。
   第一次跑时诊断里打的是 `toString()`（`@1e8c1f6`），已改成展开字段。
 
+调试板的默认设备 ID 已改成后台那条推送挂着的 `6c2649322ed1365a00cadl`
+（常量 `_defaultDeviceId`，置空即回到「已绑定的第一台」），输入框下面还列出当前账号已绑定的设备 ID。
+
 **两种可能，下一次跑就能分清**：① 那条消息不在告警档；② 它的 `msgSrcId` 不是这台设备的 devId
 （⚠️ 后台监控列表给的是 `6c2649322ed1365a00cadl`，这次查的是 `6c707c4ee7b5e5bea5m7hm`，**不是同一台**）。
 所以诊断加了：每档的返回条数、`MessageHasNew` 的三个 boolean、以及空结果时**按类型取一页**
