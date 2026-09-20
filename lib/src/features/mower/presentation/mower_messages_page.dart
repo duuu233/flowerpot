@@ -268,6 +268,10 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     'ALL': '三档都试',
   };
 
+  /// 调试板的版本印子。**每改一次这块板就往上加一版**：贴回来的日志里有没有这行、是第几版，
+  /// 一眼就能看出跑的是不是最新的包——之前两轮就卡在"看不出他跑的是哪一版"上。
+  static const String _probeVersion = 'probe-v3 · 2026-09-21';
+
   /// 联调用的测试设备 ID：涂鸦后台「设备消息监控列表」里那条 `text2` 推送挂在它上面
   /// （产品 2026-09-20 给的）。调试板默认填它，省得每次手打 22 位。
   ///
@@ -359,6 +363,9 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     final result = _result;
     if (result == null) return '';
     final buffer = StringBuffer()
+      ..writeln(_probeVersion)
+      ..writeln(FlowerpotScope.of(context).sessionDiagnostics)
+      ..writeln('目标设备=${_deviceId.text.trim()}')
       ..writeln('ok=${result['ok']}')
       ..writeln('instance=${result['instance']}')
       ..writeln('method=${result['method']}')
@@ -422,6 +429,18 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            const SizedBox(height: 2),
+            // 版本印子 + 当前账号/家庭/设备数：贴日志时这两行最值钱——
+            // 一行说明跑的是哪一版包，一行说明是不是同一个账号、同一个家庭。
+            SelectableText(
+              '$_probeVersion\n${state.sessionDiagnostics}',
+              style: const TextStyle(
+                color: MowerColors.inkSecondary,
+                fontSize: 11,
+                height: 1.45,
+                fontFamily: 'monospace',
+              ),
+            ),
             const SizedBox(height: 6),
             Text(
               '按设备 ID 拉一次涂鸦消息中心（getMessageListByMsgSrcId，默认取告警那一档），'
@@ -437,6 +456,8 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
             TextField(
               key: const Key('mower-messages-debug-device'),
               controller: _deviceId,
+              // 改了就重画：下面那行「目标设备在列表里：是/否」要跟着变
+              onChanged: (_) => setState(() {}),
               style: const TextStyle(
                 color: MowerColors.ink,
                 fontSize: 12,
@@ -457,7 +478,9 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
             SelectableText(
               products.isEmpty
                   ? '当前账号没有已绑定设备'
-                  : '已绑定：${products.keys.join('、')}',
+                  : '已绑定：${products.keys.join('、')}\n'
+                        '目标设备在列表里：'
+                        '${products.containsKey(_deviceId.text.trim()) ? '是' : '否 ← 按 msgSrcId 查不到多半是这个'}',
               style: const TextStyle(
                 color: MowerColors.inkSecondary,
                 fontSize: 11,
