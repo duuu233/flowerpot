@@ -60,6 +60,9 @@ private const val ACTIVATOR_TOKEN_TTL_MS = 8L * 60 * 1000
  */
 private const val SCAN_RESULT_WAIT_MS = 5000L
 
+// 消息中心「按类型取一页」那步升级诊断最多打几条（见 deviceMessages）。
+private const val PEEK_LIMIT = 20
+
 /** Request/response channel; mirrored by `TuyaConfig.channelName`. */
 private const val METHOD_CHANNEL = "com.common.yikaltd/tuya"
 
@@ -2631,7 +2634,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 target,
                 name,
                 onSuccess = { value ->
-                    diagnostic += "$name() → $value"
+                    // 展开成字段：`requestMessageNew` 回的是 MessageHasNew（alarm / family /
+                    // notification 三个 boolean），toString 出来是 @1e8c1f6 这种没法看的东西。
+                    diagnostic += "$name() → ${describeValue(value)}"
                     probeExtras(index + 1, names, done)
                 },
                 onError = { code, message ->
@@ -2642,10 +2647,50 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
 
         // 按类型依次取。一档失败不影响别的档：失败写进 perType（-1）和诊断，继续下一档。
+        // 按设备取不到时的**升级诊断**：改用 `getMessageListByMsgType`（按类型取一页，不按设备），
+        // 把每条消息的身份字段打出来——这一步只为回答「消息中心里到底有没有这条、它的 msgSrcId 是什么」。
+        // ⚠️ 它**不是**取数的路子（产品口径：取数只用 getMessageListByMsgSrcId），所以只在空结果时跑、
+        // 只取一页、只打身份字段，不进 items。也照旧**不碰**聚合的 getMessageList。
+        fun peekByType(index: Int, done: () -> Unit) {
+            if (index >= wanted.size) {
+                done()
+                return
+            }
+            val typeName = wanted[index]
+            val messageType = constants.firstOrNull { it.name == typeName }
+            val args = arrayOf<Any?>(0, PEEK_LIMIT, messageType)
+            if (messageType == null ||
+                optionalCallbackMethod(target.javaClass, "getMessageListByMsgType", args) == null
+            ) {
+                peekByType(index + 1, done)
+                return
+            }
+            diagnostic += "［仅诊断］按类型取一页：getMessageListByMsgType($typeName, limit=$PEEK_LIMIT)"
+            invokeWithCallback(
+                target,
+                "getMessageListByMsgType",
+                *args,
+                onSuccess = { value ->
+                    val rows = messageItems(value)
+                    diagnostic += "［仅诊断］$typeName 全账号 ${rows.size} 条"
+                    rows.take(PEEK_LIMIT).forEachIndexed { i, row ->
+                        diagnostic += "［仅诊断］#${i + 1} ${messageBrief(row)}"
+                    }
+                    peekByType(index + 1, done)
+                },
+                onError = { code, message ->
+                    diagnostic += "［仅诊断］$typeName ✗ $code $message"
+                    peekByType(index + 1, done)
+                },
+            )
+        }
+
         fun fetch(index: Int) {
             if (index >= wanted.size) {
                 if (items.isEmpty()) {
-                    probeExtras(0, listOf("getMessageMaxTime", "requestMessageNew")) { reply() }
+                    probeExtras(0, listOf("getMessageMaxTime", "requestMessageNew")) {
+                        peekByType(0) { reply() }
+                    }
                 } else {
                     reply()
                 }
@@ -2694,6 +2739,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                         (optionalGetter(it, "getTotalCount") as? Number)?.toInt()
                     }
                     if (total != null) totalCount = (totalCount ?: 0) + total
+                    // 条数也写进诊断：日志被单独截图/粘贴时，光有上面那行"调用了什么"看不出结果。
+                    diagnostic += "$typeName ← ${got.size} 条" +
+                        (total?.let { "（totalCount=$it）" } ?: "")
                     fetch(index + 1)
                 },
                 onError = { code, message ->
@@ -2705,6 +2753,24 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
         fetch(0)
     }
+
+    /**
+     * 诊断里怎么显示一个回调值：基本类型原样，其它按 bean 展开成 `字段=值`。
+     *
+     * `requestMessageNew` 回的 `MessageHasNew` 就三个 boolean（`alarm` / `family` /
+     * `notification`），toString 是 `@1e8c1f6`，展开才看得出**哪一档有新消息**。
+     */
+    private fun describeValue(value: Any?): String = when (value) {
+        null -> "null"
+        is String, is Number, is Boolean -> value.toString()
+        else -> beanMap(value).entries.joinToString(", ") { "${it.key}=${it.value}" }
+    }
+
+    /** 一条消息的身份字段摘要（诊断用，长字段截断）。 */
+    private fun messageBrief(item: Map<String, Any?>): String =
+        listOf("msgSrcId", "msgType", "msgTypeContent", "msgCode", "alarmType", "dateTime", "msgContent")
+            .mapNotNull { key -> item[key]?.let { value -> "$key=" + value.toString().take(40) } }
+            .joinToString(" ")
 
     /** 枚举常量自己的 `getValue()`（MessageType 有这个方法），取不到返回 null。 */
     private fun enumValueOfType(constant: Enum<*>): Int? = runCatching {

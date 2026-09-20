@@ -181,6 +181,24 @@ void cancelAll();
 结果同样写进诊断 —— 用来区分「是这台设备没有消息」还是「整个消息中心就是空的（账号/家庭不对、
 推送没真的发出去）」。**任何情况下都不会退回聚合的 `getMessageList`。**
 
+### 5.3.1 真机第一次跑出来的东西（2026-09-20，设备 `6c707c…m7hm`）
+
+- 实例方法清单与上面解包的签名**完全一致**，另外能看到同一套方法的混淆孪生
+  （`bdpdqbp(int, int, int, String, IThingDataCallback)` 之类）—— 反射按名字找的是公开名，没受影响；
+- 这次的调用是 `MSG_REPORT(value=1) → getMessageListByMsgSrcId(int, int, MessageType, String, cb)`，
+  `msgSrcId=6c707c4ee7b5e5bea5m7hm offset=0 limit=50` → **返回 0 条**；
+- `getMessageMaxTime() → 1789916821`，**单位是秒**，即 **2026-09-20 15:07:01 UTC** ——
+  也就是说**账号的消息中心里确实有当天的消息**，只是不在「这台设备 + 告警档」这个交集里；
+- `requestMessageNew()` 回的是 `com.thingclips.smart.home.sdk.bean.MessageHasNew`，
+  解包后就三个 boolean：**`alarm` / `family` / `notification`**（再次印证三档就是告警/家庭/通知）。
+  第一次跑时诊断里打的是 `toString()`（`@1e8c1f6`），已改成展开字段。
+
+**两种可能，下一次跑就能分清**：① 那条消息不在告警档；② 它的 `msgSrcId` 不是这台设备的 devId
+（⚠️ 后台监控列表给的是 `6c2649322ed1365a00cadl`，这次查的是 `6c707c4ee7b5e5bea5m7hm`，**不是同一台**）。
+所以诊断加了：每档的返回条数、`MessageHasNew` 的三个 boolean、以及空结果时**按类型取一页**
+（`getMessageListByMsgType`，最多 20 条）把每条的 `msgSrcId` / `msgType` / `msgTypeContent` /
+`msgCode` / `alarmType` / `dateTime` 打出来。
+
 ### 5.4 iOS 不是同名方法
 
 iOS 侧要调的是 `ThingSmartMessage` 的
