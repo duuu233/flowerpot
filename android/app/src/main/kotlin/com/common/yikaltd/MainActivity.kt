@@ -449,6 +449,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     null,
                 )
                 "deviceMessages" -> deviceMessages(call, result)
+                "deviceOperateLogs" -> deviceOperateLogs(call, result)
                 "checkFirmware" -> checkFirmware(call, result)
                 "startFirmwareUpgrade" -> startFirmwareUpgrade(call, result)
                 "uploadAnimation" -> result.error(
@@ -2776,6 +2777,104 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private fun enumValueOfType(constant: Enum<*>): Int? = runCatching {
         constant.javaClass.getMethod("getValue").invoke(constant) as? Int
     }.getOrNull()
+
+    /**
+     * 设备**操作日志（DP 上报历史）**。
+     *
+     * 消息中心（[deviceMessages]）给的是推送消息，不是日志；日志在**另一个入口**上：
+     *
+     * ```java
+     * ThingHomeSdk.getRequestInstance()   // IThingSmartRequest
+     *     .queryDeviceOperateLogs(String, String, int, int, String, String, String,
+     *                             IThingDataCallback<String>)
+     * ```
+     *
+     * 解包核对：`thingsmart-device-api` 7.5.1 的 `com/thingclips/smart/sdk/api/IThingSmartRequest.class`
+     * 上就是这个签名；内部实现（`com.thingclips.sdk.device.qbqbbdd#queryDeviceOperateLogs`）的回调
+     * 泛型是 `String`，也就是**原样回一段 JSON**。iOS 侧对应
+     * `ThingSmartDevice#queryDeviceOperateLogWithDpIds:offset:limit:startTime:endTime:isASC:`。
+     *
+     * ⚠️ **七个参数的顺序官方没给**，iOS 那条是 `dpIds / offset / limit / startTime / endTime / isASC`，
+     * 安卓多一个设备 ID 在最前面。所以这里按「设备 ID、dpIds、offset、limit、开始、结束、排序」传，
+     * **原样把返回的 JSON 交给页面**——对不对由真机那一趟说话，错了看报文就知道该换哪个位置。
+     * 另外 `IThingDevice#getDataPointStat(DataPointTypeEnum, long, int, String, callback)` 是 DP 统计，
+     * 不是日志，本方法不碰。
+     */
+    private fun deviceOperateLogs(call: MethodCall, result: MethodChannel.Result) {
+        val deviceId = call.argument<String>("deviceId")?.trim().orEmpty()
+        val dpIds = call.argument<String>("dpIds")?.trim().orEmpty()
+        val offset = (call.argument<Number>("offset"))?.toInt() ?: 0
+        val limit = (call.argument<Number>("limit"))?.toInt() ?: 20
+        val startTime = call.argument<String>("startTime")?.trim().orEmpty()
+        val endTime = call.argument<String>("endTime")?.trim().orEmpty()
+        val sort = call.argument<String>("sort")?.trim().orEmpty()
+        val diagnostic = mutableListOf<String>()
+        if (deviceId.isEmpty()) {
+            success(
+                result,
+                mapOf("ok" to false, "diagnostic" to listOf("要设备 ID")),
+            )
+            return
+        }
+        val sdk = runCatching { sdkClass() }.getOrElse { error ->
+            success(
+                result,
+                mapOf("ok" to false, "diagnostic" to listOf("涂鸦 SDK 未链接：$error")),
+            )
+            return
+        }
+        val target = runCatching { invokeStatic(sdk, "getRequestInstance") }.getOrNull()
+        if (target == null) {
+            diagnostic += "拿不到 getRequestInstance()"
+            success(result, mapOf("ok" to false, "diagnostic" to diagnostic))
+            return
+        }
+        diagnostic += "实例类型 ${target.javaClass.name}"
+        diagnostic += "实例方法：" + target.javaClass.methods
+            .filterNot { it.declaringClass == Any::class.java }
+            .joinToString { m -> m.name + "(" + m.parameterTypes.joinToString { it.simpleName } + ")" }
+        val name = "queryDeviceOperateLogs"
+        val args = arrayOf<Any?>(deviceId, dpIds, offset, limit, startTime, endTime, sort)
+        val method = optionalCallbackMethod(target.javaClass, name, args)
+        if (method == null) {
+            diagnostic += "没有 $name(7 参 + 回调) 这个重载"
+            success(result, mapOf("ok" to false, "diagnostic" to diagnostic))
+            return
+        }
+        diagnostic += "调用 $name(" +
+            method.parameterTypes.joinToString { it.simpleName } +
+            ") deviceId=$deviceId dpIds=\"$dpIds\" offset=$offset limit=$limit " +
+            "startTime=\"$startTime\" endTime=\"$endTime\" sort=\"$sort\""
+        invokeWithCallback(
+            target,
+            name,
+            *args,
+            onSuccess = { value ->
+                success(
+                    result,
+                    mapOf(
+                        "ok" to true,
+                        "instance" to target.javaClass.name,
+                        "method" to name,
+                        // 回调泛型就是 String：原样交上去，不在原生这边解析。
+                        "raw" to value?.toString(),
+                        "diagnostic" to diagnostic,
+                    ),
+                )
+            },
+            onError = { code, message ->
+                success(
+                    result,
+                    mapOf(
+                        "ok" to false,
+                        "code" to code,
+                        "message" to message,
+                        "diagnostic" to diagnostic,
+                    ),
+                )
+            },
+        )
+    }
 
     /** 回调给回来的可能是 List，也可能是包一层的分页 bean；两种都拆开。 */
     private fun messageItems(value: Any?): List<Map<String, Any?>> {

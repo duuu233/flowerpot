@@ -1119,6 +1119,31 @@ class FlowerpotState extends ChangeNotifier {
     return data;
   }
 
+  /// 拉一次设备**操作日志（DP 上报历史）**（排查用，2026-09-20）。
+  ///
+  /// 消息中心（[loadDeviceMessages]）给的是推送消息，这条才是「日志」；原生原样回一段 JSON，
+  /// 页面上的调试板直接打印——参数顺序对不对，看那段报文就知道（见 [TuyaRepository.deviceOperateLogs]）。
+  Future<Map<String, Object?>> loadDeviceOperateLogs({
+    required String deviceId,
+    String dpIds = '',
+    int offset = 0,
+    int limit = 20,
+  }) async {
+    _logInteraction('设备日志 → $deviceId dpIds="$dpIds" limit=$limit');
+    final data = await _repository.deviceOperateLogs(
+      deviceId: deviceId,
+      dpIds: dpIds,
+      offset: offset,
+      limit: limit,
+    );
+    _logInteraction(
+      data['ok'] == true
+          ? '设备日志 ← ${(data['raw'] as String?)?.length ?? 0} 字节 JSON'
+          : '设备日志 ✗ ${data['message'] ?? (data['diagnostic'] as List<Object?>?)?.join('；') ?? '未知原因'}',
+    );
+    return data;
+  }
+
   /// 割草机页面的 DP 记账入口（2026-09-18）。
   ///
   /// ⚠️ 这一轮**没有割草机真机**：下发不经过涂鸦 SDK，由 `MowerDevice` 拼好行文

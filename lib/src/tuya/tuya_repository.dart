@@ -194,6 +194,28 @@ abstract class TuyaRepository {
     int limit,
   });
 
+  /// 设备**操作日志（DP 上报历史）**（排查用，2026-09-20）。
+  ///
+  /// 和消息中心是两个入口：消息中心给的是推送消息，这条才是「日志」——
+  /// 安卓 `ThingHomeSdk.getRequestInstance().queryDeviceOperateLogs(...)`
+  /// （解包核对在 `IThingSmartRequest` 上，回调泛型是 `String`，也就是原样一段 JSON）；
+  /// iOS 对应 `ThingSmartDevice#queryDeviceOperateLogWithDpIds:offset:limit:startTime:endTime:isASC:`。
+  ///
+  /// ⚠️ 七个参数的顺序官方没给，原生按「设备 ID、dpIds、offset、limit、开始、结束、排序」传，
+  /// **返回的 JSON 原样上来**，由页面打印——对不对看真机那一趟的报文。
+  /// [dpIds] 用逗号分隔，空串表示不限。
+  ///
+  /// 返回结构：`{ok, instance?, method?, raw?: String, diagnostic: List<String>, code?, message?}`。
+  Future<Map<String, Object?>> deviceOperateLogs({
+    required String deviceId,
+    String dpIds,
+    int offset,
+    int limit,
+    String startTime,
+    String endTime,
+    String sort,
+  });
+
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
@@ -910,6 +932,53 @@ class MethodChannelTuyaRepository implements TuyaRepository {
           'iOS 要调的是 ThingSmartMessage 的 '
               'fetchEncryptMessageDetailListWithListRequestModel:success:failure:'
               '（请求模型里带 msgSrcId / 类型 / 分页），不是安卓那个 getMessageListByMsgSrcId',
+        ],
+      };
+    } on PlatformException catch (error) {
+      return <String, Object?>{
+        'ok': false,
+        'code': error.code,
+        'message': error.message,
+        'diagnostic': <String>['原生抛错：${error.code} ${error.message}'],
+      };
+    }
+  }
+
+  @override
+  Future<Map<String, Object?>> deviceOperateLogs({
+    required String deviceId,
+    String dpIds = '',
+    int offset = 0,
+    int limit = 20,
+    String startTime = '',
+    String endTime = '',
+    String sort = '',
+  }) async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>(
+        'deviceOperateLogs',
+        <String, Object?>{
+          'deviceId': deviceId,
+          'dpIds': dpIds,
+          'offset': offset,
+          'limit': limit,
+          'startTime': startTime,
+          'endTime': endTime,
+          'sort': sort,
+        },
+      );
+      return raw ??
+          <String, Object?>{
+            'ok': false,
+            'diagnostic': <String>['原生侧返回了 null'],
+          };
+    } on MissingPluginException {
+      return <String, Object?>{
+        'ok': false,
+        'diagnostic': <String>[
+          '本端未接入 deviceOperateLogs：只做了 Android 侧桥接，iOS 待补',
+          'iOS 要调的是 ThingSmartDevice 的 '
+              'queryDeviceOperateLogWithDpIds:offset:limit:startTime:endTime:isASC:success:failure:',
         ],
       };
     } on PlatformException catch (error) {

@@ -202,6 +202,33 @@ void cancelAll();
 （`getMessageListByMsgType`，最多 20 条）把每条的 `msgSrcId` / `msgType` / `msgTypeContent` /
 `msgCode` / `alarmType` / `dateTime` 打出来。
 
+### 5.3.2 ⚠️ 更正：日志接口是有的，只是不在设备实例上（2026-09-20 当天更正）
+
+本轮先前在历史记录里写过一句「Home SDK 里没有设备日志接口」，**那是错的**——当时只翻了 `IThingDevice`。
+重新解包 `thingsmart-device-api` 7.5.1 之后：
+
+| 要什么 | 入口 | 签名（解包核对） |
+| --- | --- | --- |
+| **设备操作日志（DP 上报历史）** | `ThingHomeSdk.getRequestInstance()` → `IThingSmartRequest` | `void queryDeviceOperateLogs(String, String, int, int, String, String, String, IThingDataCallback)`；实现里回调泛型是 `String`（**原样一段 JSON**） |
+| DP 统计（按天/周/月聚合，不是日志） | `newDeviceInstance(devId)` → `IThingDevice` | `void getDataPointStat(DataPointTypeEnum, long, int, String, IGetDataPointStatCallback)` |
+| iOS 对应 | `ThingSmartDevice` | `queryDeviceOperateLogWithDpIds:offset:limit:startTime:endTime:isASC:success:failure:` |
+
+⚠️ **七个参数的顺序官方没给**。iOS 那条是 `dpIds / offset / limit / startTime / endTime / isASC`，
+安卓多一个设备 ID 在最前，所以桥接 `deviceOperateLogs` 按「设备 ID、dpIds、offset、limit、开始、结束、排序」
+传，并把返回的 JSON **原样**交给页面——顺序对不对看真机那一趟的报文。
+
+**但它只覆盖「DP 上报」这一类。** 产品问的「日志类型区别」在**云端 API** 上：
+`GET /v1.0/devices/{device_id}/logs`，`type` 可多选（逗号分隔）——
+**1 上线 / 2 下线 / 3 设备激活 / 4 设备重置 / 5 指令下发 / 6 固件升级 / 7 数据点上报 /
+8 设备信号量 / 9 设备重启 / 10 定时信息**
+（涂鸦文档口径：<https://developer.tuya.com/en/docs/cloud/0a30fc557f?id=Ka7kjybdo0jse>；
+云端接口要 AK/SK 签名，**App 侧拿不到，得后端代理**）。
+
+所以三档想做全：
+- 「日志」这一档：App 侧只能拿 DP 上报历史（`queryDeviceOperateLogs`）；要上线/下线/重置/升级这些，
+  必须后端把云端 `/logs` 代理出来；
+- 「提醒 / 告警」：走消息中心（本节前面那套），但要先解决「消息按 `msgSrcId` 查不到」。
+
 ### 5.4 iOS 不是同名方法
 
 iOS 侧要调的是 `ThingSmartMessage` 的

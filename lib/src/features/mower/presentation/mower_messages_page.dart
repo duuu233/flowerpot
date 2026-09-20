@@ -277,9 +277,11 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
 
   final TextEditingController _deviceId = TextEditingController();
   bool _loading = false;
+  bool _loadingLogs = false;
   bool _prefilled = false;
   String _msgType = 'MSG_REPORT';
   Map<String, Object?>? _result;
+  Map<String, Object?>? _logs;
 
   @override
   void didChangeDependencies() {
@@ -326,6 +328,28 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     });
   }
 
+  /// 设备**操作日志（DP 上报历史）**——和消息中心是两个入口，这条才是「日志」。
+  /// 原生原样回一段 JSON，这里也原样打印：参数顺序对不对，看报文就知道。
+  Future<void> _loadLogs() async {
+    final state = FlowerpotScope.of(context);
+    final deviceId = _deviceId.text.trim();
+    if (deviceId.isEmpty) {
+      showAppMessage(
+        context,
+        '先填设备 ID',
+        tone: AppMessageTone.info,
+      );
+      return;
+    }
+    setState(() => _loadingLogs = true);
+    final data = await state.loadDeviceOperateLogs(deviceId: deviceId);
+    if (!mounted) return;
+    setState(() {
+      _loadingLogs = false;
+      _logs = data;
+    });
+  }
+
   /// 已绑定设备：devId → productId，用来判断某条消息是不是目标产品的。
   Map<String, String> _deviceProducts(FlowerpotState state) => <String, String>{
     for (final device in state.devices) device.id: device.productId,
@@ -355,6 +379,16 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     }
     for (final line in (result['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
       buffer.writeln('· $line');
+    }
+    final logs = _logs;
+    if (logs != null) {
+      buffer
+        ..writeln('--- 设备日志（DP 上报历史）---')
+        ..writeln('ok=${logs['ok']}  method=${logs['method']}')
+        ..writeln('${logs['raw'] ?? logs['message'] ?? ''}');
+      for (final line in (logs['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
+        buffer.writeln('· $line');
+      }
     }
     return buffer.toString();
   }
@@ -463,6 +497,50 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                 child: Text(_loading ? '拉取中…' : '拉取涂鸦消息'),
               ),
             ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 40,
+              child: OutlinedButton(
+                key: const Key('mower-messages-debug-load-logs'),
+                onPressed: _loadingLogs ? null : () => unawaited(_loadLogs()),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: MowerColors.brand,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(10)),
+                  ),
+                ),
+                child: Text(
+                  _loadingLogs ? '拉取中…' : '拉设备日志（DP 上报历史）',
+                ),
+              ),
+            ),
+            if (_logs != null) ...<Widget>[
+              const SizedBox(height: 10),
+              SelectableText(
+                '设备日志 ok=${_logs!['ok']}  method=${_logs!['method'] ?? '-'}\n'
+                '${_logs!['raw'] ?? _logs!['message'] ?? ''}',
+                style: const TextStyle(
+                  color: MowerColors.ink,
+                  fontSize: 11,
+                  height: 1.5,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              for (final line
+                  in (_logs!['diagnostic'] as List<Object?>?) ?? const <Object?>[])
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: SelectableText(
+                    '· $line',
+                    style: const TextStyle(
+                      color: MowerColors.inkSecondary,
+                      fontSize: 11,
+                      height: 1.45,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+            ],
             if (result != null) ...<Widget>[
               const SizedBox(height: 12),
               SelectableText(
