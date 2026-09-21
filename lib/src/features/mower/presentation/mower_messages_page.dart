@@ -271,14 +271,15 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
 
   /// 调试板的版本印子。**每改一次这块板就往上加一版**：贴回来的日志里有没有这行、是第几版，
   /// 一眼就能看出跑的是不是最新的包——之前两轮就卡在"看不出他跑的是哪一版"上。
-  static const String _probeVersion = 'probe-v8 · 2026-09-21';
+  static const String _probeVersion = 'probe-v9 · 2026-09-21';
 
-  /// 联调用的测试设备 ID：涂鸦后台「设备消息监控列表」里那条 `text2` 推送挂在它上面
-  /// （产品 2026-09-20 给的）。调试板默认填它，省得每次手打 22 位。
+  /// 调试板默认填的设备 ID；**置空 = 取当前账号已绑定的第一台**（现在就是置空的）。
   ///
-  /// 换账号 / 换设备就在输入框里改；**把这里置空**则默认回到「已绑定设备里的第一台」。
+  /// 2026-09-20 曾按产品要求写死成 `6c2649322ed1365a00cadl`（后台「设备消息监控列表」里那条
+  /// `text2` 挂着的设备）。2026-09-21 查清：那台是**别人账号**的设备（截图来自别人），
+  /// 用它查日志回 `PERMISSION_DENIED`、查消息永远 0 条——所以改回跟着当前账号走。
   /// ⚠️ 这只是调试板的默认值，不参与任何业务逻辑。
-  static const String _defaultDeviceId = '6c2649322ed1365a00cadl';
+  static const String _defaultDeviceId = '';
 
   /// 设备日志要查哪些 DP。真机回过 `Illegal parameter error.`，空着大概率不行，
   /// 所以默认给三个花盆一定会上报的（103 电量、105 水位、106 土壤湿度）。

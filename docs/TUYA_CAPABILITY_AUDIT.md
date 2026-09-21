@@ -202,6 +202,26 @@ void cancelAll();
 （`getMessageListByMsgType`，最多 20 条）把每条的 `msgSrcId` / `msgType` / `msgTypeContent` /
 `msgCode` / `alarmType` / `dateTime` 打出来。
 
+### 5.3.7 结案（2026-09-21）：那几条消息是**别人账号的设备**触发的
+
+产品确认：监控列表里 09-18 ~ 09-19 那几条记录是 `6c2649322ed1365a00cadl` 触发的，截图来自别人。
+这台设备不在 `YS40301` 名下（设备日志对它回 `PERMISSION_DENIED` 已经证明），而设备消息推送只投给**触发设备的
+主人 / 被分享者**——所以 `YS40301` 的消息中心里本来就不该有。**App 的查法没有问题**，一路查到的「告警 0 条」是对的。
+
+**到此为止已经确定的**：
+
+| 事项 | 结论 |
+| --- | --- |
+| 设备消息怎么取 | 安卓 `getMessageListByMsgSrcId(offset, limit, MSG_REPORT, 设备ID, cb)`；iOS `fetchEncryptMessageDetailListWithListRequestModel`（未接） |
+| 有没有类型字段 | 有：`msgType` / `msgTypeContent` / **`msgCode`**（细分靠它；`msgTypeContent` 随接口变，别靠） |
+| 按时间筛 | 按设备 / 按类型都**不支持**；只有聚合 `getMessageList(…, long, long, cb)`，单位**秒** |
+| 设备日志（DP 上报历史） | `getRequestInstance().queryDeviceOperateLogs(...)` **已跑通**（见 5.3.6） |
+| 全类型事件日志（上线/下线/重置/升级…） | 只有云端 `/v1.0/devices/{id}/logs`，要后端代理 |
+
+**还差一条**：「推送等级（轻微）」落在哪个字段 —— 要在**本账号的设备** `6c707c…m7hm` 上真的触发一次
+同产品（`ehbx83xdh9jkmxvz`）的推送规则，告警档进来一条后看 `alarmType` / `msgCode` / `extendParams`。
+调试板的默认设备 ID 已改回「当前账号已绑定的第一台」（不再写死 `6c26…cadl`）。
+
 ### 5.3.6 `probe-v7` 采集：设备日志跑通；消息中心在设备、产品都对上后**告警档仍全账号 0 条**
 
 **设备日志（`queryDeviceOperateLogs`）跑通了**，第一种取值就被接受：
