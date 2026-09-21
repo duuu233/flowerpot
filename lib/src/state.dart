@@ -535,7 +535,8 @@ class FlowerpotState extends ChangeNotifier {
 
   BleAvailability _bleAvailability = BleAvailability.unknown;
 
-  /// 本轮扫到的设备，按 uuid 存最后一次上报（信号强度一直在变）。
+  /// 本轮扫到、**此刻还扫得到**的设备，按 uuid 存最后一次上报（信号强度一直在变）。
+  /// 超过 [bleGoneAfter] 没再上报的由 [_dropGoneBleDevices] 拿掉。
   final Map<String, BleDevice> _bleDevices = <String, BleDevice>{};
 
   StreamSubscription<BleDevice>? _bleSub;
@@ -551,11 +552,38 @@ class FlowerpotState extends ChangeNotifier {
   /// ——它那一句停扫要是不认主人，就会把老页刚开起来的这一轮掐掉。
   Object? _bleOwner;
 
-  /// 云端查回来的产品信息，按 uuid 存。查过的（含查空的）都留下，避免重复往返。
+  /// 云端查回来的产品信息，按 uuid 存。**只在本轮里留着**：同一轮里查过的（含查空的）
+  /// 不再往返，每轮开扫时整张清掉（2026-09-21 产品：「不要缓存」）。
   final Map<String, BleProductInfo> _bleProductInfo = <String, BleProductInfo>{};
 
   /// 正在查的 uuid，防止同一台并发查两次。
   final Set<String> _productInfoInFlight = <String>{};
+
+  /// 第几轮 BLE 扫描。每轮开扫加一；上一轮发出、这一轮才回来的名字查询据此丢掉。
+  int _bleRound = 0;
+
+  /// **一台设备多久没再被扫到，就从列表里拿掉**（轮内过期，2026-09-21）。
+  ///
+  /// 列表要跟着「此刻真的还扫得到」走：设备在一轮扫描中途关机，原来会一直列到这轮结束
+  /// （最长 3 分钟）。扫描开着 `setRepeatFilter(false)`，在广播的设备会被反复上报，
+  /// 所以一段时间没有新上报 = 它已经不在了。10 秒给广播间隔、系统扫描窗口留足余量，
+  /// 开着的设备不会被误拿掉又冒回来。
+  ///
+  /// ⚠️ **只对上报过至少两次的设备生效**（[_bleReportCount]）：SDK 是否真的重复上报
+  /// 还没有真机证据。万一它只报一次，这条规则不会把开着的设备拿掉，只是退回到
+  /// 「列到这轮结束」。
+  static const Duration bleGoneAfter = Duration(seconds: 10);
+
+  /// 检查过期的节奏。过期按这个节奏数拍子，不读墙上时钟——测试里的假时钟也能跟上。
+  static const Duration _bleSweepGap = Duration(seconds: 1);
+  Timer? _bleSweepTimer;
+  int _bleSweepTick = 0;
+
+  /// 每台设备最后一次被上报时的拍子（[_bleSweepTick]）。
+  final Map<String, int> _bleLastSeenTick = <String, int>{};
+
+  /// 每台设备本轮被上报了几次。
+  final Map<String, int> _bleReportCount = <String, int>{};
 
   /// SDK 的 `onResult` 本轮被回调了多少次（取上报序号的最大值）。
   ///
@@ -724,6 +752,7 @@ class FlowerpotState extends ChangeNotifier {
   /// 能"看出有没有"。每台只查一次（查空也算查过），失败也记一条空的——**否则每次
   /// 扫描回调都会重试，几十台设备就是几十次往返**。
   Future<void> refreshBleProductInfo() async {
+    final round = _bleRound;
     final targets = bleDevices.take(_productInfoBudget).where((device) {
       if (device.uuid.isEmpty || device.productId.isEmpty) return false;
       return !_bleProductInfo.containsKey(device.uuid) &&
@@ -732,8 +761,9 @@ class FlowerpotState extends ChangeNotifier {
     if (targets.isEmpty) return;
     for (final device in targets) {
       _productInfoInFlight.add(device.uuid);
+      BleProductInfo info;
       try {
-        _bleProductInfo[device.uuid] = await _repository
+        info = await _repository
             .queryDeviceProductInfo(
               productId: device.productId,
               uuid: device.uuid,
@@ -743,10 +773,13 @@ class FlowerpotState extends ChangeNotifier {
       } catch (_) {
         // 查不到（含超时）也要占位：不占的话每次扫描回调都会重试同一台，而搜索页
         // 也会一直把这一行压着不画。
-        _bleProductInfo[device.uuid] = const BleProductInfo();
-      } finally {
-        _productInfoInFlight.remove(device.uuid);
+        info = const BleProductInfo();
       }
+      // 查的过程中已经开了新一轮：这条结果属于上一轮，丢掉，剩下的也不查了——新一轮
+      // 自己会查。正在查的名单开新一轮时已经清过，这里不去动它。
+      if (round != _bleRound) return;
+      _productInfoInFlight.remove(device.uuid);
+      _bleProductInfo[device.uuid] = info;
       // 查完一台就通知一次：搜索页等的就是这一刻才画这一行，别让它陪着后面几台一起等。
       notifyListeners();
     }
@@ -798,9 +831,14 @@ class FlowerpotState extends ChangeNotifier {
     //    直接被那句 return 掉，原生根本没有重新开扫。
     //
     // 所以现在：还在扫就先停，清掉上一轮扫到的设备，再真的开一轮；扫描结束的事件也接上
-    // （[_bleStopSub]）。云端产品名（[_bleProductInfo]）**不清**：它只回答「这个 uuid
-    // 叫什么」，不决定设备在不在，留着还能让下一轮的名字立刻有定论。
+    // （[_bleStopSub]）。
+    //
+    // 2026-09-21 起云端产品名（[_bleProductInfo]）**也清**（产品：「都去掉，不要缓存，
+    // 根据实际搜索的情况展示」）。代价是每轮名字都要重新往返一次（最多 5 秒，名字未定
+    // 时整行不画），换来的是这一页上没有任何一项来自上一轮。设备自己扫到的 Wi-Fi 列表
+    // （[_deviceWifiNetworks]）属于上一轮点过的那台，一并清掉。
     _bleOwner = owner;
+    _stopBleSweep();
     if (_bleScanning) {
       _bleScanning = false;
       try {
@@ -809,7 +847,14 @@ class FlowerpotState extends ChangeNotifier {
         // 停不掉也照样往下开：原生 `startBleScan` 开扫之前自己还会再停一次。
       }
     }
+    _bleRound++;
     _bleDevices.clear();
+    _bleProductInfo.clear();
+    _productInfoInFlight.clear();
+    _bleLastSeenTick.clear();
+    _bleReportCount.clear();
+    _bleSweepTick = 0;
+    _deviceWifiNetworks = <DeviceWifiNetwork>[];
     _bleCallbackCount = 0;
     notifyListeners();
     // ⚠️ **顺序是这条路的命门**：必须先把授权框弹掉、等用户答完，再去探测。
@@ -833,6 +878,14 @@ class FlowerpotState extends ChangeNotifier {
       // 只按 uuid 会让所有没 uuid 的挤成一条。
       if (device.seq > _bleCallbackCount) _bleCallbackCount = device.seq;
       _bleDevices[device.key] = device;
+      // 记下「这一刻还扫得到」，过期检查靠它（见 [bleGoneAfter]）。
+      _bleLastSeenTick[device.key] = _bleSweepTick;
+      _bleReportCount.update(
+        device.key,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
+      _startBleSweep();
       notifyListeners();
       // 顺手把云端产品信息补上（内部去重 + 限量，不会每条回调都往返）。
       unawaited(refreshBleProductInfo());
@@ -845,6 +898,9 @@ class FlowerpotState extends ChangeNotifier {
     _bleStopSub ??= _repository.bleScanStops.listen((_) {
       if (!_bleScanning) return;
       _bleScanning = false;
+      // 不扫了就没有新上报，再按「多久没报」往下拿只会把整张表清空——停在扫描结束
+      // 那一刻看到的样子。
+      _stopBleSweep();
       notifyListeners();
     });
     // 先置位再发起：SDK 若在 `startLeScan` 里就同步回了 `onScanStop`（没扫起来），那条
@@ -854,6 +910,7 @@ class FlowerpotState extends ChangeNotifier {
       await _repository.startBleScan(timeout: timeout);
     } catch (error) {
       _bleScanning = false;
+      _stopBleSweep();
       _bleAvailability = BleAvailability(
         available: availability.available,
         supported: availability.supported,
@@ -865,6 +922,37 @@ class FlowerpotState extends ChangeNotifier {
     }
     notifyListeners();
     return true;
+  }
+
+  /// 有设备上报了、又在扫，就开始按 [_bleSweepGap] 检查过期；已经在查就不重开。
+  void _startBleSweep() {
+    if (!_bleScanning || _bleSweepTimer != null) return;
+    _bleSweepTimer = Timer.periodic(_bleSweepGap, (_) => _dropGoneBleDevices());
+  }
+
+  void _stopBleSweep() {
+    _bleSweepTimer?.cancel();
+    _bleSweepTimer = null;
+  }
+
+  /// 走一拍，把超过 [bleGoneAfter] 没再被扫到的设备拿掉。
+  void _dropGoneBleDevices() {
+    _bleSweepTick++;
+    final limit = bleGoneAfter.inMilliseconds ~/ _bleSweepGap.inMilliseconds;
+    final gone = _bleDevices.keys
+        .where(
+          (key) =>
+              (_bleReportCount[key] ?? 0) >= 2 &&
+              _bleSweepTick - (_bleLastSeenTick[key] ?? _bleSweepTick) > limit,
+        )
+        .toList(growable: false);
+    if (gone.isEmpty) return;
+    for (final key in gone) {
+      _bleDevices.remove(key);
+      _bleLastSeenTick.remove(key);
+      _bleReportCount.remove(key);
+    }
+    notifyListeners();
   }
 
   /// 把用户送去本应用的系统设置页。
@@ -887,6 +975,8 @@ class FlowerpotState extends ChangeNotifier {
   /// 见 [_bleOwner]。不带 [owner] 时无条件停。
   Future<void> stopBleDiscovery({Object? owner}) async {
     if (owner != null && !identical(owner, _bleOwner)) return;
+    // 同步停：页面 dispose 时调这里，不能等到下面的 await 之后才停定时器。
+    _stopBleSweep();
     await _bleSub?.cancel();
     _bleSub = null;
     await _bleStopSub?.cancel();
@@ -3355,6 +3445,7 @@ class FlowerpotState extends ChangeNotifier {
     _bleSub = null;
     unawaited(_bleStopSub?.cancel() ?? Future<void>.value());
     _bleStopSub = null;
+    _stopBleSweep();
     if (_bleScanning) {
       _bleScanning = false;
       unawaited(_repository.stopBleScan().catchError((Object _) {}));

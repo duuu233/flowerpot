@@ -508,6 +508,66 @@ void main() {
     expect(find.text('搜索附近设备...'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('蓝牙扫到的设备中途关机：停报超过 10 秒就从列表拿掉，不留到这一轮结束', (
+    tester,
+  ) async {
+    // 2026-09-21 产品：「检查搜索页和搜索设备结果，是否存在缓存设备机制，都去掉，
+    // 根据实际搜索的情况展示」。原来设备在一轮里被扫到过就一直列着，最长 3 分钟。
+    PairingGate.reset();
+    final repository = MockTuyaRepository(latency: Duration.zero);
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // 在广播的设备会被反复上报。
+    repository
+      ..pushBleDevice(_ourPlanter)
+      ..pushBleDevice(_ourPlanter);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('智能花盆'), findsOneWidget);
+
+    // 设备关机：不再有广播上来。过了期限就拿掉，页面回到「搜索中」。
+    await tester.pump(FlowerpotState.bleGoneAfter + const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.byKey(_FoundListKey.key), findsNothing);
+    expect(find.text('智能花盆'), findsNothing);
+    expect(find.text('搜索附近设备...'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('热点只列本轮看见过的：系统扫描缓存里的旧条目（设备早关了）不列', (
+    tester,
+  ) async {
+    // 2026-09-21 产品：「不要缓存」。读系统扫描缓存拿回来的可能是几分钟前的结果——
+    // 设备早关了，它的热点还挂在缓存里。
+    final repository = _StaleThenFreshHotspotRepository();
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+    // 蓝牙关着，不进抢答窗口：热点若算数，第一次读缓存就画出来了。
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    expect(find.byKey(_FoundListKey.key), findsNothing);
+    expect(find.text('SmartLife-A1B2'), findsNothing);
+
+    // 本轮里真的看见了：照常列出来。
+    repository.fresh = true;
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('SmartLife-A1B2'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
+  });
 }
 
 /// 本产品的一台花盆，照真机的样子：广播里带的是 broadcastId，名字是空的。
@@ -781,6 +841,38 @@ class _LateHotspotRepository extends MockTuyaRepository {
       ],
     );
   }
+}
+
+/// 设备热点先只在系统缓存的旧条目里（本轮开始之前看见的），[fresh] 之后才是本轮看见的。
+class _StaleThenFreshHotspotRepository extends MockTuyaRepository {
+  _StaleThenFreshHotspotRepository() : super(latency: Duration.zero) {
+    // 蓝牙关着：页面不开 BLE、也就没有那 4 秒抢答窗口。那个窗口按墙上时钟算，
+    // 假时钟推不动它，开着的话热点在用例里永远不会画出来。
+    bleAvailability = const BleAvailability(
+      available: true,
+      supported: true,
+      enabled: false,
+    );
+  }
+
+  bool fresh = false;
+
+  @override
+  Future<WifiScan> scanWifi({bool refresh = true}) async => WifiScan(
+    current: 'TP-LINK_2.4G',
+    currentFrequency: 2437,
+    networks: <WifiNetwork>[
+      const WifiNetwork(ssid: 'TP-LINK_2.4G', level: -46, frequency: 2437),
+      WifiNetwork(
+        ssid: 'SmartLife-A1B2',
+        level: -58,
+        frequency: 2412,
+        seenAt: fresh
+            ? DateTime.now()
+            : DateTime.now().subtract(const Duration(minutes: 5)),
+      ),
+    ],
+  );
 }
 
 class _FailingScanRepository extends MockTuyaRepository {

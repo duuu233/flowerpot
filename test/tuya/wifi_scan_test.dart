@@ -22,6 +22,52 @@ void main() {
     ]);
   });
 
+  test('只列某一刻之后真的看见过的热点：缓存里的旧条目不算', () {
+    // 2026-09-21 产品：「不要缓存，根据实际搜索的情况展示」。系统扫描缓存里混着几分钟前
+    // 的结果——设备早关了，热点还挂在里面。
+    final roundStart = DateTime(2026, 9, 21, 10);
+    final before = roundStart.subtract(const Duration(minutes: 3));
+    final after = roundStart.add(const Duration(seconds: 2));
+    final scan = WifiScan(
+      networks: <WifiNetwork>[
+        WifiNetwork(ssid: 'TY_OLD', level: -40, frequency: 2412, seenAt: before),
+        // 同一个热点名一新一旧：旧的那条信号更强，也不能把新的那条顶掉。
+        WifiNetwork(
+          ssid: 'SmartLife-A1B2',
+          level: -45,
+          frequency: 2412,
+          seenAt: before,
+        ),
+        WifiNetwork(
+          ssid: 'SmartLife-A1B2',
+          level: -70,
+          frequency: 2412,
+          seenAt: after,
+        ),
+        // 恰好在那一刻看见的算本轮。
+        WifiNetwork(
+          ssid: 'YSplanter-01',
+          level: -60,
+          frequency: 2412,
+          seenAt: roundStart,
+        ),
+        // 平台不报时间：判不了新旧，照列。
+        _network('TY_C3D4', -80, 2412),
+        _network('TP-LINK_2.4G', -30, 2437),
+      ],
+    );
+
+    final fresh = scan.deviceHotspotsSeenSince(roundStart);
+    expect(fresh.map((item) => item.ssid), <String>[
+      'YSplanter-01',
+      'SmartLife-A1B2',
+      'TY_C3D4',
+    ]);
+    expect(fresh[1].level, -70);
+    // 不按时间筛的那份照旧全列。
+    expect(scan.deviceHotspots, hasLength(4));
+  });
+
   test('hotspot naming variants across firmware builds still count', () {
     // A shipped planter was seen raising `SmartLift-8987`; the whitelist used
     // to require `smartlife`, so the pairing pages reported no device while

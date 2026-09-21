@@ -716,15 +716,22 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       'refresh': refresh,
     });
     if (raw == null) throw const TuyaException('scan_failed', 'Wi-Fi 扫描未返回结果');
+    // 原生报的是每条结果的「年龄」（毫秒），在这里换成绝对时刻：搜索页要拿它和
+    // 本轮开始的时刻比，年龄一离开这一刻就不再有意义。
+    final receivedAt = DateTime.now();
     final networks = (raw['networks'] as List<Object?>? ?? <Object?>[])
         .whereType<Map<Object?, Object?>>()
-        .map(
-          (item) => WifiNetwork(
+        .map((item) {
+          final ageMs = (item['ageMs'] as num?)?.toInt();
+          return WifiNetwork(
             ssid: '${item['ssid'] ?? ''}',
             level: (item['level'] as num?)?.toInt() ?? -100,
             frequency: (item['frequency'] as num?)?.toInt() ?? 0,
-          ),
-        )
+            seenAt: ageMs == null
+                ? null
+                : receivedAt.subtract(Duration(milliseconds: ageMs)),
+          );
+        })
         .toList();
     return WifiScan(
       networks: networks,

@@ -324,132 +324,6 @@ void main() {
     expect(repository.tokenCalls, 1);
   });
 
-}
-
-/// 建一个状态对象并挂一棵空树，让测试假时钟推进。
-Future<FlowerpotState> _stateFor(
-  WidgetTester tester,
-  TuyaRepository repository,
-) async {
-  final state = FlowerpotState(repository: repository);
-  addTearDown(state.dispose);
-  await tester.pumpWidget(const SizedBox());
-  return state;
-}
-
-/// 可编排三步的 Mock：取令牌、连热点、配网各自可以成功、报错或挂起。
-class _PairingRepository extends MockTuyaRepository {
-  _PairingRepository() : super(latency: Duration.zero, seedDevice: false);
-
-  int tokenCalls = 0;
-  int joinCalls = 0;
-  int leaveCalls = 0;
-  int cancelCalls = 0;
-  int pairCalls = 0;
-  int deviceListCalls = 0;
-
-  TuyaException? joinError;
-
-  /// 配网准备阶段查到的家庭；抛错表示这时查不到（例如手机已经在设备热点上）。
-  String homeId = '123456';
-  TuyaException? homeError;
-  /// 每次 `useHome` 的入参，按顺序记下来：空串表示作废当前固定的家庭。
-  final List<String> pinnedHomes = <String>[];
-
-  /// 会话开始下发的家庭名标记。
-  String? homeTag;
-  int homeCalls = 0;
-  TuyaException? pairError;
-
-  /// 双模配网要报的错误码（涂鸦那边是 int）；null 表示照常成功。
-  int? blePairError;
-  bool pairHangs = false;
-  WifiScan scan = const WifiScan(networks: <WifiNetwork>[]);
-
-  Completer<SmartPlanterDevice>? _hanging;
-
-  @override
-  Future<void> prepareActivatorToken() async => tokenCalls++;
-
-  @override
-  Future<SmartPlanterDevice> pairBleDevice({
-    required String uuid,
-    required String ssid,
-    required String password,
-    Duration timeout = const Duration(seconds: 120),
-  }) async {
-    final code = blePairError;
-    if (code != null) {
-      throw TuyaException('$code', '双模配网失败');
-    }
-    return super.pairBleDevice(
-      uuid: uuid,
-      ssid: ssid,
-      password: password,
-      timeout: timeout,
-    );
-  }
-
-  @override
-  Future<String> currentHomeId() async {
-    homeCalls++;
-    final error = homeError;
-    if (error != null) throw error;
-    return homeId;
-  }
-
-  @override
-  Future<void> useHome(String homeId) async => pinnedHomes.add(homeId);
-
-  @override
-  Future<void> useHomeTag(String tag) async => homeTag = tag;
-
-  @override
-  Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {
-    joinCalls++;
-    final error = joinError;
-    if (error != null) throw error;
-    return true;
-  }
-
-  @override
-  Future<void> leaveDeviceHotspot() async => leaveCalls++;
-
-  @override
-  Future<void> cancelPairing() async {
-    cancelCalls++;
-    // 和原生一致：进行中的配网以 pair_cancelled 返回。
-    final hanging = _hanging;
-    _hanging = null;
-    if (hanging != null && !hanging.isCompleted) {
-      hanging.completeError(
-        const TuyaException('pair_cancelled', '配网已被中止'),
-      );
-    }
-  }
-
-  @override
-  Future<WifiScan> scanWifi({bool refresh = true}) async => scan;
-
-  @override
-  Future<SmartPlanterDevice> pair(PairingRequest request) {
-    pairCalls++;
-    if (pairHangs) {
-      final completer = Completer<SmartPlanterDevice>();
-      _hanging = completer;
-      return completer.future;
-    }
-    final error = pairError;
-    if (error != null) return Future<SmartPlanterDevice>.error(error);
-    return super.pair(request);
-  }
-
-  @override
-  Future<List<SmartPlanterDevice>> getDevices() {
-    deviceListCalls++;
-    return super.getDevices();
-  }
-
   test('AP 热点配网：连热点 → 取令牌 → 下发凭据 → 退出时还原网络', () async {
     // 这是**唯一**一条配网路径（2026-09-11 定稿）。EZ、涂鸦「新流程」、扩展 SDK
     // 三条都已删掉，原因见 `FlowerpotState.pairViaHotspot` 的说明。
@@ -500,6 +374,10 @@ class _PairingRepository extends MockTuyaRepository {
     // ⚠️ 2026-09-11 真机一直搜不到设备，原因之一就是仓库层把 uuid 为空的**静默丢掉**了：
     // 广播里没带 uuid 的设备直接消失，页面显示「一台都没扫到」——「我们扔了它」被当成
     // 「设备没在广播」，排查方向正好反。现在一条都不丢。
+    //
+    // 验的是**排查态**：正常态只列本产品，没有 pid 的本来就不列（2026-09-11 晚收口）。
+    PairingGate.showUnfilteredBleScan = true;
+    addTearDown(PairingGate.reset);
     final repository = MockTuyaRepository(
       latency: Duration.zero,
       seedDevice: false,
@@ -625,9 +503,9 @@ class _PairingRepository extends MockTuyaRepository {
   });
 
   testWidgets('BLE 发现：扫到的设备逐台进列表，已绑的不列', (tester) async {
-    // 这一条验的是**过滤开着**时的口径。2026-09-11 起生产值是「不过滤」
-    // （`PairingGate.showUnfilteredBleScan`，为了验设备支不支持蓝牙），
-    // 但过滤那套逻辑必须一直是能跑的——将来关掉排查模式就靠它。
+    // 这一条验的是**过滤开着**时的口径——也就是生产值（2026-09-11 晚真机配网跑通后
+    // 收掉排查态，`PairingGate.showUnfilteredBleScan` 回到 false）。
+    // 设备用本产品的广播 ID：正常态只列本产品，写成别的 pid 会被整条滤掉。
     PairingGate.showUnfilteredBleScan = false;
     addTearDown(PairingGate.reset);
     final repository = MockTuyaRepository(
@@ -646,7 +524,7 @@ class _PairingRepository extends MockTuyaRepository {
           uuid: 'uuid-far',
           name: '',
           mac: 'AA:BB:CC:DD:3F:A2',
-          productId: 'pid1',
+          productId: TuyaConfig.broadcastId,
           rssi: -80,
           bound: false,
           supportWifiList: true,
@@ -657,7 +535,7 @@ class _PairingRepository extends MockTuyaRepository {
           uuid: 'uuid-near',
           name: '花盆',
           mac: 'AA:BB:CC:DD:11:22',
-          productId: 'pid1',
+          productId: TuyaConfig.broadcastId,
           rssi: -42,
           bound: false,
           supportWifiList: false,
@@ -735,6 +613,103 @@ class _PairingRepository extends MockTuyaRepository {
     expect(await state.startBleDiscovery(), isTrue);
     expect(repository.bleScanStops, 1);
     expect(repository.bleScanStarts, 3);
+
+    await state.stopBleDiscovery();
+  });
+
+  testWidgets('BLE 发现：云端产品名也只在本轮有效，新一轮重新查', (tester) async {
+    // 2026-09-21 产品：「搜索页…是否存在缓存设备机制，都去掉，不要缓存」。09-14 那版清了
+    // 扫到的设备，却有意留着 uuid → 产品名这张表；这回一并清掉。
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+
+    await state.startBleDiscovery();
+    repository.pushBleDevice(_scannedPlanter);
+    await tester.pumpAndSettle();
+    expect(state.productInfoFor('uuid-pot')?.name, '智能花盆');
+    expect(repository.productInfoQueries, <String>['uuid-pot']);
+
+    // 新一轮：名字和设备一样从零开始。
+    await state.startBleDiscovery();
+    expect(state.bleDevices, isEmpty);
+    expect(state.productInfoFor('uuid-pot'), isNull);
+
+    repository.pushBleDevice(_scannedPlanter);
+    await tester.pumpAndSettle();
+    expect(repository.productInfoQueries, <String>['uuid-pot', 'uuid-pot']);
+    expect(state.productInfoFor('uuid-pot')?.name, '智能花盆');
+
+    await state.stopBleDiscovery();
+  });
+
+  testWidgets('BLE 发现：上一轮发出的名字查询晚到，不写进新一轮', (tester) async {
+    final repository = _GatedNameRepository();
+    final state = await _stateFor(tester, repository);
+
+    await state.startBleDiscovery();
+    repository.pushBleDevice(_scannedPlanter);
+    await tester.pump();
+    expect(repository.pending, hasLength(1));
+
+    // 名字还没回来就开了新一轮；上一轮那次查询这时才回来。
+    await state.startBleDiscovery();
+    repository.pending.single.complete(const BleProductInfo(name: '上一轮的名字'));
+    await tester.pump();
+    expect(state.productInfoFor('uuid-pot'), isNull);
+
+    await state.stopBleDiscovery();
+  });
+
+  testWidgets('BLE 发现：一轮里停报超过 10 秒的设备拿掉，重新报上来再列', (tester) async {
+    // 2026-09-21 产品：「根据实际搜索的情况展示」。设备在一轮扫描中途关机，原来要一直
+    // 列到这轮结束（最长 3 分钟）。
+    final repository = MockTuyaRepository(
+      latency: Duration.zero,
+      seedDevice: false,
+    );
+    final state = await _stateFor(tester, repository);
+    await state.startBleDiscovery();
+
+    const reportedOnce = BleDevice(
+      uuid: 'uuid-once',
+      name: '',
+      mac: 'AA:BB:CC:00:00:07',
+      productId: TuyaConfig.broadcastId,
+      rssi: -70,
+      bound: false,
+      supportWifiList: false,
+    );
+    repository
+      // 在广播的设备会被反复上报。
+      ..pushBleDevice(_scannedPlanter)
+      ..pushBleDevice(_scannedPlanter)
+      // 只报过一次的：SDK 是否重复上报还没有真机证据，这种不做过期。
+      ..pushBleDevice(reportedOnce);
+    await tester.pump();
+    expect(state.bleDevices, hasLength(2));
+
+    // 刚好到期限：还留着。
+    await tester.pump(FlowerpotState.bleGoneAfter);
+    expect(state.bleDevices, hasLength(2));
+
+    // 过了期限：一直在报的那台停报了 ⇒ 拿掉；只报过一次的不动。
+    await tester.pump(const Duration(seconds: 1));
+    expect(state.bleDevices.map((item) => item.uuid), <String>['uuid-once']);
+
+    // 重新上电、又报上来：照常列出。
+    repository
+      ..pushBleDevice(_scannedPlanter)
+      ..pushBleDevice(_scannedPlanter);
+    await tester.pump();
+    expect(state.bleDevices, hasLength(2));
+
+    // 扫描结束之后不再往下拿：停在扫描结束那一刻看到的样子。
+    repository.endBleScan();
+    await tester.pump(FlowerpotState.bleGoneAfter * 2);
+    expect(state.bleDevices, hasLength(2));
 
     await state.stopBleDiscovery();
   });
@@ -885,4 +860,160 @@ class _PairingRepository extends MockTuyaRepository {
     expect(state.activatorTokenReady, isFalse);
     expect(state.pairingStage, PairingStage.idle);
   });
+
+}
+
+/// 建一个状态对象并挂一棵空树，让测试假时钟推进。
+Future<FlowerpotState> _stateFor(
+  WidgetTester tester,
+  TuyaRepository repository,
+) async {
+  final state = FlowerpotState(repository: repository);
+  addTearDown(state.dispose);
+  await tester.pumpWidget(const SizedBox());
+  return state;
+}
+
+/// 可编排三步的 Mock：取令牌、连热点、配网各自可以成功、报错或挂起。
+class _PairingRepository extends MockTuyaRepository {
+  _PairingRepository() : super(latency: Duration.zero, seedDevice: false);
+
+  int tokenCalls = 0;
+  int joinCalls = 0;
+  int leaveCalls = 0;
+  int cancelCalls = 0;
+  int pairCalls = 0;
+  int deviceListCalls = 0;
+
+  TuyaException? joinError;
+
+  /// 配网准备阶段查到的家庭；抛错表示这时查不到（例如手机已经在设备热点上）。
+  String homeId = '123456';
+  TuyaException? homeError;
+  /// 每次 `useHome` 的入参，按顺序记下来：空串表示作废当前固定的家庭。
+  final List<String> pinnedHomes = <String>[];
+
+  /// 会话开始下发的家庭名标记。
+  String? homeTag;
+  int homeCalls = 0;
+  TuyaException? pairError;
+
+  /// 双模配网要报的错误码（涂鸦那边是 int）；null 表示照常成功。
+  int? blePairError;
+  bool pairHangs = false;
+  WifiScan scan = const WifiScan(networks: <WifiNetwork>[]);
+
+  Completer<SmartPlanterDevice>? _hanging;
+
+  @override
+  Future<void> prepareActivatorToken() async => tokenCalls++;
+
+  @override
+  Future<SmartPlanterDevice> pairBleDevice({
+    required String uuid,
+    required String ssid,
+    required String password,
+    Duration timeout = const Duration(seconds: 120),
+  }) async {
+    final code = blePairError;
+    if (code != null) {
+      throw TuyaException('$code', '双模配网失败');
+    }
+    return super.pairBleDevice(
+      uuid: uuid,
+      ssid: ssid,
+      password: password,
+      timeout: timeout,
+    );
+  }
+
+  @override
+  Future<String> currentHomeId() async {
+    homeCalls++;
+    final error = homeError;
+    if (error != null) throw error;
+    return homeId;
+  }
+
+  @override
+  Future<void> useHome(String homeId) async => pinnedHomes.add(homeId);
+
+  @override
+  Future<void> useHomeTag(String tag) async => homeTag = tag;
+
+  @override
+  Future<bool> joinDeviceHotspot({String? ssid, String? prefix}) async {
+    joinCalls++;
+    final error = joinError;
+    if (error != null) throw error;
+    return true;
+  }
+
+  @override
+  Future<void> leaveDeviceHotspot() async => leaveCalls++;
+
+  @override
+  Future<void> cancelPairing() async {
+    cancelCalls++;
+    // 和原生一致：进行中的配网以 pair_cancelled 返回。
+    final hanging = _hanging;
+    _hanging = null;
+    if (hanging != null && !hanging.isCompleted) {
+      hanging.completeError(
+        const TuyaException('pair_cancelled', '配网已被中止'),
+      );
+    }
+  }
+
+  @override
+  Future<WifiScan> scanWifi({bool refresh = true}) async => scan;
+
+  @override
+  Future<SmartPlanterDevice> pair(PairingRequest request) {
+    pairCalls++;
+    if (pairHangs) {
+      final completer = Completer<SmartPlanterDevice>();
+      _hanging = completer;
+      return completer.future;
+    }
+    final error = pairError;
+    if (error != null) return Future<SmartPlanterDevice>.error(error);
+    return super.pair(request);
+  }
+
+  @override
+  Future<List<SmartPlanterDevice>> getDevices() {
+    deviceListCalls++;
+    return super.getDevices();
+  }
+}
+
+/// 本产品的一台花盆，照真机的样子：广播里带的是 broadcastId，名字是空的。
+const BleDevice _scannedPlanter = BleDevice(
+  uuid: 'uuid-pot',
+  name: '',
+  mac: 'AA:BB:CC:00:00:02',
+  productId: TuyaConfig.broadcastId,
+  rssi: -50,
+  bound: false,
+  supportWifiList: false,
+);
+
+/// 云端产品名要等用例逐个放行（[pending]）才回来。
+class _GatedNameRepository extends MockTuyaRepository {
+  _GatedNameRepository() : super(latency: Duration.zero, seedDevice: false);
+
+  final List<Completer<BleProductInfo>> pending =
+      <Completer<BleProductInfo>>[];
+
+  @override
+  Future<BleProductInfo> queryDeviceProductInfo({
+    required String productId,
+    required String uuid,
+    required String mac,
+  }) {
+    final completer = Completer<BleProductInfo>();
+    pending.add(completer);
+    return completer.future;
+  }
 }

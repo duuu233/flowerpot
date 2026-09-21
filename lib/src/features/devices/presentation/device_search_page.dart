@@ -254,10 +254,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
 
   /// **给蓝牙的抢答窗口。**
   ///
-  /// 双模是主路径，可 Wi-Fi 那条**会先答**：进页面第一件事就是读系统扫描缓存（不占
-  /// 配额、几乎不耗时），而缓存里往往**已经**有设备热点了——系统自己、设置页、别的应用
-  /// 一直在扫。那一瞬间列表先画出 AP 那一行，用户一点，整条流程就掉进了更差的那条：
-  /// 多一个系统入网授权框、手机还要离开路由器、还得先拿到确切热点名。
+  /// 双模是主路径，可 Wi-Fi 那条**可能先答**：进页面就读系统扫描缓存、紧接着真扫一次，
+  /// 系统自己、设置页、别的应用也一直在扫，本轮里任何一次看见设备热点，1 秒内就会列出来
+  /// （本轮之前的旧条目不算，见 [_hotspotsThisRound]）。那一瞬间列表先画出 AP 那一行，
+  /// 用户一点，整条流程就掉进了更差的那条：多一个系统入网授权框、手机还要离开路由器、
+  /// 还得先拿到确切热点名。
   ///
   /// 所以扫描开始后的这几秒里，只要蓝牙**还在扫**，就先不画 Wi-Fi 热点。BLE 广播是
   /// 设备主动周期性发的，双模设备通常一两秒就能扫到；给到 4 秒还没有，多半就不是双模
@@ -299,6 +300,21 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   /// 第几轮搜索。[_scan] 每开一轮加一；[_startSearchWindow] 每次 await 回来先对一下，
   /// 已经不是这一轮了就别再往下起定时器——否则两轮的定时器叠在一起，旧的那只永远没人取消。
   int _round = 0;
+
+  /// 这一轮是什么时候开始的。**Wi-Fi 热点只列这之后真的看见过的**，见 [_hotspotsThisRound]。
+  ///
+  /// 初值取页面创建的时刻：第一轮在首帧之后才开，首帧也不该画出上次进页面时留在
+  /// `FlowerpotState.wifiScan` 里的热点。
+  DateTime _roundStartedAt = DateTime.now();
+
+  /// 本轮真的看见过的设备热点（2026-09-21 产品：「不要缓存，根据实际搜索的情况展示」）。
+  ///
+  /// 读系统扫描缓存（`probeWifi(refresh: false)`）拿回来的是**系统最近一次扫描**的结果，
+  /// 里面可能是几分钟前的条目——设备早关了，热点还挂在缓存里；`FlowerpotState.wifiScan`
+  /// 本身也还留着上次进页面时的那份。所以按每条结果被看见的时刻筛，早于本轮开始的一律
+  /// 不列。本轮里系统自己、别的应用扫到的照样算数——它们确实是这一轮看见的。
+  List<WifiNetwork> _hotspotsThisRound(WifiScan? scan) =>
+      scan?.deviceHotspotsSeenSince(_roundStartedAt) ?? const <WifiNetwork>[];
 
   /// 这一轮还在准备阶段（授权框、探测蓝牙、第一次读缓存），定时器还没起。
   ///
@@ -392,6 +408,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     _deadlineTimer?.cancel();
     if (!mounted) return;
     final round = ++_round;
+    _roundStartedAt = DateTime.now();
     _windowExpired = false;
     _throttled = false;
     _scannedForReal = false;
@@ -423,9 +440,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   ///    读缓存不占扫描配额（受配额限制的只有 `startScan`），用户点「允许」之前一次真扫
   ///    都不会被浪费；而且 3 分钟窗口与 [_forceScanGap] 的节奏都从授权之后才起算，
   ///    不再被授权那几十秒吃掉。
-  /// 2. **非首次进入要「马上搜出来」。** 这一次读缓存几乎不耗时，而系统自己、设置页、
-  ///    别的应用一直在扫，缓存里往往**已经**有设备热点了——这时设备会在进页面的瞬间
-  ///    就出现，一次 `startScan` 都不用发。
+  /// 2. **非首次进入不再「瞬间出现」**（2026-09-21 产品：「不要缓存」）。原来这次读缓存
+  ///    常常就带着设备热点、进页面瞬间出现——那是系统缓存里的旧条目，设备关了也照样
+  ///    出现。现在本轮开始之前看见的一律不列（见 [_hotspotsThisRound]）。这次读缓存仍然
+  ///    要读：它挡权限框，也带回「手机现在连的是哪个路由器」。
   ///
   /// ⚠️ 不要为了「快一点」在开头塞两次真扫。那是 0/6/46/86s 那版的做法，已经被证明
   /// 会把配额押在设备还没上电的时刻，反而让「先进页面后开机」要等 86 秒。见
@@ -483,7 +501,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     }
     if (!mounted || _windowExpired || round != _round) return;
     setState(() {});
-    // 缓存里就有设备的话到此为止，一次真扫都不用发。
+    // 本轮开始之后系统已经看见过设备热点的话到此为止，一次真扫都不用发。
     _maybeAutoOpen();
     if (_autoOpened) return;
     // ② 权限落定、页面就绪——从这一刻才开始计窗口、起节奏。
@@ -540,9 +558,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // 「扫到热点就停下来等用户点」是 AP 的动线。AP 屏蔽期间热点列表根本不画，
     // 停在这里只会把 BLE 那条的扫描线一起掐掉。
     if (!PairingGate.apEnabled) return;
-    final hotspots =
-        FlowerpotScope.of(context).wifiScan?.deviceHotspots ??
-        const <WifiNetwork>[];
+    final hotspots = _hotspotsThisRound(FlowerpotScope.of(context).wifiScan);
     if (hotspots.isEmpty) return;
     _forceScanTimer?.cancel();
     _pollTimer?.cancel();
@@ -1067,7 +1083,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
     final scan = state.wifiScan;
-    final hotspots = scan?.deviceHotspots ?? const <WifiNetwork>[];
+    final hotspots = _hotspotsThisRound(scan);
     // 这一刻列什么：BLE 扫到就只列 BLE，一台都没有才回落 Wi-Fi 热点。
     _found = _foundDevices(state, hotspots);
     final outcome = _outcome(scan, hotspots, _found);

@@ -837,6 +837,7 @@ class WifiNetwork {
     required this.ssid,
     required this.level,
     required this.frequency,
+    this.seenAt,
   });
 
   final String ssid;
@@ -846,6 +847,20 @@ class WifiNetwork {
 
   /// Channel frequency in MHz. Tuya provisioning only works on 2.4 GHz.
   final int frequency;
+
+  /// 系统**最后一次真的看见**这个网络的时刻（Android `ScanResult.timestamp` 换算）；
+  /// 平台不报时为 null。
+  ///
+  /// 读系统扫描缓存拿回来的结果里混着几分钟前的旧条目——设备早关了，它的热点还在缓存里。
+  /// 搜索页据此只列**本轮开始之后**真的看见过的热点（2026-09-21 产品：「不要缓存，
+  /// 根据实际搜索的情况展示」），见 [WifiScan.deviceHotspotsSeenSince]。
+  final DateTime? seenAt;
+
+  /// 在 [since] 之后（含）看见过。平台不报时间时判不了新旧，按看见过处理。
+  bool seenSince(DateTime since) {
+    final at = seenAt;
+    return at == null || !at.isBefore(since);
+  }
 
   bool get is24g => frequency >= 2400 && frequency < 2500;
 
@@ -1305,6 +1320,16 @@ class WifiScan {
   /// Wi-Fi 热点列表是设备不支持 BLE 时的那条。
   List<WifiNetwork> get deviceHotspots =>
       _strongestPerSsid(networks.where((item) => item.looksLikeDeviceHotspot));
+
+  /// [deviceHotspots] 里 [since] 之后真的看见过的那些。
+  ///
+  /// 先按时间筛、再按 SSID 取最强：同一个热点名在缓存里可能一新一旧两条，先取最强
+  /// 可能正好留下旧的那条、再被时间筛掉。
+  List<WifiNetwork> deviceHotspotsSeenSince(DateTime since) => _strongestPerSsid(
+    networks.where(
+      (item) => item.looksLikeDeviceHotspot && item.seenSince(since),
+    ),
+  );
 
   /// The rest of the scan, as a fallback pick list for the pairing pages:
   /// everything [deviceHotspots] did not claim, minus 5 GHz entries the

@@ -648,6 +648,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     "bssid" to scan.BSSID,
                     "level" to scan.level,
                     "frequency" to scan.frequency,
+                    // 这一条多久以前被看见的。缓存里混着几分钟前的旧条目（设备早关了、热点
+                    // 还在），搜索页只列本轮开始之后看见过的——按它筛（2026-09-21）。
+                    "ageMs" to (SystemClock.elapsedRealtime() - scan.timestamp / 1000)
+                        .coerceAtLeast(0L),
                 )
             }
         val current = runCatching {
@@ -731,6 +735,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * `startActivator`）吃的都是这个对象本身——`MultiModeQueryBuilder.setScanDeviceBean(bean)`、
      * `MultiModeActivatorBean.scanDeviceBean`。它过不了方法通道（里面有 `byte[] raw`、
      * `pidRaw` 这些广播原文），所以 Dart 侧只拿 uuid，用的时候回这里取。
+     *
+     * **只装本轮扫到的**：每轮开扫时清空（[startBleScan]），停扫时不清（见 [stopBleScan]）。
+     * 2026-09-21 之前从来不清，上一轮、上上轮扫到过的设备一直留在这里。
      */
     private val bleScanned = ConcurrentHashMap<String, Any>()
 
@@ -831,6 +838,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     private fun startBleScan(call: MethodCall, result: MethodChannel.Result) {
         // 上一轮没停干净就先停：SDK 只保留最后一个回调，旧代理会一直漏在那里。
         stopBleScan()
+        // 新的一轮不沿用上一轮扫到的任何设备（2026-09-21 产品：「不要缓存」）。
+        // 此刻不会有配网在用它们：配网期间搜索页不在最上层，不会重开扫描。
+        bleScanned.clear()
         val operator = bleOperator()
         val timeout = call.argument<Number>("timeoutMs")?.toLong() ?: 60_000L
         val builder = firstClass("com.thingclips.smart.android.ble.api.LeScanSetting\$Builder")
@@ -1002,8 +1012,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         if (bleScanner == null) return
         bleScanner = null
         // ⚠️ **不清 `bleScanned`**：用户点了某一台之后页面就会停扫，紧接着要用那个
-        // bean 去查列表、去配网。清掉等于自己把下一步的入参删了。它只在下一轮扫描
-        // 开始时被新结果覆盖，条目数也就是附近设备数，不会无限涨。
+        // bean 去查列表、去配网。清掉等于自己把下一步的入参删了。下一轮开扫时
+        // （[startBleScan]）才整张清掉。
         runCatching { invoke(bleOperator(), "stopLeScan") }.onFailure { cause ->
             Log.w(TUYA_LOG_TAG, "stopLeScan 失败：${cause.javaClass.simpleName}")
         }
