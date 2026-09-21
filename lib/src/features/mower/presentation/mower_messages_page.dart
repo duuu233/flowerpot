@@ -270,7 +270,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
 
   /// 调试板的版本印子。**每改一次这块板就往上加一版**：贴回来的日志里有没有这行、是第几版，
   /// 一眼就能看出跑的是不是最新的包——之前两轮就卡在"看不出他跑的是哪一版"上。
-  static const String _probeVersion = 'probe-v4 · 2026-09-21';
+  static const String _probeVersion = 'probe-v5 · 2026-09-21';
 
   /// 联调用的测试设备 ID：涂鸦后台「设备消息监控列表」里那条 `text2` 推送挂在它上面
   /// （产品 2026-09-20 给的）。调试板默认填它，省得每次手打 22 位。
@@ -279,7 +279,14 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
   /// ⚠️ 这只是调试板的默认值，不参与任何业务逻辑。
   static const String _defaultDeviceId = '6c2649322ed1365a00cadl';
 
+  /// 设备日志要查哪些 DP。真机回过 `Illegal parameter error.`，空着大概率不行，
+  /// 所以默认给三个花盆一定会上报的（103 电量、105 水位、106 土壤湿度）。
+  static const String _defaultDpIds = '103,105,106';
+
   final TextEditingController _deviceId = TextEditingController();
+  final TextEditingController _dpIds = TextEditingController(
+    text: _defaultDpIds,
+  );
   bool _loading = false;
   bool _loadingLogs = false;
   bool _prefilled = false;
@@ -306,6 +313,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
   @override
   void dispose() {
     _deviceId.dispose();
+    _dpIds.dispose();
     super.dispose();
   }
 
@@ -346,7 +354,10 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
       return;
     }
     setState(() => _loadingLogs = true);
-    final data = await state.loadDeviceOperateLogs(deviceId: deviceId);
+    final data = await state.loadDeviceOperateLogs(
+      deviceId: deviceId,
+      dpIds: _dpIds.text.trim(),
+    );
     if (!mounted) return;
     setState(() {
       _loadingLogs = false;
@@ -372,7 +383,9 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     final buffer = StringBuffer()
       ..writeln(_probeVersion)
       ..writeln(FlowerpotScope.of(context).sessionDiagnostics)
-      ..writeln('目标设备=${_deviceId.text.trim()}  类型=$_msgType');
+      ..writeln('目标设备=${_deviceId.text.trim()}  类型=$_msgType')
+      ..writeln('已绑定=${FlowerpotScope.of(context).devices.map((d) => d.id).join('、')}')
+      ..writeln('dpIds=${_dpIds.text.trim()}');
     final result = _result;
     if (result == null) {
       buffer.writeln('（还没点「拉取涂鸦消息」）');
@@ -548,6 +561,25 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                 child: Text(_loading ? '拉取中…' : '拉取涂鸦消息'),
               ),
             ),
+            const SizedBox(height: 10),
+            TextField(
+              key: const Key('mower-messages-debug-dpids'),
+              controller: _dpIds,
+              style: const TextStyle(
+                color: MowerColors.ink,
+                fontSize: 12,
+                fontFamily: 'monospace',
+              ),
+              decoration: const InputDecoration(
+                labelText: '设备日志要查的 dpIds（逗号分隔）',
+                isDense: true,
+                border: OutlineInputBorder(),
+                labelStyle: TextStyle(
+                  color: MowerColors.inkSecondary,
+                  fontSize: 12,
+                ),
+              ),
+            ),
             const SizedBox(height: 8),
             SizedBox(
               height: 40,
@@ -568,7 +600,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
             if (_logs != null) ...<Widget>[
               const SizedBox(height: 10),
               SelectableText(
-                '设备日志 ok=${_logs!['ok']}  method=${_logs!['method'] ?? '-'}\n'
+                '设备日志 ok=${_logs!['ok']}  命中取值=${_logs!['accepted'] ?? '-'}\n'
                 '${_logs!['raw'] ?? _logs!['message'] ?? ''}',
                 style: const TextStyle(
                   color: MowerColors.ink,

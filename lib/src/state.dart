@@ -1128,13 +1128,23 @@ class FlowerpotState extends ChangeNotifier {
     String dpIds = '',
     int offset = 0,
     int limit = 20,
+    Duration window = const Duration(days: 7),
   }) async {
-    _logInteraction('设备日志 → $deviceId dpIds="$dpIds" limit=$limit');
+    // 2026-09-21 真机：`dpIds` 和时间窗都留空时服务端回 `Illegal parameter error.`，
+    // 所以这里给出默认值——时间按**毫秒**给（涂鸦其它接口都是毫秒），窗口默认最近 7 天。
+    final now = DateTime.now();
+    final end = now.millisecondsSinceEpoch.toString();
+    final start = now.subtract(window).millisecondsSinceEpoch.toString();
+    _logInteraction(
+      '设备日志 → $deviceId dpIds="$dpIds" limit=$limit 窗口=${window.inDays}天',
+    );
     final data = await _repository.deviceOperateLogs(
       deviceId: deviceId,
       dpIds: dpIds,
       offset: offset,
       limit: limit,
+      startTime: start,
+      endTime: end,
     );
     _logInteraction(
       data['ok'] == true

@@ -2807,7 +2807,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val limit = (call.argument<Number>("limit"))?.toInt() ?: 20
         val startTime = call.argument<String>("startTime")?.trim().orEmpty()
         val endTime = call.argument<String>("endTime")?.trim().orEmpty()
-        val sort = call.argument<String>("sort")?.trim().orEmpty()
+        val sort = call.argument<String>("sort")?.trim().orEmpty().ifEmpty { "false" }
         val diagnostic = mutableListOf<String>()
         if (deviceId.isEmpty()) {
             success(
@@ -2834,46 +2834,64 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             .filterNot { it.declaringClass == Any::class.java }
             .joinToString { m -> m.name + "(" + m.parameterTypes.joinToString { it.simpleName } + ")" }
         val name = "queryDeviceOperateLogs"
-        val args = arrayOf<Any?>(deviceId, dpIds, offset, limit, startTime, endTime, sort)
-        val method = optionalCallbackMethod(target.javaClass, name, args)
-        if (method == null) {
-            diagnostic += "没有 $name(7 参 + 回调) 这个重载"
-            success(result, mapOf("ok" to false, "diagnostic" to diagnostic))
-            return
+
+        // 2026-09-21 真机：七个参数全按「设备 ID、dpIds、offset、limit、开始、结束、排序」传、
+        // 后三个给空串，服务端回 `Illegal parameter error.`。方法确实在（实例方法清单里有），
+        // 所以是**取值**不合口径，不是签名不对。逐个候选试，把每次的报错都记下来——
+        // 一趟就能看出它到底要什么：dpIds 必填？时间必须给毫秒？排序要 true/false？
+        val candidates = mutableListOf<Pair<String, Array<Any?>>>()
+        candidates += "dpIds + 时间窗 + sort=$sort" to
+            arrayOf<Any?>(deviceId, dpIds, offset, limit, startTime, endTime, sort)
+        candidates += "dpIds + 时间窗 + sort=true" to
+            arrayOf<Any?>(deviceId, dpIds, offset, limit, startTime, endTime, "true")
+        candidates += "dpIds，时间留空" to
+            arrayOf<Any?>(deviceId, dpIds, offset, limit, "", "", sort)
+        candidates += "dpIds 留空 + 时间窗" to
+            arrayOf<Any?>(deviceId, "", offset, limit, startTime, endTime, sort)
+
+        fun attempt(index: Int) {
+            if (index >= candidates.size) {
+                diagnostic += "四种取值都被拒，参数口径还得查（方法本身是有的）"
+                success(result, mapOf("ok" to false, "diagnostic" to diagnostic))
+                return
+            }
+            val candidate = candidates[index]
+            val label = candidate.first
+            val args = candidate.second
+            val method = optionalCallbackMethod(target.javaClass, name, args)
+            if (method == null) {
+                diagnostic += "候选「$label」→ 没有匹配的重载"
+                attempt(index + 1)
+                return
+            }
+            diagnostic += "候选「$label」→ $name(" +
+                method.parameterTypes.joinToString { it.simpleName } + ") " +
+                "[" + args.joinToString { value -> "\"" + value + "\"" } + "]"
+            invokeWithCallback(
+                target,
+                name,
+                *args,
+                onSuccess = { value ->
+                    success(
+                        result,
+                        mapOf(
+                            "ok" to true,
+                            "instance" to target.javaClass.name,
+                            "method" to name,
+                            "accepted" to label,
+                            // 回调泛型就是 String：原样交上去，不在原生这边解析。
+                            "raw" to value?.toString(),
+                            "diagnostic" to diagnostic,
+                        ),
+                    )
+                },
+                onError = { code, message ->
+                    diagnostic += "候选「$label」✗ $code $message"
+                    attempt(index + 1)
+                },
+            )
         }
-        diagnostic += "调用 $name(" +
-            method.parameterTypes.joinToString { it.simpleName } +
-            ") deviceId=$deviceId dpIds=\"$dpIds\" offset=$offset limit=$limit " +
-            "startTime=\"$startTime\" endTime=\"$endTime\" sort=\"$sort\""
-        invokeWithCallback(
-            target,
-            name,
-            *args,
-            onSuccess = { value ->
-                success(
-                    result,
-                    mapOf(
-                        "ok" to true,
-                        "instance" to target.javaClass.name,
-                        "method" to name,
-                        // 回调泛型就是 String：原样交上去，不在原生这边解析。
-                        "raw" to value?.toString(),
-                        "diagnostic" to diagnostic,
-                    ),
-                )
-            },
-            onError = { code, message ->
-                success(
-                    result,
-                    mapOf(
-                        "ok" to false,
-                        "code" to code,
-                        "message" to message,
-                        "diagnostic" to diagnostic,
-                    ),
-                )
-            },
-        )
+        attempt(0)
     }
 
     /** 回调给回来的可能是 List，也可能是包一层的分页 bean；两种都拆开。 */

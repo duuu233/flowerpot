@@ -202,6 +202,48 @@ void cancelAll();
 （`getMessageListByMsgType`，最多 20 条）把每条的 `msgSrcId` / `msgType` / `msgTypeContent` /
 `msgCode` / `alarmType` / `dateTime` 打出来。
 
+### 5.3.3 2026-09-21 全量采集：**告警档整个账号是空的**
+
+`probe-v4`、`uid YS40301` / 家庭 `251447714` / 已绑定 1 台，目标设备填的是后台监控列表给的
+`6c2649322ed1365a00cadl`，类型 `ALL`：
+
+| 观察 | 值 |
+| --- | --- |
+| 按设备取 | `MSG_REPORT ← 0 条（totalCount=0）` |
+| 按设备取（家庭 / 通知） | **`101001 JSON PARSE EXCEPTION`** |
+| `requestMessageNew()` | `alarm=false, family=false, notification=true` |
+| 按类型取一页（全账号） | **告警 0 条**、家庭 20 条、通知 20 条 |
+| `getMessageMaxTime()` | `1789955044`（秒）＝ 通知档最新那条 `2026-9-21 09:44`，两者对得上 |
+
+**结论 1：不是查法问题，是消息中心里压根没有告警消息。** 按设备取 0 条、按类型取（不带设备）
+整个账号也是 0 条、`requestMessageNew` 的 `alarm` 也是 `false` —— 三个口径一致。
+所以后台那条 `text2`（推送编号 `GYjoVtpHsqHjpZbc`、等级「轻微」）**没有落进消息中心的告警档**。
+要往下查得回到平台侧：那条推送有没有真的触发过、推送渠道有没有包含「消息中心 / App 内消息」。
+
+**结论 2：`getMessageListByMsgSrcId` 只对告警档有意义。** 同一套参数换成 `MSG_FAMILY` / `MSG_NOTIFY`
+会被 SDK 报 `101001 JSON PARSE EXCEPTION`（通知档的消息本身就没有 `msgSrcId`）。
+家庭 / 通知要用 `getMessageListByMsgType`。
+
+**结论 3：类型字段完全够用**（产品最初的问题到这里可以结案）。真机上两档的实际取值：
+
+| 档 | `msgType` | `msgTypeContent` | `msgCode` | `msgSrcId` | `alarmType` |
+| --- | --- | --- | --- | --- | --- |
+| 家庭 | `-1` | 添加设备 / 移除设备 | `ADD_DEVICE_FOR_LOCATION_MSG_V2` / `DEVICE_USER_DELETE_MSG_V2` | 设备 ID（`6c707c…m7hm`） | `0` |
+| 通知 | `0` | 通知 | `LOGIN_MSG_CENTER` | **没有** | `0` |
+
+→ 分三档用 `MessageType`（查询时就分开了）或 `msgTypeContent`；**细分文案用 `msgCode`**，
+它比 `msgType` 有用得多（`msgType` 在家庭档甚至是 `-1`）。「推送等级」在这两档里看不到
+（`alarmType` 都是 0），**只能等真的有一条告警消息进来再看**。
+
+**顺带**：这个账号里实际绑着的是 `6c707c4ee7b5e5bea5m7hm`（家庭消息写着「YS40301添加的花盆test」），
+后台监控列表给的 `6c2649322ed1365a00cadl` 在这个账号的消息里从没出现过 ——
+但这**不是主因**，因为告警档全账号都是 0 条，换设备 ID 也一样。
+
+**设备日志那一条**：`queryDeviceOperateLogs` 在实例方法清单里确实存在
+（`com.thingclips.sdk.device.qbqbbdd`），但七个参数全给（时间与 dpIds 留空）时服务端回
+`Illegal parameter error.` —— 是**取值**不合口径，不是签名不对。桥接已改成按四种取值逐个试
+（dpIds + 毫秒时间窗 × sort=false/true、时间留空、dpIds 留空），并把每次的报错记进诊断。
+
 ### 5.3.2 ⚠️ 更正：日志接口是有的，只是不在设备实例上（2026-09-20 当天更正）
 
 本轮先前在历史记录里写过一句「Home SDK 里没有设备日志接口」，**那是错的**——当时只翻了 `IThingDevice`。
