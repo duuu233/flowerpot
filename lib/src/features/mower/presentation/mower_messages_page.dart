@@ -270,7 +270,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
 
   /// 调试板的版本印子。**每改一次这块板就往上加一版**：贴回来的日志里有没有这行、是第几版，
   /// 一眼就能看出跑的是不是最新的包——之前两轮就卡在"看不出他跑的是哪一版"上。
-  static const String _probeVersion = 'probe-v5 · 2026-09-21';
+  static const String _probeVersion = 'probe-v6 · 2026-09-21';
 
   /// 联调用的测试设备 ID：涂鸦后台「设备消息监控列表」里那条 `text2` 推送挂在它上面
   /// （产品 2026-09-20 给的）。调试板默认填它，省得每次手打 22 位。
@@ -287,6 +287,17 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
   final TextEditingController _dpIds = TextEditingController(
     text: _defaultDpIds,
   );
+
+  /// 按时间窗查的起止（`yyyy-MM-dd`）。
+  ///
+  /// ⚠️ `getMessageListByMsgSrcId` **没有时间参数**（解包核对：四个重载多出来的只有两个
+  /// 图片相关的 boolean）。整个 `IThingMessage` 上带时间的只有聚合那条
+  /// `getMessageList(offset, limit, startTime, endTime, cb)`，所以这一格走的是聚合口径，
+  /// 只当诊断——产品在后台某个时间段看得见消息时，用它对一对 App 这边能看见什么。
+  final TextEditingController _startDay = TextEditingController();
+  final TextEditingController _endDay = TextEditingController();
+  bool _loadingWindow = false;
+  Map<String, Object?>? _window;
   bool _loading = false;
   bool _loadingLogs = false;
   bool _prefilled = false;
@@ -299,6 +310,13 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     super.didChangeDependencies();
     if (_prefilled) return;
     // 默认填联调那台；没配就退回「已绑定设备里的第一台」。填错了直接改这一格。
+    final today = DateTime.now();
+    String day(DateTime value) =>
+        '${value.year.toString().padLeft(4, '0')}-'
+        '${value.month.toString().padLeft(2, '0')}-'
+        '${value.day.toString().padLeft(2, '0')}';
+    _startDay.text = day(today.subtract(const Duration(days: 7)));
+    _endDay.text = day(today);
     if (_defaultDeviceId.isNotEmpty) {
       _deviceId.text = _defaultDeviceId;
       _prefilled = true;
@@ -314,7 +332,38 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
   void dispose() {
     _deviceId.dispose();
     _dpIds.dispose();
+    _startDay.dispose();
+    _endDay.dispose();
     super.dispose();
+  }
+
+  /// `yyyy-MM-dd` → 当天 00:00；解析不了返回 null。
+  DateTime? _day(String text) => DateTime.tryParse(text.trim());
+
+  Future<void> _loadWindow() async {
+    final state = FlowerpotScope.of(context);
+    final start = _day(_startDay.text);
+    // 结束那天要含全天，所以加一天当右开区间。
+    final endDay = _day(_endDay.text);
+    if (start == null || endDay == null) {
+      showAppMessage(
+        context,
+        '日期要写成 2026-09-18 这种格式',
+        tone: AppMessageTone.info,
+      );
+      return;
+    }
+    setState(() => _loadingWindow = true);
+    final data = await state.loadMessagesByTime(
+      start: start,
+      end: endDay.add(const Duration(days: 1)),
+      deviceId: _deviceId.text.trim(),
+    );
+    if (!mounted) return;
+    setState(() {
+      _loadingWindow = false;
+      _window = data;
+    });
   }
 
   Future<void> _load() async {
@@ -385,7 +434,8 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
       ..writeln(FlowerpotScope.of(context).sessionDiagnostics)
       ..writeln('目标设备=${_deviceId.text.trim()}  类型=$_msgType')
       ..writeln('已绑定=${FlowerpotScope.of(context).devices.map((d) => d.id).join('、')}')
-      ..writeln('dpIds=${_dpIds.text.trim()}');
+      ..writeln('dpIds=${_dpIds.text.trim()}')
+      ..writeln('时间窗=${_startDay.text.trim()} ~ ${_endDay.text.trim()}');
     final result = _result;
     if (result == null) {
       buffer.writeln('（还没点「拉取涂鸦消息」）');
@@ -410,6 +460,18 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
         }
       }
       for (final line in (result['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
+        buffer.writeln('· $line');
+      }
+    }
+    final window = _window;
+    if (window != null) {
+      buffer
+        ..writeln('--- 按时间窗（聚合口径）---')
+        ..writeln(
+          'ok=${window['ok']} 单位=${window['unit']} 共 ${window['count']} 条 '
+          '本设备 ${window['matchedForDevice']} 条',
+        );
+      for (final line in (window['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
         buffer.writeln('· $line');
       }
     }
@@ -519,9 +581,12 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
             SelectableText(
               products.isEmpty
                   ? '当前账号没有已绑定设备'
-                  : '已绑定：${products.keys.join('、')}\n'
+                  : '已绑定：'
+                        '${products.entries.map((e) => '${e.key}(pid=${e.value})').join('、')}\n'
                         '目标设备在列表里：'
-                        '${products.containsKey(_deviceId.text.trim()) ? '是' : '否 ← 按 msgSrcId 查不到多半是这个'}',
+                        '${products.containsKey(_deviceId.text.trim()) ? '是' : '否 ← 按 msgSrcId 查不到多半是这个'}\n'
+                        '目标产品 ${TuyaConfig.broadcastId}：'
+                        '${products.values.contains(TuyaConfig.broadcastId) ? '有绑着这个产品的设备' : '⚠️ 账号里没有这个产品的设备——推送规则配在它上面就不会触发'}',
               style: const TextStyle(
                 color: MowerColors.inkSecondary,
                 fontSize: 11,
@@ -597,6 +662,97 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                 ),
               ),
             ),
+            const SizedBox(height: 10),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: TextField(
+                    key: const Key('mower-messages-debug-start'),
+                    controller: _startDay,
+                    style: const TextStyle(
+                      color: MowerColors.ink,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: '开始 yyyy-MM-dd',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      labelStyle: TextStyle(
+                        color: MowerColors.inkSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    key: const Key('mower-messages-debug-end'),
+                    controller: _endDay,
+                    style: const TextStyle(
+                      color: MowerColors.ink,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: '结束 yyyy-MM-dd（含当天）',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      labelStyle: TextStyle(
+                        color: MowerColors.inkSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 40,
+              child: OutlinedButton(
+                key: const Key('mower-messages-debug-load-window'),
+                onPressed: _loadingWindow ? null : () => unawaited(_loadWindow()),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: MowerColors.brand,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(10)),
+                  ),
+                ),
+                child: Text(
+                  _loadingWindow ? '拉取中…' : '按时间窗拉消息（聚合口径）',
+                ),
+              ),
+            ),
+            if (_window != null) ...<Widget>[
+              const SizedBox(height: 10),
+              SelectableText(
+                '时间窗 ok=${_window!['ok']}  单位=${_window!['unit'] ?? '-'}  '
+                '共 ${_window!['count'] ?? 0} 条  本设备 ${_window!['matchedForDevice'] ?? 0} 条',
+                style: const TextStyle(
+                  color: MowerColors.ink,
+                  fontSize: 11,
+                  height: 1.5,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              for (final line
+                  in (_window!['diagnostic'] as List<Object?>?) ??
+                      const <Object?>[])
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: SelectableText(
+                    '· $line',
+                    style: const TextStyle(
+                      color: MowerColors.inkSecondary,
+                      fontSize: 11,
+                      height: 1.45,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+            ],
             if (_logs != null) ...<Widget>[
               const SizedBox(height: 10),
               SelectableText(

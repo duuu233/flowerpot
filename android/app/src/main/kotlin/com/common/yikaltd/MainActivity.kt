@@ -450,6 +450,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 )
                 "deviceMessages" -> deviceMessages(call, result)
                 "deviceOperateLogs" -> deviceOperateLogs(call, result)
+                "messagesByTime" -> messagesByTime(call, result)
                 "checkFirmware" -> checkFirmware(call, result)
                 "startFirmwareUpgrade" -> startFirmwareUpgrade(call, result)
                 "uploadAnimation" -> result.error(
@@ -2887,6 +2888,110 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 },
                 onError = { code, message ->
                     diagnostic += "候选「$label」✗ $code $message"
+                    attempt(index + 1)
+                },
+            )
+        }
+        attempt(0)
+    }
+
+    /**
+     * 消息中心**按时间窗**取一页（诊断用）。
+     *
+     * 为什么另开一条：`getMessageListByMsgSrcId` / `getMessageListByMsgType` **都没有时间参数**，
+     * 它们按分页倒序给最近的。整个 `IThingMessage` 上带时间的只有一条（解包核对）：
+     *
+     * ```java
+     * void getMessageList(int offset, int limit, long startTime, long endTime,
+     *                     IThingDataCallback<MessageListBean>)
+     * ```
+     *
+     * ⚠️ 它是**聚合**口径（不分设备、不分类型）——所以只当诊断用：产品在后台看到某个时间段有消息，
+     * 这条就是去回答「那一段里 App 这边能看见什么」。取数照旧走按设备那条。
+     *
+     * ⚠️ 时间是 `long`，**单位官方没写**：先按毫秒试，被拒或回空再按秒试一遍，
+     * 哪个被接受写进 `unit` 一并回给页面。给了设备 ID 时再顺手数一下这一页里有几条是它的。
+     */
+    private fun messagesByTime(call: MethodCall, result: MethodChannel.Result) {
+        val offset = (call.argument<Number>("offset"))?.toInt() ?: 0
+        val limit = (call.argument<Number>("limit"))?.toInt() ?: 50
+        val startMs = (call.argument<Number>("startTime"))?.toLong() ?: 0L
+        val endMs = (call.argument<Number>("endTime"))?.toLong() ?: 0L
+        val msgSrcId = call.argument<String>("deviceId")?.trim().orEmpty()
+        val diagnostic = mutableListOf<String>()
+        val sdk = runCatching { sdkClass() }.getOrElse { error ->
+            success(
+                result,
+                mapOf("ok" to false, "diagnostic" to listOf("涂鸦 SDK 未链接：$error")),
+            )
+            return
+        }
+        val target = runCatching { invokeStatic(sdk, "getMessageInstance") }.getOrNull()
+        if (target == null) {
+            diagnostic += "拿不到 getMessageInstance()"
+            success(result, mapOf("ok" to false, "diagnostic" to diagnostic))
+            return
+        }
+        val name = "getMessageList"
+        val candidates = mutableListOf<Pair<String, Array<Any?>>>()
+        candidates += "毫秒" to arrayOf<Any?>(offset, limit, startMs, endMs)
+        candidates += "秒" to arrayOf<Any?>(offset, limit, startMs / 1000, endMs / 1000)
+
+        fun attempt(index: Int) {
+            if (index >= candidates.size) {
+                diagnostic += "毫秒和秒都没拿到东西"
+                success(result, mapOf("ok" to false, "diagnostic" to diagnostic))
+                return
+            }
+            val candidate = candidates[index]
+            val unit = candidate.first
+            val args = candidate.second
+            val method = optionalCallbackMethod(target.javaClass, name, args)
+            if (method == null) {
+                diagnostic += "按$unit 传 → 没有匹配的 $name 重载"
+                attempt(index + 1)
+                return
+            }
+            diagnostic += "按$unit 传：$name(" +
+                method.parameterTypes.joinToString { it.simpleName } + ") " +
+                "[" + args.joinToString { value -> value.toString() } + "]"
+            invokeWithCallback(
+                target,
+                name,
+                *args,
+                onSuccess = { value ->
+                    val rows = messageItems(value)
+                    val total = value?.let {
+                        (optionalGetter(it, "getTotalCount") as? Number)?.toInt()
+                    }
+                    diagnostic += "按$unit ← ${rows.size} 条" +
+                        (total?.let { "（totalCount=$it）" } ?: "")
+                    rows.forEachIndexed { i, row ->
+                        diagnostic += "#${i + 1} ${messageBrief(row)}"
+                    }
+                    // 空的时候换一种单位再试：时间窗对不上会安静地回 0 条，不报错。
+                    if (rows.isEmpty() && index + 1 < candidates.size) {
+                        attempt(index + 1)
+                        return@invokeWithCallback
+                    }
+                    val mine = rows.count { row -> row["msgSrcId"]?.toString() == msgSrcId }
+                    success(
+                        result,
+                        mapOf(
+                            "ok" to true,
+                            "instance" to target.javaClass.name,
+                            "method" to name,
+                            "unit" to unit,
+                            "count" to rows.size,
+                            "totalCount" to total,
+                            "matchedForDevice" to mine,
+                            "items" to rows,
+                            "diagnostic" to diagnostic,
+                        ),
+                    )
+                },
+                onError = { code, message ->
+                    diagnostic += "按$unit ✗ $code $message"
                     attempt(index + 1)
                 },
             )

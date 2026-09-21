@@ -202,6 +202,31 @@ void cancelAll();
 （`getMessageListByMsgType`，最多 20 条）把每条的 `msgSrcId` / `msgType` / `msgTypeContent` /
 `msgCode` / `alarmType` / `dateTime` 打出来。
 
+### 5.3.4 时间筛选与产品 ID（2026-09-21 追问）
+
+**`getMessageListByMsgSrcId` 不支持时间筛选。** 解包核对的四个重载里，除了
+`offset` / `limit` / `MessageType` / `msgSrcId`，多出来的只有两个图片相关的 boolean
+（`encryptImage`、`splitImageKey`）——**没有任何时间参数**；`getMessageListByMsgType` 也没有。
+整个 `IThingMessage` 上带时间的只有一条，而且是**聚合**口径：
+
+```java
+void getMessageList(int offset, int limit, long startTime, long endTime,
+                    IThingDataCallback<MessageListBean>)
+```
+
+所以要「只看某个时间段」只有两条路：① 用这条聚合接口（本轮已接成桥接 `messagesByTime`，
+**只当诊断**，时间单位官方没写，原生先按毫秒试、空了再按秒试一遍，实际被接受的写进 `unit`）；
+② 按设备那条靠 `offset` 往后翻页，直到 `dateTime` 落进那一段（消息是倒序给的）。
+
+⚠️ 但**时间不是这次查不到的原因**：告警档 `totalCount=0`、按类型取（不带时间、不带设备）全账号也是
+0 条、`requestMessageNew` 的 `alarm` 还是 `false` —— 空集合不分时间段。
+
+**产品 ID 这条更可疑。** 产品确认推送规则配在 `ehbx83xdh9jkmxvz` 上；而消息里出现的设备
+`6c707c4ee7b5e5bea5m7hm` 属于哪个产品，App 这边是知道的（设备列表带 `productId`）。
+调试板因此把已绑定设备打成 `设备ID(pid=产品ID)`，并直接判一行
+「目标产品 `ehbx83xdh9jkmxvz`：有绑着这个产品的设备 / ⚠️ 账号里没有这个产品的设备——推送规则配在它上面就不会触发」。
+**规则配在 A 产品、账号里绑的是 B 产品的设备**，就是"后台能看到消息、App 一条也收不到"的典型成因。
+
 ### 5.3.3 2026-09-21 全量采集：**告警档整个账号是空的**
 
 `probe-v4`、`uid YS40301` / 家庭 `251447714` / 已绑定 1 台，目标设备填的是后台监控列表给的

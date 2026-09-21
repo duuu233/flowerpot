@@ -216,6 +216,24 @@ abstract class TuyaRepository {
     String sort,
   });
 
+  /// 消息中心**按时间窗**取一页（诊断用，2026-09-21）。
+  ///
+  /// 按设备取（[deviceMessages]）和按类型取都**没有时间参数**——整个 `IThingMessage` 上带时间的
+  /// 只有 `getMessageList(int offset, int limit, long startTime, long endTime, cb)` 这一条，
+  /// 而它是**聚合**口径（不分设备、不分类型）。所以这条只当诊断：后台在某个时间段看得到消息时，
+  /// 用它回答「那一段里 App 这边能看见什么」。取数照旧走按设备那条。
+  ///
+  /// [startTime] / [endTime] 传**毫秒**；原生先按毫秒调，拿不到再按秒试一遍，
+  /// 实际被接受的单位写在返回的 `unit` 里。给了 [deviceId] 时返回里还会有 `matchedForDevice`
+  /// （这一页里有几条是它的）。
+  Future<Map<String, Object?>> messagesByTime({
+    required int startTime,
+    required int endTime,
+    String deviceId,
+    int offset,
+    int limit,
+  });
+
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
@@ -980,6 +998,45 @@ class MethodChannelTuyaRepository implements TuyaRepository {
           'iOS 要调的是 ThingSmartDevice 的 '
               'queryDeviceOperateLogWithDpIds:offset:limit:startTime:endTime:isASC:success:failure:',
         ],
+      };
+    } on PlatformException catch (error) {
+      return <String, Object?>{
+        'ok': false,
+        'code': error.code,
+        'message': error.message,
+        'diagnostic': <String>['原生抛错：${error.code} ${error.message}'],
+      };
+    }
+  }
+
+  @override
+  Future<Map<String, Object?>> messagesByTime({
+    required int startTime,
+    required int endTime,
+    String deviceId = '',
+    int offset = 0,
+    int limit = 50,
+  }) async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>(
+        'messagesByTime',
+        <String, Object?>{
+          'startTime': startTime,
+          'endTime': endTime,
+          'deviceId': deviceId,
+          'offset': offset,
+          'limit': limit,
+        },
+      );
+      return raw ??
+          <String, Object?>{
+            'ok': false,
+            'diagnostic': <String>['原生侧返回了 null'],
+          };
+    } on MissingPluginException {
+      return <String, Object?>{
+        'ok': false,
+        'diagnostic': <String>['本端未接入 messagesByTime：只做了 Android 侧桥接'],
       };
     } on PlatformException catch (error) {
       return <String, Object?>{

@@ -1154,6 +1154,33 @@ class FlowerpotState extends ChangeNotifier {
     return data;
   }
 
+  /// 消息中心按时间窗拉一页（诊断用，2026-09-21）。
+  ///
+  /// 按设备 / 按类型那两条都没有时间参数，带时间的只有聚合那条；产品在后台看到某个时间段有消息时
+  /// 用它对一对。详见 [TuyaRepository.messagesByTime]。
+  Future<Map<String, Object?>> loadMessagesByTime({
+    required DateTime start,
+    required DateTime end,
+    String deviceId = '',
+    int limit = 50,
+  }) async {
+    _logInteraction(
+      '消息中心（时间窗）→ ${start.toIso8601String()} ~ ${end.toIso8601String()}',
+    );
+    final data = await _repository.messagesByTime(
+      startTime: start.millisecondsSinceEpoch,
+      endTime: end.millisecondsSinceEpoch,
+      deviceId: deviceId,
+      limit: limit,
+    );
+    _logInteraction(
+      data['ok'] == true
+          ? '消息中心（时间窗）← ${data['count'] ?? 0} 条（单位 ${data['unit']}，其中本设备 ${data['matchedForDevice'] ?? 0} 条）'
+          : '消息中心（时间窗）✗ ${data['message'] ?? (data['diagnostic'] as List<Object?>?)?.join('；') ?? '未知原因'}',
+    );
+    return data;
+  }
+
   /// 割草机页面的 DP 记账入口（2026-09-18）。
   ///
   /// ⚠️ 这一轮**没有割草机真机**：下发不经过涂鸦 SDK，由 `MowerDevice` 拼好行文
