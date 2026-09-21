@@ -177,4 +177,47 @@ void main() {
       ]);
     });
   });
+
+  // 2026-09-21 接真机：上报方向的解码。
+  group('上报解码（接真机）', () {
+    test('DP103 区域：与编码对称；百分比 0 / valid=0 的区解成 0%', () {
+      const zones = <MowerZoneConfig>[
+        MowerZoneConfig(index: 1, percent: 30, meters: 12),
+        MowerZoneConfig(index: 3, percent: 0, meters: 99),
+        MowerZoneConfig(index: 5, percent: 70, meters: 200),
+      ];
+      final decoded = MowerZoneCodec.decode(MowerZoneCodec.encode(zones));
+      expect(decoded.map((zone) => zone.index), <int>[1, 2, 3, 4, 5]);
+      expect(decoded.map((zone) => zone.percent), <int>[30, 0, 0, 0, 70]);
+      expect(decoded[0].meters, 12);
+      expect(decoded[4].meters, 200, reason: '距离是 uint16 小端，200 要原样回来');
+    });
+
+    test('DP103 区域：长度不够的区照样给一行 0%，页面能画满 5 行', () {
+      final decoded = MowerZoneCodec.decode(<int>[1, 50, 10, 0, 1]);
+      expect(decoded, hasLength(5));
+      expect(decoded[0].percent, 50);
+      expect(decoded.skip(1).every((zone) => zone.percent == 0), isTrue);
+    });
+
+    test('DP107 时区：UTCB 是正偏移、UTCA 是负偏移，和 codeOf 互逆', () {
+      expect(MowerTimezone.indexOfCode('UTCB8'), MowerTimezone.zeroIndex + 8);
+      expect(MowerTimezone.indexOfCode('UTCA5'), MowerTimezone.zeroIndex - 5);
+      expect(MowerTimezone.indexOfCode('UTCB0'), MowerTimezone.zeroIndex);
+      for (var index = 0; index < MowerTimezone.count; index++) {
+        expect(MowerTimezone.indexOfCode(MowerTimezone.codeOf(index)), index);
+      }
+      expect(MowerTimezone.indexOfCode('UTCB13'), isNull);
+      expect(MowerTimezone.indexOfCode('beijing'), isNull);
+      expect(MowerTimezone.indexOfCode(20), 20, reason: '个别桥接直接报序号');
+    });
+
+    test('枚举型 DP：认字符串，也认序号；认不出返回 null', () {
+      String code(MowerMode mode) => mode.code;
+      expect(MowerDp.enumOf(MowerMode.values, code, 'spot'), MowerMode.spot);
+      expect(MowerDp.enumOf(MowerMode.values, code, 3), MowerMode.gotoCharge);
+      expect(MowerDp.enumOf(MowerMode.values, code, 'random'), isNull);
+      expect(MowerDp.enumOf(MowerMode.values, code, 99), isNull);
+    });
+  });
 }

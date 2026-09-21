@@ -145,7 +145,8 @@ class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
   /// 分支），设备刚配网还没选植物时进不去设备设置，也就够不到解绑和恢复出厂。
   /// 这里给一个不依赖首页形态的入口。
   void _openDeviceSettings(BuildContext context) {
-    final device = FlowerpotScope.of(context).selectedDevice;
+    // 只认花盆：刚配完割草机时选中的是割草机，不能把它带进花盆的设置页（2026-09-21）。
+    final device = FlowerpotScope.of(context).selectedPlanter;
     if (device == null) {
       showAppMessage(context, '请先添加并连接花盆', tone: AppMessageTone.info);
       return;

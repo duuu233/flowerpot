@@ -39,6 +39,12 @@ abstract final class TuyaRaw {
     }
   }
 
+  /// raw 功能点的**下发值**：十六进制串（大写）。SDK 的 `DevUtil.encodeRaw` 会把它转回
+  /// base64 再发给设备，所以 App 侧不自己转 base64。与 `TuyaMemorialCodec.encodeRaw` 同一口径。
+  static String hex(List<int> bytes) => <String>[
+    for (final byte in bytes) (byte & 0xFF).toRadixString(16).padLeft(2, '0'),
+  ].join().toUpperCase();
+
   /// 联调日志用：这条值是按哪种编码认出来的。
   static String encodingOf(Object? value) {
     if (value is List<int>) return '字节';

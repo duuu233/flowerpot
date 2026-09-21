@@ -199,7 +199,13 @@ abstract final class AppRoutes {
         deviceId: settings.arguments! as String,
       ),
       animations => AnimationsPage(deviceId: settings.arguments! as String),
-      mowerHome => const MowerHomePage(),
+      // 带 [MowerHomeArguments] = 真机（设备列表里那台）；不带 = 静态演示那条。
+      mowerHome => MowerHomePage(
+        deviceId: switch (settings.arguments) {
+          MowerHomeArguments(:final deviceId) => deviceId,
+          _ => null,
+        },
+      ),
       mowerParameters => const MowerParametersPage(),
       mowerZones => const MowerZonesPage(),
       mowerRain => const MowerRainPage(),

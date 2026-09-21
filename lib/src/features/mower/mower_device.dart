@@ -1,72 +1,77 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
 import '../../state.dart';
+import '../../tuya/tuya_raw.dart';
 import 'mower_demo.dart';
 import 'mower_dp.dart';
 
-/// 割草机这一台"设备"的当前 DP 值 + 下发/上报的唯一入口。
+/// 割草机这一台设备的当前 DP 值 + 下发/上报的唯一入口。
 ///
-/// ## 这一轮的前提（2026-09-18 用户明确）
+/// ## 两种模式
 ///
-/// **没有真设备。** 要的是「点页面 / 点按钮就把对应的 DPID 下发、上报出来，
-/// 在联调日志里看得见」。所以这里：
+/// - **真机**（2026-09-21 起，[bind] 传了 `deviceId`）：下发走涂鸦 SDK
+///   （`FlowerpotState.publishMowerDps`，和花盆同一道离线门禁），界面先本地回显；
+///   设备上报从 `FlowerpotState.mowerReports` 进来，按原始 DP 值解（[_applyReported]）。
+///   V2.2 §1「设备校验不通过时不回显，App 控件约 3~5 秒后超时回弹」：下发后
+///   [echoTimeout] 内这条 DP 没有上报，就按设备快照里的值画回去（[_armEchoCheck]）。
+///   下发失败（离线、SDK 报错）同样画回去，并经 [failures] 交给页面弹提示。
+/// - **静态演示**（`deviceId` 为空，搜索页 / 设备列表那条写死的割草机）：保持 2026-09-18 的
+///   做法——下发只记日志、本地回显；只读 DP 由 [report] 模拟，日志里标「模拟」。
 ///
-/// - **下发**：记一条日志（DP 号 + 标识符 + 值 + 这次操作是什么），然后**本地回显**
-///   ——真设备是靠上报回显的，没有设备就由这里代劳，否则界面点完不动，什么都验不了；
-/// - **上报**：只读 DP（DP5/DP13/DP18/DP117/DP118）没有设备会推，由
-///   [report] 模拟，日志里**标了「模拟」**，别和真设备上报混为一谈；
-/// - **接真设备时只改一处**：[_deliver]。把那一行换成
-///   `FlowerpotState.publishDps(deviceId, {dp: value})` 即可，页面一行都不用动。
-///
-/// ⚠️ **单例**：这一轮只有一台写死的演示割草机（见 `MowerDemo`），页面散在各处、
-/// 又没有设备列表可挂，单例是最省事且不会出错的做法。接了真设备之后要按 deviceId
-/// 分实例，那时把这里换成 `FlowerpotState` 里的一张表。
+/// ⚠️ **单例**：同一时间只会开着一套割草机页面，外壳（`MowerHomePage`）进来时 [bind]、
+/// 退出时 [release]，页面散在各处都读 [instance]。要同时开两台再按 deviceId 分实例。
 class MowerDevice extends ChangeNotifier {
-  MowerDevice._();
+  MowerDevice._() {
+    _loadDemoDefaults();
+  }
 
   static final MowerDevice instance = MowerDevice._();
 
-  // ── 控制类（下发后本地回显） ────────────────────────────
+  /// 下发后等设备回显的时长（V2.2 §1：App 控件约 3~5 秒后超时回弹）。
+  static const Duration echoTimeout = Duration(seconds: 5);
+
+  // ── 控制类 ──────────────────────────────────────────────
   /// DP2：true=运行中（按钮显示「停止」），false=已暂停（按钮显示「继续」）。
-  bool switchGo = false;
+  late bool switchGo;
 
   /// DP3：当前工作模式。
-  MowerMode mode = MowerMode.standby;
+  late MowerMode mode;
 
   /// **上一次下发过的作业模式**，用于「记忆」：停止之后再启动，设备按最后一次
   /// DP3 启动（V2.2 §3.2「启动=true(待机态)：按 App 最后下发的 DP3 模式启动」）。
   /// 没点过就是 null——这时启动只发 DP2，设备按它自己记的来。
   MowerMode? lastCommandedMode;
 
-  // ── 只上报类（没有设备，由 [report] 模拟） ──────────────
+  // ── 只上报类 ────────────────────────────────────────────
   /// DP5：工作状态。
-  MowerStatus status = MowerStatus.standby;
+  late MowerStatus status;
 
   /// DP13：电量。
-  int battery = 78;
+  late int battery;
 
   /// DP18：故障位图。0 = 无故障。
-  int faultBitmap = 0;
+  late int faultBitmap;
 
   /// DP117：充电状态。
-  MowerChargingStatus charging = MowerChargingStatus.notCharging;
+  late MowerChargingStatus charging;
 
   /// DP118：盖子。true=合盖（可启动）。
-  bool coverClosed = true;
+  late bool coverClosed;
 
-  // ── 设置类（下发后本地回显） ────────────────────────────
+  // ── 设置类 ──────────────────────────────────────────────
   /// DP104 / DP105 / DP102：雨淋检测、雨后延迟（分钟）、雨滴延时开关。
-  bool rainDetectEnable = true;
-  int rainDelayMinutes = 180;
-  bool rainDelaySwitch = true;
+  late bool rainDetectEnable;
+  late int rainDelayMinutes;
+  late bool rainDelaySwitch;
 
   /// DP106 / DP107 / DP108 / DP114：时间自动同步、时区枚举序、夏令时、上次对时。
-  bool timeSyncEnable = true;
-  int timezoneIndex = MowerTimezone.zeroIndex + 8;
-  bool dstEnable = false;
+  late bool timeSyncEnable;
+  late int timezoneIndex;
+  late bool dstEnable;
   String? deviceTimeUtcSeconds;
 
   /// DP109：机器语言。null = 设备还没报过，界面按手机语言显示默认值。
@@ -75,12 +80,13 @@ class MowerDevice extends ChangeNotifier {
   /// DP101：一周计划（界面序，0=周日）。**不存数据库，显示依赖 DP 解析**
   /// （2026-09-18 用户明确）——这里存的就是最后一次下发/上报解析出来的那份。
   ///
-  /// ⚠️ **初值取的是端上默认模板**（[defaultSchedule]，就是稿子上画的那几块）：
-  /// 没有真设备就没有 DP101 上报，真按"空"起页面上一根色块都没有，编辑/重叠/恢复默认
-  /// 这几条动线全验不了。接了真机之后这里应当改成空、等设备上报填。
-  List<MowerScheduleDay> schedule = defaultSchedule();
+  /// 静态演示取端上默认模板（[defaultSchedule]）；真机按设备上报，没报过就是空周。
+  late List<MowerScheduleDay> schedule;
 
-  /// 「恢复默认」与首次进入用的那份计划：稿子上画的四块（见 [MowerDemoPlan.slots]）。
+  /// DP103：五个区域的百分比与距离。
+  late List<MowerZoneConfig> zones;
+
+  /// 「恢复默认」与静态演示用的那份计划：稿子上画的四块（见 [MowerDemoPlan.slots]）。
   ///
   /// ⚠️ 它是**端上的默认模板**，设备侧没有「默认计划」这个概念——恢复默认 =
   /// 把这份模板整周下发下去。
@@ -101,13 +107,95 @@ class MowerDevice extends ChangeNotifier {
     return week;
   }
 
+  // ── 绑定（真机） ────────────────────────────────────────
+  String? _deviceId;
+  Object? _owner;
+  StreamSubscription<({String deviceId, Set<int> changedDps})>? _reportSub;
+
+  /// 下发排队：每条按调用顺序等上一条发完再发。时间同步要求 DP106 → 107 → 108 → 114
+  /// 的顺序（V2.2 §9.6），异步各发各的会乱序。
+  Future<void> _queue = Future<void>.value();
+
+  /// 已下发、还在等回显的 DP → 那次下发的序号（同一条 DP 又发了一次，旧的那次就不再回弹）。
+  final Map<int, int> _awaitingEcho = <int, int>{};
+  int _sendSeq = 0;
+  final Set<Timer> _echoTimers = <Timer>{};
+
+  final StreamController<String> _failures =
+      StreamController<String>.broadcast();
+
+  /// 当前绑的真机设备 ID；null = 静态演示。
+  String? get deviceId => _deviceId;
+
+  /// 是不是接着真机（下发走 SDK、上报来自设备）。
+  bool get isLive => _deviceId != null;
+
+  /// 下发失败时给页面看的一句话（外壳 `MowerHomePage` 订阅并弹提示）。
+  Stream<String> get failures => _failures.stream;
+
+  /// 进割草机页面时绑定：[deviceId] 为空是静态演示，否则接真机。
+  ///
+  /// 真机：先摆一套「设备还没报」的中性初值，再从设备快照把已上报的 DP 全部解一遍，
+  /// 之后订阅这台设备的上报。静态演示：只有上一次绑的是真机时才恢复演示数据——
+  /// 演示页面之间来回切，改过的开关要留着（2026-09-18 的行为不变）。
+  Future<void> bind(
+    FlowerpotState state, {
+    required Object owner,
+    String? deviceId,
+  }) async {
+    _owner = owner;
+    final wasLive = isLive;
+    _releaseLive();
+    if (deviceId == null) {
+      if (wasLive) _loadDemoDefaults();
+      notifyListeners();
+      return;
+    }
+    _deviceId = deviceId;
+    _loadLiveDefaults();
+    notifyListeners();
+    _reportSub = state.mowerReports
+        .where((report) => report.deviceId == deviceId)
+        .listen(
+          (report) => unawaited(_syncFromDevice(state, report.changedDps)),
+        );
+    await _syncFromDevice(state, null);
+  }
+
+  /// 退出割草机页面时解绑。[owner] 不是当前绑定者（已经被新进来的一套页面重绑过）就不动。
+  void release(Object owner) {
+    if (!identical(owner, _owner)) return;
+    _owner = null;
+    _releaseLive();
+  }
+
+  void _releaseLive() {
+    unawaited(_reportSub?.cancel());
+    _reportSub = null;
+    for (final timer in _echoTimers) {
+      timer.cancel();
+    }
+    _echoTimers.clear();
+    _awaitingEcho.clear();
+    _deviceId = null;
+  }
+
   /// 用例之间必须调一次：这是个单例，上一条用例改过的开关会漏到下一条。
   void resetForTest() {
+    _owner = null;
+    _releaseLive();
+    _queue = Future<void>.value();
+    _loadDemoDefaults();
+    notifyListeners();
+  }
+
+  /// 静态演示的那套值（2026-09-18 稿子上的数）。
+  void _loadDemoDefaults() {
     switchGo = false;
     mode = MowerMode.standby;
     lastCommandedMode = null;
     status = MowerStatus.standby;
-    battery = 78;
+    battery = MowerDemoDevice.batteryPercent;
     faultBitmap = 0;
     charging = MowerChargingStatus.notCharging;
     coverClosed = true;
@@ -127,17 +215,36 @@ class MowerDevice extends ChangeNotifier {
       MowerZoneConfig(index: 4, percent: 25, meters: 120),
       MowerZoneConfig(index: 5, percent: 30, meters: 60),
     ];
-    notifyListeners();
   }
 
-  /// DP103：五个区域的百分比与距离。
-  List<MowerZoneConfig> zones = const <MowerZoneConfig>[
-    MowerZoneConfig(index: 1, percent: 10, meters: 30),
-    MowerZoneConfig(index: 2, percent: 15, meters: 50),
-    MowerZoneConfig(index: 3, percent: 20, meters: 80),
-    MowerZoneConfig(index: 4, percent: 25, meters: 120),
-    MowerZoneConfig(index: 5, percent: 30, meters: 60),
-  ];
+  /// 真机「设备还没报」时的中性初值：**不编数**。快照里有的 DP 随后由 [_applyReported] 覆盖。
+  ///
+  /// - 计划为空周、五个区都是 0%（未配置）——真机上不能再画稿子上的演示色块；
+  /// - 盖子按合盖（没报就不拦启动，设备自己会拒）；
+  /// - 时区按手机当前时区（DP107 没报时时间同步页的默认选中项）。
+  void _loadLiveDefaults() {
+    switchGo = false;
+    mode = MowerMode.standby;
+    lastCommandedMode = null;
+    status = MowerStatus.standby;
+    battery = 0;
+    faultBitmap = 0;
+    charging = MowerChargingStatus.notCharging;
+    coverClosed = true;
+    rainDetectEnable = false;
+    rainDelayMinutes = 0;
+    rainDelaySwitch = false;
+    timeSyncEnable = false;
+    timezoneIndex = MowerTimezone.fromDeviceOffset(DateTime.now().timeZoneOffset);
+    dstEnable = false;
+    deviceTimeUtcSeconds = null;
+    language = null;
+    schedule = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());
+    zones = <MowerZoneConfig>[
+      for (var index = 1; index <= 5; index++)
+        MowerZoneConfig(index: index, percent: 0, meters: 0),
+    ];
+  }
 
   /// 首页黄色提醒那一行：有故障时是 DP18 的文案，没有故障是安全提示。
   String? get faultMessage => MowerFault.firstMessage(faultBitmap);
@@ -158,18 +265,21 @@ class MowerDevice extends ChangeNotifier {
   void setSwitch(FlowerpotState state, {required bool on}) {
     _deliver(state, MowerDp.switchGo, on, action: on ? '继续/启动' : '停止');
     switchGo = on;
-    if (on) {
-      // 记忆：启动时设备按 App 最后下发的 DP3 模式跑，界面要跟着回到那个模式，
-      // 否则用户点过「定点」、停一下再启动，界面上三颗按钮会全是可点的假象。
-      final remembered = lastCommandedMode;
-      if (remembered != null) {
-        mode = remembered;
-        _simulateReport(state, MowerDp.mode, remembered.code, note: '启动按记忆模式');
+    if (!isLive) {
+      // 静态演示：没有设备上报，由这里代劳。真机的 DP3 / DP5 以设备上报为准。
+      if (on) {
+        // 记忆：启动时设备按 App 最后下发的 DP3 模式跑，界面要跟着回到那个模式，
+        // 否则用户点过「定点」、停一下再启动，界面上三颗按钮会全是可点的假象。
+        final remembered = lastCommandedMode;
+        if (remembered != null) {
+          mode = remembered;
+          _simulateReport(state, MowerDp.mode, remembered.code, note: '启动按记忆模式');
+        }
+        _applyStatusForMode();
+      } else {
+        status = MowerStatus.paused;
+        _simulateReport(state, MowerDp.status, status.code);
       }
-      _applyStatusForMode();
-    } else {
-      status = MowerStatus.paused;
-      _simulateReport(state, MowerDp.status, status.code);
     }
     notifyListeners();
   }
@@ -187,7 +297,7 @@ class MowerDevice extends ChangeNotifier {
     if (target != MowerMode.standby) {
       lastCommandedMode = target;
     }
-    _applyStatusForMode();
+    if (!isLive) _applyStatusForMode();
     notifyListeners();
   }
 
@@ -287,10 +397,15 @@ class MowerDevice extends ChangeNotifier {
     state.logMowerInteraction('未接 ⚠ 割草机「$feature」当前还没有支持的 DPID');
   }
 
-  // ── 上报（没有设备，模拟） ──────────────────────────────
+  // ── 上报 ────────────────────────────────────────────────
 
-  /// 模拟设备上报一条只读 DP。调试面板用（见 `MowerControlPage` 的长按入口）。
+  /// 模拟设备上报一条只读 DP。**只给静态演示用**（`MowerControlPage` 长按电量环的面板）；
+  /// 接着真机时不模拟——只读状态以设备上报为准，混进假值会让人对着界面误判固件。
   void report(FlowerpotState state, int dp, Object value) {
+    if (isLive) {
+      state.logMowerInteraction('模拟上报已关闭 ⚠ 割草机已接真机，DP$dp 以设备上报为准');
+      return;
+    }
     switch (dp) {
       case MowerDp.coverStatus:
         coverClosed = value == true;
@@ -315,9 +430,128 @@ class MowerDevice extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 从设备快照同步。[changed] 为 null = 刚绑定时整份解一遍；否则只解这条报文带的 DP
+  /// （并把它们从「等回显」里划掉）。
+  Future<void> _syncFromDevice(FlowerpotState state, Set<int>? changed) async {
+    final id = _deviceId;
+    if (id == null) return;
+    final dps = await state.mowerDps(id);
+    if (dps == null || _deviceId != id) return;
+    if (changed == null) {
+      _applyReported(dps);
+      state.logMowerInteraction(
+        '读取 ← 割草机设备快照 ${dps.length} 个 DP：'
+        '${dps.keys.toList()..sort()}',
+      );
+    } else if (changed.isEmpty) {
+      // 整包快照（`onDevInfoUpdate`，报文里没有逐条 DP）：全部刷一遍，但**跳过还在等回显的**——
+      // 快照里还是下发前的旧值，这时刷回去界面会先闪回旧值、再被回显拉回来。
+      _applyReported(
+        dps,
+        only: dps.keys.where((dp) => !_awaitingEcho.containsKey(dp)),
+      );
+    } else {
+      _applyReported(dps, only: changed);
+      for (final dp in changed) {
+        _awaitingEcho.remove(dp);
+        final identifier = MowerDp.identifiers[dp] ?? 'dp$dp';
+        state.logMowerInteraction('上报 ← 割草机 DP$dp $identifier=${dps[dp]}');
+      }
+    }
+    notifyListeners();
+  }
+
+  /// 按设备快照里的原始值刷新字段。[only] 给了就只刷这几条。
+  ///
+  /// 值的形态按涂鸦：bool 型给 bool、value 型给整数、enum 型给**字符串**（个别桥接给序号，
+  /// 也认）、raw 型给 SDK 转好的**十六进制串**（`TuyaRaw.bytes` 同时兼容 base64）。
+  /// 认不出的值不动原字段——宁可停在上一个值，也不要画一个猜出来的。
+  void _applyReported(Map<int, Object?> dps, {Iterable<int>? only}) {
+    final targets = only ?? dps.keys;
+    for (final dp in targets) {
+      if (!dps.containsKey(dp)) continue;
+      final value = dps[dp];
+      switch (dp) {
+        case MowerDp.switchGo:
+          switchGo = _asBool(value) ?? switchGo;
+        case MowerDp.mode:
+          mode =
+              MowerDp.enumOf(MowerMode.values, (item) => item.code, value) ??
+              mode;
+        case MowerDp.status:
+          status =
+              MowerDp.enumOf(MowerStatus.values, (item) => item.code, value) ??
+              status;
+        case MowerDp.battery:
+          battery = (_asInt(value) ?? battery).clamp(0, 100);
+        case MowerDp.fault:
+          faultBitmap = _asInt(value) ?? faultBitmap;
+        case MowerDp.chargingStatus:
+          charging =
+              MowerDp.enumOf(
+                MowerChargingStatus.values,
+                (item) => item.code,
+                value,
+              ) ??
+              charging;
+        case MowerDp.coverStatus:
+          coverClosed = _asBool(value) ?? coverClosed;
+        case MowerDp.mowSchedule:
+          final scheduleBytes = TuyaRaw.bytes(value);
+          if (scheduleBytes != null &&
+              scheduleBytes.length >= MowerScheduleCodec.bytes) {
+            schedule = MowerScheduleCodec.decode(
+              Uint8List.fromList(scheduleBytes),
+            );
+          }
+        case MowerDp.zoneConfig:
+          final zoneBytes = TuyaRaw.bytes(value);
+          if (zoneBytes != null && zoneBytes.length >= MowerZoneCodec.bytes) {
+            zones = MowerZoneCodec.decode(zoneBytes);
+          }
+        case MowerDp.rainDelaySwitch:
+          rainDelaySwitch = _asBool(value) ?? rainDelaySwitch;
+        case MowerDp.rainDetectEnable:
+          rainDetectEnable = _asBool(value) ?? rainDetectEnable;
+        case MowerDp.rainDelay:
+          rainDelayMinutes = _asInt(value) ?? rainDelayMinutes;
+        case MowerDp.timeSyncEnable:
+          timeSyncEnable = _asBool(value) ?? timeSyncEnable;
+        case MowerDp.timezone:
+          timezoneIndex = MowerTimezone.indexOfCode(value) ?? timezoneIndex;
+        case MowerDp.dstEnable:
+          dstEnable = _asBool(value) ?? dstEnable;
+        case MowerDp.deviceTime:
+          final timeText = '${value ?? ''}'.trim();
+          if (timeText.isNotEmpty) deviceTimeUtcSeconds = timeText;
+        case MowerDp.language:
+          language =
+              MowerDp.enumOf(MowerLanguage.values, (item) => item.code, value) ??
+              language;
+        default:
+          break;
+      }
+    }
+  }
+
+  static bool? _asBool(Object? value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final text = '$value'.trim().toLowerCase();
+    if (text == 'true' || text == '1') return true;
+    if (text == 'false' || text == '0') return false;
+    return null;
+  }
+
+  static int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse('$value'.trim());
+  }
+
   // ── 内部 ────────────────────────────────────────────────
 
-  /// 模式变了之后把 DP5 摆到对应的状态上（真设备是自己报的）。
+  /// 静态演示：模式变了之后把 DP5 摆到对应的状态上（真设备是自己报的）。
   void _applyStatusForMode() {
     status = switch (mode) {
       MowerMode.standby => switchGo ? MowerStatus.standby : MowerStatus.paused,
@@ -331,11 +565,14 @@ class MowerDevice extends ChangeNotifier {
     };
   }
 
-  /// **唯一的下发出口**。接真设备时把这里换成 `state.publishDps`，页面不用动。
+  /// **唯一的下发出口**。静态演示只记日志；真机再经 SDK 发给设备（[_publish]）。
   void _deliver(FlowerpotState state, int dp, Object value, {String? action}) {
     final identifier = MowerDp.identifiers[dp] ?? 'dp$dp';
     final suffix = action == null ? '' : '（$action）';
     state.logMowerInteraction('下发 → 割草机 DP$dp $identifier=$value$suffix');
+    if (isLive) {
+      _publish(state, <int, Object>{dp: value}, label: 'DP$dp $identifier=$value');
+    }
   }
 
   void _deliverRaw(
@@ -352,11 +589,94 @@ class MowerDevice extends ChangeNotifier {
         '下发 → 割草机 DP$dp $identifier=${data.length}B$suffix',
       )
       ..logMowerInteraction('　　raw hex: $hex')
-      // 涂鸦 raw 型 DP 的下发值就是 base64，联调时要拿它和平台日志对
+      // 涂鸦 raw 型 DP 在设备侧就是这串 base64，联调时要拿它和平台日志对
       ..logMowerInteraction('　　base64: ${base64Encode(data)}');
+    if (isLive) {
+      // App 侧交给 SDK 的是**十六进制串**，SDK 的 DevUtil.encodeRaw 自己转成 base64
+      // （与花盆纪念日 154 等 raw 下发同一口径，见 TuyaRaw）。
+      _publish(
+        state,
+        <int, Object>{dp: TuyaRaw.hex(data)},
+        label: 'DP$dp $identifier=${data.length}B',
+      );
+    }
   }
 
-  /// 本地回显 / 模拟上报都走这里，日志里明写「模拟」——没有真设备，
+  /// 真机下发：排进队列按顺序发；失败就把界面画回设备快照并报给页面，成功就等回显。
+  void _publish(
+    FlowerpotState state,
+    Map<int, Object> dps, {
+    required String label,
+  }) {
+    final id = _deviceId;
+    if (id == null) return;
+    final seq = ++_sendSeq;
+    for (final dp in dps.keys) {
+      _awaitingEcho[dp] = seq;
+    }
+    _queue = _queue
+        .then((_) async {
+          if (_deviceId != id) return;
+          final result = await state.publishMowerDps(id, dps);
+          if (_deviceId != id) return;
+          if (!result.success) {
+            for (final dp in dps.keys) {
+              if (_awaitingEcho[dp] == seq) _awaitingEcho.remove(dp);
+            }
+            state.logMowerInteraction('下发失败 ✗ 割草机 $label：${result.message}');
+            if (!_failures.isClosed) {
+              _failures.add(
+                result.code == 'device_offline'
+                    ? '割草机已离线，指令没有发出去'
+                    : '指令没有发出去：${result.message}',
+              );
+            }
+            await _revertToDevice(state, id, dps.keys);
+            return;
+          }
+          _armEchoCheck(state, id, dps.keys.toList(growable: false), seq);
+        })
+        .catchError((Object error) {
+          state.logMowerInteraction('下发失败 ✗ 割草机 $label：$error');
+        });
+  }
+
+  /// 下发成功后 [echoTimeout] 内这几条 DP 还没有上报，就按设备快照画回去（V2.2 §1 超时回弹）。
+  void _armEchoCheck(FlowerpotState state, String id, List<int> dps, int seq) {
+    late final Timer timer;
+    timer = Timer(echoTimeout, () {
+      _echoTimers.remove(timer);
+      if (_deviceId != id) return;
+      final missing = <int>[
+        for (final dp in dps)
+          if (_awaitingEcho[dp] == seq) dp,
+      ];
+      if (missing.isEmpty) return;
+      for (final dp in missing) {
+        _awaitingEcho.remove(dp);
+      }
+      state.logMowerInteraction(
+        '回弹 ⚠ 割草机 DP${missing.join('/')} 下发 ${echoTimeout.inSeconds} 秒没有上报，'
+        '按设备当前值显示（设备可能拒绝了这条指令）',
+      );
+      unawaited(_revertToDevice(state, id, missing));
+    });
+    _echoTimers.add(timer);
+  }
+
+  /// 把这几条 DP 画回设备快照里的值。快照里没有的（设备从没报过）就保持现状。
+  Future<void> _revertToDevice(
+    FlowerpotState state,
+    String id,
+    Iterable<int> dps,
+  ) async {
+    final snapshot = await state.mowerDps(id);
+    if (snapshot == null || _deviceId != id) return;
+    _applyReported(snapshot, only: dps);
+    notifyListeners();
+  }
+
+  /// 静态演示的本地回显 / 模拟上报都走这里，日志里明写「模拟」——
   /// 这一行不是设备报上来的，别让人对着日志误判固件行为。
   void _simulateReport(FlowerpotState state, int dp, Object value, {String? note}) {
     final identifier = MowerDp.identifiers[dp] ?? 'dp$dp';

@@ -9,6 +9,7 @@ import '../../../tuya/tuya_models.dart';
 import '../../home/models/home_dashboard_model.dart';
 import '../../home/presentation/home_page.dart';
 import '../../mower/mower_demo.dart';
+import '../../mower/presentation/mower_home_page.dart';
 import 'device_online_guard.dart';
 
 class DeviceListPage extends StatelessWidget {
@@ -35,6 +36,16 @@ class DeviceListPage extends StatelessWidget {
     // 这里已经是设备列表页，提示即可，不用再往列表页跳。
     if (!device.online) {
       showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.error);
+      return;
+    }
+    // 真机割草机（2026-09-21）：进割草机那套页面并绑到这台设备上，不进花盆详情。
+    // 花盆详情整页读的是花盆的 DP（植物、水位……），割草机的 DP 号和它重叠、含义全不同。
+    if (state.isMowerDevice(device)) {
+      Navigator.pushNamed(
+        context,
+        AppRoutes.mowerHome,
+        arguments: MowerHomeArguments(deviceId: device.id),
+      );
       return;
     }
     state.selectDevice(device.id);

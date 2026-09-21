@@ -4,6 +4,8 @@ import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_list_page.dart';
 import 'package:flowerpot/src/features/mower/mower_demo.dart';
+import 'package:flowerpot/src/features/mower/mower_dp.dart';
+import 'package:flowerpot/src/features/mower/presentation/mower_home_page.dart';
 import 'package:flowerpot/src/features/home/models/home_dashboard_model.dart';
 import 'package:flowerpot/src/features/home/presentation/home_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
@@ -163,6 +165,37 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('真机割草机点进去是割草机页面（带设备 ID），不进花盆详情', (tester) async {
+    // 2026-09-21 割草机真机到位：设备列表里那一行来自涂鸦（`state.devices`），
+    // 按产品 ID 认出是割草机，进割草机那套页面并绑到这台设备上。
+    Object? mowerArguments;
+    Object? deviceArguments;
+    await _pumpDeviceList(
+      tester,
+      const Size(375, 812),
+      withRoutes: true,
+      devices: <SmartPlanterDevice>[
+        _device(id: 'device-01', name: 'YSplanter-01', online: true),
+        _device(
+          id: 'mower-01',
+          name: '割草机',
+          online: true,
+          productId: MowerDp.productId,
+        ),
+      ],
+      onDeviceArguments: (value) => deviceArguments = value,
+      onMowerArguments: (value) => mowerArguments = value,
+    );
+
+    await tester.tap(find.byKey(const Key('device-list-item-mower-01')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('mower-home-target'), findsOneWidget);
+    expect((mowerArguments! as MowerHomeArguments).deviceId, 'mower-01');
+    expect(deviceArguments, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('设备列表读不出来时给错误和重试，而不是「暂无设备」', (tester) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -215,12 +248,16 @@ Future<FlowerpotState> _pumpDeviceList(
   WidgetTester tester,
   Size size, {
   bool withRoutes = false,
+  List<SmartPlanterDevice>? devices,
   ValueChanged<Object?>? onDeviceArguments,
   ValueChanged<Object?>? onPlantPickerArguments,
+  ValueChanged<Object?>? onMowerArguments,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  final state = FlowerpotState(repository: _DeviceListRepository(_devices));
+  final state = FlowerpotState(
+    repository: _DeviceListRepository(devices ?? _devices),
+  );
   addTearDown(state.dispose);
   await state.refreshDevices();
   await tester.pumpWidget(
@@ -262,6 +299,7 @@ Future<FlowerpotState> _pumpDeviceList(
                   );
                 }
                 if (settings.name == AppRoutes.mowerHome) {
+                  onMowerArguments?.call(settings.arguments);
                   return MaterialPageRoute<void>(
                     builder: (_) => const Scaffold(
                       body: Center(child: Text('mower-home-target')),
@@ -288,10 +326,11 @@ SmartPlanterDevice _device({
   required String id,
   required String name,
   required bool online,
+  String productId = 'pid-smart-planter',
 }) {
   return SmartPlanterDevice(
     id: id,
-    productId: 'pid-smart-planter',
+    productId: productId,
     name: name,
     online: online,
     signal: online ? 86 : 0,

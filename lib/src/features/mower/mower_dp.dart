@@ -109,6 +109,25 @@ abstract final class MowerDp {
     coverStatus: 'cover_status',
     operatingTime: 'opearting_time',
   };
+
+  /// 设备上报的枚举值 → 枚举项；认不出返回 null。
+  ///
+  /// 涂鸦上报枚举型 DP 给的是**字符串**（`smart`、`charging`），个别桥接会直接报枚举序号，
+  /// 两种都认。序号即传输值（见各枚举的注释），所以按 `values[序号]` 取。
+  static T? enumOf<T extends Enum>(
+    List<T> values,
+    String Function(T item) codeOf,
+    Object? value,
+  ) {
+    if (value is int) {
+      return value >= 0 && value < values.length ? values[value] : null;
+    }
+    final text = '$value'.trim();
+    for (final item in values) {
+      if (codeOf(item) == text) return item;
+    }
+    return null;
+  }
 }
 
 /// DP3 工作模式。**枚举序 = 传输值**，顺序不可重排。
@@ -247,6 +266,17 @@ abstract final class MowerTimezone {
     final hours = offset.abs().toString().padLeft(2, '0');
     final city = _cities[index] ?? '';
     return city.isEmpty ? '(UTC$sign$hours:00)' : '(UTC$sign$hours:00) $city';
+  }
+
+  /// 设备上报的枚举字符串（`UTCB8`、`UTCA5`）→ 序号；认不出返回 null。
+  /// 个别桥接会直接报枚举序号（int），一并认。
+  static int? indexOfCode(Object? value) {
+    if (value is int) return value >= 0 && value < count ? value : null;
+    final match = RegExp(r'^UTC([AB])(\d{1,2})$').firstMatch('$value'.trim());
+    if (match == null) return null;
+    final hours = int.parse(match.group(2)!);
+    final index = match.group(1) == 'A' ? zeroIndex - hours : zeroIndex + hours;
+    return index >= 0 && index < count ? index : null;
   }
 
   /// 手机当前时区对应的枚举序号（不足一小时的偏移按就近整小时取）。
@@ -555,6 +585,27 @@ abstract final class MowerZoneCodec {
   }
 
   static String toBase64(Uint8List data) => base64Encode(data);
+
+  /// 解设备上报的 25 字节回 5 个区（区号 1–5，按字节位置定，与 [encode] 对称）。
+  ///
+  /// valid=0 或百分比 0 的区按「已删除」给 0%（V2.2 §5.2：百分比 0 = 删区）。
+  /// 长度不够的区同样给 0%，页面照样能画 5 行。
+  static List<MowerZoneConfig> decode(List<int> data) => <MowerZoneConfig>[
+    for (var index = 1; index <= 5; index++) _readZone(data, index),
+  ];
+
+  static MowerZoneConfig _readZone(List<int> data, int index) {
+    final offset = (index - 1) * zoneSize;
+    if (data.length < offset + zoneSize) {
+      return MowerZoneConfig(index: index, percent: 0, meters: 0);
+    }
+    final valid = data[offset + 4] != 0;
+    return MowerZoneConfig(
+      index: index,
+      percent: valid ? data[offset + 1].clamp(0, 100) : 0,
+      meters: data[offset + 2] | (data[offset + 3] << 8),
+    );
+  }
 
   static String toHexZones(Uint8List data) => <String>[
     for (var zone = 0; zone < 5; zone++)

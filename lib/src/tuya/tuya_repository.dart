@@ -165,6 +165,14 @@ abstract class TuyaRepository {
     String deviceId,
     List<String> identifiers,
   );
+
+  /// 设备快照里的**全部原始 DP**，按 DP 号取，**不经过花盆的功能点表**。
+  ///
+  /// 割草机用（2026-09-21 接真机）：它的 DP 号和花盆重叠（101–119 两边含义完全不同），
+  /// 走 [reportedDps] 那张按花盆标识符查的表只会拿错。返回 null = 本次会话还没拉到
+  /// 这台设备的快照。raw 型 DP 的值是 SDK 转好的十六进制串（见 `TuyaRaw`）。
+  Future<Map<int, Object?>?> rawDps(String deviceId);
+
   /// 涂鸦**消息中心**里某台设备的消息（排查用，2026-09-18 起；2026-09-20 改成按设备取）。
   ///
   /// [deviceId] 就是涂鸦的 `msgSrcId`，**必填**；[msgType] 是消息类型枚举名，
@@ -920,6 +928,20 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         identifier:
             dps['${TuyaConfig.dp[identifier]}'] ?? dps[TuyaConfig.dp[identifier]],
     };
+  }
+
+  @override
+  Future<Map<int, Object?>?> rawDps(String deviceId) async {
+    final snapshot = _snapshots[deviceId];
+    if (snapshot == null) return null;
+    final dps = snapshot['dps'];
+    if (dps is! Map) return <int, Object?>{};
+    final result = <int, Object?>{};
+    for (final entry in dps.entries) {
+      final dp = int.tryParse('${entry.key}');
+      if (dp != null) result[dp] = entry.value;
+    }
+    return result;
   }
 
   @override

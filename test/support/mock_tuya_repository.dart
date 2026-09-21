@@ -352,8 +352,20 @@ class MockTuyaRepository implements TuyaRepository {
     );
   }
 
+  /// 每次 [publishDps] 的 `(设备 ID, DP)`，按发生顺序。用例据此断言下发了什么。
+  final List<(String, Map<int, Object>)> publishedDps =
+      <(String, Map<int, Object>)>[];
+
+  /// 非空时 [publishDps] 抛它（模拟设备拒绝 / 网络失败）。
+  TuyaException? publishError;
+
   @override
-  Future<void> publishDps(String deviceId, Map<int, Object> dps) => _wait();
+  Future<void> publishDps(String deviceId, Map<int, Object> dps) async {
+    await _wait();
+    publishedDps.add((deviceId, Map<int, Object>.of(dps)));
+    final error = publishError;
+    if (error != null) throw error;
+  }
 
   @override
   Future<void> renameDevice(String deviceId, String name) async {
@@ -392,6 +404,16 @@ class MockTuyaRepository implements TuyaRepository {
     String deviceId,
     List<String> identifiers,
   ) async => null;
+
+  /// 设备快照里的原始 DP（按 DP 号），用例按需填。没填的设备返回 null（= 还没拉到快照）。
+  final Map<String, Map<int, Object?>> rawDpsByDevice =
+      <String, Map<int, Object?>>{};
+
+  @override
+  Future<Map<int, Object?>?> rawDps(String deviceId) async {
+    final dps = rawDpsByDevice[deviceId];
+    return dps == null ? null : Map<int, Object?>.of(dps);
+  }
 
   @override
   Future<List<double>> getHistory(

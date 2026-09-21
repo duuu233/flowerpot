@@ -106,8 +106,14 @@ class _MowerControlPageState extends State<MowerControlPage> {
     _device.setMode(state, target);
   }
 
-  /// 模拟设备上报：没有真机，只读 DP 得有地方改，否则盖子/故障那几条规则验不了。
+  /// 模拟设备上报：静态演示没有设备，只读 DP 得有地方改，否则盖子/故障那几条规则验不了。
+  ///
+  /// 接着真机时不开（2026-09-21）：只读状态以设备上报为准，混进模拟值会让人对着界面误判固件。
   Future<void> _openReportSheet() async {
+    if (_device.isLive) {
+      showAppMessage(context, '已接入真机，状态以设备上报为准', tone: AppMessageTone.info);
+      return;
+    }
     final state = FlowerpotScope.of(context);
     await showMowerReportSheet(context, device: _device, state: state);
   }

@@ -12,6 +12,7 @@ import 'core/network/api_exception.dart';
 import 'core/network/network_status.dart';
 import 'features/auth/domain/auth_validator.dart';
 import 'features/devices/pairing_gate.dart';
+import 'features/mower/mower_dp.dart';
 import 'shared/l10n/app_language.dart';
 import 'tuya/tuya_config.dart';
 import 'tuya/tuya_gallery_codec.dart';
@@ -213,6 +214,17 @@ class FlowerpotState extends ChangeNotifier {
       (device) => device.id == _selectedDeviceId,
       orElse: () => _devices.first,
     );
+  }
+
+  /// 当前选中的**花盆**：选中的是割草机时退回列表里第一台花盆，没有花盆就是 null。
+  ///
+  /// 配网成功会把刚配的那台设成选中（配网页靠 [selectedDevice] 找到它），配的是割草机时
+  /// 选中的就是割草机——「我的」页「设备设置」这类只认花盆的入口用这个，别把割草机
+  /// 带进花盆的设置页（2026-09-21）。
+  SmartPlanterDevice? get selectedPlanter {
+    final selected = selectedDevice;
+    if (selected != null && !isMowerDevice(selected)) return selected;
+    return _devices.where((device) => !isMowerDevice(device)).firstOrNull;
   }
 
   /// 设备有没有植物，以 DP 116 `plant_variety` 为准。
@@ -652,7 +664,7 @@ class FlowerpotState extends ChangeNotifier {
     return List<BleDevice>.unmodifiable(capped);
   }
 
-  /// 这台 BLE 设备**就是本产品**（花盆）。
+  /// 这台 BLE 设备**就是本 App 的产品**（花盆或割草机）。
   ///
   /// ⚠️ **两个 id 都要比**：BLE 扫描回来的 `ScanDeviceBean.getProductId()` 拿到的是
   /// **广播包里那个标识**（`TuyaConfig.broadcastId`），不是平台上的产品 ID。只比
@@ -660,15 +672,30 @@ class FlowerpotState extends ChangeNotifier {
   /// 「本产品」，就是这个原因。两者的区别见 [TuyaConfig.broadcastId]。
   ///
   /// 广播里的名字常常是空的、mac 每台都不同，所以这是唯一可靠的判据。
+  ///
+  /// 2026-09-21 割草机真机到位、后台也配好了产品 ID：认的范围扩到
+  /// ① 花盆的平台产品 ID 与广播 ID（`TuyaConfig`）；② 割草机的产品 ID（[MowerDp.productId]）；
+  /// ③ 后台基础信息接口 `getBasicData.deviceIdList` 里配的每一个产品 ID——后台以后再加产品，
+  /// 搜索页不用改代码就能扫出来。③ 是异步拉的（[startBleDiscovery] 开扫时顺手拉一次），
+  /// 没拉到时 ①② 照常生效。
   bool _isOurProduct(BleDevice device) {
     final id = device.productId.trim();
     if (id.isEmpty) return false;
-    // 平台产品 ID 与广播 ID（`TuyaConfig`）。
-    //
-    // ⚠️ 2026-09-14 起不再拉后台产品清单来补充：App 调的 `/Client/Product/getProductList`
+    // ⚠️ 2026-09-14 起不再拉后台**产品清单**来补充：App 调的 `/Client/Product/getProductList`
     // 线上不存在（与乱写的路径同样 500），这一支从来没拿到过数据，按产品要求整条删掉。
-    return id == TuyaConfig.productId || id == TuyaConfig.broadcastId;
+    // 这里用的是基础信息里的 `deviceIdList`，是另一条（线上存在的）接口。
+    return id == TuyaConfig.productId ||
+        id == TuyaConfig.broadcastId ||
+        id == MowerDp.productId ||
+        _basicData.deviceIdList.contains(id);
   }
+
+  /// 这台设备是不是**割草机**（按涂鸦设备的产品 ID 认，[MowerDp.productId]）。
+  ///
+  /// 设备列表、DP 上报都要靠它分流：割草机的 DP 号和花盆重叠（101–119 两边含义完全不同），
+  /// 按花盆那一套解会得到一堆看着像数、其实全错的值，还会顺手去后端查「植物」。
+  bool isMowerDevice(SmartPlanterDevice device) =>
+      device.productId.trim() == MowerDp.productId;
 
   /// 拉一株植物的**完整**资料（`/Client/UserProduct/getUserProductPlantDetail`）。
   ///
@@ -838,6 +865,9 @@ class FlowerpotState extends ChangeNotifier {
     // 时整行不画），换来的是这一页上没有任何一项来自上一轮。设备自己扫到的 Wi-Fi 列表
     // （[_deviceWifiNetworks]）属于上一轮点过的那台，一并清掉。
     _bleOwner = owner;
+    // 后台配的产品 ID（`deviceIdList`）是 [_isOurProduct] 的第三个来源，顺手拉一次；
+    // 已经拉过就是空操作，失败不影响扫描（花盆、割草机的产品 ID 另有常量兜着）。
+    unawaited(loadBasicData());
     _stopBleSweep();
     if (_bleScanning) {
       _bleScanning = false;
@@ -1273,11 +1303,36 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 割草机页面的 DP 记账入口（2026-09-18）。
   ///
-  /// ⚠️ 这一轮**没有割草机真机**：下发不经过涂鸦 SDK，由 `MowerDevice` 拼好行文
-  /// 直接写进同一个日志框（产品要的就是「点一下能在日志里看到 DPID」）。
-  /// 行首一律带「割草机」，与花盆那些行区分开；模拟出来的上报还会带「［模拟］」。
-  /// 接了真机之后，`MowerDevice._deliver` 换成 [publishDps]，这个入口可以只留给日志。
+  /// 行首一律带「割草机」，与花盆那些行区分开；静态演示数据模拟出来的上报还会带「［模拟］」。
+  /// 2026-09-21 接真机之后，真正的下发走 [publishMowerDps]，这里只记日志。
   void logMowerInteraction(String line) => _logInteraction(line);
+
+  /// 割草机：设备快照里的全部原始 DP（按 DP 号）。null = 本次会话还没拉到这台设备。
+  ///
+  /// 不走花盆那套解析（[SmartPlanterDevice] 的字段对割草机全是错的），`MowerDevice`
+  /// 拿原始值自己解。
+  Future<Map<int, Object?>?> mowerDps(String deviceId) =>
+      _repository.rawDps(deviceId);
+
+  /// 割草机的 DP 下发（2026-09-21 接真机）。
+  ///
+  /// 走和花盆同一个 [_publishDps]：同一道离线门禁（离线回 `device_offline`、指令不发）、
+  /// 同一行联调日志。**不占 [_guard] 的忙锁**——割草机页面上连着点几个开关是常态，
+  /// 占锁的话第二下会被挡成「请等待当前操作完成」；顺序由 `MowerDevice` 自己排队保证。
+  Future<ActionResult> publishMowerDps(String deviceId, Map<int, Object> dps) =>
+      _run(() async {
+        await _publishDps(deviceId, dps);
+        return const ActionResult(true, '指令已发送');
+      });
+
+  /// 割草机的 DP 上报：哪台设备、这条报文带了哪几个 DP（设备快照另由 [mowerDps] 取）。
+  ///
+  /// 割草机的上报**不进**花盆那条处理（植物、历史曲线、引导窗），只从这里分发出去。
+  Stream<({String deviceId, Set<int> changedDps})> get mowerReports =>
+      _mowerReports.stream;
+  final StreamController<({String deviceId, Set<int> changedDps})>
+  _mowerReports =
+      StreamController<({String deviceId, Set<int> changedDps})>.broadcast();
 
   /// 配网失败的完整原因（提示 + 失败码 + 各步耗时）记一条。
   ///
@@ -3310,6 +3365,13 @@ class FlowerpotState extends ChangeNotifier {
     _deviceUpdates?.cancel();
     _deviceUpdates = _repository.deviceUpdates.listen((update) {
       final device = update.device;
+      // 割草机：只更新列表里那一行（在线、名字），DP 交给 `MowerDevice` 按原始值解，
+      // 不走下面花盆那套（植物、引导窗、历史曲线）。
+      if (device != null && isMowerDevice(device)) {
+        _applyDeviceUpdate(update);
+        _mowerReports.add((deviceId: device.id, changedDps: update.changedDps));
+        return;
+      }
       if (device != null) {
         _logInteraction(
           '上报 ← 116=${device.plantVariety.isEmpty ? '-' : device.plantVariety}'
@@ -3435,6 +3497,13 @@ class FlowerpotState extends ChangeNotifier {
     // A report for a device the session does not hold: the next list refresh
     // is what introduces it.
     if (index < 0) return;
+    // 割草机：列表那一行换成最新快照（在线态、名字）就够了。下面是花盆专用的——
+    // 割草机的 DP116 是升级状态，当成植物 id 去后端查只会白发请求。
+    if (isMowerDevice(device)) {
+      _devices[index] = device;
+      notifyListeners();
+      return;
+    }
     _recordLiveSamples(device, update.changedDps);
     _settingsOverrides[device.id] = device.settings;
     // 116 报 -1 = 植物被拔走了。`SmartPlanterDevice.plant` 是非空字段（详情页
@@ -3472,6 +3541,7 @@ class FlowerpotState extends ChangeNotifier {
     _onlinePoll = null;
     _deviceUpdates?.cancel();
     _otaUpdates?.cancel();
+    unawaited(_mowerReports.close());
     // BLE 扫描在原生侧握着 Activity、还在耗电，状态对象没了更没人去停它。
     //
     // ⚠️ **这里不能调 `stopBleDiscovery()`**：它 `await` 之后还要 `notifyListeners()`，
