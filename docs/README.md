@@ -69,4 +69,4 @@ codegraph sync .
 
 记录路径为 `history/YYYY-MM/YYYY-MM-DD-topic.md`。一次集中修改对应一份记录，不维护无限增长的单文件日志。不得记录 Token、涂鸦密钥、安全组件、签名资料、Wi-Fi 密码、个人数据或完整本地配置。
 
-最近记录：[`history/2026-09/2026-09-21-割草机真机配网与DP对接.md`](history/2026-09/2026-09-21-割草机真机配网与DP对接.md)。
+最近记录：[`history/2026-09/2026-09-21-我的页去掉设备设置-反馈邮箱读platformEmail-关于改智能设备.md`](history/2026-09/2026-09-21-我的页去掉设备设置-反馈邮箱读platformEmail-关于改智能设备.md)。

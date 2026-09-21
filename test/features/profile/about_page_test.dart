@@ -12,7 +12,9 @@ void main() {
     expect(find.text('关于YSplanter'), findsOneWidget);
     expect(findAssetImage(AppAssets.appLogo), findsOneWidget);
     expect(findAssetImage(AppAssets.ysplanterWordmark), findsOneWidget);
-    expect(find.text('您的智能花盆贴心伴侣'), findsOneWidget);
+    // 2026-09-21 产品：「智能花盆」改为「智能设备」，logo 与字标不变。
+    expect(find.text('您的智能设备贴心伴侣'), findsOneWidget);
+    expect(find.textContaining('智能花盆'), findsNothing);
     expect(find.text('当前版本'), findsOneWidget);
     expect(find.text('V1.0.0'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);

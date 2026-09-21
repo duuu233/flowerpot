@@ -216,17 +216,6 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
-  /// 当前选中的**花盆**：选中的是割草机时退回列表里第一台花盆，没有花盆就是 null。
-  ///
-  /// 配网成功会把刚配的那台设成选中（配网页靠 [selectedDevice] 找到它），配的是割草机时
-  /// 选中的就是割草机——「我的」页「设备设置」这类只认花盆的入口用这个，别把割草机
-  /// 带进花盆的设置页（2026-09-21）。
-  SmartPlanterDevice? get selectedPlanter {
-    final selected = selectedDevice;
-    if (selected != null && !isMowerDevice(selected)) return selected;
-    return _devices.where((device) => !isMowerDevice(device)).firstOrNull;
-  }
-
   /// 设备有没有植物，以 DP 116 `plant_variety` 为准。
   ///
   /// 只看 [_plantedDevices] 会漏判：那个集合要等 116 的标识符能在植物目录里解析
@@ -3176,13 +3165,15 @@ class FlowerpotState extends ChangeNotifier {
     return _appVersion;
   }
 
-  /// 后台配的基础数据（用户协议、隐私政策、关于我们等），只拉一次。
+  /// 后台配的基础数据（用户协议、隐私政策、关于我们、平台邮箱、设备 ID 集合），默认拉到一次就复用。
   BackendBasicData _basicData = BackendBasicData.empty;
   BackendBasicData get basicData => _basicData;
 
-  Future<BackendBasicData> loadBasicData() async {
+  /// [refresh] 为 true 时不看缓存、重新拉：「我的」页每次进来都这样拉，后台改了平台邮箱
+  /// 不用重启 App 就能看到（2026-09-21）。拉失败保留旧的那份。
+  Future<BackendBasicData> loadBasicData({bool refresh = false}) async {
     if (!_backend.enabled || !_backend.hasSession) return _basicData;
-    if (!_basicData.isEmpty) return _basicData;
+    if (!refresh && !_basicData.isEmpty) return _basicData;
     try {
       _basicData = await _backend.getBasicData();
       notifyListeners();

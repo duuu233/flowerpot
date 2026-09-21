@@ -67,6 +67,8 @@ void main() {
     // 拍平只收标量，字符串数组以前整个被丢掉——帮助中心就拿不到产品 ID。
     expect(data.deviceIdList, <String>['yciq4kssu1fv8umn', 'other-id']);
     expect(data.values['platformemail'], 'service@example.test');
+    // 「我的」页意见反馈读的就是这个（2026-09-21 以前只认 serviceEmail 等猜的键名，一直是空的）。
+    expect(data.platformEmail, 'service@example.test');
     repository.close();
   });
 

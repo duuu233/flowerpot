@@ -35,8 +35,9 @@ class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
       if (!mounted) return;
       final state = FlowerpotScope.of(context);
       state.refreshUserInfo();
-      // 意见反馈那一行的邮箱来自后台「基础信息配置」。
-      state.loadBasicData();
+      // 意见反馈那一行的邮箱来自后台「系统设置」里配的平台邮箱。**每次进页面都重拉**
+      // （2026-09-21）：基础数据原来一次会话只拉一次，后台改了邮箱要重启 App 才看得到。
+      state.loadBasicData(refresh: true);
     });
   }
 
@@ -46,7 +47,7 @@ class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
     final state = FlowerpotScope.of(context);
     await Future.wait<void>(<Future<void>>[
       state.refreshUserInfo(),
-      state.loadBasicData(),
+      state.loadBasicData(refresh: true),
     ]);
   }
 
@@ -57,7 +58,7 @@ class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
         widget.pageModel ??
         MinePageModel.fromUser(
           state.user,
-          feedbackEmail: state.basicData.contact,
+          feedbackEmail: state.basicData.platformEmail,
           hasAppUpdate: state.hasAppUpdate,
         );
 
@@ -111,15 +112,9 @@ class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
   }
 
   void _openItem(BuildContext context, MineMenuKind kind, MinePageModel model) {
-    if (kind == MineMenuKind.deviceSettings) {
-      _openDeviceSettings(context);
-      return;
-    }
     final route = switch (kind) {
       MineMenuKind.personalInfo => AppRoutes.profile,
       MineMenuKind.accountSecurity => AppRoutes.settings,
-      // 已在上面单独处理：它要带设备 id 才能跳。
-      MineMenuKind.deviceSettings => null,
       MineMenuKind.privacyPolicy => AppRoutes.privacy,
       MineMenuKind.userAgreement => AppRoutes.agreement,
       MineMenuKind.about => AppRoutes.about,
@@ -137,25 +132,6 @@ class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
       return;
     }
     unawaited(_copyEmail(context, email));
-  }
-
-  /// 设备设置的另一个入口。
-  ///
-  /// 首页那排快捷操作只在「已绑定植物」的完整形态里渲染（见 `HomePage` 的三个
-  /// 分支），设备刚配网还没选植物时进不去设备设置，也就够不到解绑和恢复出厂。
-  /// 这里给一个不依赖首页形态的入口。
-  void _openDeviceSettings(BuildContext context) {
-    // 只认花盆：刚配完割草机时选中的是割草机，不能把它带进花盆的设置页（2026-09-21）。
-    final device = FlowerpotScope.of(context).selectedPlanter;
-    if (device == null) {
-      showAppMessage(context, '请先添加并连接花盆', tone: AppMessageTone.info);
-      return;
-    }
-    Navigator.pushNamed(
-      context,
-      AppRoutes.deviceSettings,
-      arguments: device.id,
-    );
   }
 
   /// 复制平台邮箱：这一行没有可跳的页面，用户要的就是把地址拿走。

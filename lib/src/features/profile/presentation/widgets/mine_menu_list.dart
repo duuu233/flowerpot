@@ -61,7 +61,6 @@ class MineMenuList extends StatelessWidget {
   String _assetFor(MineMenuKind kind) => switch (kind) {
     MineMenuKind.personalInfo => AppAssets.profileMenuPersonalInfoIcon,
     MineMenuKind.accountSecurity => AppAssets.profileMenuAccountSecurityIcon,
-    MineMenuKind.deviceSettings => AppAssets.deviceSettingsIcon,
     MineMenuKind.feedback => AppAssets.profileMenuFeedbackIcon,
     MineMenuKind.privacyPolicy => AppAssets.profileMenuPrivacyIcon,
     MineMenuKind.userAgreement => AppAssets.profileMenuAgreementIcon,

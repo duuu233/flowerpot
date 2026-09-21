@@ -35,7 +35,7 @@ void main() {
     expect(findAssetImage(AppAssets.homeBackground), findsOneWidget);
     expect(findAssetImage(AppAssets.appLogo), findsNothing);
     expect(findAssetImage(AppAssets.ysplanterWordmark), findsNothing);
-    expect(find.text('您的智能花盆贴心伴侣'), findsNothing);
+    expect(find.text('您的智能设备贴心伴侣'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

@@ -85,7 +85,7 @@ class _SplashPageState extends State<SplashPage>
           ),
           const SizedBox(height: 16),
           const Text(
-            '您的智能花盆贴心伴侣',
+            '您的智能设备贴心伴侣',
             style: TextStyle(
               color: AppColors.textSecondary,
               fontSize: 15,

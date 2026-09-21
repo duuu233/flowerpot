@@ -26,7 +26,7 @@
 
 模型文件：`lib/src/features/profile/models/about_page_model.dart`
 
-- `AboutPageModel`：应用名称、品牌标语、当前版本、更新状态与版本说明。
+- `AboutPageModel`：应用名称、品牌标语、当前版本、更新状态与版本说明。品牌标语 2026-09-21 起为「您的智能设备贴心伴侣」（产品：去掉「智能花盆」字样，改为「智能设备」，Logo 与字标保留）；启动页隐藏着的同一句标语一并改掉。
 - `AboutPageModel.current()`：提供与当前 `pubspec.yaml` 一致的 `1.0.0` 展示数据。
 
 ## 图片与资源

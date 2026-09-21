@@ -197,6 +197,12 @@ class BackendBasicData {
     'contact',
   ]);
 
+  /// `retData.platformEmail`：「平台邮箱」（swagger `BasicDataApiOut`），后台「系统设置」里配的。
+  /// 「我的」页意见反馈那一行显示、点了复制的就是它。以前只认 [contact] 那几个猜的键名，
+  /// 接口实际返回的 `platformEmail` 一个都对不上，于是这一行一直是空的（2026-09-21）。
+  String? get platformEmail =>
+      _pick(const <String>['platformEmail']) ?? contact;
+
   String? _pick(List<String> keys) {
     for (final key in keys) {
       final value = values[key.toLowerCase()];

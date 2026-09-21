@@ -213,16 +213,6 @@ void main() {
     expect(state.deviceById(_mowerId)!.online, isFalse);
   });
 
-  testWidgets('「我的」页那类只认花盆的入口：选中的是割草机时退回花盆', (tester) async {
-    final repository = _MowerRepository(withPlanter: true);
-    final state = await _state(repository);
-    state.selectDevice(_mowerId);
-
-    expect(state.selectedDevice?.id, _mowerId);
-    expect(state.selectedPlanter?.id, isNot(_mowerId));
-    expect(state.isMowerDevice(state.selectedPlanter!), isFalse);
-  });
-
   testWidgets('搜索页：割草机的产品 ID 也算本 App 的产品，扫到就列出来', (tester) async {
     final repository = _MowerRepository();
     final state = FlowerpotState(repository: repository);
@@ -285,18 +275,16 @@ SmartPlanterDevice _mower({bool online = true}) => SmartPlanterDevice(
   macAddress: 'AA:BB:CC:00:00:31',
 );
 
-/// 设备列表里有一台割草机（按需再加一台花盆）；其余照 Mock。
+/// 设备列表里只有一台割草机；其余照 Mock。
 class _MowerRepository extends MockTuyaRepository {
-  _MowerRepository({this.online = true, this.withPlanter = false})
+  _MowerRepository({this.online = true})
     : super(latency: Duration.zero, seedDevice: false);
 
   final bool online;
-  final bool withPlanter;
 
   @override
   Future<List<SmartPlanterDevice>> getDevices() async => <SmartPlanterDevice>[
     _mower(online: online),
-    if (withPlanter) MockTuyaRepository.fixtureDevice,
   ];
 }
 

@@ -29,6 +29,35 @@ void main() {
     expect(selected, <MineMenuKind>[MineMenuKind.personalInfo]);
   });
 
+  test('菜单里没有「设备设置」；意见反馈带着后台配的平台邮箱', () {
+    // 2026-09-21 产品：「我的」页去掉设备设置；意见反馈读后台配置的邮箱。
+    final model = MinePageModel.fromUser(
+      null,
+      feedbackEmail: ' service@example.test ',
+    );
+
+    expect(model.menuItems.map((item) => item.label), <String>[
+      '个人信息',
+      '账号与安全',
+      '意见反馈',
+      '隐私政策',
+      '用户协议',
+      '关于YSplanter',
+    ]);
+    final feedback = model.menuItems.firstWhere(
+      (item) => item.kind == MineMenuKind.feedback,
+    );
+    expect(feedback.trailingValue, 'service@example.test');
+    // 后台没配就不显示，也就没有可复制的东西。
+    final unset = MinePageModel.fromUser(null, feedbackEmail: '  ');
+    expect(
+      unset.menuItems
+          .firstWhere((item) => item.kind == MineMenuKind.feedback)
+          .trailingValue,
+      isNull,
+    );
+  });
+
   testWidgets('mine menu remains scrollable at 320x568', (tester) async {
     await _pumpMineWidgets(tester, const Size(320, 568));
 
@@ -54,7 +83,6 @@ Future<void> _pumpMineWidgets(
     menuItems: <MineMenuItem>[
       MineMenuItem(kind: MineMenuKind.personalInfo, label: '个人信息'),
       MineMenuItem(kind: MineMenuKind.accountSecurity, label: '账号与安全'),
-      MineMenuItem(kind: MineMenuKind.deviceSettings, label: '设备设置'),
       MineMenuItem(
         kind: MineMenuKind.feedback,
         label: '意见反馈',

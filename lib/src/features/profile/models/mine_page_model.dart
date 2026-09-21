@@ -1,9 +1,12 @@
 import '../../../tuya/tuya_models.dart';
 
+/// 「我的」页菜单项。
+///
+/// ⚠️ 2026-09-21 产品要求**去掉「设备设置」**：它是为「刚配网还没选植物时够不到解绑」
+/// 加的备用入口，现在设备列表就是首页，设备设置从各台设备自己的页面进。
 enum MineMenuKind {
   personalInfo,
   accountSecurity,
-  deviceSettings,
   feedback,
   privacyPolicy,
   userAgreement,
@@ -33,9 +36,9 @@ class MinePageModel {
     required this.menuItems,
   });
 
-  /// [feedbackEmail] 来自后台「基础信息配置」（`/Client/Basic/getBasicData` 的
-  /// 平台邮箱字段，见 `BackendBasicData.contact`）。后台没配或还没拉到时这一行
-  /// 不显示邮箱，也就没有可复制的内容。
+  /// [feedbackEmail] 来自后台「系统设置」里配的平台邮箱（`/Client/Basic/getBasicData`
+  /// 返回的 `platformEmail`，见 `BackendBasicData.platformEmail`）。后台没配或还没拉到时
+  /// 这一行不显示邮箱，也就没有可复制的内容。
   factory MinePageModel.fromUser(
     AppUser? user, {
     String? feedbackEmail,
@@ -53,7 +56,6 @@ class MinePageModel {
           kind: MineMenuKind.accountSecurity,
           label: '账号与安全',
         ),
-        const MineMenuItem(kind: MineMenuKind.deviceSettings, label: '设备设置'),
         MineMenuItem(
           kind: MineMenuKind.feedback,
           label: '意见反馈',

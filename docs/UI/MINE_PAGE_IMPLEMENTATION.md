@@ -15,7 +15,7 @@
 | Widget | 文件 | 职责 |
 | --- | --- | --- |
 | `MineProfileHeader` | `presentation/widgets/mine_profile_header.dart` | 用户头像、昵称和编辑入口 |
-| `MineMenuList` | `presentation/widgets/mine_menu_list.dart` | 七项个人中心菜单及反馈邮箱 |
+| `MineMenuList` | `presentation/widgets/mine_menu_list.dart` | 六项个人中心菜单及反馈邮箱 |
 
 头像继续复用 `AppAvatar`，编辑按钮复用 `AppIconButton`，菜单容器及列表项复用 `AppSettingsList` 和 `AppSettingsTile`，未建立重复公共组件。
 
@@ -25,8 +25,13 @@
 
 - `MinePageModel`：昵称、头像路径和页面菜单集合。
 - `MineMenuItem`：菜单标题、类型和可选尾部文字。
-- `MineMenuKind`：个人信息、账号安全、帮助、反馈、隐私、协议和关于。
-- `MinePageModel.fromUser`：把 `AppUser` 转换成页面展示模型。
+- `MineMenuKind`：个人信息、账号安全、反馈、隐私、协议和关于（2026-09-21 起共六项：帮助中心早已挪到首页快捷列表，「设备设置」按产品要求去掉，设备设置从各台设备自己的页面进）。
+- `MinePageModel.fromUser`：把 `AppUser` 转换成页面展示模型；`feedbackEmail` 取 `state.basicData.platformEmail`。
+
+## 数据来源
+
+- 意见反馈的邮箱 = `/Client/Basic/getBasicData` 返回的 `platformEmail`（swagger `BasicDataApiOut`「平台邮箱」，后台「系统设置」里配），经 `BackendBasicData.platformEmail` 读取。2026-09-21 以前只认 `serviceEmail` / `contactEmail` / `email` 等猜的键名，接口字段对不上，这一行一直是空的。
+- 进页面（以及「网络异常」弹窗点重试）调 `loadBasicData(refresh: true)`，**每次都重拉**：后台改了邮箱不用重启 App；拉失败保留旧值。其他页面（协议、搜索页）仍用 `loadBasicData()` 复用已拉到的那份。
 
 ## 图片占位
 
@@ -39,8 +44,7 @@
 - 返回按钮 → 上一页面。
 - 个人信息、昵称编辑按钮、头像 → 个人资料编辑。
 - 账号与安全 → 应用设置和账号管理。
-- 帮助中心 → 帮助页面。
-- 意见反馈 → 使用现有 Snackbar 展示反馈邮箱。
+- 意见反馈 → 行内显示后台配置的平台邮箱，点击复制到剪贴板；后台没配时提示「后台还没有配置平台邮箱」。
 - 隐私政策 → 隐私政策页面。
 - 用户协议 → 用户协议页面。
 - 关于 YSplanter → 关于页面。
