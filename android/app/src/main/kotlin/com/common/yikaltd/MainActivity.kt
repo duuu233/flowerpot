@@ -2909,8 +2909,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * ⚠️ 它是**聚合**口径（不分设备、不分类型）——所以只当诊断用：产品在后台看到某个时间段有消息，
      * 这条就是去回答「那一段里 App 这边能看见什么」。取数照旧走按设备那条。
      *
-     * ⚠️ 时间是 `long`，**单位官方没写**：先按毫秒试，被拒或回空再按秒试一遍，
-     * 哪个被接受写进 `unit` 一并回给页面。给了设备 ID 时再顺手数一下这一页里有几条是它的。
+     * ⚠️ 时间是 `long`，**单位官方没写，真机实测是秒**（2026-09-21：毫秒回 0 条、秒回 2 条）。
+     * 先按秒调，回空再按毫秒试一遍兜底，被接受的写进 `unit`。给了设备 ID 时再顺手数一下这一页里有几条是它的。
      */
     private fun messagesByTime(call: MethodCall, result: MethodChannel.Result) {
         val offset = (call.argument<Number>("offset"))?.toInt() ?: 0
@@ -2934,8 +2934,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
         val name = "getMessageList"
         val candidates = mutableListOf<Pair<String, Array<Any?>>>()
-        candidates += "毫秒" to arrayOf<Any?>(offset, limit, startMs, endMs)
+        // 2026-09-21 真机实测：**单位是秒**（按毫秒传回 0 条、按秒传回 2 条，时间对得上）。
+        // 秒放前面；毫秒留作兜底，SDK 换版改了单位时还能自己试出来。
         candidates += "秒" to arrayOf<Any?>(offset, limit, startMs / 1000, endMs / 1000)
+        candidates += "毫秒" to arrayOf<Any?>(offset, limit, startMs, endMs)
 
         fun attempt(index: Int) {
             if (index >= candidates.size) {

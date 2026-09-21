@@ -270,7 +270,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
 
   /// 调试板的版本印子。**每改一次这块板就往上加一版**：贴回来的日志里有没有这行、是第几版，
   /// 一眼就能看出跑的是不是最新的包——之前两轮就卡在"看不出他跑的是哪一版"上。
-  static const String _probeVersion = 'probe-v6 · 2026-09-21';
+  static const String _probeVersion = 'probe-v7 · 2026-09-21';
 
   /// 联调用的测试设备 ID：涂鸦后台「设备消息监控列表」里那条 `text2` 推送挂在它上面
   /// （产品 2026-09-20 给的）。调试板默认填它，省得每次手打 22 位。
@@ -403,11 +403,34 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
       return;
     }
     setState(() => _loadingLogs = true);
-    final data = await state.loadDeviceOperateLogs(
+    var data = await state.loadDeviceOperateLogs(
       deviceId: deviceId,
       dpIds: _dpIds.text.trim(),
     );
     if (!mounted) return;
+    // 2026-09-21 真机：查**不属于本账号**的设备时，四种取值全是 `PERMISSION_DENIED 没权限`
+    // ——这条报错本身就是答案（参数格式过了校验，卡在权限）。所以这里自动换成账号里真绑着的
+    // 那台再试一次，省一个来回；两次的诊断都留着。
+    final denied =
+        ((data['diagnostic'] as List<Object?>?) ?? const <Object?>[])
+            .join(' ')
+            .contains('PERMISSION_DENIED');
+    final bound = state.devices.isEmpty ? '' : state.devices.first.id;
+    if (data['ok'] != true && denied && bound.isNotEmpty && bound != deviceId) {
+      final retry = await state.loadDeviceOperateLogs(
+        deviceId: bound,
+        dpIds: _dpIds.text.trim(),
+      );
+      if (!mounted) return;
+      data = <String, Object?>{
+        ...retry,
+        'diagnostic': <Object?>[
+          '用 $deviceId 调是 PERMISSION_DENIED（这台不在当前账号里），'
+              '自动换成已绑定的 $bound 重试：',
+          ...((retry['diagnostic'] as List<Object?>?) ?? const <Object?>[]),
+        ],
+      };
+    }
     setState(() {
       _loadingLogs = false;
       _logs = data;
@@ -433,7 +456,14 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
       ..writeln(_probeVersion)
       ..writeln(FlowerpotScope.of(context).sessionDiagnostics)
       ..writeln('目标设备=${_deviceId.text.trim()}  类型=$_msgType')
-      ..writeln('已绑定=${FlowerpotScope.of(context).devices.map((d) => d.id).join('、')}')
+      ..writeln(
+        '已绑定='
+        '${FlowerpotScope.of(context).devices.map((d) => '${d.id}(pid=${d.productId})').join('、')}',
+      )
+      ..writeln(
+        '目标产品 ${TuyaConfig.broadcastId}='
+        '${FlowerpotScope.of(context).devices.any((d) => d.productId == TuyaConfig.broadcastId) ? '账号里有这个产品的设备' : '⚠️ 账号里没有这个产品的设备'}',
+      )
       ..writeln('dpIds=${_dpIds.text.trim()}')
       ..writeln('时间窗=${_startDay.text.trim()} ~ ${_endDay.text.trim()}');
     final result = _result;
@@ -576,7 +606,28 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                 ),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 2),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                key: const Key('mower-messages-debug-use-bound'),
+                onPressed: state.devices.isEmpty
+                    ? null
+                    : () => setState(
+                        () => _deviceId.text = state.devices.first.id,
+                      ),
+                style: TextButton.styleFrom(
+                  foregroundColor: MowerColors.brand,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  '填账号里已绑定的那台',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
             // 把已绑定设备列出来：查不到消息时，先看这台设备到底在不在当前账号里。
             SelectableText(
               products.isEmpty

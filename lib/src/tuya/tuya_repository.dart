@@ -223,8 +223,8 @@ abstract class TuyaRepository {
   /// 而它是**聚合**口径（不分设备、不分类型）。所以这条只当诊断：后台在某个时间段看得到消息时，
   /// 用它回答「那一段里 App 这边能看见什么」。取数照旧走按设备那条。
   ///
-  /// [startTime] / [endTime] 传**毫秒**；原生先按毫秒调，拿不到再按秒试一遍，
-  /// 实际被接受的单位写在返回的 `unit` 里。给了 [deviceId] 时返回里还会有 `matchedForDevice`
+  /// [startTime] / [endTime] 传**毫秒**（Dart 这边统一毫秒）；原生换算后**先按秒调**
+  /// （2026-09-21 真机实测 SDK 这条的单位是秒），回空再按毫秒兜底，实际被接受的单位写在 `unit` 里。给了 [deviceId] 时返回里还会有 `matchedForDevice`
   /// （这一页里有几条是它的）。
   Future<Map<String, Object?>> messagesByTime({
     required int startTime,

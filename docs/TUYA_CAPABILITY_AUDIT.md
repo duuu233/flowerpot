@@ -202,6 +202,22 @@ void cancelAll();
 （`getMessageListByMsgType`，最多 20 条）把每条的 `msgSrcId` / `msgType` / `msgTypeContent` /
 `msgCode` / `alarmType` / `dateTime` 打出来。
 
+### 5.3.5 `probe-v6` 采集：`6c26…cadl` **不属于当前账号**（PERMISSION_DENIED 就是证据）
+
+| 观察 | 结论 |
+| --- | --- |
+| 聚合时间窗 09-18 ~ 09-19：**毫秒 0 条、秒 2 条**（两条登录提醒，时间对得上） | `getMessageList(int, int, long, long, cb)` 的时间**单位是秒** |
+| 那一段的 2 条都是 `LOGIN_MSG_CENTER`，**本设备 0 条** | 那段时间 App 侧没有任何设备消息，更没有 `text2` |
+| 同一条 `LOGIN_MSG_CENTER`：按类型取时 `msgTypeContent=通知`，按时间取时 `=系统提醒` | **`msgTypeContent` 随接口变**，分档别靠它，靠查询时的 `MessageType`；细分靠 `msgCode` |
+| 设备日志：dpIds 非空的三种取值都是 **`PERMISSION_DENIED 没权限`**；dpIds 为空是 `10010 Illegal parameter error.` | ①参数格式已过校验：**dpIds 必填**，毫秒时间戳字符串被接受；②卡在权限——查的设备不在当前账号 |
+
+**所以 `6c2649322ed1365a00cadl` 不是 `YS40301` 这个账号的设备**：账号里只绑着 `6c707c4ee7b5e5bea5m7hm`，
+拿别的账号的设备去查日志，服务端直接回没权限。这也就解释了为什么按它的 `msgSrcId` 永远是 0 条——
+**后台监控列表里那条 `text2` 挂在另一台设备 / 另一个账号上**，用当前账号登录的 App 看不见。
+
+两条出路：① 用绑着 `6c26…cadl` 的那个账号登录 App 再查；② 在 `6c707c…m7hm`（当前账号那台）上真的触发一条告警推送。
+调试板因此加了「填账号里已绑定的那台」按钮，设备日志遇到 `PERMISSION_DENIED` 时自动换成已绑定那台重试一次。
+
 ### 5.3.4 时间筛选与产品 ID（2026-09-21 追问）
 
 **`getMessageListByMsgSrcId` 不支持时间筛选。** 解包核对的四个重载里，除了
@@ -215,7 +231,7 @@ void getMessageList(int offset, int limit, long startTime, long endTime,
 ```
 
 所以要「只看某个时间段」只有两条路：① 用这条聚合接口（本轮已接成桥接 `messagesByTime`，
-**只当诊断**，时间单位官方没写，原生先按毫秒试、空了再按秒试一遍，实际被接受的写进 `unit`）；
+**只当诊断**；时间单位官方没写，**真机实测是秒**，原生先按秒调、空了再按毫秒兜底，被接受的写进 `unit`）；
 ② 按设备那条靠 `offset` 往后翻页，直到 `dateTime` 落进那一段（消息是倒序给的）。
 
 ⚠️ 但**时间不是这次查不到的原因**：告警档 `totalCount=0`、按类型取（不带时间、不带设备）全账号也是
