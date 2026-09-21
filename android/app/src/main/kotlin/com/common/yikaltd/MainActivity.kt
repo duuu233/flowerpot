@@ -2690,7 +2690,16 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         fun fetch(index: Int) {
             if (index >= wanted.size) {
                 if (items.isEmpty()) {
-                    probeExtras(0, listOf("getMessageMaxTime", "requestMessageNew")) {
+                    // 设备、产品都对上仍然 0 条时，再看免打扰：设备告警免打扰开着会不会导致收不到。
+                    probeExtras(
+                        0,
+                        listOf(
+                            "getMessageMaxTime",
+                            "requestMessageNew",
+                            "getDeviceDNDSetting",
+                            "getAllDNDList",
+                        ),
+                    ) {
                         peekByType(0) { reply() }
                     }
                 } else {
@@ -2836,10 +2845,13 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             .joinToString { m -> m.name + "(" + m.parameterTypes.joinToString { it.simpleName } + ")" }
         val name = "queryDeviceOperateLogs"
 
-        // 2026-09-21 真机：七个参数全按「设备 ID、dpIds、offset、limit、开始、结束、排序」传、
-        // 后三个给空串，服务端回 `Illegal parameter error.`。方法确实在（实例方法清单里有），
-        // 所以是**取值**不合口径，不是签名不对。逐个候选试，把每次的报错都记下来——
-        // 一趟就能看出它到底要什么：dpIds 必填？时间必须给毫秒？排序要 true/false？
+        // ✅ 2026-09-21 真机确认（设备 6c707c…m7hm）：**第一种取值就被接受**——
+        //   (设备ID, "103,105,106", offset, limit, 开始毫秒字符串, 结束毫秒字符串, "false")
+        // 回来的是 `{"dpc":[],"dps":[{dpId,timeStamp(秒),timeStr,value}],"hasNext":false,"total":19}`。
+        // 踩过的坑：dpIds 为空 → `10010 Illegal parameter error.`；设备不在当前账号 →
+        // `PERMISSION_DENIED 没权限`（参数格式没问题，是权限）。
+        // ⚠️ 第七个参数传 "false" 时结果是**按时间升序**的，和 iOS 那边 `isASC` 的字面意思对不上，
+        //    语义待再比一次 "true"。后面几个候选保留，SDK 换版口径变了还能自己试出来。
         val candidates = mutableListOf<Pair<String, Array<Any?>>>()
         candidates += "dpIds + 时间窗 + sort=$sort" to
             arrayOf<Any?>(deviceId, dpIds, offset, limit, startTime, endTime, sort)

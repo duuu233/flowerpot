@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -270,7 +271,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
 
   /// 调试板的版本印子。**每改一次这块板就往上加一版**：贴回来的日志里有没有这行、是第几版，
   /// 一眼就能看出跑的是不是最新的包——之前两轮就卡在"看不出他跑的是哪一版"上。
-  static const String _probeVersion = 'probe-v7 · 2026-09-21';
+  static const String _probeVersion = 'probe-v8 · 2026-09-21';
 
   /// 联调用的测试设备 ID：涂鸦后台「设备消息监控列表」里那条 `text2` 推送挂在它上面
   /// （产品 2026-09-20 给的）。调试板默认填它，省得每次手打 22 位。
@@ -437,6 +438,28 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     });
   }
 
+  /// 设备日志 JSON → 读得懂的几行（原文照样保留在下面）。
+  ///
+  /// 真机确认的结构（2026-09-21）：`{"dpc":[],"dps":[{dpId,timeStamp(秒),timeStr,value}],
+  /// "hasNext":false,"total":19}`——`dps` 是设备上报，`dpc` 看名字是下发记录（这次是空的）。
+  List<String> _logLines(Object? raw) {
+    if (raw is! String || raw.isEmpty) return const <String>[];
+    try {
+      final data = jsonDecode(raw);
+      if (data is! Map) return const <String>['（不是对象，看下面原文）'];
+      final reports = (data['dps'] as List<Object?>?) ?? const <Object?>[];
+      final commands = (data['dpc'] as List<Object?>?) ?? const <Object?>[];
+      return <String>[
+        '上报 dps ${reports.length} 条 · 下发 dpc ${commands.length} 条 · '
+            'total=${data['total']} · hasNext=${data['hasNext']}',
+        for (final entry in reports.take(50))
+          if (entry is Map) '${entry['timeStr']}  DP${entry['dpId']} = ${entry['value']}',
+      ];
+    } on FormatException {
+      return const <String>['（不是合法 JSON，看下面原文）'];
+    }
+  }
+
   /// 把整块面板复制到剪贴板（按钮与长按共用）。提示里带字数，省得按了不知道成没成。
   void _copyAll() {
     final text = _plainText;
@@ -509,7 +532,8 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     if (logs != null) {
       buffer
         ..writeln('--- 设备日志（DP 上报历史）---')
-        ..writeln('ok=${logs['ok']}  method=${logs['method']}')
+        ..writeln('ok=${logs['ok']}  method=${logs['method']}  命中取值=${logs['accepted']}')
+        ..writeAll(_logLines(logs['raw']).map((line) => '$line\n'))
         ..writeln('${logs['raw'] ?? logs['message'] ?? ''}');
       for (final line in (logs['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
         buffer.writeln('· $line');
@@ -806,6 +830,19 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
             ],
             if (_logs != null) ...<Widget>[
               const SizedBox(height: 10),
+              for (final line in _logLines(_logs!['raw']))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: SelectableText(
+                    line,
+                    style: const TextStyle(
+                      color: MowerColors.ink,
+                      fontSize: 11,
+                      height: 1.45,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
               SelectableText(
                 '设备日志 ok=${_logs!['ok']}  命中取值=${_logs!['accepted'] ?? '-'}\n'
                 '${_logs!['raw'] ?? _logs!['message'] ?? ''}',
