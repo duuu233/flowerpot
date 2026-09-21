@@ -6,6 +6,7 @@ import 'package:flowerpot/src/features/devices/presentation/device_other_setting
 import 'package:flowerpot/src/features/devices/presentation/device_settings_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/tuya_config.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -69,6 +70,55 @@ void main() {
 
     expect(removeDevice, findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('恢复出厂设置：确认后先下发 141，再用 resetFactory 解绑', (tester) async {
+    // 2026-09-21 产品：「恢复出厂设置功能需要先下发恢复出厂 dp 再执行解除设备逻辑」。
+    final repository = _OtherSettingsRepository();
+    final state = await _pumpOtherSettings(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+
+    final reset = find.byKey(const Key('factory-reset-setting'));
+    await tester.ensureVisible(reset);
+    await tester.tap(reset);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('app-dialog-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(repository.calls, <String>[
+      'publishDps {${TuyaConfig.dp['factory_reset']}: true}',
+      'resetFactory',
+    ]);
+    expect(state.deviceById('device-01'), isNull);
+    expect(tester.takeException(), isNull);
+    // 成功提示的计时器走完，别留下待处理的 Timer。
+    await tester.pump(const Duration(seconds: 11));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('恢复出厂设置：设备离线时不弹确认框、不下发也不解绑', (tester) async {
+    final repository = _OtherSettingsRepository()..online = false;
+    final state = await _pumpOtherSettings(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+
+    final reset = find.byKey(const Key('factory-reset-setting'));
+    await tester.ensureVisible(reset);
+    await tester.tap(reset);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('app-dialog-confirm')), findsNothing);
+    expect(find.text('设备已离线'), findsOneWidget);
+    expect(repository.calls, isEmpty);
+    expect(state.deviceById('device-01'), isNotNull);
+    expect(tester.takeException(), isNull);
+    await tester.pump(const Duration(seconds: 11));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('temperature unit can be changed', (tester) async {
@@ -514,10 +564,28 @@ class _OtherSettingsRepository extends MockTuyaRepository {
   /// 涂鸦在同一条 OTA 记录里报的当前版本，null 表示 SDK 没给。
   final String? currentFirmware;
 
+  /// 设备在不在线（恢复出厂的门禁用）。
+  bool online = true;
+
+  /// 下发与解绑按发生顺序记下来：恢复出厂要求 141 在前、解绑在后。
+  final List<String> calls = <String>[];
+
   @override
   Future<List<SmartPlanterDevice>> getDevices() async => <SmartPlanterDevice>[
-    _device,
+    _device.copyWith(online: online),
   ];
+
+  @override
+  Future<void> publishDps(String deviceId, Map<int, Object> dps) {
+    calls.add('publishDps $dps');
+    return super.publishDps(deviceId, dps);
+  }
+
+  @override
+  Future<void> removeDevice(String deviceId, {required bool resetFactory}) {
+    calls.add(resetFactory ? 'resetFactory' : 'removeDevice');
+    return super.removeDevice(deviceId, resetFactory: resetFactory);
+  }
 
   @override
   Future<FirmwareUpdate?> checkFirmware(String deviceId) async {

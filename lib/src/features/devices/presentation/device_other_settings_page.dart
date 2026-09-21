@@ -312,6 +312,9 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     SmartPlanterDevice device, {
     required bool resetFactory,
   }) async {
+    // 恢复出厂要先把 DP 141 发到设备上才解绑（2026-09-21），离线时发不出去——先拦，
+    // 别让用户确认完一件做不成的事。状态层还会再判一次，这里只是提前说。
+    if (resetFactory && !ensureDeviceOnline(context, widget.deviceId)) return;
     final title = resetFactory ? '恢复出厂设置' : '移除设备';
     final message = resetFactory
         ? '设备数据和个性化设置将被清除，确定继续吗？'
@@ -326,9 +329,12 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     if (!confirmed || !mounted) return;
     final state = FlowerpotScope.of(context);
     // 同上：不可逆，点一次就够。
+    // 恢复出厂：先下发 141、下发成功才解绑（`factoryResetDevice`）；移除设备直接解绑。
     final result = await withBlockingProgress(
       context,
-      () => state.removeDevice(widget.deviceId, resetFactory: resetFactory),
+      () => resetFactory
+          ? state.factoryResetDevice(widget.deviceId)
+          : state.removeDevice(widget.deviceId, resetFactory: false),
     );
     if (!mounted || result == null) return;
     if (!result.success) {

@@ -2849,18 +2849,30 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// The SDK's `resetFactory` clears the cloud binding; the DP is what the
   /// firmware acts on, so it goes first — after the unbind the app has no route
-  /// to the device. An offline or rejecting device does not block the unbind
-  /// the user asked for.
+  /// to the device.
+  ///
+  /// [strict] 决定 141 发不出去时怎么办（2026-09-21 产品口径）：
+  /// - **恢复出厂**（[factoryResetDevice]）要 strict：141 是设备清掉自己数据（相册、
+  ///   纪念日、设置）的唯一途径，发不出去就停下、不解绑——否则页面报「已解绑并清除
+  ///   数据」，设备上的数据其实一样没清。离线沿用统一的 `device_offline`（提示「设备已
+  ///   离线」并回设备列表）。
+  /// - **重新配网**不 strict：设备离线（换了路由器）正是要重新配网的常见原因，拦住
+  ///   就配不回来了，所以照旧尽力发、发不出去也继续解绑。
   ///
   /// Still to confirm with firmware: what the device does on receiving 141, and
   /// whether it drops the binding on its own as well.
-  Future<void> _publishFactoryReset(String id) async {
+  Future<void> _publishFactoryReset(String id, {bool strict = false}) async {
     final dpId = TuyaConfig.dp['factory_reset'];
-    if (dpId == null) return;
+    if (dpId == null) {
+      if (!strict) return;
+      throw const TuyaException('unsupported_dp', '当前产品未提供恢复出厂功能点，设备未解绑');
+    }
     try {
       await _publishDps(id, <int, Object>{dpId: true});
-    } on TuyaException {
-      // Unreachable device: unbinding locally is still what was asked for.
+    } on TuyaException catch (error) {
+      if (!strict) return;
+      if (error.code == 'device_offline') rethrow;
+      throw TuyaException(error.code, '恢复出厂指令下发失败，设备未解绑：${error.message}');
     }
   }
 
@@ -2941,37 +2953,61 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
+  /// 「恢复出厂设置」（2026-09-21 产品口径）：**先下发恢复出厂 DP 141，下发成功了
+  /// 才解绑**；解绑用 SDK 的 `resetFactory`（解除绑定并清除云端数据）。
+  ///
+  /// 141 发不出去（离线 / 下发失败）就整个停下、设备保持绑定，见
+  /// [_publishFactoryReset] 的 `strict`。
+  ///
+  /// ⚠️ 下发成功只代表指令已经交给涂鸦（云端或局域网），不代表设备已经处理完；
+  /// 紧接着解绑时模组会被重置。设备收到 141 之后是否来得及清完数据，要真机确认。
+  Future<ActionResult> factoryResetDevice(String id) => _guard(() async {
+    await _publishFactoryReset(id, strict: true);
+    return _unbindDevice(id, resetFactory: true);
+  });
+
+  /// 解绑设备。[resetFactory] 为 true 时先**尽力**下发 141 再走 SDK `resetFactory`
+  /// ——只有「重新配网」这么用：设备离线也要能解绑（见 [_publishFactoryReset]）。
+  /// 「恢复出厂设置」按钮走 [factoryResetDevice]，141 发不出去就停下。
   Future<ActionResult> removeDevice(String id, {required bool resetFactory}) =>
       _guard(() async {
         if (resetFactory) await _publishFactoryReset(id);
-        await _repository.removeDevice(id, resetFactory: resetFactory);
-        final backendDevice = _backendDevices[id];
-        ApiException? backendCleanupError;
-        if (_backend.enabled && backendDevice != null) {
-          try {
-            await _backend.deleteUserProduct(backendDevice.userProductId);
-          } on ApiException catch (error) {
-            // Tuya has already unbound the device. Finish the local removal and
-            // surface the stale backend row as a retryable partial result.
-            backendCleanupError = error;
-          }
-        }
-        _backendDevices.remove(id);
-        _devices.removeWhere((device) => device.id == id);
-        _plantedDevices.remove(id);
-        _backendAnimations.remove(id);
-        _plantOverrides.remove(id);
-        _settingsOverrides.remove(id);
-        _selectedDeviceId = _devices.firstOrNull?.id;
-        if (backendCleanupError != null) {
-          return ActionResult(
-            true,
-            '设备已解绑；后台记录清理待重试：${backendCleanupError.message}',
-            code: 'backend_device_delete_pending',
-          );
-        }
-        return ActionResult(true, resetFactory ? '设备已解绑并清除数据' : '设备已解绑');
+        return _unbindDevice(id, resetFactory: resetFactory);
       });
+
+  /// 解绑本身：涂鸦解绑（`resetFactory` 或 `removeDevice`）→ 删后台记录 → 清本地。
+  Future<ActionResult> _unbindDevice(
+    String id, {
+    required bool resetFactory,
+  }) async {
+    await _repository.removeDevice(id, resetFactory: resetFactory);
+    final backendDevice = _backendDevices[id];
+    ApiException? backendCleanupError;
+    if (_backend.enabled && backendDevice != null) {
+      try {
+        await _backend.deleteUserProduct(backendDevice.userProductId);
+      } on ApiException catch (error) {
+        // Tuya has already unbound the device. Finish the local removal and
+        // surface the stale backend row as a retryable partial result.
+        backendCleanupError = error;
+      }
+    }
+    _backendDevices.remove(id);
+    _devices.removeWhere((device) => device.id == id);
+    _plantedDevices.remove(id);
+    _backendAnimations.remove(id);
+    _plantOverrides.remove(id);
+    _settingsOverrides.remove(id);
+    _selectedDeviceId = _devices.firstOrNull?.id;
+    if (backendCleanupError != null) {
+      return ActionResult(
+        true,
+        '设备已解绑；后台记录清理待重试：${backendCleanupError.message}',
+        code: 'backend_device_delete_pending',
+      );
+    }
+    return ActionResult(true, resetFactory ? '设备已解绑并清除数据' : '设备已解绑');
+  }
 
   Future<ActionResult> updateProfile({
     required String nickname,
