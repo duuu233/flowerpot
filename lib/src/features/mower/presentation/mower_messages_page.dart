@@ -270,7 +270,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
 
   /// 调试板的版本印子。**每改一次这块板就往上加一版**：贴回来的日志里有没有这行、是第几版，
   /// 一眼就能看出跑的是不是最新的包——之前两轮就卡在"看不出他跑的是哪一版"上。
-  static const String _probeVersion = 'probe-v3 · 2026-09-21';
+  static const String _probeVersion = 'probe-v4 · 2026-09-21';
 
   /// 联调用的测试设备 ID：涂鸦后台「设备消息监控列表」里那条 `text2` 推送挂在它上面
   /// （产品 2026-09-20 给的）。调试板默认填它，省得每次手打 22 位。
@@ -354,38 +354,51 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     });
   }
 
+  /// 把整块面板复制到剪贴板（按钮与长按共用）。提示里带字数，省得按了不知道成没成。
+  void _copyAll() {
+    final text = _plainText;
+    Clipboard.setData(ClipboardData(text: text));
+    showAppMessage(context, '已复制调试板内容（${text.length} 字）');
+  }
+
   /// 已绑定设备：devId → productId，用来判断某条消息是不是目标产品的。
   Map<String, String> _deviceProducts(FlowerpotState state) => <String, String>{
     for (final device in state.devices) device.id: device.productId,
   };
 
+  /// 整块面板的纯文本。**没拉过也能复制**——至少带版本印子和现场信息，
+  /// 那两行本身就是排查要的东西（跑的是哪一版包、哪个账号/家庭）。
   String get _plainText {
-    final result = _result;
-    if (result == null) return '';
     final buffer = StringBuffer()
       ..writeln(_probeVersion)
       ..writeln(FlowerpotScope.of(context).sessionDiagnostics)
-      ..writeln('目标设备=${_deviceId.text.trim()}')
-      ..writeln('ok=${result['ok']}')
-      ..writeln('instance=${result['instance']}')
-      ..writeln('method=${result['method']}')
-      ..writeln('msgSrcId=${result['msgSrcId']}')
-      ..writeln('msgType=${result['msgType']}')
-      ..writeln('perType=${result['perType']}')
-      ..writeln('count=${result['count']}')
-      ..writeln('totalCount=${result['totalCount']}');
-    final items = (result['items'] as List<Object?>?) ?? const <Object?>[];
-    for (var i = 0; i < items.length; i++) {
-      buffer.writeln('--- 第 ${i + 1} 条 ---');
-      final item = items[i];
-      if (item is Map) {
-        item.forEach((key, value) => buffer.writeln('$key = $value'));
-      } else {
-        buffer.writeln('$item');
+      ..writeln('目标设备=${_deviceId.text.trim()}  类型=$_msgType');
+    final result = _result;
+    if (result == null) {
+      buffer.writeln('（还没点「拉取涂鸦消息」）');
+    } else {
+      buffer
+        ..writeln('ok=${result['ok']}')
+        ..writeln('instance=${result['instance']}')
+        ..writeln('method=${result['method']}')
+        ..writeln('msgSrcId=${result['msgSrcId']}')
+        ..writeln('msgType=${result['msgType']}')
+        ..writeln('perType=${result['perType']}')
+        ..writeln('count=${result['count']}')
+        ..writeln('totalCount=${result['totalCount']}');
+      final items = (result['items'] as List<Object?>?) ?? const <Object?>[];
+      for (var i = 0; i < items.length; i++) {
+        buffer.writeln('--- 第 ${i + 1} 条 ---');
+        final item = items[i];
+        if (item is Map) {
+          item.forEach((key, value) => buffer.writeln('$key = $value'));
+        } else {
+          buffer.writeln('$item');
+        }
       }
-    }
-    for (final line in (result['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
-      buffer.writeln('· $line');
+      for (final line in (result['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
+        buffer.writeln('· $line');
+      }
     }
     final logs = _logs;
     if (logs != null) {
@@ -409,11 +422,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
         (result?['diagnostic'] as List<Object?>?) ?? const <Object?>[];
     final products = _deviceProducts(state);
     return GestureDetector(
-      onLongPress: () {
-        if (_plainText.isEmpty) return;
-        Clipboard.setData(ClipboardData(text: _plainText));
-        showAppMessage(context, '已复制调试板内容');
-      },
+      onLongPress: _copyAll,
       child: MowerCard(
         key: const Key('mower-messages-debug-panel'),
         color: Colors.white.withValues(alpha: .92),
@@ -421,13 +430,32 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            const Text(
-              '涂鸦消息调试板',
-              style: TextStyle(
-                color: MowerColors.ink,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              children: <Widget>[
+                const Expanded(
+                  child: Text(
+                    '涂鸦消息调试板',
+                    style: TextStyle(
+                      color: MowerColors.ink,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                // 手机上长按选文本很难按准，所以这里给一颗明确的复制按钮（长按整块仍然有效）。
+                TextButton.icon(
+                  key: const Key('mower-messages-debug-copy'),
+                  onPressed: _copyAll,
+                  style: TextButton.styleFrom(
+                    foregroundColor: MowerColors.brand,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: const Text('复制全部', style: TextStyle(fontSize: 12)),
+                ),
+              ],
             ),
             const SizedBox(height: 2),
             // 版本印子 + 当前账号/家庭/设备数：贴日志时这两行最值钱——
