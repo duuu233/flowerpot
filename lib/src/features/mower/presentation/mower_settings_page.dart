@@ -134,31 +134,7 @@ class MowerSettingsPage extends StatelessWidget {
       appBar: AppPageHeader(
         title: '设置',
         leading: const AppBackButton(),
-        actions: <Widget>[
-          Center(
-            child: GestureDetector(
-              key: const Key('mower-settings-help'),
-              onTap: () => unawaited(_open(context, '帮助中心')),
-              child: Container(
-                width: 28,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white,
-                ),
-                child: const Text(
-                  '?',
-                  style: TextStyle(
-                    color: MowerColors.brand,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+        // 右上角问号（进帮助中心）2026-09-23 产品要求去掉；帮助中心仍在设置列表里。
       ),
       body: SingleChildScrollView(
         key: const Key('mower-settings-scroll-view'),

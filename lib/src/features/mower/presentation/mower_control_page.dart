@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
-import '../../../shared/widgets/blocking_progress.dart';
 import '../mower_ui.dart';
 import '../mower_device.dart';
 import '../mower_dp.dart';
@@ -49,8 +48,10 @@ class _MowerControlPageState extends State<MowerControlPage> {
   /// 每 3 秒按涂鸦的分通道状态刷新两个图标；蓝牙掉了顺带后台重连（节流见 MowerDevice）。
   Timer? _linkTimer;
 
-  /// 控制前检查正在跑：这期间再点按钮不理（连蓝牙最长 15 秒）。
-  bool _checking = false;
+  /// 控制前检查正在跑的那颗按钮（`MowerMode.name` 或 `switch`）；null = 没在检查。
+  /// 这颗按钮画成转圈（2026-09-23 产品：「连接蓝牙的 loading 做到按钮那个位置，把按钮替换为转圈」），
+  /// 检查期间再点任何一颗都不理（连蓝牙最长 15 秒）。
+  String? _checking;
 
   @override
   void dispose() {
@@ -104,74 +105,80 @@ class _MowerControlPageState extends State<MowerControlPage> {
 
   /// 四颗按钮（自动 / 定点 / 回归 / 停止·继续）下发前的蓝牙检查（2026-09-23 产品）：
   ///
-  /// 1. 蓝牙没连 → 先连（转圈）；连不上 → 「无法连接设备蓝牙，请检查设备或靠近设备10米内」，不下发；
+  /// 1. 蓝牙没连 → 先连；连不上 → 「无法连接设备蓝牙，请检查设备或靠近设备10米内」，不下发；
   /// 2. 连着 → 读信号，弱于 [MowerDevice.minBleRssi]（-80 dBm）或读不到 →
   ///    「因安全要求必须在10米内控制设备」，不下发；
-  /// 3. 都过了才返回 true。每一步都记进联调日志。
-  Future<bool> _bleReady() async {
+  /// 3. 都过了返回 null，否则返回要弹的那句话（弹框放在按钮恢复原样之后，见 [_guarded]）。
+  /// 每一步都记进联调日志。
+  Future<({String message, IconData icon})?> _bleProblem() async {
+    const cannotConnect = (
+      message: '无法连接设备蓝牙，请检查设备或靠近设备10米内',
+      icon: Icons.bluetooth_disabled_rounded,
+    );
     final state = FlowerpotScope.of(context);
     final id = _device.deviceId;
-    if (id == null) return false;
+    if (id == null) return cannotConnect;
     final link = await state.deviceLinkState(id);
-    if (!mounted) return false;
+    if (!mounted) return null;
     if (link['ble'] != true) {
       state.logMowerInteraction('控制前检查 ⚠ 蓝牙未连接，先连接');
-      final connected = await withBlockingProgress<Map<String, Object?>>(
-        context,
-        () => state.connectDeviceBle(id),
-      );
-      if (!mounted) return false;
+      final connected = await state.connectDeviceBle(id);
+      if (!mounted) return null;
       unawaited(_device.refreshLink(state));
-      if (connected?['connected'] != true) {
+      if (connected['connected'] != true) {
         state.logMowerInteraction('控制前检查 ✗ 蓝牙连不上，指令不下发');
-        await showAppNoticeDialog(
-          context,
-          title: '提示',
-          message: '无法连接设备蓝牙，请检查设备或靠近设备10米内',
-          icon: Icons.bluetooth_disabled_rounded,
-        );
-        return false;
+        return cannotConnect;
       }
     }
     final signal = await state.readDeviceBleRssi(id);
-    if (!mounted) return false;
+    if (!mounted) return null;
     final rssi = (signal['rssi'] as num?)?.toInt();
     if (signal['ok'] != true || rssi == null || rssi < MowerDevice.minBleRssi) {
       state.logMowerInteraction(
         '控制前检查 ✗ 蓝牙信号 ${rssi == null ? '读不到' : '$rssi dBm'}'
         '（要求不弱于 ${MowerDevice.minBleRssi} dBm），指令不下发',
       );
-      await showAppNoticeDialog(
-        context,
-        title: '提示',
+      return (
         message: '因安全要求必须在10米内控制设备',
         icon: Icons.social_distance_rounded,
       );
-      return false;
     }
     state.logMowerInteraction('控制前检查 ✓ 蓝牙已连接，信号 $rssi dBm');
-    return true;
+    return null;
   }
 
-  /// 按钮点击统一入口：检查中不重入；检查不过不下发。
-  Future<void> _guarded(Future<void> Function() action) async {
-    if (_checking) return;
-    setState(() => _checking = true);
+  /// 按钮点击统一入口：检查中不重入；检查期间被点的那颗画成转圈；检查不过先把按钮恢复、
+  /// 再弹提示，不下发。[button] 是被点的那颗。
+  Future<void> _guarded(String button, Future<void> Function() action) async {
+    if (_checking != null) return;
+    setState(() => _checking = button);
+    ({String message, IconData icon})? problem;
     try {
-      if (!await _bleReady() || !mounted) return;
-      await action();
+      problem = await _bleProblem();
     } finally {
-      if (mounted) setState(() => _checking = false);
+      if (mounted) setState(() => _checking = null);
     }
+    if (!mounted) return;
+    if (problem != null) {
+      await showAppNoticeDialog(
+        context,
+        title: '提示',
+        message: problem.message,
+        icon: problem.icon,
+      );
+      return;
+    }
+    await action();
   }
 
-  Future<void> _toggleSwitch() => _guarded(() async {
+  Future<void> _toggleSwitch() => _guarded('switch', () async {
     final state = FlowerpotScope.of(context);
     _device.setSwitch(state, on: !_device.switchGo);
   });
 
   /// 左边三颗。先过蓝牙检查（[_bleReady]），再看 DP118 盖子。
-  Future<void> _sendMode(MowerMode target) => _guarded(() => _sendModeChecked(target));
+  Future<void> _sendMode(MowerMode target) =>
+      _guarded(target.name, () => _sendModeChecked(target));
 
   Future<void> _sendModeChecked(MowerMode target) async {
     final state = FlowerpotScope.of(context);
@@ -230,6 +237,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
               const SizedBox(height: 8),
               _ActionPanel(
                 device: _device,
+                checking: _checking,
                 onMode: (mode) => unawaited(_sendMode(mode)),
                 onToggleSwitch: () => unawaited(_toggleSwitch()),
               ),
@@ -429,11 +437,15 @@ class _TodayPlanCard extends StatelessWidget {
 class _ActionPanel extends StatelessWidget {
   const _ActionPanel({
     required this.device,
+    required this.checking,
     required this.onMode,
     required this.onToggleSwitch,
   });
 
   final MowerDevice device;
+
+  /// 正在做控制前检查的那颗（`MowerMode.name` / `switch`），画成转圈。
+  final String? checking;
   final ValueChanged<MowerMode> onMode;
   final VoidCallback onToggleSwitch;
 
@@ -455,6 +467,7 @@ class _ActionPanel extends StatelessWidget {
               icon: entry.$2,
               label: entry.$3,
               active: device.isCurrentMode(entry.$1),
+              busy: checking == entry.$1.name,
               enabled: running && !device.isCurrentMode(entry.$1),
               onTap: () => onMode(entry.$1),
             ),
@@ -466,6 +479,7 @@ class _ActionPanel extends StatelessWidget {
                 : MowerAssets.actionResumeIcon,
             label: device.switchGo ? '停止' : '继续',
             active: false,
+            busy: checking == 'switch',
             enabled: true,
             onTap: onToggleSwitch,
           ),
@@ -492,7 +506,11 @@ class _ActionButton extends StatelessWidget {
     required this.active,
     required this.enabled,
     required this.onTap,
+    this.busy = false,
   });
+
+  /// 控制前检查中：整颗换成转圈（图标 + 文字的位置），尺寸不变。
+  final bool busy;
 
   final Key buttonKey;
   final String icon;
@@ -520,7 +538,16 @@ class _ActionButton extends StatelessWidget {
             color: active ? MowerColors.softFill : null,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Column(
+          child: busy
+              ? const SizedBox.square(
+                  key: Key('mower-action-busy'),
+                  dimension: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.6,
+                    color: MowerColors.brand,
+                  ),
+                )
+              : Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
               Image.asset(

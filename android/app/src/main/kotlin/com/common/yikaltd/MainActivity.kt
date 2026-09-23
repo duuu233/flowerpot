@@ -2955,6 +2955,18 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             success(result, mapOf("connected" to true, "already" to true, "diagnostic" to listOf("本来就连着")))
             return
         }
+        // 连不上时判断原因要的现场（2026-09-23 真机「蓝牙无法连接」）：设备有没有蓝牙通道、
+        // SDK 认为它能不能连（getBleConnectAbility，原值照打）、uuid / mac。
+        // ⚠️ 协议 V2.3 §10：「蓝牙本地控制：预留（模组固件升级后启用）」——固件没开时这里怎么连都连不上。
+        val bean = deviceBean(id)
+        val uuid = bean?.let { optionalGetter(it, "getUuid")?.toString() }.orEmpty()
+        val mac = bean?.let { optionalGetter(it, "getMac") }
+        val hasBle = bean?.let { optionalGetter(it, "isHasBleCommunication") }
+        val singleBle = bean?.let { optionalGetter(it, "isSingleBle") }
+        val bleChannel = bean?.let { channelOnline(it, "BLE") }
+        val ability = runCatching { invoke(manager, "getBleConnectAbility", id) }.getOrNull()
+        diagnostic += "设备 uuid=$uuid mac=$mac hasBle=$hasBle singleBle=$singleBle " +
+            "bleChannel=$bleChannel connectAbility=$ability"
         val done = AtomicBoolean(false)
         val handler = Handler(Looper.getMainLooper())
         var listener: Any? = null
@@ -3011,9 +3023,20 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             )
             val builder = builderClass.getDeclaredConstructor().newInstance()
             invoke(builder, "setDevId", id)
+            if (uuid.isNotEmpty()) invoke(builder, "setUuid", uuid)
             invoke(builder, "setScanTimeout", timeoutMs.toInt())
+            // FORCE：连接池满了就断开别的来连这台（NORMAL 在池满时直接不连）。
+            val level = runCatching {
+                Class.forName(
+                    "com.thingclips.smart.android.ble.builder.BleConnectBuilder\$Level",
+                    false,
+                    builderClass.classLoader ?: activity.classLoader,
+                ).enumConstants?.filterIsInstance<Enum<*>>()?.firstOrNull { it.name == "FORCE" }
+            }.getOrNull()
+            if (level != null) invoke(builder, "setLevel", level)
             invoke(manager, "connectBleDevice", listOf(builder))
-            diagnostic += "connectBleDevice(devId=$id, scanTimeout=$timeoutMs) 已发起"
+            diagnostic += "connectBleDevice(devId=$id, uuid=$uuid, level=${level ?: "默认"}, " +
+                "scanTimeout=$timeoutMs) 已发起"
         }.onFailure {
             finish(false, "connectBleDevice ✗ ${it.cause ?: it}")
             return
