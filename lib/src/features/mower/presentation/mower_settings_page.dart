@@ -50,6 +50,14 @@ class MowerSettingsPage extends StatelessWidget {
       if (id != null) await upgradeMowerFirmware(context, id);
       return;
     }
+    if (entry == '设备参数') {
+      // 与花盆「更多设备信息」同一页（2026-09-23 产品：完全按那边的 UI 和页面名称）。
+      final id = MowerDevice.instance.deviceId;
+      if (id != null) {
+        await Navigator.of(context).pushNamed(AppRoutes.deviceInfo, arguments: id);
+      }
+      return;
+    }
     if (entry == '帮助中心') {
       // 帮助中心按**产品**筛常见问题：割草机要带自己的产品 ID，不能跟着花盆那条走
       // （后台 getBasicData 的 deviceIdList 里两款都有，见 FlowerpotState._faqProductId）。
@@ -59,7 +67,6 @@ class MowerSettingsPage extends StatelessWidget {
       return;
     }
     final route = switch (entry) {
-      '设备参数' => AppRoutes.mowerParameters,
       '区域设置' => AppRoutes.mowerZones,
       '雨淋设置' => AppRoutes.mowerRain,
       '时间同步' => AppRoutes.mowerTimeSync,

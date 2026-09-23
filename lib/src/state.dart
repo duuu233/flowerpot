@@ -1330,6 +1330,27 @@ class FlowerpotState extends ChangeNotifier {
     return data;
   }
 
+  /// 设备的**涂鸦产品名称**（更多设备信息「设备型号」，2026-09-23；不是昵称、不可改）。
+  /// 每台设备只问一次涂鸦，结果缓存；取不到返回 null，原因记进联调日志。
+  Future<String?> productNameFor(String deviceId) =>
+      _productNames[deviceId] ??= _loadProductName(deviceId);
+
+  final Map<String, Future<String?>> _productNames = <String, Future<String?>>{};
+
+  Future<String?> _loadProductName(String deviceId) async {
+    final data = await _repository.deviceProductName(deviceId);
+    final name = '${data['name'] ?? ''}'.trim();
+    if (name.isEmpty) {
+      _productNames.remove(deviceId); // 下次进页面再问
+      _logInteraction(
+        '设备型号 ✗ $deviceId 取不到涂鸦产品名：${data['code'] ?? ''} ${data['message'] ?? ''}',
+      );
+      return null;
+    }
+    _logInteraction('设备型号 ← $deviceId 涂鸦产品名「$name」');
+    return name;
+  }
+
   /// 注册之后收到的推送（原样）。
   Stream<Map<String, Object?>> get pushMessages => _repository.pushMessages;
 

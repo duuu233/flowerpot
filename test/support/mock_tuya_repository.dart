@@ -623,6 +623,13 @@ class MockTuyaRepository implements TuyaRepository {
     return <String, Object?>{'connected': bleConnectSucceeds};
   }
 
+  /// 涂鸦产品名称（更多设备信息「设备型号」）。
+  String productName = 'YS 智能花盆';
+
+  @override
+  Future<Map<String, Object?>> deviceProductName(String deviceId) async =>
+      <String, Object?>{'name': productName};
+
   /// 探测（requestWifiSignal）：列在这里的设备「没回应」（模拟路由器断了）。
   final Set<String> unreachableDevices = <String>{};
   int wifiSignalProbes = 0;

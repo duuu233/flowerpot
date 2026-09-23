@@ -32,6 +32,7 @@
 
 ## 索引
 
+- 2026-09-23 更多设备信息改版（花盆 + 割草机同一页）：软件只留「固件版本」；硬件 = 设备型号（**涂鸦产品名称**，新原生 `deviceProductName` 复用 `getActivatorDeviceInfo(productId, uuid, mac)`，`FlowerpotState.productNameFor` 按设备缓存）、设备devId、mac地址（仅割草机）、硬件版本；去掉 APP版本（原写死 1.0.0）、花盆 MAC、设备UUID（原拼的 `uuid+devId`）、花托UUID（原是产品 ID）。割草机设置「设备参数」改进 `AppRoutes.deviceInfo`，删 `MowerParametersPage` 与 `/mower/parameters`；割草机头部 = 涂鸦产品图（取不到用割草机图）+ 昵称，不显示陪伴天数与 DP162 联调按钮；SN 去掉。⚠️ 割草机硬件版本协议 V2.3 没有 DP，空着（不能拿花盆 DP149 解）。本机无工具链未跑。
 - 2026-09-23 割草机固件升级提醒同花盆：`FirmwareReminderHost` 监听范围加上 `/mower…`（设备 ID 取 `MowerDevice`），「立刻更新」对割草机直接调 `upgradeMowerFirmware(confirmed: true)`；设置页「设备升级」行红点（`MowerSettingsRow.badge`，同 `AppNoticeDot`）。口径：与花盆相同的功能一律照花盆。⚠️ 本机无工具链未跑。
 - 2026-09-23 割草机五项：①计划图夜间色块（21–23 点）伸出纵轴被图例挡住 → 上移贴底；②首页去充电光晕、内容撑满首屏（IntrinsicHeight + 两个 Spacer）；③设备列表设备名统一常规字重（撤回按中英文区分）；④蓝牙信号阈值 -90；⑤蓝牙连不上：SDK 解包发现手机蓝牙关 / 产品 capability 无蓝牙位（1024）时 `connectBleDevice` 静默跳过，App 提前判出记日志；Wi-Fi 离线但蓝牙连着照常下发，设备列表割草机离线也能进。⚠️ 本机无工具链未跑。
 - 2026-09-23 被动离线主动探测 + 割草机蓝牙检查暂停：原生 `requestWifiSignal`（涂鸦 `IThingDevice.requestWifiSignal`，解包 `dqqpqbq` 发 `{"reqType":"sigQry"}`、SDK 无超时）；状态层每 20 秒探一轮、6 秒超时、连续 2 次没回应 → `_unreachable`，`devices` / `deviceById` 标离线，手机没网不计；割草机下发把不可达当 Wi-Fi 离线走蓝牙。`MowerBleGate` 默认关（按钮前蓝牙检查暂停）。新增 `test/state_reachability_test.dart`。⚠️ 本机无工具链未跑。

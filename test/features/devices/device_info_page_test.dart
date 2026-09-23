@@ -21,25 +21,71 @@ void main() {
     expect(find.text('YSplanter-01'), findsOneWidget);
     expect(find.text('已陪伴52天'), findsOneWidget);
     expect(find.text('软件'), findsOneWidget);
-    expect(find.text('APP版本'), findsOneWidget);
-    expect(find.text('0.7.2'), findsOneWidget);
     expect(find.text('固件版本'), findsOneWidget);
     expect(find.text('2.1.4'), findsOneWidget);
     expect(find.text('硬件'), findsOneWidget);
-    expect(find.text('D885ACA2B9B4'), findsOneWidget);
-    expect(find.text('uuid0325950de48cb82c'), findsOneWidget);
+    expect(find.text('设备型号'), findsOneWidget);
+    expect(find.text('YS 智能花盆'), findsOneWidget);
+    expect(find.text('设备devId'), findsOneWidget);
+    expect(find.text('6c1f9cacbfbe243ccaa2jy'), findsOneWidget);
+    expect(find.text('硬件版本'), findsOneWidget);
+    expect(find.text('26'), findsOneWidget);
     expect(findAssetImage(AppAssets.editIcon), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('2026-09-23：去掉 APP版本 / MAC / 两个 UUID；花盆没有 mac 地址行', (
+    tester,
+  ) async {
+    await _pumpDeviceInfo(tester, const Size(375, 812));
+
+    for (final gone in <String>[
+      'APP版本',
+      'MAC',
+      'mac地址',
+      '设备UUID',
+      '花托UUID',
+    ]) {
+      expect(find.text(gone), findsNothing, reason: gone);
+    }
+    expect(find.text('D885ACA2B9B4'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('设备型号读涂鸦产品名称（不是昵称）', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = _DeviceInfoRepository()..productName = '智能花盆 Pro';
+    final state = FlowerpotState(repository: repository);
+    addTearDown(state.dispose);
+    await state.refreshDevices();
+    await tester.pumpWidget(
+      FlowerpotScope(
+        state: state,
+        child: MaterialApp(
+          theme: buildAppTheme(),
+          home: const DeviceInfoPage(deviceId: 'device-01'),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('智能花盆 Pro'), findsOneWidget);
+    expect(find.text('YSplanter-01'), findsOneWidget);
+    expect(find.text('device-01'), findsOneWidget);
+    expect(find.text('mac地址'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('device info remains scrollable at 320x568', (tester) async {
     await _pumpDeviceInfo(tester, const Size(320, 568));
 
-    final planterUuid = find.text('0C97B533');
-    await tester.ensureVisible(planterUuid);
+    final hardwareVersion = find.text('26');
+    await tester.ensureVisible(hardwareVersion);
     await tester.pump();
 
-    expect(planterUuid, findsOneWidget);
+    expect(hardwareVersion, findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -114,13 +160,10 @@ Future<void> _pumpDeviceInfo(WidgetTester tester, Size size) async {
         home: const DeviceInfoPage(
           deviceId: 'device-01',
           info: DeviceInfoData(
-            appVersion: '0.7.2',
             firmwareVersion: '2.1.4',
-            mac: 'D885ACA2B9B4',
-            hardwareVersion: '26',
+            model: 'YS 智能花盆',
             deviceDevId: '6c1f9cacbfbe243ccaa2jy',
-            deviceUuid: 'uuid0325950de48cb82c',
-            planterUuid: '0C97B533',
+            hardwareVersion: '26',
           ),
         ),
       ),

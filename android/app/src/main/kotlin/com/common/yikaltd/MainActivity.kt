@@ -457,6 +457,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "startPushListen" -> startPushListen(result)
                 "deviceLinkState" -> deviceLinkState(call, result)
                 "requestWifiSignal" -> requestWifiSignal(call, result)
+                "deviceProductName" -> deviceProductName(call, result)
                 "bleConnectDevice" -> bleConnectDevice(call, result)
                 "bleReadRssi" -> bleReadRssi(call, result)
                 "checkFirmware" -> checkFirmware(call, result)
@@ -988,6 +989,45 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             },
             onError = { code, message -> error(result, code, message) },
         )
+    }
+
+    /**
+     * 已绑定设备的**涂鸦产品名称**（2026-09-23：更多设备信息「设备型号」，读产品名不是昵称）。
+     *
+     * `DeviceBean` / `ProductBean` 上都没有产品名（7.5.1 解包：ProductBean 只有 id / 分类 / 版本），
+     * 所以复用搜索页那条 `getActivatorDeviceInfo(productId, uuid, mac)`——参数从这台设备的 bean 里取。
+     * 永远回 map：`{name?, productId, code?, message?}`。
+     */
+    private fun deviceProductName(call: MethodCall, result: MethodChannel.Result) {
+        val id = call.argument<String>("deviceId").orEmpty()
+        val bean = deviceBean(id)
+        if (bean == null) {
+            success(result, mapOf("name" to null, "code" to "no_device", "message" to "找不到设备 $id"))
+            return
+        }
+        val productId = optionalGetter(bean, "getProductId")?.toString().orEmpty()
+        val uuid = optionalGetter(bean, "getUuid")?.toString().orEmpty()
+        val mac = optionalGetter(bean, "getMac")?.toString().orEmpty()
+        val activatorApi = runCatching { invokeStatic(sdkClass(), "getActivatorInstance") }.getOrNull()
+        if (activatorApi == null) {
+            success(result, mapOf("name" to null, "code" to "no_activator", "message" to "拿不到配网实例"))
+            return
+        }
+        runCatching {
+            invokeWithCallback(
+                activatorApi,
+                "getActivatorDeviceInfo",
+                productId,
+                uuid,
+                mac,
+                onSuccess = { value -> success(result, productInfoMap(value) + ("queryProductId" to productId)) },
+                onError = { code, message ->
+                    success(result, mapOf("name" to null, "code" to code, "message" to message, "queryProductId" to productId))
+                },
+            )
+        }.onFailure {
+            success(result, mapOf("name" to null, "code" to "invoke_failed", "message" to "${it.cause ?: it}"))
+        }
     }
 
     /**

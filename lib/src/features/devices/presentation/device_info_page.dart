@@ -4,14 +4,42 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
+import '../../mower/mower_ui.dart';
 import 'device_online_guard.dart';
 import 'widgets/device_plant_artwork.dart';
 
-class DeviceInfoPage extends StatelessWidget {
+/// 更多设备信息。花盆设备设置页、割草机设置页「设备参数」都进这一页（2026-09-23 产品：
+/// 割草机「完全按那边的 UI 和页面名称写」）。
+///
+/// 内容（2026-09-23 产品定稿，全部是真数据，没有就空着）：
+/// - 头部：产品图 + 昵称（可改名，同一个 [RenameDeviceDialog]）；
+/// - 软件：固件版本；
+/// - 硬件：设备型号（**涂鸦产品名称**，不是昵称，只读）、设备devId、mac地址（仅割草机）、硬件版本。
+///
+/// 去掉的：APP版本、MAC（花盆）、设备UUID、花托UUID——其中 APP版本 / 两个 UUID 原来是凑出来的值。
+class DeviceInfoPage extends StatefulWidget {
   const DeviceInfoPage({required this.deviceId, super.key, this.info});
 
   final String deviceId;
   final DeviceInfoData? info;
+
+  @override
+  State<DeviceInfoPage> createState() => _DeviceInfoPageState();
+}
+
+class _DeviceInfoPageState extends State<DeviceInfoPage> {
+  String get deviceId => widget.deviceId;
+
+  /// 涂鸦产品名称（「设备型号」）。进页面问一次，[FlowerpotState.productNameFor] 里有缓存。
+  Future<String?>? _productName;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.info == null) {
+      _productName ??= FlowerpotScope.of(context).productNameFor(deviceId);
+    }
+  }
 
   Future<void> _rename(BuildContext context, SmartPlanterDevice device) async {
     final name = await showDialog<String>(
@@ -29,6 +57,30 @@ class DeviceInfoPage extends StatelessWidget {
       showDeviceActionResult(context, result, announceSuccess: true);
     }
   }
+
+  List<Widget> _sections(DeviceInfoData details) => <Widget>[
+    const SizedBox(height: 16),
+    const _InformationSectionTitle(label: '软件'),
+    const SizedBox(height: 10),
+    _InformationCard(
+      rows: <_InformationRowData>[
+        _InformationRowData(label: '固件版本', value: details.firmwareVersion),
+      ],
+    ),
+    const SizedBox(height: 16),
+    const _InformationSectionTitle(label: '硬件'),
+    const SizedBox(height: 10),
+    _InformationCard(
+      rows: <_InformationRowData>[
+        _InformationRowData(label: '设备型号', value: details.model),
+        _InformationRowData(label: '设备devId', value: details.deviceDevId),
+        // 只有割草机有这一行（产品：「对比割草机少一个 mac 地址」）。
+        if (details.mac != null)
+          _InformationRowData(label: 'mac地址', value: details.mac!),
+        _InformationRowData(label: '硬件版本', value: details.hardwareVersion),
+      ],
+    ),
+  ];
 
   /// 联调用：把 DP 162 `plant_confirm` 当前上报的值弹出来。
   ///
@@ -102,14 +154,15 @@ class DeviceInfoPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final device = FlowerpotScope.of(context).deviceById(deviceId);
+    final state = FlowerpotScope.of(context);
+    final device = state.deviceById(deviceId);
     if (device == null) {
       return AppPageScaffold(
         appBar: const AppPageHeader(title: '更多设备信息', leading: AppBackButton()),
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final details = info ?? DeviceInfoData.fromDevice(device);
+    final mower = state.isMowerDevice(device);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '更多设备信息', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -129,60 +182,40 @@ class DeviceInfoPage extends StatelessWidget {
                 children: <Widget>[
                   _DeviceInfoHero(
                     device: device,
+                    mower: mower,
                     onRename: () => _rename(context, device),
                   ),
-                  const SizedBox(height: 16),
-                  const _InformationSectionTitle(label: '软件'),
-                  const SizedBox(height: 10),
-                  _InformationCard(
-                    rows: <_InformationRowData>[
-                      _InformationRowData(
-                        label: 'APP版本',
-                        value: details.appVersion,
+                  if (widget.info != null)
+                    ..._sections(widget.info!)
+                  else
+                    FutureBuilder<String?>(
+                      future: _productName,
+                      builder: (context, snapshot) => Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: _sections(
+                          DeviceInfoData.fromDevice(
+                            device,
+                            mower: mower,
+                            model: snapshot.data ?? '',
+                          ),
+                        ),
                       ),
-                      _InformationRowData(
-                        label: '固件版本',
-                        value: details.firmwareVersion,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  const _InformationSectionTitle(label: '硬件'),
-                  const SizedBox(height: 10),
-                  _InformationCard(
-                    rows: <_InformationRowData>[
-                      _InformationRowData(label: 'MAC', value: details.mac),
-                      _InformationRowData(
-                        label: '硬件版本',
-                        value: details.hardwareVersion,
-                      ),
-                      _InformationRowData(
-                        label: '设备devId',
-                        value: details.deviceDevId,
-                      ),
-                      _InformationRowData(
-                        label: '设备UUID',
-                        value: details.deviceUuid,
-                      ),
-                      _InformationRowData(
-                        label: '花托UUID',
-                        value: details.planterUuid,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  // 联调用：把 DP 162 当前上报的值原样弹出来核对。
-                  OutlinedButton(
-                    key: const Key('device-info-dp162-probe'),
-                    onPressed: () => _showPlantConfirmDp(context, device),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                      foregroundColor: AppColors.brandPrimary,
-                      side: const BorderSide(color: AppColors.brandPrimary),
-                      shape: const StadiumBorder(),
                     ),
-                    child: const Text('查看 DP 162（plant_confirm）'),
-                  ),
+                  // 联调用：把 DP 162 当前上报的值原样弹出来核对（花盆 DP，割草机没有）。
+                  if (!mower) ...<Widget>[
+                    const SizedBox(height: 20),
+                    OutlinedButton(
+                      key: const Key('device-info-dp162-probe'),
+                      onPressed: () => _showPlantConfirmDp(context, device),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                        foregroundColor: AppColors.brandPrimary,
+                        side: const BorderSide(color: AppColors.brandPrimary),
+                        shape: const StadiumBorder(),
+                      ),
+                      child: const Text('查看 DP 162（plant_confirm）'),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -236,43 +269,71 @@ class _RenameDeviceDialogState extends State<RenameDeviceDialog> {
 
 class DeviceInfoData {
   const DeviceInfoData({
-    required this.appVersion,
     required this.firmwareVersion,
-    required this.mac,
-    required this.hardwareVersion,
+    required this.model,
     required this.deviceDevId,
-    required this.deviceUuid,
-    required this.planterUuid,
+    required this.hardwareVersion,
+    this.mac,
   });
 
-  factory DeviceInfoData.fromDevice(SmartPlanterDevice device) {
-    final compactId = device.id.replaceAll(RegExp('[^a-zA-Z0-9]'), '');
+  /// [model] 是涂鸦产品名称（异步取，[FlowerpotState.productNameFor]）；取不到传空串。
+  factory DeviceInfoData.fromDevice(
+    SmartPlanterDevice device, {
+    required bool mower,
+    String model = '',
+  }) {
     return DeviceInfoData(
-      appVersion: '1.0.0',
       firmwareVersion: device.firmwareVersion,
-      mac: device.macAddress.replaceAll(':', ''),
-      // `hardware_version` (DP 149).
-      hardwareVersion: device.hardwareVersion,
+      model: model,
       deviceDevId: device.id,
-      deviceUuid: 'uuid$compactId',
-      planterUuid: device.productId,
+      // 割草机才显示 mac 地址；DeviceBean.getMac（没有时是 uuid），去掉冒号。
+      mac: mower ? device.macAddress.replaceAll(':', '') : null,
+      // 花盆：`hardware_version`（DP 149）。割草机协议 V2.3 里没有硬件版本 DP，
+      // 不能拿花盆的 149 去解（两边 DP 号重叠、含义不同），没有数据来源就空着。
+      hardwareVersion: mower ? '' : device.hardwareVersion,
     );
   }
 
-  final String appVersion;
   final String firmwareVersion;
-  final String mac;
-  final String hardwareVersion;
+  final String model;
   final String deviceDevId;
-  final String deviceUuid;
-  final String planterUuid;
+
+  /// 只有割草机有；null 表示不显示这一行。
+  final String? mac;
+  final String hardwareVersion;
 }
 
 class _DeviceInfoHero extends StatelessWidget {
-  const _DeviceInfoHero({required this.device, required this.onRename});
+  const _DeviceInfoHero({
+    required this.device,
+    required this.mower,
+    required this.onRename,
+  });
 
   final SmartPlanterDevice device;
+  final bool mower;
   final VoidCallback onRename;
+
+  /// 割草机的产品图：涂鸦产品图（DeviceBean.iconUrl），拿不到用设计稿导出的割草机图。
+  Widget _mowerImage() {
+    const fallback = Image(
+      image: AssetImage(MowerAssets.device),
+      width: 62,
+      height: 62,
+      fit: BoxFit.contain,
+    );
+    final url = device.iconUrl.trim();
+    if (url.isEmpty) return fallback;
+    return Image.network(
+      url,
+      width: 62,
+      height: 62,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      semanticLabel: '设备图片',
+      errorBuilder: (_, _, _) => fallback,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -290,7 +351,9 @@ class _DeviceInfoHero extends StatelessWidget {
               SizedBox(
                 width: 76,
                 child: Center(
-                  child: DevicePlantArtwork(deviceId: device.id, width: 62),
+                  child: mower
+                      ? _mowerImage()
+                      : DevicePlantArtwork(deviceId: device.id, width: 62),
                 ),
               ),
               const SizedBox(width: 14),
@@ -330,26 +393,28 @@ class _DeviceInfoHero extends StatelessWidget {
                         ),
                       ],
                     ),
-                    DecoratedBox(
-                      decoration: const BoxDecoration(
-                        color: AppColors.brandSurface,
-                        borderRadius: AppRadius.full,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 11,
-                          vertical: 5,
+                    // 陪伴天数是花盆的概念，割草机头部只有产品图 + 昵称。
+                    if (!mower)
+                      DecoratedBox(
+                        decoration: const BoxDecoration(
+                          color: AppColors.brandSurface,
+                          borderRadius: AppRadius.full,
                         ),
-                        child: Text(
-                          '已陪伴${device.companionDays}天',
-                          style: const TextStyle(
-                            color: AppColors.brandPrimary,
-                            fontSize: 14,
-                            height: 1,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 11,
+                            vertical: 5,
+                          ),
+                          child: Text(
+                            '已陪伴${device.companionDays}天',
+                            style: const TextStyle(
+                              color: AppColors.brandPrimary,
+                              fontSize: 14,
+                              height: 1,
+                            ),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),

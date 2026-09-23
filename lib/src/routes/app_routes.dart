@@ -41,7 +41,6 @@ import '../features/profile/presentation/profile_page.dart';
 import '../features/home/presentation/home_page.dart';
 import '../features/mower/presentation/mower_home_page.dart';
 import '../features/mower/presentation/mower_language_page.dart';
-import '../features/mower/presentation/mower_parameters_page.dart';
 import '../features/mower/presentation/mower_rain_page.dart';
 import '../features/mower/presentation/mower_time_sync_page.dart';
 import '../features/mower/presentation/mower_zones_page.dart';
@@ -95,7 +94,6 @@ abstract final class AppRoutes {
   // 首页 / 割草计划 / 设置 三个一级页由 `MowerHomePage` 这层外壳带着，
   // 所以这里只登记外壳和几个二级页。
   static const mowerHome = '/mower';
-  static const mowerParameters = '/mower/parameters';
   static const mowerZones = '/mower/zones';
   static const mowerRain = '/mower/rain';
   static const mowerTimeSync = '/mower/time-sync';
@@ -202,7 +200,6 @@ abstract final class AppRoutes {
       mowerHome => MowerHomePage(
         deviceId: (settings.arguments! as MowerHomeArguments).deviceId,
       ),
-      mowerParameters => const MowerParametersPage(),
       mowerZones => const MowerZonesPage(),
       mowerRain => const MowerRainPage(),
       mowerTimeSync => const MowerTimeSyncPage(),

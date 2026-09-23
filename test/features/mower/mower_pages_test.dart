@@ -333,8 +333,12 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('设置页：重新配网隐藏；「设备参数」名称是设备名，型号 / SN 没有来源就空着', (tester) async {
-    await _pumpMowerHome(tester, <int, Object?>{});
+  testWidgets('设置页：重新配网隐藏；「设备参数」进花盆同一页「更多设备信息」', (tester) async {
+    await _pumpMowerHome(
+      tester,
+      <int, Object?>{},
+      setup: (repository) => repository.productName = 'YS 智能割草机',
+    );
     await tester.tap(find.byKey(const Key('mower-nav-settings')));
     await tester.pump();
 
@@ -346,9 +350,24 @@ void main() {
     await tester.tap(find.byKey(const Key('mower-settings-设备参数')));
     await tester.pumpAndSettle();
 
+    expect(find.text('更多设备信息'), findsOneWidget);
     expect(find.text('割草机-联调'), findsWidgets);
-    expect(find.text('YM-1200'), findsNothing);
-    expect(find.text('YM202608240018'), findsNothing);
+    // 软件：固件版本；硬件：设备型号（涂鸦产品名）、设备devId、mac地址、硬件版本
+    expect(find.text('固件版本'), findsOneWidget);
+    expect(find.text('1.0.0'), findsOneWidget);
+    expect(find.text('设备型号'), findsOneWidget);
+    expect(find.text('YS 智能割草机'), findsOneWidget);
+    expect(find.text('设备devId'), findsOneWidget);
+    expect(find.text(_mowerId), findsOneWidget);
+    expect(find.text('mac地址'), findsOneWidget);
+    expect(find.text('AABBCC000031'), findsOneWidget);
+    expect(find.text('硬件版本'), findsOneWidget);
+    // 去掉的：SN、APP版本、两个 UUID；花盆专属的陪伴天数和 DP162 联调按钮也不出现
+    for (final gone in <String>['SN', 'APP版本', '设备UUID', '花托UUID']) {
+      expect(find.text(gone), findsNothing);
+    }
+    expect(find.textContaining('已陪伴'), findsNothing);
+    expect(find.byKey(const Key('device-info-dp162-probe')), findsNothing);
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
