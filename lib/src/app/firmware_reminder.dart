@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../design_system/design_system.dart';
 import '../features/devices/presentation/device_other_settings_page.dart';
+import '../features/mower/mower_device.dart';
+import '../features/mower/presentation/mower_firmware.dart';
 import '../routes/app_routes.dart';
 import '../state.dart';
 import '../tuya/tuya_models.dart';
@@ -57,11 +59,15 @@ class FirmwareReminderHost extends StatefulWidget {
     AppRoutes.pairingSuccess,
   };
 
-  /// 设备详情及其下各子页（含「其他设置」）。
+  /// 设备详情及其下各子页（含「其他设置」），以及割草机那套页面（`/mower…`，2026-09-23：
+  /// 「固件升级提醒机制跟花盆做一样的，红点和弹窗」）。
   static bool _isDevicePage(String? name) =>
       name != null &&
-      name.startsWith('/devices/') &&
-      !_notDevicePages.contains(name);
+      ((name.startsWith('/devices/') && !_notDevicePages.contains(name)) ||
+          _isMowerPage(name));
+
+  static bool _isMowerPage(String? name) =>
+      name != null && name.startsWith(AppRoutes.mowerHome);
 
   static String _displayVersion(String version) =>
       version.startsWith('V') ? version : 'V$version';
@@ -148,8 +154,11 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
     final state = widget.state;
     final page = widget.routes.currentPage;
     final name = page?.settings.name;
+    // 割草机各页只有外壳带设备 ID，子页不带——统一取当前绑着的那台（MowerDevice）。
     final deviceId = page != null && FirmwareReminderHost._isDevicePage(name)
-        ? AppRoutes.deviceIdOf(page.settings) ?? state.selectedDevice?.id
+        ? FirmwareReminderHost._isMowerPage(name)
+              ? MowerDevice.instance.deviceId
+              : AppRoutes.deviceIdOf(page.settings) ?? state.selectedDevice?.id
         : null;
     // 离开设备页就算这次看完了设备面板，下次进来重新提醒。
     _remindDismissed.removeWhere((id) => id != deviceId);
@@ -213,6 +222,16 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
     if (!mounted) return;
     if (!upgrade) {
       _remindDismissed.add(deviceId);
+      return;
+    }
+    // 割草机：直接在当前页发起（和花盆一样不再弹「检查更新」确认框）。割草机没有「其他设置」页。
+    if (FirmwareReminderHost._isMowerPage(
+      widget.routes.currentPage?.settings.name,
+    )) {
+      final context = widget.routes.navigator?.overlay?.context;
+      if (context != null) {
+        unawaited(upgradeMowerFirmware(context, deviceId, confirmed: true));
+      }
       return;
     }
     unawaited(

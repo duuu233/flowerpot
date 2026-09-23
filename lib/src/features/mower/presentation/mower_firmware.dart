@@ -20,7 +20,15 @@ import '../mower_dp.dart';
 /// 协议 V2.3 §7.2 的 DP116 `ota_status` 是设备侧的补充上报（"7" 非待机拒绝升级 /
 /// "20" 升级失败），由 `MowerDevice` 收到后经 `failures` 弹提示；⚠️ 设备**不在待机**时
 /// 会拒绝升级，所以升级前先提醒一句。
-Future<void> upgradeMowerFirmware(BuildContext context, String deviceId) async {
+///
+/// [confirmed] 为 true 时跳过「检查更新」确认框：用户已经在固件升级提醒弹窗里点过
+/// 「立刻更新」（`FirmwareReminderHost`，与花盆同口径）。已经知道新版本（红点那次查到的）
+/// 就不再问第二遍涂鸦。
+Future<void> upgradeMowerFirmware(
+  BuildContext context,
+  String deviceId, {
+  bool confirmed = false,
+}) async {
   final state = FlowerpotScope.of(context);
   final device = state.deviceById(deviceId);
   if (device == null) return;
@@ -36,9 +44,9 @@ Future<void> upgradeMowerFirmware(BuildContext context, String deviceId) async {
   if (progress?.status == OtaStatus.running) state.clearOtaProgress(deviceId);
 
   state.logMowerInteraction('固件 → 割草机 $deviceId 检查新版本（涂鸦 OTA，非 DP）');
-  FirmwareUpdate? update;
+  FirmwareUpdate? update = state.availableFirmwareFor(deviceId);
   try {
-    update = await withBlockingProgress<FirmwareUpdate?>(
+    update ??= await withBlockingProgress<FirmwareUpdate?>(
       context,
       () => state.checkFirmware(deviceId),
     );
@@ -69,12 +77,14 @@ Future<void> upgradeMowerFirmware(BuildContext context, String deviceId) async {
     showAppMessage(context, '当前已是最新固件版本');
     return;
   }
-  final accepted = await showFirmwareUpdateDialog(
-    context,
-    currentVersion: currentVersion,
-    availableVersion: update.version,
-  );
-  if (!accepted || !context.mounted) return;
+  if (!confirmed) {
+    final accepted = await showFirmwareUpdateDialog(
+      context,
+      currentVersion: currentVersion,
+      availableVersion: update.version,
+    );
+    if (!accepted || !context.mounted) return;
+  }
   final result = await state.upgradeFirmware(deviceId, update.version);
   state.logMowerInteraction(
     result.success

@@ -6,6 +6,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/widgets/blocking_progress.dart';
+import '../../../tuya/tuya_models.dart';
 import '../../devices/presentation/device_online_guard.dart';
 import '../mower_ui.dart';
 import '../mower_device.dart';
@@ -71,6 +72,14 @@ class MowerSettingsPage extends StatelessWidget {
       return;
     }
     await Navigator.of(context).pushNamed(route);
+  }
+
+  static bool _firmwareBadge(BuildContext context) {
+    final id = MowerDevice.instance.deviceId;
+    if (id == null) return false;
+    final state = FlowerpotScope.of(context);
+    return state.hasFirmwareUpdate(id) &&
+        state.otaProgressFor(id)?.status != OtaStatus.running;
   }
 
   /// 删除设备：和花盆「移除设备」同一套（2026-09-23 产品：「跟花盆一样的啊，只是产品 ID 不一样」）——
@@ -163,6 +172,9 @@ class MowerSettingsPage extends StatelessWidget {
                   for (var i = 0; i < _entries.length; i++) ...<Widget>[
                     MowerSettingsRow(
                       label: _entries[i],
+                      // 有新固件就在「设备升级」亮红点（与花盆「固件版本更新」同口径：
+                      // 升级进行中不亮）。
+                      badge: _entries[i] == '设备升级' && _firmwareBadge(context),
                       onTap: () => unawaited(_open(context, _entries[i])),
                     ),
                     if (i != _entries.length - 1) const MowerRowDivider(),
@@ -196,11 +208,15 @@ class MowerSettingsRow extends StatelessWidget {
     required this.onTap,
     super.key,
     this.height = 56,
+    this.badge = false,
   });
 
   final String label;
   final VoidCallback onTap;
   final double height;
+
+  /// 行尾箭头前的小红点（和花盆设置行同一个 [AppNoticeDot]）。
+  final bool badge;
 
   @override
   Widget build(BuildContext context) {
@@ -223,6 +239,10 @@ class MowerSettingsRow extends StatelessWidget {
                   ),
                 ),
               ),
+              if (badge) ...<Widget>[
+                const AppNoticeDot(semanticLabel: '有新固件'),
+                const SizedBox(width: 6),
+              ],
               const Icon(
                 Icons.chevron_right_rounded,
                 size: 20,
