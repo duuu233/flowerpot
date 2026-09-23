@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
+import '../../../tuya/tuya_repository.dart' show TuyaException;
 import '../../devices/presentation/device_online_guard.dart';
 import '../../devices/presentation/device_other_settings_page.dart';
 import '../../devices/presentation/widgets/ota_progress_dialog.dart';
@@ -37,7 +38,7 @@ Future<void> upgradeMowerFirmware(BuildContext context, String deviceId) async {
   state.logMowerInteraction('固件 → 割草机 $deviceId 检查新版本（涂鸦 OTA，非 DP）');
   FirmwareUpdate? update;
   try {
-    update = await withBlockingProgress(
+    update = await withBlockingProgress<FirmwareUpdate?>(
       context,
       () => state.checkFirmware(deviceId),
     );
