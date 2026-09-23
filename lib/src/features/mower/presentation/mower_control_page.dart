@@ -25,7 +25,8 @@ import 'widgets/mower_status_card.dart';
 ///
 /// ## 四颗按钮的规矩（2026-09-18 用户口径，逐条）
 ///
-/// 1. **启动/停止优先级最高**：只有 DP2=true 时，左边三颗才能点；
+/// 1. **启动/停止优先级最高**：按下「停止」、设备报 DP5=paused 时，左边三颗不能点，「继续」后恢复；
+///    其余时候（包括刚开机的待机，DP2=false）DP3 不等于这颗就能点（2026-09-23 更正）；
 /// 2. 按钮文案按 DP2 值：true 显示「停止」（点了下发 false），false 显示「继续」（点了下发 true）；
 /// 3. 左边三颗**不能重复点**：`DP3 == 这颗` 就置灰；
 /// 4. **记忆**：启动 → 点「定点」→ 停止 → 再启动，设备按最后一次 DP3 起，界面跟着回到「定点」
@@ -321,7 +322,8 @@ class _ActionPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 左三：DP2 停着时一律不可点；当前模式那一颗置灰不给重复下发。
+    // 左三：设备暂停（DP5=paused，按过「停止」）时一律不可点；其余时候只有
+    // DP3 == 这颗的那一颗置灰，别的都能点（2026-09-23 用户更正）。
     final running = device.commandsEnabled;
     return MowerCard(
       key: const Key('mower-action-panel'),

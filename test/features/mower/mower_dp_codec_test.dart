@@ -220,4 +220,36 @@ void main() {
       expect(MowerDp.enumOf(MowerMode.values, code, 99), isNull);
     });
   });
+
+  group('DP101 逐字节解析（联调对比用，2026-09-23）', () {
+    test('协议示例 1：只填组 0 → 全部设置，每天 09:00–11:00', () {
+      final data = List<int>.filled(MowerScheduleCodec.bytes, 0);
+      data.setRange(0, 11, <int>[0x1C, 0x02, 0x94, 0x02, 0, 0, 0, 0, 0, 1, 0]);
+
+      final lines = MowerScheduleCodec.describe(data);
+
+      expect(lines.first, contains('全部设置'));
+      expect(lines[1], startsWith('组0 全部：时段1 09:00–11:00；'));
+      expect(lines[1], contains('时段2 00:00–00:00（无效）'));
+      expect(lines.skip(2), everyElement(endsWith('全 00')));
+    });
+
+    test('协议示例 2：只填组 1 → 按天设置；≤10 分钟和长度不对都会标出来', () {
+      final data = List<int>.filled(MowerScheduleCodec.bytes, 0);
+      data.setRange(11, 22, <int>[0xE0, 0x01, 0x58, 0x02, 0, 0, 0, 0, 0, 1, 0]);
+      // 周二（组 2）放一个 5 分钟的时段：设备会丢弃
+      data.setRange(22, 33, <int>[0xE0, 0x01, 0xE5, 0x01, 0, 0, 0, 0, 1, 1, 0]);
+
+      final lines = MowerScheduleCodec.describe(data);
+
+      expect(lines.first, contains('按天设置'));
+      expect(lines[2], startsWith('组1 周一：时段1 08:00–10:00；'));
+      expect(lines[3], contains('≤10 分钟，设备会丢弃'));
+      expect(lines[3], contains('沿边=1'));
+      expect(
+        MowerScheduleCodec.describe(<int>[1, 2, 3]).single,
+        contains('不按 DP101 解析'),
+      );
+    });
+  });
 }

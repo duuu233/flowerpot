@@ -527,6 +527,68 @@ abstract final class MowerScheduleCodec {
     );
   }
 
+  /// **逐字节解析**成几行人话（2026-09-23 联调：「把数据解析出来打印在日志上，我要对比一下」）。
+  ///
+  /// 和 [decode] 不同：[decode] 按设备的执行口径把无效时段丢掉；这里**原样列出每一组的全部字段**
+  /// （无效时段的起止时间也列），并按 V2.2 §5.1 标出形态与会被设备丢弃 / 拒绝的时段，
+  /// 对照固件或平台日志时不漏东西。
+  static List<String> describe(List<int> data) {
+    if (data.length != bytes) {
+      return <String>['长度 ${data.length} 字节（应为 $bytes），不按 DP101 解析'];
+    }
+    String time(int minutes) =>
+        '${(minutes ~/ 60).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
+    int read(int offset) => data[offset] | (data[offset + 1] << 8);
+    bool zero(int group) =>
+        data.sublist(group * groupSize, (group + 1) * groupSize).every((b) => b == 0);
+    bool anyValid(int group) =>
+        data[group * groupSize + 9] != 0 || data[group * groupSize + 10] != 0;
+
+    final daysSet = <int>[
+      for (var group = 1; group <= 7; group++)
+        if (!zero(group)) group,
+    ];
+    final lines = <String>[
+      if (anyValid(0) && daysSet.isEmpty)
+        '形态：全部设置（组0 有效、组1~7 全 00 → 每天按组0 执行）'
+      else if (anyValid(0))
+        '形态：⚠ 组0 与组1~7 混发 → 设备以组0 为准，组1~7 被忽略并清空'
+      else if (daysSet.isEmpty && zero(0))
+        '形态：全 00 → 清空所有计划'
+      else
+        '形态：按天设置（组0 无有效时段，组${daysSet.join('/')} 有内容）',
+    ];
+    const names = <String>['全部', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    for (var group = 0; group < 8; group++) {
+      final o = group * groupSize;
+      final hex = data
+          .sublist(o, o + groupSize)
+          .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
+          .join(' ');
+      if (zero(group)) {
+        lines.add('组$group ${names[group]}：全 00');
+        continue;
+      }
+      String slot(int index, int start, int end, int valid) {
+        final notes = <String>[
+          if (valid == 0) '无效',
+          if (valid != 0 && !(start < end && end <= 1440)) '⚠ 起止不合法，设备会丢弃',
+          if (valid != 0 && start < end && end - start <= 10) '⚠ ≤10 分钟，设备会丢弃',
+        ];
+        return '时段$index ${time(start)}–${time(end)}'
+            '${notes.isEmpty ? '' : '（${notes.join('，')}）'}';
+      }
+
+      lines.add(
+        '组$group ${names[group]}：'
+        '${slot(1, read(o), read(o + 2), data[o + 9])}；'
+        '${slot(2, read(o + 4), read(o + 6), data[o + 10])}；'
+        '沿边=${data[o + 8]}　[$hex]',
+      );
+    }
+    return lines;
+  }
+
   /// 涂鸦 raw 型 DP 的下发值就是 base64（V2.2 §5.1）。
   static String toBase64(Uint8List data) => base64Encode(data);
 

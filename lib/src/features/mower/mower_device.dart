@@ -82,6 +82,12 @@ class MowerDevice extends ChangeNotifier {
   /// 按设备上报；没报过就是空周。
   late List<MowerScheduleDay> schedule;
 
+  /// DP101 最近一次的**原始 88 字节**与来源（「设备上报」/「本机下发」）、时间。
+  /// 计划页底部的临时窗口和联调日志拿它逐字节解析（[MowerScheduleCodec.describe]）。
+  Uint8List? scheduleRaw;
+  String scheduleRawSource = '';
+  DateTime? scheduleRawAt;
+
   /// DP103：五个区域的百分比与距离。
   late List<MowerZoneConfig> zones;
 
@@ -181,6 +187,9 @@ class MowerDevice extends ChangeNotifier {
     deviceTimeUtcSeconds = null;
     language = null;
     schedule = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());
+    scheduleRaw = null;
+    scheduleRawSource = '';
+    scheduleRawAt = null;
     zones = <MowerZoneConfig>[
       for (var index = 1; index <= 5; index++)
         MowerZoneConfig(index: index, percent: 0, meters: 0),
@@ -190,12 +199,16 @@ class MowerDevice extends ChangeNotifier {
   /// 首页黄色提醒那一行：有故障时是 DP18 的文案，没有故障是安全提示。
   String? get faultMessage => MowerFault.firstMessage(faultBitmap);
 
-  /// 左边三颗（自动/定点/回归）此刻能不能点。
+  /// 左边三颗（自动/定点/回归）此刻能不能点——**不含**「当前模式置灰」那条（[isCurrentMode]
+  /// 是单独判断，见页面）。点之前还要过盖子那道预检（[coverClosed]，在页面里弹窗）。
   ///
-  /// 口径（2026-09-18 用户）：**启动/停止优先级最高**，只有启动（DP2=true）状态下
-  /// 左边三颗才能点；同一个模式不能重复点（[isCurrentMode]），点之前还要过盖子那道
-  /// 预检（[coverClosed]，在页面里弹窗）。
-  bool get commandsEnabled => switchGo;
+  /// 口径：
+  /// - 2026-09-18：按下「停止」之后三颗不可点，「继续」后恢复；
+  /// - 2026-09-23 更正：「DP3 不等于这颗按钮时就应该能正常点」。原来写成 `switchGo`，
+  ///   待机态设备报的 DP2 也是 false，结果刚开机连「自动」都点不了、没法启动
+  ///   （协议 §9.2：待机启动就是发 DP3=smart）。所以「停止」改按设备真的**暂停了**来认：
+  ///   DP5 = paused（协议 §9.3：停止发 DP2=false → 设备报 DP5=paused）。
+  bool get commandsEnabled => status != MowerStatus.paused;
 
   /// 这个模式是不是当前 DP3 的值——是就置灰，不给重复下发。
   bool isCurrentMode(MowerMode target) => mode == target;
@@ -236,6 +249,7 @@ class MowerDevice extends ChangeNotifier {
       hex: MowerScheduleCodec.toHexGroups(data),
       action: '割草计划（全量替换，8 组 × 11 字节）',
     );
+    _rememberSchedule(state, data, '本机下发');
     schedule = List<MowerScheduleDay>.of(week);
     notifyListeners();
   }
@@ -331,6 +345,13 @@ class MowerDevice extends ChangeNotifier {
     if (id == null) return;
     final dps = await state.mowerDps(id);
     if (dps == null || _deviceId != id) return;
+    // 这一次有没有把 DP101 刷进来：有就逐字节解析打进日志（下面三个分支口径各不相同）。
+    final scheduleTouched = changed == null
+        ? dps.containsKey(MowerDp.mowSchedule)
+        : changed.isEmpty
+        ? dps.containsKey(MowerDp.mowSchedule) &&
+              !_awaitingEcho.containsKey(MowerDp.mowSchedule)
+        : changed.contains(MowerDp.mowSchedule);
     if (changed == null) {
       _applyReported(dps);
       state.logMowerInteraction(
@@ -350,6 +371,16 @@ class MowerDevice extends ChangeNotifier {
         _awaitingEcho.remove(dp);
         final identifier = MowerDp.identifiers[dp] ?? 'dp$dp';
         state.logMowerInteraction('上报 ← 割草机 DP$dp $identifier=${dps[dp]}');
+      }
+    }
+    if (scheduleTouched) {
+      final bytes = TuyaRaw.bytes(dps[MowerDp.mowSchedule]);
+      if (bytes != null) {
+        _rememberSchedule(state, Uint8List.fromList(bytes), '设备上报');
+      } else {
+        state.logMowerInteraction(
+          '解析 ✗ 割草机 DP${MowerDp.mowSchedule} 认不出的值：${dps[MowerDp.mowSchedule]}',
+        );
       }
     }
     notifyListeners();
@@ -425,6 +456,19 @@ class MowerDevice extends ChangeNotifier {
         default:
           break;
       }
+    }
+  }
+
+  /// 记下 DP101 原始字节并逐行解析进联调日志。
+  void _rememberSchedule(FlowerpotState state, Uint8List data, String source) {
+    scheduleRaw = data;
+    scheduleRawSource = source;
+    scheduleRawAt = DateTime.now();
+    state.logMowerInteraction(
+      '解析 · 割草机 DP${MowerDp.mowSchedule} mow_schedule（$source，${data.length} 字节）',
+    );
+    for (final line in MowerScheduleCodec.describe(data)) {
+      state.logMowerInteraction('　　$line');
     }
   }
 

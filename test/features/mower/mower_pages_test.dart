@@ -59,25 +59,55 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('停止态下左边三颗点不动，点「继续」（DP2=true）之后才能点', (tester) async {
+  testWidgets('刚开机待机（DP2=false、DP3=standby）：「自动」能点，发 DP3=smart', (tester) async {
     final repository = await _pumpMowerHome(tester, <int, Object?>{
       MowerDp.switchGo: false,
       MowerDp.mode: 'standby',
+      MowerDp.status: 'standby',
     });
 
     expect(find.text('继续'), findsOneWidget);
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await tester.pump();
-    expect(_sentDps(repository), isEmpty, reason: 'DP2=false 时左三不下发');
+
+    expect(_sentDps(repository), <int>[MowerDp.mode]);
+    expect(repository.publishedDps.last.$2[MowerDp.mode], 'smart');
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('按过停止（DP5=paused）时左三点不动；继续、设备回作业后恢复', (tester) async {
+    final repository = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.switchGo: false,
+      MowerDp.mode: 'smart',
+      MowerDp.status: 'paused',
+    });
+
+    await tester.tap(find.byKey(const Key('mower-action-spot')));
+    await tester.pump();
+    expect(_sentDps(repository), isEmpty, reason: '暂停中左三不下发');
 
     await tester.tap(find.byKey(const Key('mower-action-switch')));
     await tester.pump();
-    expect(find.text('停止'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('mower-action-smart')));
+    expect(_sentDps(repository), <int>[MowerDp.switchGo]);
+
+    // 设备收下「继续」，回到割草中
+    repository.rawDpsByDevice[_mowerId]!
+      ..[MowerDp.switchGo] = true
+      ..[MowerDp.status] = 'mowing';
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: <int>{MowerDp.switchGo, MowerDp.status},
+      ),
+    );
+    await tester.pump();
     await tester.pump();
 
+    await tester.tap(find.byKey(const Key('mower-action-spot')));
+    await tester.pump();
     expect(_sentDps(repository), <int>[MowerDp.switchGo, MowerDp.mode]);
-    expect(repository.publishedDps.last.$2[MowerDp.mode], 'smart');
+    expect(repository.publishedDps.last.$2[MowerDp.mode], 'spot');
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });

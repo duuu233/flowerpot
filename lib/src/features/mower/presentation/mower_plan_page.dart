@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
@@ -235,6 +236,8 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
                   onDeleteSlot: _deleteSlot,
                 ),
               ),
+              const SizedBox(height: 16),
+              _ScheduleDebugWindow(device: _device),
             ],
           ),
         ),
@@ -274,6 +277,90 @@ class _RestoreDefaultButton extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// DP101 解析的**临时窗口**（2026-09-23 联调：「割草计划你把数据解析出来打印在日志上，我要对比一下，
+/// 可以在页面下方搞个临时窗口」）。**联调设施，不是产品功能**，联调完删掉。
+///
+/// 画的是最近一次的原始 88 字节（设备上报或本机下发，哪个晚用哪个），逐组逐字段解析
+/// （[MowerScheduleCodec.describe]）；同样的内容也打进了联调日志。点「复制」整段进剪贴板。
+class _ScheduleDebugWindow extends StatelessWidget {
+  const _ScheduleDebugWindow({required this.device});
+
+  final MowerDevice device;
+
+  String get _text {
+    final raw = device.scheduleRaw;
+    if (raw == null) {
+      return 'DP${MowerDp.mowSchedule} 还没有数据：设备没报过、本机也没下发过';
+    }
+    final at = device.scheduleRawAt;
+    String two(int v) => v.toString().padLeft(2, '0');
+    final time = at == null
+        ? ''
+        : ' ${two(at.hour)}:${two(at.minute)}:${two(at.second)}';
+    return <String>[
+      'DP${MowerDp.mowSchedule} mow_schedule · ${device.scheduleRawSource}$time · ${raw.length} 字节',
+      'hex  ${MowerScheduleCodec.toHexGroups(raw)}',
+      'base64  ${MowerScheduleCodec.toBase64(raw)}',
+      ...MowerScheduleCodec.describe(raw),
+    ].join('\n');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = _text;
+    return Container(
+      key: const Key('mower-plan-debug-window'),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1F2A2B),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Expanded(
+                child: Text(
+                  '临时 · 割草计划解析（联调用）',
+                  style: TextStyle(
+                    color: Color(0xFFB8E3DE),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              TextButton(
+                key: const Key('mower-plan-debug-copy'),
+                onPressed: () {
+                  unawaited(Clipboard.setData(ClipboardData(text: text)));
+                  showAppMessage(context, '已复制（${text.length} 字）');
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFB8E3DE),
+                  minimumSize: const Size(0, 28),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('复制', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+          SelectableText(
+            text,
+            style: const TextStyle(
+              color: Color(0xFFE8F1F0),
+              fontSize: 11,
+              height: 1.5,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ],
       ),
     );
   }
