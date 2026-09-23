@@ -11,7 +11,10 @@ import '../../../routes/app_routes.dart';
 // `FlowerpotState`：连上热点之后本页就持有一条连接，dispose / paused 里要还原网络，
 // 那时已经不能查 InheritedWidget，所以得按类型留引用。
 import '../../../state.dart';
+import '../../../tuya/tuya_config.dart';
 import '../../../tuya/tuya_models.dart';
+import '../../mower/mower_dp.dart';
+import '../../mower/mower_ui.dart';
 import '../pairing_gate.dart';
 import 'pairing_page.dart';
 import 'widgets/pairing_progress_view.dart';
@@ -1589,6 +1592,23 @@ class _FoundDevice {
 
   bool get isBle => ble != null;
 
+  /// 这一行画哪个产品的图标（2026-09-23 产品：花盆和割草机各用各的）。
+  ///
+  /// 按 BLE 广播里的 pid 认：割草机 = [MowerDp.productId]；花盆 = 平台 ID 或广播 ID
+  /// （花盆这两个不一样，见 [TuyaConfig.broadcastId]）；热点那条（AP 回落）只有花盆走。
+  /// 都不是（排查态下列出来的别家设备、后台新加还没配图的产品）就是 null，退回蓝牙图标。
+  /// ⚠️ 割草机的**广播** pid 是否就是平台 ID 还没真机确认——花盆就不是；不是的话这里要补。
+  _ProductIcon? get productIcon {
+    final device = ble;
+    if (device == null) return _ProductIcon.planter;
+    final pid = device.productId.trim();
+    if (pid == MowerDp.productId) return _ProductIcon.mower;
+    if (pid == TuyaConfig.productId || pid == TuyaConfig.broadcastId) {
+      return _ProductIcon.planter;
+    }
+    return null;
+  }
+
   /// 行上显示的名字。
   ///
   /// **云端产品名优先**：BLE 广播里常常没有名字，只剩 mac 尾号，人根本看不出哪台是花盆；
@@ -1761,12 +1781,9 @@ class _FoundDeviceTile extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
           child: Row(
             children: <Widget>[
-              // 图标就说明走的是哪条路：蓝牙 / 热点。
-              Icon(
-                device.isBle ? Icons.bluetooth : Icons.wifi_tethering,
-                size: 22,
-                color: AppColors.brandPrimary,
-              ),
+              // 产品图标（稿子 `选择设备.png`：40 的浅色圆角方块）；认不出产品才退回
+              // 原来的蓝牙 / 热点小图标。
+              _FoundDeviceIcon(device: device),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -1838,6 +1855,60 @@ class _FoundDeviceTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+enum _ProductIcon { planter, mower }
+
+/// 搜索结果那一行左边的图标。
+///
+/// 两张图的画布不一样：花盆 `device_planter_icon.png` 80×80 整张就是方块；割草机
+/// `mower_list_icon.png` 150×150 里方块只占左上的 120×120（下边、右边留了透明边，从稿子
+/// 连画布一起导出的）。所以割草机按 150/120 放大到 50，再上移 5，方块才和花盆一样是 40。
+class _FoundDeviceIcon extends StatelessWidget {
+  const _FoundDeviceIcon({required this.device});
+
+  final _FoundDevice device;
+
+  static const double size = 40;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = device.productIcon;
+    return SizedBox.square(
+      dimension: size,
+      child: switch (icon) {
+        _ProductIcon.planter => Image.asset(
+          AppAssets.devicePlanterIcon,
+          key: const Key('device-search-icon-planter'),
+          width: size,
+          height: size,
+          filterQuality: FilterQuality.high,
+          excludeFromSemantics: true,
+        ),
+        _ProductIcon.mower => OverflowBox(
+          alignment: Alignment.topLeft,
+          maxWidth: 50,
+          maxHeight: 50,
+          child: Transform.translate(
+            offset: const Offset(0, -5),
+            child: Image.asset(
+              MowerAssets.listIcon,
+              key: const Key('device-search-icon-mower'),
+              width: 50,
+              height: 50,
+              filterQuality: FilterQuality.high,
+              excludeFromSemantics: true,
+            ),
+          ),
+        ),
+        null => Icon(
+          device.isBle ? Icons.bluetooth : Icons.wifi_tethering,
+          size: 22,
+          color: AppColors.brandPrimary,
+        ),
+      },
     );
   }
 }
