@@ -1389,7 +1389,10 @@ class FlowerpotState extends ChangeNotifier {
             throw const TuyaException('device_offline', '设备已离线');
           }
           mode = 'ThingDevicePublishModeAuto';
-          via = '蓝牙（Wi-Fi 离线降级）';
+          // Auto 时 SDK 自己按 `isBleCommunicationNodeFirst` 排通道：蓝牙连着且设备经蓝牙报了
+          // 「Wi-Fi 断了」（0 / 1）就把 MQTT 挪到最后 → 走蓝牙。这就是涂鸦封装的自动切换；
+          // 设备要在 0x01 里置 abv bit0 才会报这个状态（涂鸦答复，固件侧）。
+          via = '蓝牙（Wi-Fi 离线降级，bleNodeFirst=${link['bleNodeFirst']}）';
         }
         _logInteraction('下发 → $dps（走 $via，$mode）');
         try {

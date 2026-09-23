@@ -2950,6 +2950,20 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val mqtt = bean?.let { channelOnline(it, "MQTT") }
         val lan = bean?.let { channelOnline(it, "LAN") }
         val cloud = bean?.let { optionalGetter(it, "isCloudOnline") as? Boolean }
+        // SDK 自动切蓝牙的依据（7.5.1 解包）：Auto 下发前 `orderLocalCommunicationList` 调
+        // `ThingBleManager.isBleCommunicationNodeFirst(devId)`——蓝牙没连 / 没配对回 -2（顺序不变，MQTT 在前）；
+        // 连着就回**设备经蓝牙报的联网状态**，0 / 1（设备 Wi-Fi 断了）时把 MQTT 挪到最后 → 指令走蓝牙。
+        // 设备要按涂鸦答复在 0x01 里置 abv bit0 才会报这个状态。
+        val bleNodeFirst = runCatching {
+            val managerClass = Class.forName(
+                "com.thingclips.sdk.ble.core.open.ThingBleManager",
+                false,
+                manager?.javaClass?.classLoader ?: activity.classLoader,
+            )
+            val instance = managerClass.getField("INSTANCE").get(null)
+            (managerClass.getMethod("isBleCommunicationNodeFirst", String::class.java)
+                .invoke(instance, id) as? Number)?.toInt()
+        }.getOrNull()
         success(
             result,
             mapOf(
@@ -2960,6 +2974,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "mqtt" to mqtt,
                 "lan" to lan,
                 "cloud" to cloud,
+                "bleNodeFirst" to bleNodeFirst,
                 "hasBle" to bean?.let { optionalGetter(it, "isHasBleCommunication") },
                 "beanFound" to (bean != null),
             ),

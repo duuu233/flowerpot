@@ -311,7 +311,15 @@ class MowerDevice extends ChangeNotifier {
     bleLinked = ble;
     wifiLinked = wifi;
     final parts = <String>[
-      for (final key in <String>['bleManager', 'bleChannel', 'mqtt', 'lan', 'cloud'])
+      for (final key in <String>[
+        'bleManager',
+        'bleChannel',
+        'mqtt',
+        'lan',
+        'cloud',
+        // SDK 自动切蓝牙的依据：-2 未连蓝牙；0 / 1 = 设备经蓝牙报 Wi-Fi 断了 → Auto 下发走蓝牙。
+        'bleNodeFirst',
+      ])
         if (link.containsKey(key)) '$key=${link[key]}',
     ];
     state.logMowerInteraction(

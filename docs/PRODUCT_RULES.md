@@ -628,6 +628,11 @@ Wi-Fi 设备的进度是一整段，「传输」只在蓝牙直连升级时有�
     （只走云端；只有局域网通时用 `Local`）；**Wi-Fi 离线 → 主动降级蓝牙**：割草机页面打开期间监听在线变化（涂鸦 `onStatusChanged`
     + 每 3 秒通道刷新），一掉线立刻连蓝牙；下发用 `ThingDevicePublishModeAuto`（此时 SDK 只剩蓝牙），蓝牙也连不上才按离线拦。
     SDK 没有「只走蓝牙」的模式（Local = 只走局域网）。设备列表里割草机离线也能进（进去才会连蓝牙）。
+  - **Wi-Fi 断线 → 离线 → 连蓝牙 → 指令走蓝牙 整条链（涂鸦封装，7.5.1 解包核对）**：离线由涂鸦 `onStatusChanged` 或 App 探测
+    （`requestWifiSignal`，§4.8.1）判出 → 割草机页面立刻 `connectBleDevice` → 下发用 Auto：SDK 先 `orderLocalCommunicationList`，
+    其中 `isBleCommunicationNodeFirst(devId)` 在蓝牙连着时回**设备经蓝牙报的联网状态**，为 0 / 1（设备 Wi-Fi 断了）就把 MQTT
+    挪到最后 → **走蓝牙**。依赖固件在 0x01 里置 abv bit0（涂鸦答复）。能强制指定通道的 `publishDpsInPipeline` 是 SDK 私有方法，不用。
+    联调日志的通道状态带 `bleNodeFirst`：-2 = 未连蓝牙，0 / 1 = SDK 会切蓝牙。
     检查期间**被点的那颗按钮换成转圈**（不盖全屏遮罩），检查完按钮恢复，再弹提示。
   - 设置页右上角问号去掉（帮助中心仍在列表里）。
     （原话「信号若大于 -50」，同日改 -80、再改 -90；按「信号弱于阈值才拦」实现，RSSI 越大越近。）
