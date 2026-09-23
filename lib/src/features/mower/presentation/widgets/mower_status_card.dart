@@ -146,11 +146,23 @@ class _BatteryLine extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 5),
-        Text(label, style: textStyle.copyWith(color: tone.statusColor)),
-        const SizedBox(width: 5),
-        Text(
-          '$percent%',
-          style: textStyle.copyWith(color: MowerColors.ink),
+        // 状态词和百分比放进**同一个 Text** 的两段，共用一条基线（2026-09-23 产品：「电量告警」
+        // 「30%」没对齐）。原来是 Row 里两个 Text 各自按方框居中：中文和数字走的是不同字体，
+        // 字框高度 / 基线位置不一样，居中后就上下错开。
+        Text.rich(
+          TextSpan(
+            children: <InlineSpan>[
+              TextSpan(
+                text: label,
+                style: textStyle.copyWith(color: tone.statusColor),
+              ),
+              TextSpan(
+                text: ' $percent%',
+                style: textStyle.copyWith(color: MowerColors.ink),
+              ),
+            ],
+          ),
+          key: const Key('mower-battery-status-text'),
         ),
       ],
     );
