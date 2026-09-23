@@ -1,4 +1,6 @@
 import 'dart:async';
+
+import 'package:flowerpot/src/app/design_scale.dart';
 import 'package:flowerpot/src/core/config/debug_log_gate.dart';
 import 'package:flowerpot/src/core/network/network_status.dart';
 import 'package:flowerpot/src/state.dart';
@@ -20,6 +22,9 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
     // 好几个用例断言的就是日志内容（帮助中心带没带产品 ID、状态页读了哪些 DP……），
     // 关着的话它们验的东西根本不产生。专门验这道闸的用例自己改回 false。
     DebugLogGate.interactionLog = true;
+    // 全局按设计稿缩放（DesignScale）在用例里关着：既有用例按具体尺寸断言（320 宽那几条尤其）。
+    // 专门验它的用例（design_scale_test）自己打开。
+    DesignScale.enabled = false;
   });
   await testMain();
 }

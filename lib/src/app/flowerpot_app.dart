@@ -12,6 +12,7 @@ import '../shared/l10n/app_l10n.dart';
 import '../state.dart';
 import '../tuya/tuya_repository.dart';
 import 'app_route_tracker.dart';
+import 'design_scale.dart';
 import 'firmware_reminder.dart';
 import 'interaction_log_overlay.dart';
 import 'network_alert.dart';
@@ -242,18 +243,22 @@ class _FlowerpotAppState extends State<FlowerpotApp>
             // 往布局里插面板。临时设施，验通后整块去掉。
             // 「网络异常」弹窗、固件升级提醒也挂在这里（常驻，不随联调日志去掉）；
             // 闪屏期间都不查。
-            builder: (context, child) => AppLocalizationsScope(
-              language: state.language,
-              child: NetworkAlertHost(
-                state: state,
-                routes: _routes,
-                enabled: !_showSplash,
-                child: FirmwareReminderHost(
+            // 最外层按设计稿 375 宽等比缩放（DesignScale，2026-09-23）：页面、弹框、底部弹层、
+            // 提示气泡都在它里面，比例和 UI 图一致。
+            builder: (context, child) => DesignScale(
+              child: AppLocalizationsScope(
+                language: state.language,
+                child: NetworkAlertHost(
                   state: state,
                   routes: _routes,
                   enabled: !_showSplash,
-                  child: InteractionLogOverlay(
-                    child: child ?? const SizedBox.shrink(),
+                  child: FirmwareReminderHost(
+                    state: state,
+                    routes: _routes,
+                    enabled: !_showSplash,
+                    child: InteractionLogOverlay(
+                      child: child ?? const SizedBox.shrink(),
+                    ),
                   ),
                 ),
               ),
