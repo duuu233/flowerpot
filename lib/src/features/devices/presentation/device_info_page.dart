@@ -16,7 +16,7 @@ class DeviceInfoPage extends StatelessWidget {
   Future<void> _rename(BuildContext context, SmartPlanterDevice device) async {
     final name = await showDialog<String>(
       context: context,
-      builder: (_) => _RenameDeviceDialog(initialName: device.name),
+      builder: (_) => RenameDeviceDialog(initialName: device.name),
     );
     if (name == null || !context.mounted) return;
     final state = FlowerpotScope.of(context);
@@ -193,16 +193,17 @@ class DeviceInfoPage extends StatelessWidget {
   }
 }
 
-class _RenameDeviceDialog extends StatefulWidget {
-  const _RenameDeviceDialog({required this.initialName});
+/// 改设备名的弹框。花盆设备信息页和割草机设备参数页共用（2026-09-23 起割草机也用它）。
+class RenameDeviceDialog extends StatefulWidget {
+  const RenameDeviceDialog({required this.initialName, super.key});
 
   final String initialName;
 
   @override
-  State<_RenameDeviceDialog> createState() => _RenameDeviceDialogState();
+  State<RenameDeviceDialog> createState() => _RenameDeviceDialogState();
 }
 
-class _RenameDeviceDialogState extends State<_RenameDeviceDialog> {
+class _RenameDeviceDialogState extends State<RenameDeviceDialog> {
   late final TextEditingController _controller = TextEditingController(
     text: widget.initialName,
   );

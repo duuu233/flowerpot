@@ -171,19 +171,15 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
     _publish(week);
   }
 
-  /// 「恢复默认」：**协议里没有默认计划**（V2.2 的 DP101 只有「全量替换」），原来下发的是
-  /// 设计稿上画的四块——那是假数据，2026-09-23 联调起不再发。等产品给出默认计划或设备端
-  /// 支持再接，这里只记日志、提示一句（确认框 `showMowerRestoreDefaultDialog` 留着备用）。
+  /// 「恢复默认」：先问一句，确认后下发 **DP110 schedule_reset = true**（协议 V2.3 新增）。
+  ///
+  /// 默认计划由**设备**决定（每天 09:00–11:30 + 13:30–17:30），App 不自己编、也不先本地改——
+  /// 设备写好后会上报 DP101，界面随那条上报刷新，下面的临时窗口也会打出解析。
+  /// （2026-09-23 上午曾因 V2.2 没有这条而改成只提示；此前下发的是设计稿上的四块，是假数据。）
   Future<void> _restoreDefault() async {
-    MowerDevice.instance.logUnsupported(
-      FlowerpotScope.of(context),
-      '恢复默认计划（协议里没有默认计划）',
-    );
-    showAppMessage(
-      context,
-      '设备协议里没有默认计划，暂不支持恢复默认',
-      tone: AppMessageTone.info,
-    );
+    final confirmed = await showMowerRestoreDefaultDialog(context);
+    if (confirmed != true || !mounted) return;
+    MowerDevice.instance.resetSchedule(FlowerpotScope.of(context));
   }
 
   @override

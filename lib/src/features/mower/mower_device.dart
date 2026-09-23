@@ -254,6 +254,17 @@ class MowerDevice extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 恢复默认割草计划（DP110 = true，V2.3）。**本地不改计划**：设备写入默认计划后会自己上报 DP101，
+  /// 界面等那条上报再刷（执行成功的依据就是它）；设备随后把 DP110 回写 false，这条回写正好消掉回显等待。
+  void resetSchedule(FlowerpotState state) {
+    _deliver(
+      state,
+      MowerDp.scheduleReset,
+      true,
+      action: '恢复默认割草计划，等设备回报 DP${MowerDp.mowSchedule}',
+    );
+  }
+
   /// 区域配置（DP103，raw 25 字节）。**全量替换**，5 个区一起发。
   void setZones(FlowerpotState state, List<MowerZoneConfig> next) {
     final data = MowerZoneCodec.encode(next);

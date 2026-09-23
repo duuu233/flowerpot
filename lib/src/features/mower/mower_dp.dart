@@ -53,6 +53,11 @@ abstract final class MowerDp {
   /// raw rw：区域配置，25 字节，见 [MowerZoneCodec]。
   static const int zoneConfig = 103;
 
+  /// bool rw：恢复默认割草计划（V2.3 新增，**动作型、自复位**）。下发 true → 设备写入默认计划
+  /// （每天 09:00–11:30 + 13:30–17:30，组 0「全部设置」）→ **DP101 自动上报**新计划 → 回写 false。
+  /// 执行结果看 DP101，不看这条回写的 false。旧「110 割草高度」已下架，编号复用。
+  static const int scheduleReset = 110;
+
   // ── 雨淋 ────────────────────────────────────────────────
   /// bool rw：雨滴延时开关（V2.2 新增；旧 DP102 区域开关已删除）。
   static const int rainDelaySwitch = 102;
@@ -94,6 +99,7 @@ abstract final class MowerDp {
     battery: 'battery_percentage',
     fault: 'fault',
     mowSchedule: 'mow_schedule',
+    scheduleReset: 'schedule_reset',
     rainDelaySwitch: 'rain_delay_switch',
     zoneConfig: 'zone_config',
     rainDetectEnable: 'rain_detect_enable',

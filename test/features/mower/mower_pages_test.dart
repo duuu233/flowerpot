@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/pairing_gate.dart';
@@ -166,7 +168,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('「恢复默认」协议里没有默认计划：只提示，不下发稿子上的四块', (tester) async {
+  testWidgets('「恢复默认」确认后发 DP110=true，本地不改；设备回报 DP101 后界面按它刷新', (tester) async {
     final repository = await _pumpMowerHome(tester, <int, Object?>{
       MowerDp.mowSchedule: TuyaRaw.hex(
         MowerScheduleCodec.encodeByDay(_week()),
@@ -176,14 +178,38 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('mower-plan-restore')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('mower-plan-restore-dialog')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('mower-plan-restore-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(_sentDps(repository), <int>[MowerDp.scheduleReset]);
+    expect(repository.publishedDps.single.$2[MowerDp.scheduleReset], isTrue);
+    expect(find.text('总工作时间：5小时23分钟'), findsOneWidget, reason: '等设备回报，不先本地改');
+
+    // 协议 V2.3 §5.4：设备写入默认计划（组 0）→ 上报 DP101 → 回写 DP110=false
+    final defaults = Uint8List(MowerScheduleCodec.bytes)
+      ..setRange(0, 11, <int>[0x1C, 0x02, 0xB2, 0x02, 0x2A, 0x03, 0x1A, 0x04, 0, 1, 1]);
+    repository.rawDpsByDevice[_mowerId]!
+      ..[MowerDp.mowSchedule] = TuyaRaw.hex(defaults)
+      ..[MowerDp.scheduleReset] = false;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: <int>{MowerDp.mowSchedule, MowerDp.scheduleReset},
+      ),
+    );
+    await tester.pump();
     await tester.pump();
 
-    expect(find.byKey(const Key('mower-plan-restore-dialog')), findsNothing);
-    expect(_sentDps(repository), isEmpty);
-    expect(find.text('总工作时间：5小时23分钟'), findsOneWidget);
+    final monday = MowerDevice.instance.schedule[1];
+    expect(monday.slotOne?.startMinutes, 540);
+    expect(monday.slotOne?.endMinutes, 690);
+    expect(monday.slotTwo?.startMinutes, 810);
+    expect(monday.slotTwo?.endMinutes, 1050);
+    expect(MowerDevice.instance.scheduleRawSource, '设备上报');
+    expect(find.byKey(const Key('mower-plan-debug-window')), findsOneWidget);
     MowerDevice.instance.resetForTest();
-    // 提示气泡有自己的消失计时，走完再结束
-    await tester.pump(const Duration(seconds: 4));
     expect(tester.takeException(), isNull);
   });
 
