@@ -580,25 +580,32 @@ class _ActionButton extends StatelessWidget {
             color: active ? MowerColors.softFill : null,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: busy
-              ? const SizedBox.square(
-                  key: Key('mower-action-busy'),
-                  dimension: 28,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.6,
-                    color: MowerColors.brand,
-                  ),
-                )
-              : Column(
+          // 检查中**只把图标那 40×40 的位置换成转圈**，文字照旧——四颗的图标行、文字行都对齐
+          // （2026-09-23 产品：转圈没和其它几个对齐。之前是整颗内容换成一个圈，圈在 86 高里居中，
+          // 落在图标和文字之间）。
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Image.asset(
-                icon,
-                width: 40,
-                height: 40,
-                filterQuality: FilterQuality.high,
-                excludeFromSemantics: true,
-              ),
+              if (busy)
+                const SizedBox.square(
+                  key: Key('mower-action-busy'),
+                  dimension: 40,
+                  child: Padding(
+                    padding: EdgeInsets.all(8),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.6,
+                      color: MowerColors.brand,
+                    ),
+                  ),
+                )
+              else
+                Image.asset(
+                  icon,
+                  width: 40,
+                  height: 40,
+                  filterQuality: FilterQuality.high,
+                  excludeFromSemantics: true,
+                ),
               const SizedBox(height: 7),
               Text(
                 label,

@@ -633,6 +633,9 @@ Wi-Fi 设备的进度是一整段，「传输」只在蓝牙直连升级时有�
     App 才能在 Wi-Fi 在线时建立蓝牙会话、实时知道蓝牙状态——**固件侧要做**；App 端持续扫描维持连接（连接改为
     `directConnect=false` 先扫描再连）、在线走 Wi-Fi、离线监听后切蓝牙（已做）。答复里的 `BLEWIFIActivator` /
     `BluetoothControlService` 是固件 TuyaOS 的命名，App SDK 7.5.1 里没有。
+  - **2026-09-23 真机日志结论**：手机蓝牙开、平台产品 capability=1025（含蓝牙位）、isBluetooth=true，但 `bleChannel=false`、
+    `getBleConnectAbility=0`（解包：读的是**设备上报到云端的 `DeviceBizPropBean.bluetoothCapability`**，为空 / 非 3 字节就是 0），
+    扫描 15 秒无任何连接回调 → **设备固件没有上报蓝牙连接能力**，与涂鸦答复（0x01 abv bit0、双模并行）一致，需固件处理。
   - 蓝牙连不上的已知原因（SDK 解包）：手机蓝牙没开、或涂鸦平台产品能力位没有蓝牙（`capability & 1024`）——SDK 会静默跳过，App 现在提前判出并写进日志。
 - **固件升级提醒同花盆**（同日产品：「跟花盆做一样的，红点和弹窗」「这种相同的功能都按花盆的交互和逻辑处理」）：
   有新固件时设置页「设备升级」亮红点（升级中不亮）；进割草机页面时按平台升级方式弹「提醒升级 / 强制升级」框，

@@ -53,6 +53,10 @@ class MowerDevice extends ChangeNotifier {
   bool _autoConnecting = false;
 
   /// 绑定期间监听状态层（设备在线变化由涂鸦 `onStatusChanged` 推到那里），
+  /// ⚠️ 涂鸦答复里说的「监听 onDeviceOffline」在 App SDK 7.5.1 里**没有这个方法**（全模块 0 命中）；
+  /// 等价的是设备监听 `IDevListener.onStatusChanged(devId, online)`，online=false 即离线——原生对账号下
+  /// 每台设备都注册了（`MainActivity.watchDevices`），事件 → 状态层 `device.online` → 这里。另有每 3 秒
+  /// 的主动查询兜底（`refreshLink`）。
   /// Wi-Fi 一掉线就**主动降级连蓝牙**（2026-09-23 产品：「设备离线后，需要主动通过监听降级为蓝牙连接」）。
   FlowerpotState? _watchedState;
   bool? _lastOnline;
