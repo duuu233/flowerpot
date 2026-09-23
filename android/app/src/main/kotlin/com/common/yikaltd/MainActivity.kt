@@ -104,7 +104,9 @@ class MainActivity : FlutterActivity() {
                 call.method == "startBleScan" ||
                     call.method == "queryDeviceConfigState" ||
                     call.method == "pairBleDevice" ||
-                    call.method == "ensureBlePermissions"
+                    call.method == "ensureBlePermissions" ||
+                    call.method == "bleConnectDevice" ||
+                    call.method == "bleReadRssi"
             if ((needsWifiPermissions || needsBlePermissions) &&
                 requestPairingPermissions(call, result, forBle = needsBlePermissions)
             ) {
@@ -452,6 +454,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "deviceOperateLogs" -> deviceOperateLogs(call, result)
                 "messagesByTime" -> messagesByTime(call, result)
                 "startPushListen" -> startPushListen(result)
+                "deviceLinkState" -> deviceLinkState(call, result)
+                "bleConnectDevice" -> bleConnectDevice(call, result)
+                "bleReadRssi" -> bleReadRssi(call, result)
                 "checkFirmware" -> checkFirmware(call, result)
                 "startFirmwareUpgrade" -> startFirmwareUpgrade(call, result)
                 "uploadAnimation" -> result.error(
@@ -2874,6 +2879,205 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "diagnostic" to diagnostic,
             ),
         )
+    }
+
+    // ── 已绑定设备的蓝牙（2026-09-23 割草机：图标按通道亮、控制前先连蓝牙查信号） ──────────
+    //
+    // 全部走涂鸦 SDK（7.5.1 解包核对，`thingsmart-bluetooth-api`）：
+    //   ThingHomeSdk.getBleManager() → IThingBleManager
+    //     isBleLocalOnline(devId) / connectBleDevice(List<BleConnectBuilder>) /
+    //     registerDeviceConnectStatus(devId, BleConnectStatusListener) / readBleRssi(devId, BleRssiListener)
+    //   DeviceBean.getCommunicationOnline(CommunicationEnum.BLE|MQTT|LAN) / isCloudOnline()
+    // 不用系统原生蓝牙（项目口径：能用涂鸦 SDK 的不自己实现）。
+
+    private fun bleManager(): Any? =
+        runCatching { invokeStatic(sdkClass(), "getBleManager") }.getOrNull()
+
+    private fun bleLocalOnline(manager: Any?, deviceId: String): Boolean? =
+        manager?.let { runCatching { invoke(it, "isBleLocalOnline", deviceId) as? Boolean }.getOrNull() }
+
+    /** DeviceBean 某条通道在不在线；取不到返回 null。 */
+    private fun channelOnline(bean: Any, name: String): Boolean? = runCatching {
+        val enumClass = Class.forName(
+            "com.thingclips.smart.interior.device.bean.CommunicationEnum",
+            false,
+            bean.javaClass.classLoader ?: activity.classLoader,
+        )
+        val constant = enumClass.enumConstants?.filterIsInstance<Enum<*>>()
+            ?.firstOrNull { it.name == name } ?: return@runCatching null
+        bean.javaClass.getMethod("getCommunicationOnline", enumClass).invoke(bean, constant) as? Boolean
+    }.getOrNull()
+
+    /**
+     * 两个图标各自亮不亮：`ble` = 手机和设备的蓝牙连着（`isBleLocalOnline`，取不到退回
+     * DeviceBean 的 BLE 通道）；`wifi` = 设备经 Wi-Fi 在线（MQTT / 局域网 / `isCloudOnline` 任一）。
+     * 各分量原样带回，页面日志里打出来，判断不对时能看出是哪一路。
+     */
+    private fun deviceLinkState(call: MethodCall, result: MethodChannel.Result) {
+        val id = call.argument<String>("deviceId").orEmpty()
+        val bean = deviceBean(id)
+        val manager = bleManager()
+        val bleManagerOnline = bleLocalOnline(manager, id)
+        val bleChannel = bean?.let { channelOnline(it, "BLE") }
+        val mqtt = bean?.let { channelOnline(it, "MQTT") }
+        val lan = bean?.let { channelOnline(it, "LAN") }
+        val cloud = bean?.let { optionalGetter(it, "isCloudOnline") as? Boolean }
+        success(
+            result,
+            mapOf(
+                "ble" to (bleManagerOnline ?: bleChannel ?: false),
+                "wifi" to (mqtt == true || lan == true || cloud == true),
+                "bleManager" to bleManagerOnline,
+                "bleChannel" to bleChannel,
+                "mqtt" to mqtt,
+                "lan" to lan,
+                "cloud" to cloud,
+                "hasBle" to bean?.let { optionalGetter(it, "isHasBleCommunication") },
+                "beanFound" to (bean != null),
+            ),
+        )
+    }
+
+    /**
+     * 连这台已绑定设备的蓝牙：已连着直接回；否则 `connectBleDevice` 发起，挂连接状态回调，
+     * 同时每 500ms 看一次 `isBleLocalOnline`，连上或超时（默认 15 秒）就回。
+     */
+    private fun bleConnectDevice(call: MethodCall, result: MethodChannel.Result) {
+        val id = call.argument<String>("deviceId").orEmpty()
+        val timeoutMs = (call.argument<Number>("timeoutMs"))?.toLong() ?: 15_000L
+        val diagnostic = mutableListOf<String>()
+        val manager = bleManager()
+        if (manager == null) {
+            success(result, mapOf("connected" to false, "diagnostic" to listOf("getBleManager() 取不到")))
+            return
+        }
+        if (bleLocalOnline(manager, id) == true) {
+            success(result, mapOf("connected" to true, "already" to true, "diagnostic" to listOf("本来就连着")))
+            return
+        }
+        val done = AtomicBoolean(false)
+        val handler = Handler(Looper.getMainLooper())
+        var listener: Any? = null
+        val started = System.currentTimeMillis()
+
+        fun finish(connected: Boolean, why: String) {
+            if (!done.compareAndSet(false, true)) return
+            diagnostic += why
+            listener?.let { l ->
+                runCatching { invoke(manager, "unregisterDeviceConnectStatus", id, l) }
+            }
+            success(
+                result,
+                mapOf(
+                    "connected" to connected,
+                    "elapsedMs" to (System.currentTimeMillis() - started),
+                    "diagnostic" to diagnostic,
+                ),
+            )
+        }
+
+        runCatching {
+            val method = manager.javaClass.methods.first {
+                it.name == "registerDeviceConnectStatus" && it.parameterTypes.size == 2
+            }
+            val type = method.parameterTypes[1]
+            val successCode = runCatching { type.getField("STATE_CONNECT_SUCCESS").get(null)?.toString() }
+                .getOrNull()
+            val proxy = Proxy.newProxyInstance(type.classLoader ?: activity.classLoader, arrayOf(type)) { self, m, args ->
+                when (m.name) {
+                    "equals" -> self === args?.firstOrNull()
+                    "hashCode" -> System.identityHashCode(self)
+                    "toString" -> "MowerBleConnectListener($id)"
+                    "onConnectStatusChanged" -> {
+                        val status = args?.lastOrNull()?.toString()
+                        activity.runOnUiThread {
+                            diagnostic += "连接状态 → $status"
+                            if (status != null && status == successCode) finish(true, "回调连接成功")
+                        }
+                        defaultValue(m.returnType)
+                    }
+                    else -> defaultValue(m.returnType)
+                }
+            }
+            method.invoke(manager, id, proxy)
+            listener = proxy
+        }.onFailure { diagnostic += "registerDeviceConnectStatus ✗ ${it.cause ?: it}" }
+
+        runCatching {
+            val builderClass = Class.forName(
+                "com.thingclips.smart.android.ble.builder.BleConnectBuilder",
+                false,
+                manager.javaClass.classLoader ?: activity.classLoader,
+            )
+            val builder = builderClass.getDeclaredConstructor().newInstance()
+            invoke(builder, "setDevId", id)
+            invoke(builder, "setScanTimeout", timeoutMs.toInt())
+            invoke(manager, "connectBleDevice", listOf(builder))
+            diagnostic += "connectBleDevice(devId=$id, scanTimeout=$timeoutMs) 已发起"
+        }.onFailure {
+            finish(false, "connectBleDevice ✗ ${it.cause ?: it}")
+            return
+        }
+
+        val poll = object : Runnable {
+            override fun run() {
+                if (done.get()) return
+                if (bleLocalOnline(manager, id) == true) {
+                    finish(true, "isBleLocalOnline = true")
+                    return
+                }
+                if (System.currentTimeMillis() - started >= timeoutMs) {
+                    finish(false, "超时 ${timeoutMs}ms 仍未连上")
+                    return
+                }
+                handler.postDelayed(this, 500)
+            }
+        }
+        handler.postDelayed(poll, 500)
+    }
+
+    /** 读蓝牙信号强度（dBm）：`readBleRssi`，5 秒没回退到 `readRssiByCache`。 */
+    private fun bleReadRssi(call: MethodCall, result: MethodChannel.Result) {
+        val id = call.argument<String>("deviceId").orEmpty()
+        val manager = bleManager()
+        if (manager == null) {
+            success(result, mapOf("ok" to false, "diagnostic" to listOf("getBleManager() 取不到")))
+            return
+        }
+        val done = AtomicBoolean(false)
+        fun reply(ok: Boolean, rssi: Int?, source: String) {
+            if (!done.compareAndSet(false, true)) return
+            success(result, mapOf("ok" to ok, "rssi" to rssi, "source" to source))
+        }
+        runCatching {
+            val method = manager.javaClass.methods.first {
+                it.name == "readBleRssi" && it.parameterTypes.size == 2
+            }
+            val type = method.parameterTypes[1]
+            val proxy = Proxy.newProxyInstance(type.classLoader ?: activity.classLoader, arrayOf(type)) { self, m, args ->
+                when (m.name) {
+                    "equals" -> self === args?.firstOrNull()
+                    "hashCode" -> System.identityHashCode(self)
+                    "toString" -> "MowerBleRssiListener($id)"
+                    "onResult" -> {
+                        val ok = args?.getOrNull(0) as? Boolean ?: false
+                        val rssi = (args?.getOrNull(1) as? Number)?.toInt()
+                        reply(ok, rssi, "readBleRssi")
+                        defaultValue(m.returnType)
+                    }
+                    else -> defaultValue(m.returnType)
+                }
+            }
+            method.invoke(manager, id, proxy)
+        }.onFailure {
+            val cached = runCatching { (invoke(manager, "readRssiByCache", id) as? Number)?.toInt() }.getOrNull()
+            reply(cached != null && cached != 0, cached, "readRssiByCache（readBleRssi ✗ ${it.cause ?: it}）")
+            return
+        }
+        Handler(Looper.getMainLooper()).postDelayed({
+            val cached = runCatching { (invoke(manager, "readRssiByCache", id) as? Number)?.toInt() }.getOrNull()
+            reply(cached != null && cached != 0, cached, "readRssiByCache（readBleRssi 5 秒没回）")
+        }, 5_000)
     }
 
     /** 推送回调里的对象 → 能过 MethodChannel 的 map（基本类型包成 `value`）。 */

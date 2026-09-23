@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
+import '../../../shared/widgets/blocking_progress.dart';
 import '../mower_ui.dart';
 import '../mower_device.dart';
 import '../mower_dp.dart';
@@ -45,9 +46,27 @@ class MowerControlPage extends StatefulWidget {
 class _MowerControlPageState extends State<MowerControlPage> {
   MowerDevice get _device => MowerDevice.instance;
 
+  /// 每 3 秒按涂鸦的分通道状态刷新两个图标；蓝牙掉了顺带后台重连（节流见 MowerDevice）。
+  Timer? _linkTimer;
+
+  /// 控制前检查正在跑：这期间再点按钮不理（连蓝牙最长 15 秒）。
+  bool _checking = false;
+
+  @override
+  void dispose() {
+    _linkTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    _linkTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted) return;
+      unawaited(
+        _device.refreshLink(FlowerpotScope.of(context), autoConnect: true),
+      );
+    });
     // 进页面把这一页读到的 DP 摊在日志里（对齐花盆的 logSettingsSnapshot 口径：
     // 「刚进来就要知道读了哪些 DPID、值是什么」）。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -83,13 +102,78 @@ class _MowerControlPageState extends State<MowerControlPage> {
     return MowerPowerState.idle;
   }
 
-  void _toggleSwitch() {
+  /// 四颗按钮（自动 / 定点 / 回归 / 停止·继续）下发前的蓝牙检查（2026-09-23 产品）：
+  ///
+  /// 1. 蓝牙没连 → 先连（转圈）；连不上 → 「无法连接设备蓝牙，请检查设备或靠近设备10米内」，不下发；
+  /// 2. 连着 → 读信号，弱于 [MowerDevice.minBleRssi]（-80 dBm）或读不到 →
+  ///    「因安全要求必须在10米内控制设备」，不下发；
+  /// 3. 都过了才返回 true。每一步都记进联调日志。
+  Future<bool> _bleReady() async {
     final state = FlowerpotScope.of(context);
-    _device.setSwitch(state, on: !_device.switchGo);
+    final id = _device.deviceId;
+    if (id == null) return false;
+    final link = await state.deviceLinkState(id);
+    if (!mounted) return false;
+    if (link['ble'] != true) {
+      state.logMowerInteraction('控制前检查 ⚠ 蓝牙未连接，先连接');
+      final connected = await withBlockingProgress<Map<String, Object?>>(
+        context,
+        () => state.connectDeviceBle(id),
+      );
+      if (!mounted) return false;
+      unawaited(_device.refreshLink(state));
+      if (connected?['connected'] != true) {
+        state.logMowerInteraction('控制前检查 ✗ 蓝牙连不上，指令不下发');
+        await showAppNoticeDialog(
+          context,
+          title: '提示',
+          message: '无法连接设备蓝牙，请检查设备或靠近设备10米内',
+          icon: Icons.bluetooth_disabled_rounded,
+        );
+        return false;
+      }
+    }
+    final signal = await state.readDeviceBleRssi(id);
+    if (!mounted) return false;
+    final rssi = (signal['rssi'] as num?)?.toInt();
+    if (signal['ok'] != true || rssi == null || rssi < MowerDevice.minBleRssi) {
+      state.logMowerInteraction(
+        '控制前检查 ✗ 蓝牙信号 ${rssi == null ? '读不到' : '$rssi dBm'}'
+        '（要求不弱于 ${MowerDevice.minBleRssi} dBm），指令不下发',
+      );
+      await showAppNoticeDialog(
+        context,
+        title: '提示',
+        message: '因安全要求必须在10米内控制设备',
+        icon: Icons.social_distance_rounded,
+      );
+      return false;
+    }
+    state.logMowerInteraction('控制前检查 ✓ 蓝牙已连接，信号 $rssi dBm');
+    return true;
   }
 
-  /// 左边三颗。点之前的两道闸：DP2 必须是启动态（按钮此时才可点），DP118 必须合盖。
-  Future<void> _sendMode(MowerMode target) async {
+  /// 按钮点击统一入口：检查中不重入；检查不过不下发。
+  Future<void> _guarded(Future<void> Function() action) async {
+    if (_checking) return;
+    setState(() => _checking = true);
+    try {
+      if (!await _bleReady() || !mounted) return;
+      await action();
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _toggleSwitch() => _guarded(() async {
+    final state = FlowerpotScope.of(context);
+    _device.setSwitch(state, on: !_device.switchGo);
+  });
+
+  /// 左边三颗。先过蓝牙检查（[_bleReady]），再看 DP118 盖子。
+  Future<void> _sendMode(MowerMode target) => _guarded(() => _sendModeChecked(target));
+
+  Future<void> _sendModeChecked(MowerMode target) async {
     final state = FlowerpotScope.of(context);
     if (!_device.coverClosed) {
       state.logMowerInteraction(
@@ -133,6 +217,8 @@ class _MowerControlPageState extends State<MowerControlPage> {
                 tone: _tone,
                 percent: _device.battery,
                 statusLabel: _device.status.label,
+                wifiLinked: _device.wifiLinked,
+                bleLinked: _device.bleLinked,
               ),
               const SizedBox(height: 24),
               // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
@@ -145,7 +231,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
               _ActionPanel(
                 device: _device,
                 onMode: (mode) => unawaited(_sendMode(mode)),
-                onToggleSwitch: _toggleSwitch,
+                onToggleSwitch: () => unawaited(_toggleSwitch()),
               ),
             ],
           ),

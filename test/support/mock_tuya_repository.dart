@@ -589,6 +589,31 @@ class MockTuyaRepository implements TuyaRepository {
     'diagnostic': <String>['Mock 仓库没有涂鸦设备日志，只有真机能答这个问题'],
   };
 
+  /// 蓝牙三件套的 Mock 状态：用例按需改（默认 = 两个通道都连着、信号 -40）。
+  bool bleLinked = true;
+  bool wifiLinked = true;
+  bool bleConnectSucceeds = true;
+  int bleRssi = -40;
+  int bleConnectCalls = 0;
+
+  @override
+  Future<Map<String, Object?>> deviceLinkState(String deviceId) async =>
+      <String, Object?>{'ble': bleLinked, 'wifi': wifiLinked};
+
+  @override
+  Future<Map<String, Object?>> connectDeviceBle(
+    String deviceId, {
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
+    bleConnectCalls++;
+    if (bleConnectSucceeds) bleLinked = true;
+    return <String, Object?>{'connected': bleConnectSucceeds};
+  }
+
+  @override
+  Future<Map<String, Object?>> readDeviceBleRssi(String deviceId) async =>
+      <String, Object?>{'ok': bleLinked, 'rssi': bleLinked ? bleRssi : null};
+
   final StreamController<Map<String, Object?>> _pushMessages =
       StreamController<Map<String, Object?>>.broadcast();
 

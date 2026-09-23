@@ -256,6 +256,20 @@ abstract class TuyaRepository {
   /// `{source: 'alarm802'|'mq52', callback, beanClass, fields: Map, receivedAt: 毫秒}`。
   Stream<Map<String, Object?>> get pushMessages;
 
+  /// 已绑定设备**各通道**在不在线（2026-09-23 割草机：蓝牙 / Wi-Fi 图标各亮各的）。
+  /// 返回 `{ble: bool, wifi: bool, ...各分量原样}`；永远不抛错（没接的平台回 `{unsupported: true}`）。
+  Future<Map<String, Object?>> deviceLinkState(String deviceId);
+
+  /// 连已绑定设备的蓝牙（涂鸦 `getBleManager().connectBleDevice`）。
+  /// 返回 `{connected: bool, diagnostic: List}`；永远不抛错。
+  Future<Map<String, Object?>> connectDeviceBle(
+    String deviceId, {
+    Duration timeout = const Duration(seconds: 15),
+  });
+
+  /// 读已连蓝牙的信号强度（dBm，涂鸦 `readBleRssi`）。返回 `{ok: bool, rssi: int?, source}`。
+  Future<Map<String, Object?>> readDeviceBleRssi(String deviceId);
+
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
@@ -1058,6 +1072,46 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       };
     }
   }
+
+  /// 三个蓝牙相关调用共用：没接的平台 / 原生抛错都收成一个 map，不往上抛。
+  Future<Map<String, Object?>> _mapCall(
+    String method,
+    Map<String, Object?> arguments,
+  ) async {
+    try {
+      return await _channel.invokeMapMethod<String, Object?>(
+            method,
+            arguments,
+          ) ??
+          <String, Object?>{'diagnostic': <String>['原生侧返回了 null']};
+    } on MissingPluginException {
+      return <String, Object?>{
+        'unsupported': true,
+        'diagnostic': <String>['本端未接入 $method：只做了 Android 侧桥接'],
+      };
+    } on PlatformException catch (error) {
+      return <String, Object?>{
+        'diagnostic': <String>['原生抛错：${error.code} ${error.message}'],
+      };
+    }
+  }
+
+  @override
+  Future<Map<String, Object?>> deviceLinkState(String deviceId) =>
+      _mapCall('deviceLinkState', <String, Object?>{'deviceId': deviceId});
+
+  @override
+  Future<Map<String, Object?>> connectDeviceBle(
+    String deviceId, {
+    Duration timeout = const Duration(seconds: 15),
+  }) => _mapCall('bleConnectDevice', <String, Object?>{
+    'deviceId': deviceId,
+    'timeoutMs': timeout.inMilliseconds,
+  });
+
+  @override
+  Future<Map<String, Object?>> readDeviceBleRssi(String deviceId) =>
+      _mapCall('bleReadRssi', <String, Object?>{'deviceId': deviceId});
 
   @override
   Future<Map<String, Object?>> startPushListen() async {

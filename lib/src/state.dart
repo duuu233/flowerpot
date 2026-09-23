@@ -1302,6 +1302,32 @@ class FlowerpotState extends ChangeNotifier {
     return data;
   }
 
+  /// 设备各通道在线状态（蓝牙 / Wi-Fi），不记日志（页面每几秒轮询一次，记了会刷屏）。
+  Future<Map<String, Object?>> deviceLinkState(String deviceId) =>
+      _repository.deviceLinkState(deviceId);
+
+  /// 连设备蓝牙（涂鸦 SDK），结果和诊断记进联调日志。
+  Future<Map<String, Object?>> connectDeviceBle(String deviceId) async {
+    _logInteraction('蓝牙 → 连接 $deviceId（涂鸦 connectBleDevice）');
+    final data = await _repository.connectDeviceBle(deviceId);
+    _logInteraction(
+      '蓝牙 ${data['connected'] == true ? '✓ 已连上' : '✗ 没连上'}'
+      '${data['elapsedMs'] == null ? '' : '（${data['elapsedMs']}ms）'}：'
+      '${(data['diagnostic'] as List<Object?>?)?.join('；') ?? ''}',
+    );
+    return data;
+  }
+
+  /// 读设备蓝牙信号强度，记进联调日志。
+  Future<Map<String, Object?>> readDeviceBleRssi(String deviceId) async {
+    final data = await _repository.readDeviceBleRssi(deviceId);
+    _logInteraction(
+      '蓝牙信号 ← ${data['ok'] == true ? '${data['rssi']} dBm' : '读取失败'}'
+      '（${data['source'] ?? (data['diagnostic'] as List<Object?>?)?.join('；') ?? ''}）',
+    );
+    return data;
+  }
+
   /// 注册之后收到的推送（原样）。
   Stream<Map<String, Object?>> get pushMessages => _repository.pushMessages;
 

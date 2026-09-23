@@ -16,7 +16,13 @@ class MowerStatusCard extends StatelessWidget {
     required this.statusLabel,
     super.key,
     this.onTapRing,
+    this.wifiLinked = false,
+    this.bleLinked = false,
   });
+
+  /// Wi-Fi / 蓝牙图标亮不亮：各自读涂鸦的分通道状态（2026-09-23），同时连着就都亮。
+  final bool wifiLinked;
+  final bool bleLinked;
 
   /// 视觉态，由 DP13（电量）与 DP117（充电状态）换算，见 `MowerControlPage._tone`。
   final MowerPowerState tone;
@@ -75,7 +81,14 @@ class MowerStatusCard extends StatelessWidget {
             ),
           ),
           Positioned(top: 222, child: _BatteryLine(tone: tone, percent: percent)),
-          Positioned(top: 256, child: _StatusChips(label: statusLabel)),
+          Positioned(
+            top: 256,
+            child: _StatusChips(
+              label: statusLabel,
+              wifiLinked: wifiLinked,
+              bleLinked: bleLinked,
+            ),
+          ),
         ],
       ),
     );
@@ -148,9 +161,29 @@ class _BatteryLine extends StatelessWidget {
 ///
 /// 胶囊里的字是 **DP5 工作状态**（待机 / 割草中 / 已暂停 / 回桩中…），不是写死的「待机」。
 class _StatusChips extends StatelessWidget {
-  const _StatusChips({required this.label});
+  const _StatusChips({
+    required this.label,
+    required this.wifiLinked,
+    required this.bleLinked,
+  });
 
   final String label;
+  final bool wifiLinked;
+  final bool bleLinked;
+
+  /// 没连的那颗压淡（稿子只给了亮的图，灭的就按 30% 画）。
+  static Widget _linkIcon(String asset, {required bool on, required Key key}) =>
+      Opacity(
+        key: key,
+        opacity: on ? 1 : .3,
+        child: Image.asset(
+          asset,
+          width: 26,
+          height: 26,
+          filterQuality: FilterQuality.high,
+          excludeFromSemantics: true,
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -190,20 +223,16 @@ class _StatusChips extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        Image.asset(
+        _linkIcon(
           MowerAssets.wifiIcon,
-          width: 26,
-          height: 26,
-          filterQuality: FilterQuality.high,
-          excludeFromSemantics: true,
+          on: wifiLinked,
+          key: Key('mower-link-wifi-${wifiLinked ? 'on' : 'off'}'),
         ),
         const SizedBox(width: 10),
-        Image.asset(
+        _linkIcon(
           MowerAssets.bluetoothIcon,
-          width: 26,
-          height: 26,
-          filterQuality: FilterQuality.high,
-          excludeFromSemantics: true,
+          on: bleLinked,
+          key: Key('mower-link-ble-${bleLinked ? 'on' : 'off'}'),
         ),
       ],
     );

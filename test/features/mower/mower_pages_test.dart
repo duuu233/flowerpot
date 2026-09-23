@@ -63,6 +63,58 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('进来设备正常：Wi-Fi 和蓝牙两个图标都亮', (tester) async {
+    await _pumpMowerHome(tester, <int, Object?>{});
+
+    expect(find.byKey(const Key('mower-link-wifi-on')), findsOneWidget);
+    expect(find.byKey(const Key('mower-link-ble-on')), findsOneWidget);
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('蓝牙没连、进来自动连也连不上：图标灭；点按钮再连不上就弹提示、不下发', (tester) async {
+    final repository = await _pumpMowerHome(
+      tester,
+      <int, Object?>{MowerDp.switchGo: true, MowerDp.mode: 'standby'},
+      setup: (repository) => repository
+        ..bleLinked = false
+        ..bleConnectSucceeds = false,
+    );
+    expect(find.byKey(const Key('mower-link-ble-off')), findsOneWidget);
+    expect(repository.bleConnectCalls, 1, reason: '进页面后台自动连了一次');
+
+    await tester.tap(find.byKey(const Key('mower-action-smart')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('无法连接设备蓝牙，请检查设备或靠近设备10米内'), findsOneWidget);
+    expect(repository.bleConnectCalls, 2, reason: '点按钮时再连一次');
+    expect(_sentDps(repository), isEmpty);
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('蓝牙信号弱于 -80：提示必须在 10 米内、不下发；-70 就放行', (tester) async {
+    final repository = await _pumpMowerHome(
+      tester,
+      <int, Object?>{MowerDp.switchGo: true, MowerDp.mode: 'standby'},
+      setup: (repository) => repository.bleRssi = -85,
+    );
+
+    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    await tester.pumpAndSettle();
+    expect(find.text('因安全要求必须在10米内控制设备'), findsOneWidget);
+    expect(_sentDps(repository), isEmpty);
+    await tester.tap(find.text('我知道了'));
+    await tester.pumpAndSettle();
+
+    repository.bleRssi = -70;
+    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    await tester.pump();
+    expect(_sentDps(repository), <int>[MowerDp.switchGo]);
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('DP18 按协议 V2.3 位图：0 = 正常黄条隐藏，1 = 第 0 位左轮异常', (tester) async {
     final repository = await _pumpMowerHome(tester, <int, Object?>{
       MowerDp.fault: 0,
@@ -339,11 +391,13 @@ class _MowerRepository extends MockTuyaRepository {
 
 Future<MockTuyaRepository> _pumpMowerHome(
   WidgetTester tester,
-  Map<int, Object?> snapshot,
-) async {
+  Map<int, Object?> snapshot, {
+  void Function(MockTuyaRepository repository)? setup,
+}) async {
   await tester.binding.setSurfaceSize(const Size(375, 812));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final repository = _MowerRepository()..rawDpsByDevice[_mowerId] = snapshot;
+  setup?.call(repository);
   final state = FlowerpotState(repository: repository);
   addTearDown(state.dispose);
   await state.initialize();

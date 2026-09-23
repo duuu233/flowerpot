@@ -33,6 +33,23 @@ class MowerDevice extends ChangeNotifier {
   /// 下发后等设备回显的时长（V2.2 §1：App 控件约 3~5 秒后超时回弹）。
   static const Duration echoTimeout = Duration(seconds: 5);
 
+  /// 控制前的蓝牙信号下限（dBm）。**弱于它就拦下、不下发**（2026-09-23 产品：「因安全要求必须在
+  /// 10 米内控制设备」；阈值先说 -50，同日改为 **-80**）。RSSI 越大越近：-60 放行，-85 拦下。
+  static const int minBleRssi = -80;
+
+  /// 蓝牙掉了之后后台自动重连的最短间隔（不弹框；点按钮时的连接不受它限制）。
+  static const Duration autoReconnectEvery = Duration(seconds: 30);
+
+  // ── 连接状态（2026-09-23：首页蓝牙 / Wi-Fi 图标各亮各的，读涂鸦的分通道状态） ──
+  /// 手机和设备的蓝牙连着（涂鸦 `isBleLocalOnline`）。
+  bool bleLinked = false;
+
+  /// 设备经 Wi-Fi 在线（涂鸦 MQTT / 局域网 / 云端在线任一）。
+  bool wifiLinked = false;
+
+  DateTime? _lastAutoConnect;
+  bool _autoConnecting = false;
+
   // ── 控制类 ──────────────────────────────────────────────
   /// DP2：true=运行中（按钮显示「停止」），false=已暂停（按钮显示「继续」）。
   late bool switchGo;
@@ -131,6 +148,8 @@ class MowerDevice extends ChangeNotifier {
     _deviceId = deviceId;
     _loadLiveDefaults();
     notifyListeners();
+    // 进页面就把蓝牙连上（2026-09-23 产品：「我进来设备正常情况下 wifi 和蓝牙图标应该都是亮的」）。
+    unawaited(refreshLink(state, autoConnect: true));
     _reportSub = state.mowerReports
         .where((report) => report.deviceId == deviceId)
         .listen(
@@ -192,10 +211,57 @@ class MowerDevice extends ChangeNotifier {
     scheduleRaw = null;
     scheduleRawSource = '';
     scheduleRawAt = null;
+    bleLinked = false;
+    wifiLinked = false;
+    _lastAutoConnect = null;
+    _autoConnecting = false;
     zones = <MowerZoneConfig>[
       for (var index = 1; index <= 5; index++)
         MowerZoneConfig(index: index, percent: 0, meters: 0),
     ];
+  }
+
+  /// 按涂鸦的分通道状态刷新两个图标；[autoConnect] 时蓝牙没连就在后台连一次（不弹框，
+  /// 最多每 [autoReconnectEvery] 一次）。状态变了才记日志，免得每几秒刷一屏。
+  Future<void> refreshLink(
+    FlowerpotState state, {
+    bool autoConnect = false,
+  }) async {
+    final id = _deviceId;
+    if (id == null) return;
+    _applyLink(state, await state.deviceLinkState(id), id);
+    if (!autoConnect || bleLinked || _autoConnecting || _deviceId != id) return;
+    final now = DateTime.now();
+    final last = _lastAutoConnect;
+    if (last != null && now.difference(last) < autoReconnectEvery) return;
+    _lastAutoConnect = now;
+    _autoConnecting = true;
+    state.logMowerInteraction('蓝牙 ⚠ 割草机蓝牙未连接，后台自动连接（不弹框）');
+    try {
+      await state.connectDeviceBle(id);
+    } finally {
+      _autoConnecting = false;
+    }
+    if (_deviceId != id) return;
+    _applyLink(state, await state.deviceLinkState(id), id);
+  }
+
+  void _applyLink(FlowerpotState state, Map<String, Object?> link, String id) {
+    if (_deviceId != id) return;
+    final ble = link['ble'] == true;
+    final wifi = link['wifi'] == true;
+    if (ble == bleLinked && wifi == wifiLinked) return;
+    bleLinked = ble;
+    wifiLinked = wifi;
+    final parts = <String>[
+      for (final key in <String>['bleManager', 'bleChannel', 'mqtt', 'lan', 'cloud'])
+        if (link.containsKey(key)) '$key=${link[key]}',
+    ];
+    state.logMowerInteraction(
+      '图标 ← 蓝牙${ble ? '亮' : '灭'}、Wi-Fi${wifi ? '亮' : '灭'}'
+      '${parts.isEmpty ? '' : '（${parts.join(' ')}）'}',
+    );
+    notifyListeners();
   }
 
   /// 首页黄色提醒那一行：有故障时是 DP18 的文案，没有故障是安全提示。
