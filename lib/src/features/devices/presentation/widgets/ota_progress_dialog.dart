@@ -54,7 +54,7 @@ String otaRunningLabel(
 
 /// 进行中时标题下面那句提示。
 String _runningHint(OtaStage stage) => switch (stage) {
-  OtaStage.preparing => '正在准备固件，开始升级后会显示进度，请保持设备通电、不要断开 Wi-Fi。',
+  OtaStage.preparing => '正在准备固件，请保持设备通电、不要断开 Wi-Fi。',
   OtaStage.upgrading => '升级过程中请保持设备通电，不要断开 Wi-Fi。',
   OtaStage.installing => '设备正在安装新固件，完成后会自动重启，请勿断电。',
   OtaStage.waitingWake => '设备唤醒后会自动开始升级，请保持设备通电。',
