@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
-import '../mower_demo.dart';
+import '../mower_ui.dart';
 import '../mower_device.dart';
 import '../mower_dp.dart';
 import 'widgets/mower_card.dart';
@@ -170,10 +170,19 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
     _publish(week);
   }
 
+  /// 「恢复默认」：**协议里没有默认计划**（V2.2 的 DP101 只有「全量替换」），原来下发的是
+  /// 设计稿上画的四块——那是假数据，2026-09-23 联调起不再发。等产品给出默认计划或设备端
+  /// 支持再接，这里只记日志、提示一句（确认框 `showMowerRestoreDefaultDialog` 留着备用）。
   Future<void> _restoreDefault() async {
-    final confirmed = await showMowerRestoreDefaultDialog(context);
-    if (confirmed != true || !mounted) return;
-    _publish(MowerDevice.defaultSchedule());
+    MowerDevice.instance.logUnsupported(
+      FlowerpotScope.of(context),
+      '恢复默认计划（协议里没有默认计划）',
+    );
+    showAppMessage(
+      context,
+      '设备协议里没有默认计划，暂不支持恢复默认',
+      tone: AppMessageTone.info,
+    );
   }
 
   @override

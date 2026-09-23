@@ -1307,7 +1307,7 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 割草机页面的 DP 记账入口（2026-09-18）。
   ///
-  /// 行首一律带「割草机」，与花盆那些行区分开；静态演示数据模拟出来的上报还会带「［模拟］」。
+  /// 行首一律带「割草机」，与花盆那些行区分开。
   /// 2026-09-21 接真机之后，真正的下发走 [publishMowerDps]，这里只记日志。
   void logMowerInteraction(String line) => _logInteraction(line);
 

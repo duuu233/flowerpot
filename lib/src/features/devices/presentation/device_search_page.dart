@@ -12,7 +12,6 @@ import '../../../routes/app_routes.dart';
 // 那时已经不能查 InheritedWidget，所以得按类型留引用。
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
-import '../../mower/mower_demo.dart';
 import '../pairing_gate.dart';
 import 'pairing_page.dart';
 import 'widgets/pairing_progress_view.dart';
@@ -1251,21 +1250,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                             onCopyDetail: _copyMessage,
                           ),
                         ],
-                        // 割草机静态入口（2026-09-18）。**刻意不混进 `_found`**：
-                        // 那份列表是「这一刻真的扫到了什么」，塞一条假数据进去会让
-                        // 标题常年显示「发现 1 台设备」、「重新扫描」永远不出现，
-                        // 把真配网的动线判断带歪。所以它只是列表下面单独的一行，
-                        // 行上写明是静态数据。见 [MowerDemo]。
-                        if (MowerDemo.enabled) ...<Widget>[
-                          SizedBox(height: _found.isEmpty ? 20 : 10),
-                          _MowerDemoTile(
-                            onTap: () => unawaited(
-                              Navigator.of(
-                                context,
-                              ).pushNamed(AppRoutes.mowerHome),
-                            ),
-                          ),
-                        ],
                         // iOS 列不出设备，「下一步」全程都在——那是它唯一的
                         // 入口，让用户干等一轮窗口没有任何意义。
                         //
@@ -2011,86 +1995,6 @@ class _QuestionBubble extends StatelessWidget {
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       semanticLabel: '提示',
-    );
-  }
-}
-
-/// 搜索列表下面那条固定的割草机（`docs/UI/v2/割草机/选择设备.png` 上的第四行）。
-///
-/// 点它不配网、不连热点，直接进割草机那套静态页（[AppRoutes.mowerHome]）。
-/// 行上第二行字写明「静态演示数据」——这是配网动线，让人误以为真扫到了一台割草机
-/// 比少一个入口糟得多。
-class _MowerDemoTile extends StatelessWidget {
-  const _MowerDemoTile({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      borderRadius: AppRadius.card,
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        key: const Key('device-search-mower-demo'),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
-          child: Row(
-            children: <Widget>[
-              Image.asset(
-                MowerAssets.listIcon,
-                width: 34,
-                height: 34,
-                filterQuality: FilterQuality.high,
-                excludeFromSemantics: true,
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      MowerDemoDevice.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      '静态演示数据 · 点「连接」查看割草机页面',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: AppColors.textTertiary,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                key: const Key('device-search-mower-demo-connect'),
-                onPressed: onTap,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(68, 34),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  backgroundColor: AppColors.brandPrimary,
-                  foregroundColor: AppColors.surface,
-                  shape: const StadiumBorder(),
-                  textStyle: const TextStyle(fontSize: 14),
-                ),
-                child: const Text('连接'),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

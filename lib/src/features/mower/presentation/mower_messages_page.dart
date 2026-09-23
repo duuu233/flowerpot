@@ -8,8 +8,9 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_config.dart';
-import '../mower_demo.dart';
+import '../mower_ui.dart';
 import '../mower_device.dart';
+import '../mower_dp.dart';
 import 'widgets/mower_bottom_nav.dart';
 import 'widgets/mower_card.dart';
 
@@ -18,19 +19,20 @@ import 'widgets/mower_card.dart';
 /// 从设置页进来，底部导航照旧画着、停在「设置」那一栏；点「首页 / 割草计划」时
 /// 先退回外壳再切到那一栏（[onTabRequested]），而不是在这一页上面再叠一层。
 ///
-/// ## ⚠️ 这一页没有 DP
+/// ## 数据从哪来（2026-09-23 联调起，稿子上那四条假消息已删）
 ///
-/// 三个分类页（日志 / 提醒 / 告警）要的是**涂鸦消息中心**的数据，不是功能点——
-/// 所以进页面按 2026-09-18 的口径提示一句「当前还没有支持的 DPID」，上面那份列表仍是
-/// 稿子上的静态数据。
+/// | 分类 | 来源 |
+/// | --- | --- |
+/// | 日志 | 设备操作日志（DP 上报 / 下发历史）：`loadDeviceOperateLogs`，查割草机全部 DP，最近 30 天 |
+/// | 提醒 | **还没有数据来源**，空着 |
+/// | 告警 | 涂鸦消息中心按这台设备取（`getMessageListByMsgSrcId`，告警档 `MSG_REPORT`） |
+///
+/// 日期筛选是真的：默认今天，点开选最近 30 天里的某一天，按那一天过滤。
+/// 没有记录就写「当天没有记录」，不编。
 ///
 /// ## 页面底部的调试板（2026-09-18 产品追加）
 ///
-/// 要回答的问题是：**涂鸦返回的设备消息里到底有没有"类型"字段**，有的话这三个分类页
-/// 才做得出来。所以底部挂了一块调试板：点一下就去拉涂鸦消息中心，把每条消息的
-/// **所有字段原样打印**（不映射、不挑选），并标出键名里带 `type` 的那些。
-/// 顺带按 `msgSrcId` 去已绑定设备里找归属，标出它是不是目标产品
-/// （[TuyaConfig.broadcastId] `ehbx83xdh9jkmxvz`——设备自己上报的那个产品标识）。
+/// 排查用：把涂鸦消息中心的每条消息**所有字段原样打印**，另可实时接收推送。
 class MowerMessagesPage extends StatefulWidget {
   const MowerMessagesPage({required this.onTabRequested, super.key});
 
@@ -41,46 +43,200 @@ class MowerMessagesPage extends StatefulWidget {
   State<MowerMessagesPage> createState() => _MowerMessagesPageState();
 }
 
+/// 三个分类（界面文案）。
+const List<String> _tabs = <String>['日志', '提醒', '告警'];
+
+/// 日志往前查多少天（日期筛选也只给选这个范围）。
+const Duration _logWindow = Duration(days: 30);
+
 class _MowerMessagesPageState extends State<MowerMessagesPage> {
   int _tab = 0;
+  DateTime _day = DateUtils.dateOnly(DateTime.now());
+  bool _loading = false;
+  List<_Entry> _logs = const <_Entry>[];
+  List<_Entry> _alarms = const <_Entry>[];
+
+  /// 取数失败时的一句话（原样来自接口 / 原生诊断）。
+  String? _logError;
+  String? _alarmError;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final state = FlowerpotScope.of(context);
-      state.logPageEntry('割草机-消息通知');
-      MowerDevice.instance.logUnsupported(state, '消息通知');
-      showAppMessage(context, '当前还没有支持的 DPID', tone: AppMessageTone.info);
+      FlowerpotScope.of(context).logPageEntry('割草机-消息通知');
+      unawaited(_reload());
     });
+  }
+
+  Future<void> _reload() async {
+    final state = FlowerpotScope.of(context);
+    final deviceId = MowerDevice.instance.deviceId;
+    if (deviceId == null) return;
+    setState(() => _loading = true);
+    final dpIds = (MowerDp.identifiers.keys.toList()..sort()).join(',');
+    final results = await Future.wait(<Future<Map<String, Object?>>>[
+      state.loadDeviceOperateLogs(
+        deviceId: deviceId,
+        dpIds: dpIds,
+        limit: 100,
+        window: _logWindow,
+      ),
+      state.loadDeviceMessages(deviceId: deviceId),
+    ]);
+    if (!mounted) return;
+    final logs = results[0];
+    final alarms = results[1];
+    setState(() {
+      _loading = false;
+      _logs = _logEntries(logs['raw']);
+      _logError = logs['ok'] == true ? null : _reason(logs);
+      _alarms = <_Entry>[
+        for (final item
+            in (alarms['items'] as List<Object?>?) ?? const <Object?>[])
+          if (item is Map) _alarmEntry(item),
+      ];
+      _alarmError = alarms['ok'] == true ? null : _reason(alarms);
+    });
+  }
+
+  static String _reason(Map<String, Object?> data) =>
+      '${data['message'] ?? (data['diagnostic'] as List<Object?>?)?.join('；') ?? '未知原因'}';
+
+  /// 设备日志 JSON（真机 2026-09-21：`{dps:[{dpId,timeStamp(秒),timeStr,value}], dpc:[...]}`）
+  /// → 条目。`dps` 是设备上报，`dpc` 是下发。
+  static List<_Entry> _logEntries(Object? raw) {
+    if (raw is! String || raw.isEmpty) return const <_Entry>[];
+    Object? data;
+    try {
+      data = jsonDecode(raw);
+    } on FormatException {
+      return const <_Entry>[];
+    }
+    if (data is! Map) return const <_Entry>[];
+    final entries = <_Entry>[];
+    void add(Object? list, String verb) {
+      if (list is! List) return;
+      for (final item in list) {
+        if (item is! Map) continue;
+        final dp = int.tryParse('${item['dpId']}');
+        final seconds = int.tryParse('${item['timeStamp']}');
+        if (dp == null || seconds == null) continue;
+        entries.add(
+          _Entry(
+            at: DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
+            title: 'DP$dp ${MowerDp.identifiers[dp] ?? ''}'.trim(),
+            detail: '$verb ${item['value']}',
+          ),
+        );
+      }
+    }
+
+    add(data['dps'], '上报');
+    add(data['dpc'], '下发');
+    entries.sort((a, b) => b.at.compareTo(a.at));
+    return entries;
+  }
+
+  /// 消息中心的一条 → 条目。时间优先取数字的 `time`（秒），没有再解 `dateTime` 字符串。
+  static _Entry _alarmEntry(Map<Object?, Object?> item) {
+    final seconds = int.tryParse('${item['time'] ?? ''}');
+    final at = seconds != null
+        ? DateTime.fromMillisecondsSinceEpoch(seconds * 1000)
+        : DateTime.tryParse('${item['dateTime'] ?? ''}') ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+    String text(Object? value) => '${value ?? ''}'.trim();
+    final title = text(item['msgTitle']).isNotEmpty
+        ? text(item['msgTitle'])
+        : text(item['msgTypeContent']);
+    return _Entry(at: at, title: title, detail: text(item['msgContent']));
+  }
+
+  Future<void> _pickDay() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _day,
+      firstDate: today.subtract(_logWindow),
+      lastDate: today,
+      helpText: '选择日期',
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _day = DateUtils.dateOnly(picked));
+  }
+
+  List<_Entry> get _visible {
+    final source = switch (_tab) {
+      0 => _logs,
+      2 => _alarms,
+      _ => const <_Entry>[],
+    };
+    return <_Entry>[
+      for (final entry in source)
+        if (DateUtils.isSameDay(entry.at, _day)) entry,
+    ];
+  }
+
+  String? get _emptyText {
+    if (_loading) return '加载中…';
+    final error = switch (_tab) {
+      0 => _logError,
+      2 => _alarmError,
+      _ => null,
+    };
+    if (error != null) return '没有取到：$error';
+    if (_tab == 1) return '暂无提醒（还没有数据来源）';
+    return '当天没有记录';
   }
 
   @override
   Widget build(BuildContext context) {
+    final visible = _visible;
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: AppPageScaffold(
         appBar: const AppPageHeader(title: '消息通知', leading: AppBackButton()),
-        body: SingleChildScrollView(
-          key: const Key('mower-messages-scroll-view'),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              _CategoryTabs(
-                current: _tab,
-                onChanged: (index) => setState(() => _tab = index),
-              ),
-              const SizedBox(height: 12),
-              const _DateFilterCard(),
-              const SizedBox(height: 12),
-              for (final message in MowerDemoMessages.items) ...<Widget>[
-                _MessageCard(message: message),
+        body: RefreshIndicator(
+          onRefresh: _reload,
+          child: SingleChildScrollView(
+            key: const Key('mower-messages-scroll-view'),
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _CategoryTabs(
+                  current: _tab,
+                  onChanged: (index) => setState(() => _tab = index),
+                ),
                 const SizedBox(height: 12),
+                _DateFilterCard(
+                  day: _day,
+                  onTap: () => unawaited(_pickDay()),
+                ),
+                const SizedBox(height: 12),
+                if (visible.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Text(
+                      _emptyText ?? '',
+                      key: const Key('mower-messages-empty'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: MowerColors.inkSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  )
+                else
+                  for (final entry in visible) ...<Widget>[
+                    _MessageCard(entry: entry),
+                    const SizedBox(height: 12),
+                  ],
+                const _MessageDebugPanel(),
               ],
-              const _MessageDebugPanel(),
-            ],
+            ),
           ),
         ),
       ),
@@ -95,8 +251,19 @@ class _MowerMessagesPageState extends State<MowerMessagesPage> {
   }
 }
 
-/// 日志 / 提醒 / 告警。稿子只画了「日志」那一档的内容，另外两档同版式空着——
-/// 这里点得动、但列表不换数据，免得凭空造两批不存在的消息。
+/// 列表里的一条（日志或告警）。
+class _Entry {
+  const _Entry({required this.at, required this.title, required this.detail});
+
+  final DateTime at;
+  final String title;
+  final String detail;
+
+  String get time =>
+      '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+}
+
+/// 日志 / 提醒 / 告警。
 class _CategoryTabs extends StatelessWidget {
   const _CategoryTabs({required this.current, required this.onChanged});
 
@@ -114,7 +281,7 @@ class _CategoryTabs extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          for (var i = 0; i < MowerDemoMessages.tabs.length; i++)
+          for (var i = 0; i < _tabs.length; i++)
             Expanded(
               child: GestureDetector(
                 key: Key('mower-messages-tab-$i'),
@@ -129,7 +296,7 @@ class _CategoryTabs extends StatelessWidget {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    MowerDemoMessages.tabs[i],
+                    _tabs[i],
                     style: TextStyle(
                       color: i == current ? Colors.white : MowerColors.ink,
                       fontSize: 15,
@@ -146,39 +313,47 @@ class _CategoryTabs extends StatelessWidget {
 }
 
 class _DateFilterCard extends StatelessWidget {
-  const _DateFilterCard();
+  const _DateFilterCard({required this.day, required this.onTap});
+
+  final DateTime day;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return MowerCard(
-      color: Colors.white.withValues(alpha: .92),
-      radius: 15,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: SizedBox(
-        height: 52,
-        child: Row(
-          children: <Widget>[
-            const Expanded(
-              child: Text(
-                '日期筛选',
-                style: TextStyle(
-                  color: MowerColors.ink,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
+    return GestureDetector(
+      key: const Key('mower-messages-date'),
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: MowerCard(
+        color: Colors.white.withValues(alpha: .92),
+        radius: 15,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: SizedBox(
+          height: 52,
+          child: Row(
+            children: <Widget>[
+              const Expanded(
+                child: Text(
+                  '日期筛选',
+                  style: TextStyle(
+                    color: MowerColors.ink,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
-            ),
-            const Text(
-              MowerDemoMessages.dateFilter,
-              style: TextStyle(color: MowerColors.brand, fontSize: 15),
-            ),
-            const SizedBox(width: 8),
-            Icon(
-              Icons.arrow_drop_down_rounded,
-              size: 22,
-              color: MowerColors.brand.withValues(alpha: .9),
-            ),
-          ],
+              Text(
+                '${day.year}年${day.month}月${day.day}日',
+                style: const TextStyle(color: MowerColors.brand, fontSize: 15),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.arrow_drop_down_rounded,
+                size: 22,
+                color: MowerColors.brand.withValues(alpha: .9),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -186,9 +361,9 @@ class _DateFilterCard extends StatelessWidget {
 }
 
 class _MessageCard extends StatelessWidget {
-  const _MessageCard({required this.message});
+  const _MessageCard({required this.entry});
 
-  final MowerMessage message;
+  final _Entry entry;
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +378,7 @@ class _MessageCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  message.title,
+                  entry.title,
                   style: const TextStyle(
                     color: MowerColors.ink,
                     fontSize: 16,
@@ -213,7 +388,7 @@ class _MessageCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Text(
-                message.time,
+                entry.time,
                 style: const TextStyle(
                   color: MowerColors.inkSecondary,
                   fontSize: 13,
@@ -221,15 +396,17 @@ class _MessageCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            message.detail,
-            style: const TextStyle(
-              color: MowerColors.inkSecondary,
-              fontSize: 14,
-              height: 1.4,
+          if (entry.detail.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              entry.detail,
+              style: const TextStyle(
+                color: MowerColors.inkSecondary,
+                fontSize: 14,
+                height: 1.4,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -271,7 +448,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
 
   /// 调试板的版本印子。**每改一次这块板就往上加一版**：贴回来的日志里有没有这行、是第几版，
   /// 一眼就能看出跑的是不是最新的包——之前两轮就卡在"看不出他跑的是哪一版"上。
-  static const String _probeVersion = 'probe-v10 · 2026-09-23';
+  static const String _probeVersion = 'probe-v11 · 2026-09-23';
 
   /// 调试板默认填的设备 ID；**置空 = 取当前账号已绑定的第一台**（现在就是置空的）。
   ///
@@ -330,9 +507,11 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
       _prefilled = true;
       return;
     }
+    // 2026-09-23：优先填当前打开的这台割草机，没有再退回账号里第一台。
+    final current = MowerDevice.instance.deviceId;
     final devices = FlowerpotScope.of(context).devices;
-    if (devices.isEmpty) return;
-    _deviceId.text = devices.first.id;
+    if (current == null && devices.isEmpty) return;
+    _deviceId.text = current ?? devices.first.id;
     _prefilled = true;
   }
 

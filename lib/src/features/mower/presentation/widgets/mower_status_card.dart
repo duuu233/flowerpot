@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../mower_demo.dart';
+import '../../mower_ui.dart';
 
 /// 首页那圈电量环 + 整机图 + 环下面那行电量 + 状态胶囊。
 ///
@@ -16,7 +16,6 @@ class MowerStatusCard extends StatelessWidget {
     required this.statusLabel,
     super.key,
     this.onTapRing,
-    this.onLongPressRing,
   });
 
   /// 视觉态，由 DP13（电量）与 DP117（充电状态）换算，见 `MowerControlPage._tone`。
@@ -29,9 +28,6 @@ class MowerStatusCard extends StatelessWidget {
   final String statusLabel;
 
   final VoidCallback? onTapRing;
-
-  /// 长按环 = 打开模拟上报面板（没有真设备，只读 DP 得有地方改）。
-  final VoidCallback? onLongPressRing;
 
   /// 环的直径，和稿子一致（263）。
   static const double ringSize = 263;
@@ -48,7 +44,6 @@ class MowerStatusCard extends StatelessWidget {
             child: GestureDetector(
               key: const Key('mower-battery-ring'),
               onTap: onTapRing,
-              onLongPress: onLongPressRing,
               behavior: HitTestBehavior.opaque,
               child: SizedBox.square(
                 dimension: ringSize,

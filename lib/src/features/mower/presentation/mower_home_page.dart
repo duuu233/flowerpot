@@ -10,9 +10,9 @@ import 'mower_plan_page.dart';
 import 'mower_settings_page.dart';
 import 'widgets/mower_bottom_nav.dart';
 
-/// [MowerHomePage] 的路由参数：打开哪一台**真机**割草机（2026-09-21）。
+/// [MowerHomePage] 的路由参数：打开哪一台割草机（2026-09-21）。
 ///
-/// 不带参数进来（搜索页 / 设备列表那条写死的割草机）就是静态演示。
+/// 2026-09-23 起**必须带**：静态演示入口已删，割草机页面只服务设备列表里的真机。
 class MowerHomeArguments {
   const MowerHomeArguments({required this.deviceId});
 
@@ -30,15 +30,15 @@ class MowerHomeArguments {
 /// 统一弹出来——二级页压在外壳上面时外壳仍然活着，所以一处就够。
 class MowerHomePage extends StatefulWidget {
   const MowerHomePage({
+    required this.deviceId,
     super.key,
     this.initialTab = MowerTab.home,
-    this.deviceId,
   });
 
   final MowerTab initialTab;
 
-  /// 真机的涂鸦设备 ID；null = 静态演示。
-  final String? deviceId;
+  /// 涂鸦设备 ID。
+  final String deviceId;
 
   @override
   State<MowerHomePage> createState() => _MowerHomePageState();

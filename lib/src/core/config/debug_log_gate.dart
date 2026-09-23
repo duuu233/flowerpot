@@ -1,6 +1,8 @@
 /// 联调日志的总闸。
 ///
 /// **2026-09-19 用户要求：暂时屏蔽调试日志功能，代码不要删。**
+/// **2026-09-23 重新打开**：开始割草机与设备联调，「可以显示调试日志了，和以前一样有 DPID
+/// 的都打印进去」。发给别人看的包再翻回 `false`。
 ///
 /// 联调日志（左下角那颗药丸 + 展开的日志框）是 2026-09-12 为真机联调加的临时设施：
 /// 产品不看 logcat，要的是「能截图的日志」。现在要给别人看包了，它不该出现在界面上。
@@ -20,8 +22,8 @@ abstract final class DebugLogGate {
   /// 用例改过必须在 `tearDown` 里 [reset] 回来。
   static bool interactionLog = _interactionLogDefault;
 
-  /// 生产值。2026-09-19 起默认关闭。
-  static const bool _interactionLogDefault = false;
+  /// 生产值。2026-09-19 关闭，2026-09-23 联调重新打开。
+  static const bool _interactionLogDefault = true;
 
   /// 用例收尾用：恢复成生产值。
   static void reset() => interactionLog = _interactionLogDefault;

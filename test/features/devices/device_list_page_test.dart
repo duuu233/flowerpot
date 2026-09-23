@@ -3,7 +3,6 @@ import '../../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_list_page.dart';
-import 'package:flowerpot/src/features/mower/mower_demo.dart';
 import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/features/mower/presentation/mower_home_page.dart';
 import 'package:flowerpot/src/features/home/models/home_dashboard_model.dart';
@@ -18,27 +17,11 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../support/asset_finder.dart';
 
 void main() {
-  tearDown(MowerDemo.reset);
-
-  testWidgets('列表末尾那条割草机是静态数据，点进去是割草机首页', (tester) async {
-    await _pumpDeviceList(tester, const Size(375, 812), withRoutes: true);
-
-    expect(find.byKey(const Key('device-list-mower-demo')), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('device-list-mower-demo')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('mower-home-target'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('门禁关掉之后设备列表只剩真实设备', (tester) async {
-    MowerDemo.enabled = false;
+  testWidgets('设备列表只列真实设备：没有写死的割草机（2026-09-23 联调起删掉）', (tester) async {
     await _pumpDeviceList(tester, const Size(375, 812));
 
     expect(find.byKey(const Key('device-list-mower-demo')), findsNothing);
     expect(find.text('YSmower-01'), findsNothing);
-    // 花盆那三台一台不少。
     expect(find.text('YSplanter-01'), findsOneWidget);
     expect(find.text('YSplanter-02'), findsOneWidget);
     expect(find.text('YSplanter-03'), findsOneWidget);
@@ -52,10 +35,10 @@ void main() {
     expect(find.text('YSplanter-01'), findsOneWidget);
     expect(find.text('YSplanter-02'), findsOneWidget);
     expect(find.text('YSplanter-03'), findsOneWidget);
-    // 两台在线花盆 + 列表末尾那条固定的割草机（`MowerDemo.enabled`）。
-    expect(find.text('在线'), findsNWidgets(3));
+    // 两台在线花盆 + 一台离线；写死的割草机那张卡已删（2026-09-23）。
+    expect(find.text('在线'), findsNWidgets(2));
     expect(find.text('离线'), findsOneWidget);
-    expect(find.text('YSmower-01'), findsOneWidget);
+    expect(find.text('YSmower-01'), findsNothing);
     expect(find.byKey(const Key('device-list-add-button')), findsOneWidget);
     expect(findAssetImage(AppAssets.addIcon), findsOneWidget);
     expect(tester.takeException(), isNull);

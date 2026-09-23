@@ -128,21 +128,6 @@ void main() {
     device.resetForTest();
   });
 
-  testWidgets('静态演示不下发：只记日志、本地回显（2026-09-18 的行为不变）', (tester) async {
-    final repository = _MowerRepository();
-    final state = await _state(repository);
-    final device = MowerDevice.instance;
-    await device.bind(state, owner: _owner);
-
-    device.setMode(state, MowerMode.smart);
-    await tester.pump();
-
-    expect(device.isLive, isFalse);
-    expect(repository.publishedDps, isEmpty);
-    expect(device.mode, MowerMode.smart);
-    expect(device.status, MowerStatus.mowing, reason: '演示模式照旧模拟 DP5');
-  });
-
   testWidgets('下发后 5 秒没有回显：按设备当前值画回去（V2.2 §1 超时回弹）', (tester) async {
     final repository = _MowerRepository()
       ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.rainDetectEnable: false};

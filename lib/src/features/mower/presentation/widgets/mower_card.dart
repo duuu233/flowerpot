@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../mower_demo.dart';
+import '../../mower_ui.dart';
 
 /// 割草机那套图里反复出现的那张卡：半透明白 + 一层很淡的品牌色投影 + 16 圆角。
 ///

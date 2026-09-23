@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../mower_demo.dart';
+import '../../mower_ui.dart';
 
 /// 周排程图表：七列 × 24 小时，时段画成色块。
 ///
@@ -63,10 +63,10 @@ class MowerPlanChart extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(30, 18, 20, 0),
           child: Row(
             children: <Widget>[
-              for (var day = 0; day < MowerDemoPlan.dayLabels.length; day++)
+              for (var day = 0; day < MowerPlanAxis.dayLabels.length; day++)
                 Expanded(
                   child: Text(
-                    MowerDemoPlan.dayLabels[day],
+                    MowerPlanAxis.dayLabels[day],
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: enabledDays[day]
@@ -91,7 +91,7 @@ class MowerPlanChart extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(30, 9, 20, 0),
           child: Row(
             children: <Widget>[
-              for (var day = 0; day < MowerDemoPlan.dayLabels.length; day++)
+              for (var day = 0; day < MowerPlanAxis.dayLabels.length; day++)
                 Expanded(
                   child: Center(
                     child: _DayCheckbox(
@@ -112,7 +112,7 @@ class MowerPlanChart extends StatelessWidget {
               clipBehavior: Clip.none,
               children: <Widget>[
                 // 左边那列刻度：贴着纵轴外侧，用的是同一套锚点。
-                for (final hour in MowerDemoPlan.axisHours)
+                for (final hour in MowerPlanAxis.axisHours)
                   Positioned(
                     left: -30,
                     top: offsetForMinutes(hour * 60) - 7,
@@ -131,7 +131,7 @@ class MowerPlanChart extends StatelessWidget {
                   ),
                 Row(
                   children: <Widget>[
-                    for (var day = 0; day < MowerDemoPlan.dayLabels.length; day++)
+                    for (var day = 0; day < MowerPlanAxis.dayLabels.length; day++)
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),

@@ -2,45 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../design_system/design_system.dart';
 
-/// 割草机静态页面的总闸。
+/// 割草机页面的**界面常量**：状态卡四种视觉态、计划表坐标轴、配色、图片。
 ///
-/// **2026-09-18 产品要求：先在「搜索设备」列表里放一条固定的割草机数据，点进去
-/// 就能把割草机那套 UI 逐页看完。** 这一轮只做静态页——不连 SDK、不发 DP、不读
-/// 后端，页面上的每一个数字都来自这个文件。
-///
-/// ⚠️ **这是门禁，不是硬编码进动线。** [enabled] 翻成 `false`，搜索页那条静态行
-/// 立刻消失，其余代码原样留着；真的割草机能被扫到之后，把 [MowerDemoDevice] 换成
-/// 真实设备模型即可，页面层不用重写。
-abstract final class MowerDemo {
-  /// 搜索页要不要列那条静态的割草机。
-  ///
-  /// ⚠️ **不是 `const`**：用例要能两头都验（列着时点得进去、关掉时列表里没有它）。
-  /// 用例改过必须在 `tearDown` 里 [reset] 回来。
-  static bool enabled = _enabledDefault;
-
-  static const bool _enabledDefault = true;
-
-  static void reset() => enabled = _enabledDefault;
-}
-
-/// 设计稿里这台割草机的全部固定数据（`docs/UI/v2/割草机/`）。
-///
-/// 名字、型号、SN、电量、计划、消息……稿子上写的是什么这里就是什么，不做任何
-/// "看起来更真实"的加工：这一轮交付的是**版式**，数字对不对由产品看稿子定。
-abstract final class MowerDemoDevice {
-  static const String name = 'YSmower-01';
-  static const String model = 'YM-1200';
-  static const String serialNumber = 'YM202608240018';
-
-  /// 首页那圈电量环：默认态 78%（`割草机-控制.png`）。
-  static const int batteryPercent = 78;
-
-  static const String safetyTip = '开始割草前，请清理草坪中的障碍物';
-
-  // ⚠️ 今日计划、周合计、时区、语言这几条静态值 2026-09-18 接 DP 之后**已删**：
-  // 今日计划和周合计现在从 DP101 解析（`MowerDevice.schedule`），时区来自 DP107、
-  // 语言来自 DP109。留着它们只会让人以为页面还在读写死的数据。
-}
+/// ⚠️ 2026-09-23 开始真机联调，这个文件（原 `mower_ui.dart`）里的**假数据全部删掉**：
+/// 搜索页 / 设备列表那条写死的割草机（`MowerDemo`）、稿子上的名称/型号/SN/电量
+/// （`MowerDemoDevice`）、稿子上那四块计划（`MowerDemoPlan.slots`）、消息通知那四条
+/// （`MowerDemoMessages`）。页面上的数一律来自设备（DP / DeviceBean）或涂鸦接口，
+/// 没有就空着，不再编。
 
 /// 首页那张状态卡的四种**视觉**态，对应设计稿的四张图。
 ///
@@ -143,84 +111,13 @@ class MowerPlanSlot {
   }
 }
 
-/// 周计划页的静态数据（`割草机-割草计划.png` 上画着的就是这四块）。
-abstract final class MowerDemoPlan {
-  /// 勾选了的那几天：日、二、四。
-  static const List<bool> enabledDays = <bool>[
-    true,
-    false,
-    true,
-    false,
-    true,
-    false,
-    false,
-  ];
-
+/// 周计划表的坐标轴（界面常量，不是数据）。
+abstract final class MowerPlanAxis {
   static const List<String> dayLabels = <String>['日', '一', '二', '三', '四', '五', '六'];
-
-  static const List<MowerPlanSlot> slots = <MowerPlanSlot>[
-    MowerPlanSlot(day: 0, startMinutes: 480, endMinutes: 540, slot: 1),
-    MowerPlanSlot(
-      day: 0,
-      startMinutes: 840,
-      endMinutes: 900,
-      slot: 2,
-      trim: true,
-    ),
-    MowerPlanSlot(day: 2, startMinutes: 600, endMinutes: 720, slot: 1),
-    MowerPlanSlot(
-      day: 4,
-      startMinutes: 900,
-      endMinutes: 983,
-      slot: 1,
-      trim: true,
-    ),
-  ];
 
   /// 左边那列刻度。稿子上的时间轴不是匀的：08–18 拉开、两头压扁，
   /// 所以刻度也不是等距的，[MowerPlanChart] 用同一套锚点画块。
   static const List<int> axisHours = <int>[0, 8, 10, 12, 14, 16, 18, 24];
-}
-
-/// 消息通知页的一条（`割草机-消息通知.png`）。
-class MowerMessage {
-  const MowerMessage({
-    required this.title,
-    required this.time,
-    required this.detail,
-  });
-
-  final String title;
-  final String time;
-  final String detail;
-}
-
-abstract final class MowerDemoMessages {
-  static const List<String> tabs = <String>['日志', '提醒', '告警'];
-  static const String dateFilter = '2026年8月31日';
-
-  static const List<MowerMessage> items = <MowerMessage>[
-    MowerMessage(
-      title: '割草任务已完成',
-      time: '10:42',
-      detail: '区域 1 已按计划完成割草',
-    ),
-    MowerMessage(
-      title: '设备电量较低',
-      time: '08:15',
-      detail: '当前电量 18%，建议及时充电',
-    ),
-    MowerMessage(
-      title: '计划已调整',
-      time: '昨天 18:30',
-      detail: '周四时段 2 已更新为修边任务',
-    ),
-    MowerMessage(
-      title: '设备重新上线',
-      time: '8月30日 09:12',
-      detail: 'Wi-Fi 连接已恢复',
-    ),
-  ];
 }
 
 // ⚠️ 区域（`MowerZone` / `MowerDemoZones`）、时区（`MowerDemoTimeZones`）、

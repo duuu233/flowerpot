@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
-import '../mower_demo.dart';
+import '../mower_ui.dart';
 import '../mower_device.dart';
 import '../mower_dp.dart';
 import 'mower_messages_page.dart';

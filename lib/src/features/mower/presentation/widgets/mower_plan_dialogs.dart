@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../mower_demo.dart';
+import '../../mower_ui.dart';
 
 /// 「时间段重叠」提示（`割草机-割草计划-时间段重复.png`）。
 ///

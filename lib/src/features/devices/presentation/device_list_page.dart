@@ -8,7 +8,6 @@ import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../home/models/home_dashboard_model.dart';
 import '../../home/presentation/home_page.dart';
-import '../../mower/mower_demo.dart';
 import '../../mower/presentation/mower_home_page.dart';
 import 'device_online_guard.dart';
 
@@ -121,25 +120,9 @@ class DeviceListPage extends StatelessWidget {
                     AppSpacing.pageMargin,
                     24,
                   ),
-                  // 割草机那条是**写死的静态数据**，排在真实设备后面，只做一件事：
-                  // 点进去看割草机那套静态页（2026-09-18 产品要求）。它不经过
-                  // `state.devices`，也就碰不到花盆设备的任何一条逻辑——上面
-                  // `items` 的取值、离线门禁、下拉重拉全都原样。门禁 [MowerDemo.enabled]。
-                  //
-                  // ⚠️ 只在**列表本身画得出来**时才追加：`items` 为空时这一页画的是
-                  // 「暂无设备」整屏缺省页，在它下面挂一台设备既说不通也不好看；
-                  // 那种情况下从「添加设备 → 搜索设备」那条静态行照样进得去。
-                  itemCount: items.length + (MowerDemo.enabled ? 1 : 0),
+                  itemCount: items.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    if (index == items.length) {
-                      return _MowerDemoListCard(
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          AppRoutes.mowerHome,
-                        ),
-                      );
-                    }
                     final device = items[index];
                     return _DeviceListCard(
                       key: Key('device-list-item-${device.id}'),
@@ -278,76 +261,6 @@ class _DeviceListCard extends StatelessWidget {
 /// （`DevicePlantArtwork` 那一套只服务详情、设置、状态卡那几页）。
 ///
 /// 涂鸦没配图就留空位——位置照占，免得右边的文字跳动。
-/// 设备列表里那条固定的割草机（`docs/UI/v2/割草机/设备列表页面.png` 的第四张卡）。
-///
-/// 和 [_DeviceListCard] 同一套外壳、同一套尺寸，差别只有三处：图标是本地整机俯视图、
-/// 名字和在线态写死、点它进割草机静态页而不是花盆详情页。**没有复用 [_DeviceListCard]**
-/// 是因为那个吃的是 `SmartPlanterDevice`——为了一条静态数据造一台假的花盆设备，
-/// 等于把假数据塞进真模型里，之后每加一个字段都要跟着编一份。
-class _MowerDemoListCard extends StatelessWidget {
-  const _MowerDemoListCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      borderRadius: AppRadius.card,
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        key: const Key('device-list-mower-demo'),
-        onTap: onTap,
-        child: SizedBox(
-          height: 92,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 7, 17, 7),
-            child: Row(
-              children: <Widget>[
-                SizedBox(
-                  width: 52,
-                  child: Center(
-                    child: Image.asset(
-                      MowerAssets.deviceThumb,
-                      width: 48,
-                      height: 62,
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.high,
-                      semanticLabel: '设备图片',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 15),
-                const Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        MowerDemoDevice.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      _OnlinePill(online: true),
-                    ],
-                  ),
-                ),
-                const AppTrailingChevron(),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _DeviceListIcon extends StatelessWidget {
   const _DeviceListIcon({required this.url});
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../mower_demo.dart';
+import '../../mower_ui.dart';
 
 /// 割草机三个一级页。稿子里底部导航就这三颗（`割草机底部导航`）。
 enum MowerTab {

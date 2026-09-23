@@ -2,63 +2,48 @@ import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/pairing_gate.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_search_page.dart';
-import 'package:flowerpot/src/features/mower/mower_demo.dart';
 import 'package:flowerpot/src/features/mower/mower_device.dart';
 import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/features/mower/presentation/mower_home_page.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/tuya_models.dart';
+import 'package:flowerpot/src/tuya/tuya_raw.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/mock_tuya_repository.dart';
+import '../../support/plant_catalog.dart';
 
+/// 割草机页面（2026-09-23 联调起只接真机）。
+///
+/// 原来这套用例跑在「静态演示」上（写死的割草机、本地模拟 DP5、长按电量环改只读 DP）。
+/// 演示模式删掉之后，改成绑一台 Mock 的割草机：只读 DP 由设备快照给，
+/// 断言看的是**真正交给 SDK 的下发**（`publishedDps`）。
+///
+/// ⚠️ 下发后有 5 秒的回显计时器；测试框架在用例体结束时就检查挂着的 Timer（比 tearDown 早），
+/// 所以每条下发过的用例结尾都手动 `resetForTest` 一次把它们取消。
 void main() {
   // ⚠️ MowerDevice 是单例：上一条用例改过的开关会漏到下一条，每条前后都要复位。
   setUp(MowerDevice.instance.resetForTest);
-  tearDown(() {
-    MowerDemo.reset();
-    MowerDevice.instance.resetForTest();
-  });
+  tearDown(MowerDevice.instance.resetForTest);
 
-  testWidgets('搜索页的设备列表下面固定列着割草机，点「连接」进割草机首页', (tester) async {
-    await _pumpSearchPage(tester);
-
-    expect(
-      find.byKey(const Key('device-search-mower-demo')),
-      findsOneWidget,
-    );
-    expect(find.text('YSmower-01'), findsOneWidget);
-    // 这一行是静态数据，不是扫到的设备——行上必须写明，否则在配网动线里会被
-    // 当成"真的搜到了一台割草机"。
-    expect(find.textContaining('静态演示数据'), findsOneWidget);
-
-    await tester.tap(
-      find.byKey(const Key('device-search-mower-demo-connect')),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-
-    expect(find.text('mower-home-target'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('门禁关掉之后搜索页不再列那条静态数据', (tester) async {
-    MowerDemo.enabled = false;
+  testWidgets('搜索页不再列写死的割草机（2026-09-23 联调起删掉）', (tester) async {
     await _pumpSearchPage(tester);
 
     expect(find.byKey(const Key('device-search-mower-demo')), findsNothing);
     expect(find.text('YSmower-01'), findsNothing);
+    expect(find.textContaining('静态演示数据'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('割草机首页画出电量环、今日计划和四颗操作按钮', (tester) async {
-    await _pumpMowerHome(tester);
+  testWidgets('割草机首页：标题是设备名，电量来自 DP13', (tester) async {
+    await _pumpMowerHome(tester, <int, Object?>{MowerDp.battery: 78});
 
+    expect(find.text('割草机-联调'), findsOneWidget);
     expect(find.byKey(const Key('mower-battery-ring')), findsOneWidget);
     expect(find.text('电量 78%'), findsOneWidget);
     expect(find.byKey(const Key('mower-today-plan')), findsOneWidget);
-    expect(find.text('09:00  →  12:30'), findsOneWidget);
     expect(find.byKey(const Key('mower-safety-notice')), findsOneWidget);
     // 左三＝DP3 的三个可下发模式，最右＝DP2 开关
     for (final key in <String>[
@@ -69,94 +54,75 @@ void main() {
     ]) {
       expect(find.byKey(Key(key)), findsOneWidget);
     }
+    expect(find.text('YSmower-01'), findsNothing, reason: '不再画稿子上的假名字');
+    MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('停止态下左边三颗点不动，点「继续」（DP2=true）之后才能点', (tester) async {
-    await _pumpMowerHome(tester);
+    final repository = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.switchGo: false,
+      MowerDp.mode: 'standby',
+    });
 
-    // 初始 DP2=false：按钮显示「继续」，左三点了没反应（状态胶囊仍是待机）
     expect(find.text('继续'), findsOneWidget);
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await tester.pump();
-    expect(find.text('待机'), findsOneWidget);
+    expect(_sentDps(repository), isEmpty, reason: 'DP2=false 时左三不下发');
 
     await tester.tap(find.byKey(const Key('mower-action-switch')));
     await tester.pump();
-    // DP2=true：按钮变「停止」，这时「自动」才点得动（DP3=smart → DP5=mowing）
     expect(find.text('停止'), findsOneWidget);
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await tester.pump();
-    expect(find.text('割草中'), findsOneWidget);
+
+    expect(_sentDps(repository), <int>[MowerDp.switchGo, MowerDp.mode]);
+    expect(repository.publishedDps.last.$2[MowerDp.mode], 'smart');
+    MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('同一个模式不重复下发：点过「自动」之后它置灰', (tester) async {
-    await _pumpMowerHome(tester);
-    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    final repository = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.switchGo: true,
+      MowerDp.mode: 'standby',
+    });
+    await tester.tap(find.byKey(const Key('mower-action-smart')));
     await tester.pump();
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await tester.pump();
 
     expect(MowerDevice.instance.isCurrentMode(MowerMode.smart), isTrue);
-    // 再点一次不该有任何变化（按钮此时 onTap 为 null）
-    await tester.tap(find.byKey(const Key('mower-action-smart')));
-    await tester.pump();
-    expect(MowerDevice.instance.mode, MowerMode.smart);
+    expect(
+      _sentDps(repository).where((dp) => dp == MowerDp.mode),
+      hasLength(1),
+    );
+    MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('停止再启动，按上一次点过的模式走（记忆）', (tester) async {
-    await _pumpMowerHome(tester);
-    await tester.tap(find.byKey(const Key('mower-action-switch')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('mower-action-spot')));
-    await tester.pump();
-    expect(find.text('定点割草'), findsOneWidget);
+  testWidgets('设备报盖子没合（DP118=false）时点「自动」弹窗且不下发', (tester) async {
+    final repository = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.switchGo: true,
+      MowerDp.mode: 'standby',
+      MowerDp.coverStatus: false,
+    });
 
-    // 停止
-    await tester.tap(find.byKey(const Key('mower-action-switch')));
-    await tester.pump();
-    expect(find.text('已暂停'), findsOneWidget);
-
-    // 再启动：回到「定点」，不是回到待机
-    await tester.tap(find.byKey(const Key('mower-action-switch')));
-    await tester.pump();
-    expect(MowerDevice.instance.mode, MowerMode.spot);
-    expect(find.text('定点割草'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('盖子没合（DP118=false）时点「自动」弹窗且不下发', (tester) async {
-    await _pumpMowerHome(tester);
-
-    // 没有真机，只读 DP 由模拟上报面板改：长按电量环 → 点盖子那一行
-    await tester.longPress(find.byKey(const Key('mower-battery-ring')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('mower-report-cover')));
-    await tester.pumpAndSettle();
-    expect(MowerDevice.instance.coverClosed, isFalse);
-    Navigator.of(
-      tester.element(find.byKey(const Key('mower-report-cover'))),
-    ).pop();
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('mower-action-switch')));
-    await tester.pump();
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await tester.pumpAndSettle();
 
     expect(find.text('盖子未合上'), findsOneWidget);
-    expect(
-      MowerDevice.instance.mode,
-      isNot(MowerMode.smart),
-      reason: '弹窗之后不许下发 DP3',
-    );
+    expect(_sentDps(repository), isNot(contains(MowerDp.mode)));
+    MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('割草计划页按勾选的那几天合计工作时间', (tester) async {
-    await _pumpMowerHome(tester);
+  testWidgets('割草计划页按设备报的计划合计工作时间，取消勾选就整周下发', (tester) async {
+    final repository = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.mowSchedule: TuyaRaw.hex(
+        MowerScheduleCodec.encodeByDay(_week()),
+      ),
+    });
     await tester.tap(find.byKey(const Key('mower-nav-plan')));
     await tester.pump();
 
@@ -165,33 +131,34 @@ void main() {
     await tester.tap(find.byKey(const Key('mower-plan-day-0')));
     await tester.pump();
     expect(find.text('总工作时间：3小时23分钟'), findsOneWidget);
+    expect(_sentDps(repository), <int>[MowerDp.mowSchedule]);
+    MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('「恢复默认」先问一句，确认之后计划回到默认', (tester) async {
-    await _pumpMowerHome(tester);
+  testWidgets('「恢复默认」协议里没有默认计划：只提示，不下发稿子上的四块', (tester) async {
+    final repository = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.mowSchedule: TuyaRaw.hex(
+        MowerScheduleCodec.encodeByDay(_week()),
+      ),
+    });
     await tester.tap(find.byKey(const Key('mower-nav-plan')));
     await tester.pump();
 
-    await tester.tap(find.byKey(const Key('mower-plan-day-0')));
-    await tester.pump();
-    expect(find.text('总工作时间：3小时23分钟'), findsOneWidget);
-
     await tester.tap(find.byKey(const Key('mower-plan-restore')));
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const Key('mower-plan-restore-dialog')),
-      findsOneWidget,
-    );
+    await tester.pump();
 
-    await tester.tap(find.byKey(const Key('mower-plan-restore-confirm')));
-    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('mower-plan-restore-dialog')), findsNothing);
+    expect(_sentDps(repository), isEmpty);
     expect(find.text('总工作时间：5小时23分钟'), findsOneWidget);
+    MowerDevice.instance.resetForTest();
+    // 提示气泡有自己的消失计时，走完再结束
+    await tester.pump(const Duration(seconds: 4));
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('设置页列着八项，「设备参数」进得去', (tester) async {
-    await _pumpMowerHome(tester);
+  testWidgets('设置页「设备参数」：名称是设备名，型号 / SN 没有来源就空着', (tester) async {
+    await _pumpMowerHome(tester, <int, Object?>{});
     await tester.tap(find.byKey(const Key('mower-nav-settings')));
     await tester.pump();
 
@@ -201,44 +168,104 @@ void main() {
     await tester.tap(find.byKey(const Key('mower-settings-设备参数')));
     await tester.pumpAndSettle();
 
-    expect(find.text('YM-1200'), findsOneWidget);
-    expect(find.text('YM202608240018'), findsOneWidget);
+    expect(find.text('割草机-联调'), findsWidgets);
+    expect(find.text('YM-1200'), findsNothing);
+    expect(find.text('YM202608240018'), findsNothing);
+    MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
 }
 
-Future<void> _tapRing(WidgetTester tester) async {
-  await tester.tap(find.byKey(const Key('mower-battery-ring')));
-  await tester.pump();
+const String _mowerId = 'mower-1';
+
+/// 稿子上那一周（原来是端上写死的演示计划，现在当作「设备报上来的」喂进去）：
+/// 周日 08:00–09:00 + 14:00–15:00（修边），周二 10:00–12:00，周四 15:00–16:23（修边）。
+List<MowerScheduleDay> _week() {
+  final week = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());
+  week[0] = const MowerScheduleDay(
+    slotOne: MowerScheduleSlot(startMinutes: 480, endMinutes: 540),
+    slotTwo: MowerScheduleSlot(startMinutes: 840, endMinutes: 900),
+    edge: true,
+  );
+  week[2] = const MowerScheduleDay(
+    slotOne: MowerScheduleSlot(startMinutes: 600, endMinutes: 720),
+  );
+  week[4] = const MowerScheduleDay(
+    slotOne: MowerScheduleSlot(startMinutes: 900, endMinutes: 983),
+    edge: true,
+  );
+  return week;
 }
 
-Future<void> _pumpMowerHome(WidgetTester tester) async {
+/// 交给 SDK 的下发，按顺序列出 DP 号。
+List<int> _sentDps(MockTuyaRepository repository) => <int>[
+  for (final entry in repository.publishedDps) ...entry.$2.keys,
+];
+
+SmartPlanterDevice _mower() => SmartPlanterDevice(
+  id: _mowerId,
+  productId: MowerDp.productId,
+  name: '割草机-联调',
+  online: true,
+  signal: 80,
+  battery: 0,
+  charging: false,
+  boundAt: DateTime(2026, 9, 23),
+  plant: PlantCatalog.items.first,
+  sensors: const SensorSnapshot(
+    waterLevel: 0,
+    soilMoisture: 0,
+    illuminance: 0,
+    ppfd: 0,
+    airTemperature: 0,
+    relativeHumidity: 0,
+  ),
+  settings: const DeviceControlSettings(),
+  firmwareVersion: '1.0.0',
+  macAddress: 'AA:BB:CC:00:00:31',
+);
+
+/// 设备列表里只有一台割草机；其余照 Mock。
+class _MowerRepository extends MockTuyaRepository {
+  _MowerRepository() : super(latency: Duration.zero, seedDevice: false);
+
+  @override
+  Future<List<SmartPlanterDevice>> getDevices() async => <SmartPlanterDevice>[
+    _mower(),
+  ];
+}
+
+Future<MockTuyaRepository> _pumpMowerHome(
+  WidgetTester tester,
+  Map<int, Object?> snapshot,
+) async {
   await tester.binding.setSurfaceSize(const Size(375, 812));
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  // ⚠️ 必须套 FlowerpotScope：割草机各页进页面都会往联调日志里记一条
-  // （`FlowerpotScope.of(context).logMowerInteraction`），没有 scope 会断言失败。
-  final state = FlowerpotState(
-    repository: MockTuyaRepository(latency: Duration.zero),
-  );
+  final repository = _MowerRepository()..rawDpsByDevice[_mowerId] = snapshot;
+  final state = FlowerpotState(repository: repository);
   addTearDown(state.dispose);
+  await state.initialize();
+  await state.refreshDevices();
+  // ⚠️ 必须套 FlowerpotScope：割草机各页进页面都会往联调日志里记一条。
   await tester.pumpWidget(
     FlowerpotScope(
       state: state,
       child: MaterialApp(
         theme: buildAppTheme(),
-        home: const MowerHomePage(),
+        home: const MowerHomePage(deviceId: _mowerId),
         onGenerateRoute: (settings) =>
             AppRoutes.onGenerateRoute(settings, authenticated: true),
       ),
     ),
   );
-  // 各页的 postFrameCallback（记日志、弹「还没有支持的 DPID」）在这一拍跑完
+  // 首帧之后 bind → 读设备快照 → 页面按快照重画
   await tester.pump();
   await tester.pump();
+  await tester.pump();
+  return repository;
 }
 
 Future<void> _pumpSearchPage(WidgetTester tester) async {
-  // 搜索页本身要 `FlowerpotState`；这一轮只看它下面那条静态行，扫描结果无关紧要。
   PairingGate.apEnabled = true;
   addTearDown(PairingGate.reset);
   await tester.binding.setSurfaceSize(const Size(375, 812));
@@ -254,16 +281,6 @@ Future<void> _pumpSearchPage(WidgetTester tester) async {
         theme: buildAppTheme(),
         navigatorObservers: <NavigatorObserver>[AppRoutes.routeObserver],
         home: const DeviceSearchPage(),
-        onGenerateRoute: (settings) {
-          if (settings.name == AppRoutes.mowerHome) {
-            return MaterialPageRoute<void>(
-              builder: (_) => const Scaffold(
-                body: Center(child: Text('mower-home-target')),
-              ),
-            );
-          }
-          return null;
-        },
       ),
     ),
   );

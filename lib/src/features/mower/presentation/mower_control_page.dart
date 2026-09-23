@@ -4,8 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
-import '../../../state.dart';
-import '../mower_demo.dart';
+import '../mower_ui.dart';
 import '../mower_device.dart';
 import '../mower_dp.dart';
 import 'widgets/mower_card.dart';
@@ -33,8 +32,8 @@ import 'widgets/mower_status_card.dart';
 ///    （V2.2 §3.2：`true(待机态)` = 按 App 最后下发的 DP3 模式启动）；
 /// 5. 点左边三颗前先看 **DP118 盖子**：没合盖就弹窗、**不下发**。
 ///
-/// ⚠️ **没有真机**：下发只写日志、本地回显；只读 DP（盖子/故障/电量/充电）没人会推，
-/// **长按电量环**打开模拟上报面板去改它们——否则「开盖弹窗」「故障提醒」这些永远看不到。
+/// 2026-09-23 起只接真机：只读 DP（盖子/故障/电量/充电）全部以设备上报为准，
+/// 原来长按电量环的模拟上报面板已删。标题是设备在涂鸦里的名字。
 class MowerControlPage extends StatefulWidget {
   const MowerControlPage({super.key});
 
@@ -106,16 +105,10 @@ class _MowerControlPageState extends State<MowerControlPage> {
     _device.setMode(state, target);
   }
 
-  /// 模拟设备上报：静态演示没有设备，只读 DP 得有地方改，否则盖子/故障那几条规则验不了。
-  ///
-  /// 接着真机时不开（2026-09-21）：只读状态以设备上报为准，混进模拟值会让人对着界面误判固件。
-  Future<void> _openReportSheet() async {
-    if (_device.isLive) {
-      showAppMessage(context, '已接入真机，状态以设备上报为准', tone: AppMessageTone.info);
-      return;
-    }
-    final state = FlowerpotScope.of(context);
-    await showMowerReportSheet(context, device: _device, state: state);
+  String _deviceName(BuildContext context) {
+    final id = _device.deviceId;
+    if (id == null) return '';
+    return FlowerpotScope.of(context).deviceById(id)?.name ?? '';
   }
 
   @override
@@ -123,9 +116,10 @@ class _MowerControlPageState extends State<MowerControlPage> {
     return ListenableBuilder(
       listenable: _device,
       builder: (context, _) => AppPageScaffold(
-        appBar: const AppPageHeader(
-          title: MowerDemoDevice.name,
-          leading: AppBackButton(),
+        appBar: AppPageHeader(
+          // 设备在涂鸦里的名字；还没读到就空着，不再画稿子上的 YSmower-01。
+          title: _deviceName(context),
+          leading: const AppBackButton(),
         ),
         body: SingleChildScrollView(
           key: const Key('mower-control-scroll-view'),
@@ -137,7 +131,6 @@ class _MowerControlPageState extends State<MowerControlPage> {
                 tone: _tone,
                 percent: _device.battery,
                 statusLabel: _device.status.label,
-                onLongPressRing: () => unawaited(_openReportSheet()),
               ),
               const SizedBox(height: 24),
               _NoticeBar(fault: _device.faultMessage),
@@ -157,6 +150,9 @@ class _MowerControlPageState extends State<MowerControlPage> {
   }
 }
 
+/// 没有故障时那句安全提示（稿子上的固定文案，不是数据）。
+const String _safetyTip = '开始割草前，请清理草坪中的障碍物';
+
 /// 黄色提醒条：有故障（DP18）就画故障文案，没有就画那句安全提示。
 class _NoticeBar extends StatelessWidget {
   const _NoticeBar({required this.fault});
@@ -165,7 +161,7 @@ class _NoticeBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = fault ?? MowerDemoDevice.safetyTip;
+    final text = fault ?? _safetyTip;
     return Container(
       key: const Key('mower-safety-notice'),
       padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
@@ -425,236 +421,6 @@ class _ActionButton extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 模拟设备上报的面板（长按电量环打开）。
-///
-/// ⚠️ **这是没有真机的替代品**，不是产品功能：只读 DP（盖子 / 故障 / 电量 / 充电）
-/// 真机上由设备推，这里手动改，日志里那几行都带「［模拟］」。接了真机就该删掉它。
-Future<void> showMowerReportSheet(
-  BuildContext context, {
-  required MowerDevice device,
-  required FlowerpotState state,
-}) {
-  return showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: Colors.transparent,
-    isScrollControlled: true,
-    builder: (_) => _MowerReportSheet(device: device, state: state),
-  );
-}
-
-class _MowerReportSheet extends StatefulWidget {
-  const _MowerReportSheet({required this.device, required this.state});
-
-  final MowerDevice device;
-  final FlowerpotState state;
-
-  @override
-  State<_MowerReportSheet> createState() => _MowerReportSheetState();
-}
-
-class _MowerReportSheetState extends State<_MowerReportSheet> {
-  MowerDevice get _device => widget.device;
-
-  void _report(int dp, Object value) {
-    setState(() => _device.report(widget.state, dp, value));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * .8,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Text(
-                '模拟设备上报',
-                style: TextStyle(
-                  color: MowerColors.ink,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                '本轮没有割草机真机，只读 DP 没人推。这里改了等于"设备报了一条"，'
-                '日志里会标［模拟］。接了真机请删掉这个面板。',
-                style: TextStyle(
-                  color: MowerColors.inkSecondary,
-                  fontSize: 13,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 18),
-              _ReportRow(
-                label: 'DP${MowerDp.coverStatus} cover_status 盖子',
-                value: _device.coverClosed ? '合盖' : '开盖',
-                onTap: () =>
-                    _report(MowerDp.coverStatus, !_device.coverClosed),
-                buttonKey: const Key('mower-report-cover'),
-              ),
-              _ReportRow(
-                label: 'DP${MowerDp.chargingStatus} charging_status 充电',
-                value: _device.charging.label,
-                onTap: () {
-                  final next = MowerChargingStatus.values[
-                      (_device.charging.index + 1) %
-                          MowerChargingStatus.values.length];
-                  _report(MowerDp.chargingStatus, next.code);
-                },
-                buttonKey: const Key('mower-report-charging'),
-              ),
-              _ReportRow(
-                label: 'DP${MowerDp.battery} battery_percentage 电量',
-                value: '${_device.battery}%',
-                onTap: () {
-                  // 78 → 30（告警）→ 10（低电）→ 78，正好把三张稿子的态走一遍。
-                  final next = switch (_device.battery) {
-                    > MowerPowerState.warningPercent =>
-                      MowerPowerState.warningPercent,
-                    > MowerPowerState.lowPercent => MowerPowerState.lowPercent,
-                    _ => MowerDemoDevice.batteryPercent,
-                  };
-                  _report(MowerDp.battery, next);
-                },
-                buttonKey: const Key('mower-report-battery'),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'DP18 fault 故障位（点一个置位，再点清除）',
-                style: TextStyle(
-                  color: MowerColors.inkSecondary,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: <Widget>[
-                  for (final entry in MowerFault.identifiers.entries)
-                    _FaultChip(
-                      bit: entry.key,
-                      label: entry.value,
-                      selected: _device.faultBitmap & (1 << entry.key) != 0,
-                      onTap: () => _report(
-                        MowerDp.fault,
-                        _device.faultBitmap ^ (1 << entry.key),
-                      ),
-                    ),
-                  _FaultChip(
-                    bit: -1,
-                    label: '清除全部',
-                    selected: _device.faultBitmap == 0,
-                    onTap: () => _report(MowerDp.fault, 0),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ReportRow extends StatelessWidget {
-  const _ReportRow({
-    required this.label,
-    required this.value,
-    required this.onTap,
-    required this.buttonKey,
-  });
-
-  final String label;
-  final String value;
-  final VoidCallback onTap;
-  final Key buttonKey;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      key: buttonKey,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: MowerColors.ink,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            Text(
-              value,
-              style: const TextStyle(
-                color: MowerColors.brand,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const Icon(
-              Icons.swap_horiz_rounded,
-              size: 18,
-              color: MowerColors.inkTertiary,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FaultChip extends StatelessWidget {
-  const _FaultChip({
-    required this.bit,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final int bit;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      key: Key('mower-report-fault-$bit'),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? MowerColors.brand : MowerColors.softFill,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          bit < 0 ? label : '$bit $label',
-          style: TextStyle(
-            color: selected ? Colors.white : MowerColors.ink,
-            fontSize: 12,
           ),
         ),
       ),

@@ -91,7 +91,7 @@ abstract final class AppRoutes {
   static const behaviorSettings = '/devices/behavior';
   static const animations = '/devices/animations';
 
-  // 割草机静态页（2026-09-18）。入口是搜索页上那条固定数据，见 `MowerDemo`。
+  // 割草机（2026-09-18 静态页，2026-09-23 起只接真机）。入口是设备列表里的割草机。
   // 首页 / 割草计划 / 设置 三个一级页由 `MowerHomePage` 这层外壳带着，
   // 所以这里只登记外壳和几个二级页。
   static const mowerHome = '/mower';
@@ -199,12 +199,8 @@ abstract final class AppRoutes {
         deviceId: settings.arguments! as String,
       ),
       animations => AnimationsPage(deviceId: settings.arguments! as String),
-      // 带 [MowerHomeArguments] = 真机（设备列表里那台）；不带 = 静态演示那条。
       mowerHome => MowerHomePage(
-        deviceId: switch (settings.arguments) {
-          MowerHomeArguments(:final deviceId) => deviceId,
-          _ => null,
-        },
+        deviceId: (settings.arguments! as MowerHomeArguments).deviceId,
       ),
       mowerParameters => const MowerParametersPage(),
       mowerZones => const MowerZonesPage(),

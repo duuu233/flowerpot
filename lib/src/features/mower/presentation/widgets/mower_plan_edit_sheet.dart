@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../mower_demo.dart';
+import '../../mower_ui.dart';
 import '../../mower_dp.dart';
 import 'mower_form.dart';
 
@@ -162,7 +162,7 @@ class _MowerPlanEditSheetState extends State<_MowerPlanEditSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    '编辑周${MowerDemoPlan.dayLabels[_draft.day]}',
+                    '编辑周${MowerPlanAxis.dayLabels[_draft.day]}',
                     key: const Key('mower-plan-edit-title'),
                     style: const TextStyle(
                       color: MowerColors.ink,
