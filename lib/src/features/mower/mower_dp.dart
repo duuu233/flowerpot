@@ -234,6 +234,15 @@ abstract final class MowerFault {
   ///
   /// 首页那条提醒只有一行，多个故障同时置位时按位序取第一个——位序就是设备端
   /// 的排列顺序（左右轮 → 电池 → 位姿…），低位是更靠近"走不动了"的硬故障。
+  /// **按编号取文案**（2026-09-23 产品口径：「DP18 上报的是 0 … 按这个显示」——上报值就是
+  /// 文案表的键：0 = 左轮异常、1 = 右轮异常 … 12 = 刀盘电机故障）。超出 0–12 返回 null。
+  ///
+  /// ⚠️ 这和协议 V2.3 §4.3 / 平台功能点表写的**位图**口径不同：按位图，0 = 没有故障、
+  /// 左轮异常应报 1（1<<0）。按编号显示之后，如果固件其实按位图报，没故障时也会显示
+  /// 「左轮异常」——待固件确认「没有故障时 DP18 报什么」。位图那套（[firstMessage]）留着，
+  /// 口径改回来只换 `MowerDevice.faultMessage` 一行。
+  static String? messageFor(int value) => messages[value];
+
   static String? firstMessage(int bitmap) {
     for (var bit = 0; bit < 13; bit++) {
       if (bitmap & (1 << bit) != 0) return messages[bit];

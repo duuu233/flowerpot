@@ -61,7 +61,8 @@ class _MowerControlPageState extends State<MowerControlPage> {
           'DP${MowerDp.mode}=${_device.mode.code}，'
           'DP${MowerDp.status}=${_device.status.code}，'
           'DP${MowerDp.battery}=${_device.battery}，'
-          'DP${MowerDp.fault}=${_device.faultBitmap}，'
+          'DP${MowerDp.fault}=${_device.faultBitmap ?? '未上报'}'
+          '（${_device.faultMessage ?? '无故障文案'}），'
           'DP${MowerDp.chargingStatus}=${_device.charging.code}，'
           'DP${MowerDp.coverStatus}=${_device.coverClosed}',
         );

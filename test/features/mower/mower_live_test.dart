@@ -60,7 +60,8 @@ void main() {
     expect(device.mode, MowerMode.spot);
     expect(device.status, MowerStatus.spotMowing);
     expect(device.battery, 55);
-    expect(device.faultMessage, MowerFault.messages[3]);
+    // 2026-09-23 口径：上报值就是文案编号（快照里给的是 1<<3 = 8 → 编号 8）
+    expect(device.faultMessage, MowerFault.messages[8]);
     expect(device.charging, MowerChargingStatus.charging);
     expect(device.coverClosed, isFalse);
     expect(device.schedule[1].slotOne?.startMinutes, 540);

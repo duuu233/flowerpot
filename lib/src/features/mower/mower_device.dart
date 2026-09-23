@@ -53,7 +53,9 @@ class MowerDevice extends ChangeNotifier {
   late int battery;
 
   /// DP18：故障位图。0 = 无故障。
-  late int faultBitmap;
+  ///
+  /// null = 设备还没报过（这时不显示任何故障文案，见 [faultMessage]）。
+  int? faultBitmap;
 
   /// DP117：充电状态。
   late MowerChargingStatus charging;
@@ -175,7 +177,7 @@ class MowerDevice extends ChangeNotifier {
     lastCommandedMode = null;
     status = MowerStatus.standby;
     battery = 0;
-    faultBitmap = 0;
+    faultBitmap = null;
     charging = MowerChargingStatus.notCharging;
     coverClosed = true;
     rainDetectEnable = false;
@@ -197,7 +199,13 @@ class MowerDevice extends ChangeNotifier {
   }
 
   /// 首页黄色提醒那一行：有故障时是 DP18 的文案，没有故障是安全提示。
-  String? get faultMessage => MowerFault.firstMessage(faultBitmap);
+  ///
+  /// 2026-09-23 产品口径：**上报值就是文案编号**（[MowerFault.messageFor]），不按位图解。
+  /// 没报过（null）不显示故障文案——否则初值 0 会被当成「左轮异常」。
+  String? get faultMessage {
+    final value = faultBitmap;
+    return value == null ? null : MowerFault.messageFor(value);
+  }
 
   /// 左边三颗（自动/定点/回归）此刻能不能点——**不含**「当前模式置灰」那条（[isCurrentMode]
   /// 是单独判断，见页面）。点之前还要过盖子那道预检（[coverClosed]，在页面里弹窗）。
@@ -381,7 +389,10 @@ class MowerDevice extends ChangeNotifier {
       for (final dp in changed) {
         _awaitingEcho.remove(dp);
         final identifier = MowerDp.identifiers[dp] ?? 'dp$dp';
-        state.logMowerInteraction('上报 ← 割草机 DP$dp $identifier=${dps[dp]}');
+        final note = dp == MowerDp.fault
+            ? ' → 黄条「${faultMessage ?? '无对应文案'}」'
+            : '';
+        state.logMowerInteraction('上报 ← 割草机 DP$dp $identifier=${dps[dp]}$note');
       }
     }
     // DP116 ota_status（协议 V2.3 §7.2，只上报）：设备拒绝 / 升级失败时说一句。
