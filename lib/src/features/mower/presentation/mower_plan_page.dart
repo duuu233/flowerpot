@@ -222,6 +222,31 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
                 ],
               ),
               const SizedBox(height: 10),
+              // 一周都没有会执行的时段（含设备还没报过 DP101）：说一句，图表只画空坐标，不填任何色块。
+              if (_chartSlots.isEmpty)
+                Padding(
+                  key: const Key('mower-plan-empty'),
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    children: <Widget>[
+                      const Icon(
+                        Icons.event_busy_outlined,
+                        size: 18,
+                        color: MowerColors.inkTertiary,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _device.scheduleRaw == null
+                            ? '暂无割草计划（设备还没有上报）'
+                            : '暂无割草计划，点某一天添加',
+                        style: const TextStyle(
+                          color: MowerColors.inkSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               MowerCard(
                 padding: const EdgeInsets.only(bottom: 18),
                 child: MowerPlanChart(

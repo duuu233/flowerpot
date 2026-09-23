@@ -15,7 +15,11 @@ class MowerPlanDraft {
     this.copyWeek = false,
   });
 
-  /// 从 DP 解析出来的那一天开编辑器；那天还没有时段就用稿子上的默认值。
+  /// 从 DP 解析出来的那一天开编辑器。
+  ///
+  /// 那天还没有时段：**不预填任何时间**（2026-09-23 产品：「没有数据时不能做假的数据渲染」）。
+  /// 原来预填稿子上的 09:00–11:30 / 14:00–15:00 而且是开着的，点一下保存就把假时段发给了设备。
+  /// 现在给 00:00–00:00 且**关着**的空时段——用户打开开关、选好时间才算数；关着的时段不写进 DP101。
   factory MowerPlanDraft.forDay(
     int day,
     List<MowerScheduleDay> week, {
@@ -25,23 +29,18 @@ class MowerPlanDraft {
     return MowerPlanDraft(
       day: day,
       activeSlot: activeSlot,
-      one:
-          source.slotOne ??
-          const MowerScheduleSlot(
-            startMinutes: 540,
-            endMinutes: 690,
-            enabled: true,
-          ),
-      two:
-          source.slotTwo ??
-          const MowerScheduleSlot(
-            startMinutes: 840,
-            endMinutes: 900,
-            enabled: true,
-          ),
+      one: source.slotOne ?? _unset,
+      two: source.slotTwo ?? _unset,
       edge: source.edge,
     );
   }
+
+  /// 还没排的时段：没有时间、关着。
+  static const MowerScheduleSlot _unset = MowerScheduleSlot(
+    startMinutes: 0,
+    endMinutes: 0,
+    enabled: false,
+  );
 
   final int day;
   final MowerScheduleSlot one;

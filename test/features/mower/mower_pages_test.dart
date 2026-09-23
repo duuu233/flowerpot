@@ -7,6 +7,7 @@ import 'package:flowerpot/src/features/devices/presentation/device_search_page.d
 import 'package:flowerpot/src/features/mower/mower_device.dart';
 import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/features/mower/presentation/mower_home_page.dart';
+import 'package:flowerpot/src/features/mower/presentation/widgets/mower_plan_edit_sheet.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -58,6 +59,29 @@ void main() {
     }
     expect(find.text('YSmower-01'), findsNothing, reason: '不再画稿子上的假名字');
     MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('设备没报过割草计划：首页「暂无割草计划」、计划页不画任何色块、编辑框不预填', (tester) async {
+    await _pumpMowerHome(tester, <int, Object?>{MowerDp.battery: 50});
+
+    expect(find.byKey(const Key('mower-today-plan')), findsOneWidget);
+    expect(find.byKey(const Key('mower-today-empty')), findsOneWidget);
+    expect(find.text('暂无割草计划'), findsOneWidget);
+    expect(find.byKey(const Key('mower-today-range')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('mower-nav-plan')));
+    await tester.pump();
+    expect(find.byKey(const Key('mower-plan-empty')), findsOneWidget);
+    expect(find.text('暂无割草计划（设备还没有上报）'), findsOneWidget);
+    expect(find.text('总工作时间：未设置'), findsOneWidget);
+
+    // 空的那天开编辑框：两个时段都是关着的 00:00–00:00，不再是稿子上的 09:00–11:30
+    final draft = MowerPlanDraft.forDay(1, MowerDevice.instance.schedule);
+    expect(draft.one.enabled, isFalse);
+    expect(draft.two.enabled, isFalse);
+    expect(draft.one.startMinutes, 0);
+    expect(draft.one.endMinutes, 0);
     expect(tester.takeException(), isNull);
   });
 

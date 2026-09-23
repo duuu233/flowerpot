@@ -222,8 +222,14 @@ class _TodayPlanCard extends StatelessWidget {
     final day = weekday < schedule.length
         ? schedule[weekday]
         : const MowerScheduleDay();
-    final one = day.slotOne;
-    final two = day.slotTwo;
+    // 只认设备会执行的时段（有效位 + 时长 > 10 分钟）。一个都没有（包括设备还没报过 DP101）
+    // 就画缺省态，不编（2026-09-23 产品：「图标 + 暂无割草计划」，日期和星期保留）。
+    final slots = <MowerScheduleSlot>[
+      for (final slot in <MowerScheduleSlot?>[day.slotOne, day.slotTwo])
+        if (slot != null && slot.validForDevice) slot,
+    ];
+    final one = slots.isEmpty ? null : slots.first;
+    final two = slots.length > 1 ? slots[1] : null;
     final dateText =
         '${now.year}.${_two(now.month)}.${_two(now.day)} · ${_weekdayLabels[weekday]}';
     return MowerCard(
@@ -255,48 +261,70 @@ class _TodayPlanCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: <Widget>[
+          if (one == null)
+            const Padding(
+              key: Key('mower-today-empty'),
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: <Widget>[
+                  Icon(
+                    Icons.event_busy_outlined,
+                    size: 20,
+                    color: MowerColors.inkTertiary,
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    '暂无割草计划',
+                    style: TextStyle(
+                      color: MowerColors.inkSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else ...<Widget>[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: <Widget>[
+                Text(
+                  '${_hhmm(one.startMinutes)}  →  ${_hhmm(one.endMinutes)}',
+                  key: const Key('mower-today-range'),
+                  style: const TextStyle(
+                    color: MowerColors.ink,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    height: 1.56,
+                  ),
+                ),
+                if (day.edge)
+                  Container(
+                    width: 54,
+                    height: 26,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: MowerColors.softFill,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      '修边',
+                      style: TextStyle(color: MowerColors.brand, fontSize: 12),
+                    ),
+                  ),
+              ],
+            ),
+            if (two != null) ...<Widget>[
+              const SizedBox(height: 4),
               Text(
-                one == null
-                    ? '今日无计划'
-                    : '${_hhmm(one.startMinutes)}  →  ${_hhmm(one.endMinutes)}',
-                key: const Key('mower-today-range'),
+                '下一任务 ${_hhmm(two.startMinutes)} - ${_hhmm(two.endMinutes)}',
                 style: const TextStyle(
-                  color: MowerColors.ink,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                  height: 1.56,
+                  color: MowerColors.brand,
+                  fontSize: 12,
+                  height: 1.5,
                 ),
               ),
-              if (day.edge)
-                Container(
-                  width: 54,
-                  height: 26,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: MowerColors.softFill,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    '修边',
-                    style: TextStyle(color: MowerColors.brand, fontSize: 12),
-                  ),
-                ),
             ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            two == null
-                ? '今日没有第二个时段'
-                : '下一任务 ${_hhmm(two.startMinutes)} - ${_hhmm(two.endMinutes)}',
-            style: const TextStyle(
-              color: MowerColors.brand,
-              fontSize: 12,
-              height: 1.5,
-            ),
-          ),
+          ],
         ],
       ),
     );
