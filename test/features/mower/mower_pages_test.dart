@@ -72,7 +72,28 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('蓝牙检查关着（默认）：蓝牙连不上也照常下发，不弹提示', (tester) async {
+    final repository = await _pumpMowerHome(
+      tester,
+      <int, Object?>{MowerDp.switchGo: true, MowerDp.mode: 'standby'},
+      setup: (repository) => repository
+        ..bleLinked = false
+        ..bleConnectSucceeds = false,
+    );
+
+    await tester.tap(find.byKey(const Key('mower-action-smart')));
+    await tester.pump();
+
+    expect(find.text('无法连接设备蓝牙，请检查设备或靠近设备10米内'), findsNothing);
+    expect(_sentDps(repository), <int>[MowerDp.mode]);
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('蓝牙没连、进来自动连也连不上：图标灭；点按钮再连不上就弹提示、不下发', (tester) async {
+    // 蓝牙检查默认关着（MowerBleGate，2026-09-23），这两条专门验它，自己打开。
+    MowerBleGate.enabled = true;
+    addTearDown(MowerBleGate.reset);
     final repository = await _pumpMowerHome(
       tester,
       <int, Object?>{MowerDp.switchGo: true, MowerDp.mode: 'standby'},
@@ -94,6 +115,9 @@ void main() {
   });
 
   testWidgets('蓝牙信号弱于 -90：提示必须在 10 米内、不下发；-85 就放行', (tester) async {
+    // 蓝牙检查默认关着（MowerBleGate，2026-09-23），这两条专门验它，自己打开。
+    MowerBleGate.enabled = true;
+    addTearDown(MowerBleGate.reset);
     final repository = await _pumpMowerHome(
       tester,
       <int, Object?>{MowerDp.switchGo: true, MowerDp.mode: 'standby'},

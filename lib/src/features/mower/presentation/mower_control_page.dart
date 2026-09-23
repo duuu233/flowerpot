@@ -150,6 +150,11 @@ class _MowerControlPageState extends State<MowerControlPage> {
   /// 按钮点击统一入口：检查中不重入；检查期间被点的那颗画成转圈；检查不过先把按钮恢复、
   /// 再弹提示，不下发。[button] 是被点的那颗。
   Future<void> _guarded(String button, Future<void> Function() action) async {
+    // 蓝牙检查暂时关闭（MowerBleGate，2026-09-23 产品）：直接走原来的规则。
+    if (!MowerBleGate.enabled) {
+      await action();
+      return;
+    }
     if (_checking != null) return;
     setState(() => _checking = button);
     ({String message, IconData icon})? problem;

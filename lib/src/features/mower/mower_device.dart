@@ -8,6 +8,19 @@ import '../../state.dart';
 import '../../tuya/tuya_raw.dart';
 import 'mower_dp.dart';
 
+/// 首页四颗控制按钮下发前的**蓝牙检查**总闸（连蓝牙 → 查信号，不满足不下发，见 `MowerControlPage._guarded`）。
+///
+/// **2026-09-23 产品：「这个逻辑暂时注释」**——默认关，代码保留；翻回 `true` 整套回来。
+/// 关着时按钮直接走原来的规则（盖子检查 → 下发）。图标按通道亮、在线走 Wi-Fi / 离线降级蓝牙、
+/// 进页面自动连蓝牙都不受它影响。
+///
+/// ⚠️ 不是 `const`：用例要能两头都验，改过必须在 `tearDown` 里 [reset]。
+abstract final class MowerBleGate {
+  static bool enabled = _enabledDefault;
+  static const bool _enabledDefault = false;
+  static void reset() => enabled = _enabledDefault;
+}
+
 /// 割草机这一台设备的当前 DP 值 + 下发/上报的唯一入口。
 ///
 /// ## 只接真机（2026-09-23 起）
