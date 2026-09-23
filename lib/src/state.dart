@@ -177,7 +177,9 @@ class FlowerpotState extends ChangeNotifier {
         DateTime.now().difference(fetchedAt) < activatorTokenLifetime;
   }
 
-  List<SmartPlanterDevice> get devices => List.unmodifiable(_devices);
+  /// 对外给的设备清单：**探测判为不可达的设备一律标离线**（见 [_probeReachability]）。
+  List<SmartPlanterDevice> get devices =>
+      List.unmodifiable(_devices.map(_withReachability));
 
   String? get deviceLoadError => _deviceLoadError;
 
@@ -295,7 +297,7 @@ class FlowerpotState extends ChangeNotifier {
 
   SmartPlanterDevice? deviceById(String id) {
     for (final device in _devices) {
-      if (device.id == id) return device;
+      if (device.id == id) return _withReachability(device);
     }
     return null;
   }
@@ -1367,7 +1369,8 @@ class FlowerpotState extends ChangeNotifier {
         }
         final String mode;
         final String via;
-        if (link['wifi'] == true) {
+        // 探测判为不可达（云端还没判离线、SDK 缓存仍说 Wi-Fi 在线）也按 Wi-Fi 离线走蓝牙。
+        if (link['wifi'] == true && !_unreachable.contains(deviceId)) {
           final lanOnly =
               link['lan'] == true && link['mqtt'] != true && link['cloud'] != true;
           mode = lanOnly
@@ -3562,6 +3565,16 @@ class FlowerpotState extends ChangeNotifier {
   /// stale one would mask a switch pressed on the planter itself. DP 116 is
   /// reportable, so a recognized identifier also replaces the local plant.
   void _applyDeviceUpdate(DeviceUpdate update) {
+    // 设备报了 DP = 它还够得着；云端也判离线了 = 不用 App 再盖一层。两种都撤掉探测判的「不可达」。
+    final reported = update.device;
+    if (reported != null &&
+        _unreachable.contains(reported.id) &&
+        (update.changedDps.isNotEmpty || !reported.online)) {
+      _clearUnreachable(
+        reported.id,
+        update.changedDps.isNotEmpty ? '设备上报了 DP' : '云端也已判离线',
+      );
+    }
     final removedId = update.removedId;
     if (removedId != null) {
       if (_devices.every((device) => device.id != removedId)) return;
@@ -3626,6 +3639,8 @@ class FlowerpotState extends ChangeNotifier {
     _sessionEpoch++;
     _onlinePoll?.cancel();
     _onlinePoll = null;
+    _reachProbe?.cancel();
+    _reachProbe = null;
     _deviceUpdates?.cancel();
     _otaUpdates?.cancel();
     unawaited(_mowerReports.close());
@@ -3937,9 +3952,120 @@ class FlowerpotState extends ChangeNotifier {
   void pauseDeviceWatch() {
     _onlinePoll?.cancel();
     _onlinePoll = null;
+    _reachProbe?.cancel();
+    _reachProbe = null;
+  }
+
+  // ══════════════ 被动离线的主动探测（2026-09-23） ══════════════
+  //
+  // 产品：「主动关机暂时不处理（固件会在主动关机时上报离线）；被动离线看看能不能优化，就是网络
+  // 突然中断，比如关闭路由器」。被动离线时设备来不及说任何话，只能等云端两个心跳周期都没收到
+  // 才判离线——花盆实测约 5 分钟。App 这边不等：前台每 [reachProbeInterval] 用涂鸦
+  // `requestWifiSignal` 问一次**云端认为在线**的设备（经云端问设备 Wi-Fi 信号，只有设备能答），
+  // [reachProbeTimeout] 内没回复算一次没回应，**连续 [reachMissLimit] 次**就本地按离线处理
+  // （[devices] / [deviceById] 都标离线，列表、详情、下发门禁、割草机降级蓝牙都认）。
+  // 设备再回应一次、或报了任何 DP、或云端自己也判离线 → 撤掉。**手机自己没网时不计**
+  // （[NetworkStatus.probe]），免得手机断网把所有设备都判离线。大约 30~50 秒可见。
+
+  /// 两轮探测的间隔。
+  static const Duration reachProbeInterval = Duration(seconds: 20);
+
+  /// 单次探测等设备回复的时长。
+  static const Duration reachProbeTimeout = Duration(seconds: 6);
+
+  /// 连续几次没回应才判离线（一次没回可能只是网络抖一下）。
+  static const int reachMissLimit = 2;
+
+  Timer? _reachProbe;
+  bool _probing = false;
+
+  /// 平台没接探测（iOS 等）：整个关掉，不再问。
+  bool _probeUnsupported = false;
+
+  /// 设备 ID → 连续没回应的次数。
+  final Map<String, int> _probeMisses = <String, int>{};
+
+  /// 探测判为不可达的设备（云端还说在线）。
+  final Set<String> _unreachable = <String>{};
+
+  /// 探测判的离线要不要盖到这台设备上。
+  bool isUnreachableByProbe(String deviceId) => _unreachable.contains(deviceId);
+
+  SmartPlanterDevice _withReachability(SmartPlanterDevice device) =>
+      device.online && _unreachable.contains(device.id)
+      ? device.copyWith(online: false)
+      : device;
+
+  void _clearUnreachable(String id, String why) {
+    _probeMisses.remove(id);
+    if (!_unreachable.remove(id)) return;
+    _logInteraction('探测 ✓ ${_devices.where((d) => d.id == id).firstOrNull?.name ?? id} 恢复在线（$why）');
+    notifyListeners();
+  }
+
+  Future<void> _probeReachability() async {
+    if (_probeUnsupported || _probing || !authenticated) return;
+    final candidates = <SmartPlanterDevice>[
+      for (final device in _devices)
+        if (device.online) device,
+    ];
+    if (candidates.isEmpty) return;
+    _probing = true;
+    try {
+      final results = await Future.wait(<Future<Map<String, Object?>>>[
+        for (final device in candidates)
+          _repository.requestWifiSignal(device.id, timeout: reachProbeTimeout),
+      ]);
+      final silent = <SmartPlanterDevice>[];
+      for (var i = 0; i < candidates.length; i++) {
+        final device = candidates[i];
+        final result = results[i];
+        if (result['unsupported'] == true) {
+          _probeUnsupported = true;
+          return;
+        }
+        if (result['ok'] == true) {
+          _clearUnreachable(device.id, '探测有回应，Wi-Fi 信号 ${result['signal']}');
+        } else if (result['code'] == 'timeout') {
+          silent.add(device);
+        }
+        // 其它错误（设备不支持、云端已判离线等）不计入——判不了就不判。
+      }
+      if (silent.isEmpty) return;
+      // 手机自己没网时设备当然「没回应」——这时不计，免得把所有设备都判离线。
+      if (!await NetworkStatus.probe()) {
+        _logInteraction('探测 ⚠ 手机网络不通，本轮不计 ${silent.length} 台没回应的设备');
+        return;
+      }
+      var changed = false;
+      for (final device in silent) {
+        final misses = (_probeMisses[device.id] ?? 0) + 1;
+        _probeMisses[device.id] = misses;
+        _logInteraction(
+          '探测 ✗ ${device.name} ${reachProbeTimeout.inSeconds} 秒没回应（第 $misses 次）',
+        );
+        if (misses >= reachMissLimit && _unreachable.add(device.id)) {
+          changed = true;
+          _logInteraction(
+            '探测 ✗ ${device.name} 连续 $misses 次没回应，按离线处理（云端还未判离线，疑似网络中断）',
+          );
+        }
+      }
+      if (changed) notifyListeners();
+    } finally {
+      _probing = false;
+    }
   }
 
   void _ensureOnlinePolling() {
+    _reachProbe ??= Timer.periodic(reachProbeInterval, (timer) {
+      if (!authenticated) {
+        timer.cancel();
+        _reachProbe = null;
+        return;
+      }
+      unawaited(_probeReachability());
+    });
     if (_onlinePoll != null || !authenticated) return;
     _onlinePoll = Timer.periodic(onlinePollInterval, (timer) {
       if (!authenticated) {
@@ -4140,6 +4266,10 @@ class FlowerpotState extends ChangeNotifier {
     _sessionEpoch++;
     _user = null;
     _devices = <SmartPlanterDevice>[];
+    _unreachable.clear();
+    _probeMisses.clear();
+    _reachProbe?.cancel();
+    _reachProbe = null;
     _deviceLoadError = null;
     _deviceLoadOffline = false;
     _pinnedHome = null;

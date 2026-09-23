@@ -623,6 +623,21 @@ class MockTuyaRepository implements TuyaRepository {
     return <String, Object?>{'connected': bleConnectSucceeds};
   }
 
+  /// 探测（requestWifiSignal）：列在这里的设备「没回应」（模拟路由器断了）。
+  final Set<String> unreachableDevices = <String>{};
+  int wifiSignalProbes = 0;
+
+  @override
+  Future<Map<String, Object?>> requestWifiSignal(
+    String deviceId, {
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    wifiSignalProbes++;
+    return unreachableDevices.contains(deviceId)
+        ? <String, Object?>{'ok': false, 'code': 'timeout'}
+        : <String, Object?>{'ok': true, 'signal': '-50'};
+  }
+
   @override
   Future<Map<String, Object?>> readDeviceBleRssi(String deviceId) async =>
       <String, Object?>{'ok': bleLinked, 'rssi': bleLinked ? bleRssi : null};

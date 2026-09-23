@@ -456,6 +456,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "messagesByTime" -> messagesByTime(call, result)
                 "startPushListen" -> startPushListen(result)
                 "deviceLinkState" -> deviceLinkState(call, result)
+                "requestWifiSignal" -> requestWifiSignal(call, result)
                 "bleConnectDevice" -> bleConnectDevice(call, result)
                 "bleReadRssi" -> bleReadRssi(call, result)
                 "checkFirmware" -> checkFirmware(call, result)
@@ -3160,6 +3161,71 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             val cached = runCatching { (invoke(manager, "readRssiByCache", id) as? Number)?.toInt() }.getOrNull()
             reply(cached != null && cached != 0, cached, "readRssiByCache（readBleRssi 5 秒没回）")
         }, 5_000)
+    }
+
+    /**
+     * 探一下设备**本身**还回不回应（2026-09-23：被动离线——路由器断电、网络突然中断——
+     * 云端要两个心跳周期才判离线，花盆实测约 5 分钟）。
+     *
+     * 涂鸦 `IThingDevice.requestWifiSignal(WifiSignalListener)`（7.5.1 解包 `dqqpqbq`）：经云端
+     * MQTT 给设备发 `{"reqType": "sigQry"}`，由 Wi-Fi 模组回 `onSignalValueFind(信号)`——只有设备
+     * 自己能答。**SDK 自己不设超时**（设备不回就永远不回调），所以这里 [timeoutMs] 到了算「没回应」。
+     * 优先用已经注册着监听的那个设备实例（不销毁它）；没有才临时建一个、用完销毁。
+     */
+    private fun requestWifiSignal(call: MethodCall, result: MethodChannel.Result) {
+        val id = call.argument<String>("deviceId").orEmpty()
+        val timeoutMs = (call.argument<Number>("timeoutMs"))?.toLong() ?: 6_000L
+        val started = System.currentTimeMillis()
+        val cached = watched[id]
+        val device = cached ?: runCatching { invokeStatic(sdkClass(), "newDeviceInstance", id) }.getOrNull()
+        if (device == null) {
+            success(result, mapOf("ok" to false, "code" to "no_instance", "message" to "拿不到设备实例"))
+            return
+        }
+        val done = AtomicBoolean(false)
+        fun reply(value: Map<String, Any?>) {
+            if (!done.compareAndSet(false, true)) return
+            if (cached == null) runCatching { invoke(device, "onDestroy") }
+            success(result, value + ("elapsedMs" to (System.currentTimeMillis() - started)))
+        }
+        val method = device.javaClass.methods.firstOrNull {
+            it.name == "requestWifiSignal" && it.parameterTypes.size == 1
+        }
+        if (method == null) {
+            reply(mapOf("ok" to false, "code" to "unsupported", "message" to "没有 requestWifiSignal"))
+            return
+        }
+        val type = method.parameterTypes[0]
+        val listener = Proxy.newProxyInstance(type.classLoader ?: activity.classLoader, arrayOf(type)) { self, m, args ->
+            when (m.name) {
+                "equals" -> self === args?.firstOrNull()
+                "hashCode" -> System.identityHashCode(self)
+                "toString" -> "WifiSignalProbe($id)"
+                "onSignalValueFind" -> {
+                    reply(mapOf("ok" to true, "signal" to args?.firstOrNull()?.toString()))
+                    defaultValue(m.returnType)
+                }
+                "onError" -> {
+                    val texts = args?.filterIsInstance<String>().orEmpty()
+                    reply(
+                        mapOf(
+                            "ok" to false,
+                            "code" to (texts.firstOrNull() ?: "error"),
+                            "message" to (texts.lastOrNull() ?: ""),
+                        ),
+                    )
+                    defaultValue(m.returnType)
+                }
+                else -> defaultValue(m.returnType)
+            }
+        }
+        runCatching { method.invoke(device, listener) }.onFailure {
+            reply(mapOf("ok" to false, "code" to "invoke_failed", "message" to "${it.cause ?: it}"))
+            return
+        }
+        Handler(Looper.getMainLooper()).postDelayed({
+            reply(mapOf("ok" to false, "code" to "timeout", "message" to "${timeoutMs}ms 没有回应"))
+        }, timeoutMs)
     }
 
     /** 推送回调里的对象 → 能过 MethodChannel 的 map（基本类型包成 `value`）。 */

@@ -280,6 +280,14 @@ abstract class TuyaRepository {
   /// 读已连蓝牙的信号强度（dBm，涂鸦 `readBleRssi`）。返回 `{ok: bool, rssi: int?, source}`。
   Future<Map<String, Object?>> readDeviceBleRssi(String deviceId);
 
+  /// 探设备本身还回不回应（涂鸦 `requestWifiSignal`：经云端问设备 Wi-Fi 信号，只有设备能答）。
+  /// [timeout] 内没回复算没回应。返回 `{ok, signal?, code?, message?, elapsedMs}`；
+  /// `code`：`timeout`（没回应）/ `unsupported` / 其它 SDK 错误码。永远不抛错。
+  Future<Map<String, Object?>> requestWifiSignal(
+    String deviceId, {
+    Duration timeout = const Duration(seconds: 6),
+  });
+
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
@@ -1133,6 +1141,15 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<Map<String, Object?>> readDeviceBleRssi(String deviceId) =>
       _mapCall('bleReadRssi', <String, Object?>{'deviceId': deviceId});
+
+  @override
+  Future<Map<String, Object?>> requestWifiSignal(
+    String deviceId, {
+    Duration timeout = const Duration(seconds: 6),
+  }) => _mapCall('requestWifiSignal', <String, Object?>{
+    'deviceId': deviceId,
+    'timeoutMs': timeout.inMilliseconds,
+  });
 
   @override
   Future<Map<String, Object?>> startPushListen() async {
