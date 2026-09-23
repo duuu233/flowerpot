@@ -230,12 +230,13 @@ class _DeviceListCard extends StatelessWidget {
                     children: <Widget>[
                       Text(
                         device.name,
+                        key: Key('device-list-name-${device.id}'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 18,
-                          fontWeight: FontWeight.w500,
+                          fontWeight: _nameWeight(device.name),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -252,6 +253,17 @@ class _DeviceListCard extends StatelessWidget {
     );
   }
 }
+
+/// 设备名的字重：**名字里有中文就用常规（w400），纯英文用 w500**（2026-09-23 产品：
+/// 「割草机的字体不要加粗了，和花盆的一样就行」）。
+///
+/// 两种设备用的是同一个样式；看着不一样是字体的事：App 没带字体，用系统的。英文 w500 有
+/// 真正的中等字重（Roboto Medium），很多安卓机的中文字体只有常规和粗体两档，w500 就落到
+/// 粗体上——割草机的名字是中文，于是比花盆的「YSplanter-01」粗一圈。
+FontWeight _nameWeight(String name) =>
+    RegExp(r'[\u3400-\u9fff\uf900-\ufaff]').hasMatch(name)
+    ? FontWeight.w400
+    : FontWeight.w500;
 
 /// 设备列表那一列的图：**直接用涂鸦平台上配的产品图**（`DeviceBean.getIconUrl`）。
 ///
