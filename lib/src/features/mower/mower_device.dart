@@ -200,11 +200,12 @@ class MowerDevice extends ChangeNotifier {
 
   /// 首页黄色提醒那一行：有故障时是 DP18 的文案，没有故障是安全提示。
   ///
-  /// 2026-09-23 产品口径：**上报值就是文案编号**（[MowerFault.messageFor]），不按位图解。
-  /// 没报过（null）不显示故障文案——否则初值 0 会被当成「左轮异常」。
+  /// 按协议 V2.3 §4.3 的**位图**解（2026-09-23 产品最终口径：「按协议 V2.3 的来，0 表示正常就隐藏」）：
+  /// 0 = 正常 → null（首页黄条隐藏）；有故障位取位序最低的那条文案。没报过（null）同样隐藏。
+  /// （同日曾按「上报值 = 文案编号」改过一版，已撤回。）
   String? get faultMessage {
     final value = faultBitmap;
-    return value == null ? null : MowerFault.messageFor(value);
+    return value == null ? null : MowerFault.firstMessage(value);
   }
 
   /// 左边三颗（自动/定点/回归）此刻能不能点——**不含**「当前模式置灰」那条（[isCurrentMode]

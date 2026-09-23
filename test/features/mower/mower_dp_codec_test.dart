@@ -164,10 +164,6 @@ void main() {
     });
 
     test('DP18 位图取最低位那条文案', () {
-      // 2026-09-23 显示口径：上报值 = 文案编号
-      expect(MowerFault.messageFor(0), '左轮异常，请清理异物并重启。');
-      expect(MowerFault.messageFor(12), '刀盘电机故障，请重启或报修。');
-      expect(MowerFault.messageFor(13), isNull);
       expect(MowerFault.firstMessage(0), isNull);
       expect(MowerFault.firstMessage(1 << 3), '机器翻倒，请将其扶正放平。');
       expect(

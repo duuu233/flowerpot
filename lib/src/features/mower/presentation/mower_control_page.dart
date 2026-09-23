@@ -135,8 +135,11 @@ class _MowerControlPageState extends State<MowerControlPage> {
                 statusLabel: _device.status.label,
               ),
               const SizedBox(height: 24),
-              _NoticeBar(fault: _device.faultMessage),
-              const SizedBox(height: 8),
+              // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
+              if (_device.faultMessage case final fault?) ...<Widget>[
+                _NoticeBar(fault: fault),
+                const SizedBox(height: 8),
+              ],
               _TodayPlanCard(schedule: _device.schedule),
               const SizedBox(height: 8),
               _ActionPanel(
@@ -152,18 +155,17 @@ class _MowerControlPageState extends State<MowerControlPage> {
   }
 }
 
-/// 没有故障时那句安全提示（稿子上的固定文案，不是数据）。
-const String _safetyTip = '开始割草前，请清理草坪中的障碍物';
-
-/// 黄色提醒条：有故障（DP18）就画故障文案，没有就画那句安全提示。
+/// 黄色提醒条：只在 DP18 有故障位时出现，画那条故障文案（位序最低的一条）。
+/// DP18 = 0（正常）或没报过时整条不画（协议 V2.3，2026-09-23 产品）——原来那句稿子上的
+/// 安全提示「开始割草前，请清理草坪中的障碍物」不再显示。
 class _NoticeBar extends StatelessWidget {
   const _NoticeBar({required this.fault});
 
-  final String? fault;
+  final String fault;
 
   @override
   Widget build(BuildContext context) {
-    final text = fault ?? _safetyTip;
+    final text = fault;
     return Container(
       key: const Key('mower-safety-notice'),
       padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),

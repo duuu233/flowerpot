@@ -47,7 +47,8 @@ void main() {
     expect(find.byKey(const Key('mower-battery-ring')), findsOneWidget);
     expect(find.text('电量 78%'), findsOneWidget);
     expect(find.byKey(const Key('mower-today-plan')), findsOneWidget);
-    expect(find.byKey(const Key('mower-safety-notice')), findsOneWidget);
+    // 没报过 DP18：黄条隐藏（协议 V2.3 位图，0 / 未上报 = 正常）
+    expect(find.byKey(const Key('mower-safety-notice')), findsNothing);
     // 左三＝DP3 的三个可下发模式，最右＝DP2 开关
     for (final key in <String>[
       'mower-action-smart',
@@ -58,6 +59,25 @@ void main() {
       expect(find.byKey(Key(key)), findsOneWidget);
     }
     expect(find.text('YSmower-01'), findsNothing, reason: '不再画稿子上的假名字');
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('DP18 按协议 V2.3 位图：0 = 正常黄条隐藏，1 = 第 0 位左轮异常', (tester) async {
+    final repository = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.fault: 0,
+    });
+    expect(find.byKey(const Key('mower-safety-notice')), findsNothing);
+
+    repository.rawDpsByDevice[_mowerId]![MowerDp.fault] = 1;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.fault}),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('mower-safety-notice')), findsOneWidget);
+    expect(find.text('左轮异常，请清理异物并重启。'), findsOneWidget);
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
