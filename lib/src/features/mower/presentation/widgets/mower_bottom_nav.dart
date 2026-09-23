@@ -37,9 +37,13 @@ class MowerBottomNav extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
+        // 稿子（Figma 784:3901）：整条 98 高，内边距 10 / 8，每项 72 高、内容居中。
+        // 原来每项靠上下 8 的内边距撑开，整条只有约 83（2026-09-23 按 Figma 核对）。
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-          child: Row(
+          child: SizedBox(
+            height: 80,
+            child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
               for (final tab in MowerTab.values)
@@ -51,6 +55,7 @@ class MowerBottomNav extends StatelessWidget {
                   ),
                 ),
             ],
+          ),
           ),
         ),
       ),
@@ -75,10 +80,10 @@ class _MowerNavItem extends StatelessWidget {
       key: Key('mower-nav-${tab.name}'),
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+      child: SizedBox(
+        height: 72,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
             Image.asset(
               tab.icon,

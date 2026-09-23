@@ -55,8 +55,9 @@ class AppInfoCard extends StatelessWidget {
                   color: AppColors.surface,
                   shape: BoxShape.circle,
                 ),
+                // 圆底 40（2026-09-23 按 Figma 光照状态 156:4814 建议卡核对，原来 37）。
                 child: SizedBox.square(
-                  dimension: 37,
+                  dimension: 40,
                   child: Center(child: _leading(colors.$1, 22)),
                 ),
               )

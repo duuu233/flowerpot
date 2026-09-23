@@ -126,7 +126,8 @@ class _HelpCenterFaqTile extends StatelessWidget {
                         color: AppColors.textSecondary,
                         fontSize: 12,
                         height: 1.58,
-                        letterSpacing: -1,
+                        // 稿子字距 0（2026-09-23 按 Figma 156:6589 核对；原来 -1，整段收窄显小）。
+                        letterSpacing: 0,
                       ),
                     ),
                   ),

@@ -33,7 +33,8 @@ class HomeQuickActions extends StatelessWidget {
               borderRadius: AppRadius.large,
             ),
             titleStyle: AppTypography.status.copyWith(fontSize: 15),
-            trailing: const AppTrailingChevron(),
+            // 稿子上快捷项的箭头是 16（2026-09-23 按 Figma 156:4304 核对，原来 14）。
+            trailing: const AppTrailingChevron(size: 16),
             onTap: () => onActionTap(action.kind),
           ),
       ],

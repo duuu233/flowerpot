@@ -40,8 +40,9 @@ class LightStatusSummaryCard extends StatelessWidget {
                           assetPath: AppAssets.statusLightIcon,
                           semanticLabel: '光照状态',
                           backgroundColor: Colors.transparent,
-                          size: 27,
-                          iconSize: 27,
+                          // 稿子 32（2026-09-23 按 Figma 156:4814 核对，原来 27）。
+                          size: 32,
+                          iconSize: 32,
                         ),
                         const SizedBox(width: AppSpacing.md),
                         Text(

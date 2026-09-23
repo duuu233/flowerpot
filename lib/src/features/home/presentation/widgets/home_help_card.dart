@@ -27,8 +27,9 @@ class HomeHelpCard extends StatelessWidget {
               assetPath: AppAssets.helpChatIcon,
               semanticLabel: '使用帮助',
               backgroundColor: Colors.transparent,
-              size: 24,
-              iconSize: 24,
+              // 稿子 26（2026-09-23 按 Figma 156:4304 核对，原来 24）。
+              size: 26,
+              iconSize: 26,
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
