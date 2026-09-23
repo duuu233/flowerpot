@@ -221,7 +221,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
         ),
         // 按 Figma「割草机-控制」#784:3844 重排（2026-09-23 产品：「整体适配，不要出现过多的白色空白区域」）：
         // 按钮面板贴底（离底部导航 14），今日计划、黄色提醒按稿子的间距（8 / 8 / 4）紧跟在上面；
-        // **多出来的高度只给最上面的电量环**——环在剩下的空间里居中，屏幕矮时整块等比缩小。
+        // **多出来的高度只给最上面的电量环**——环按剩余空间等比缩放撑满（宽屏放大、矮屏缩小）。
         // 之前是把余量平分到各块之间，结果中间拉出两段空白。
         // 太矮（连缩到 80% 都放不下）才退回可滚动的按稿子尺寸排。
         body: LayoutBuilder(
@@ -273,9 +273,12 @@ class _MowerControlPageState extends State<MowerControlPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
+                  // 电量环按剩余的宽、高**等比缩放撑满**（2026-09-23 产品：「圈的直径再大一点，结合 UI 看
+                  // 实际明显小一圈」）。原来是只缩不放（scaleDown）：宽屏上还是稿子的 263，比稿子占屏比例小；
+                  // 高度被下面几块吃掉时还会再缩。稿子 375 宽屏上环 263 ≈ 屏宽 70%，这里按宽撑满后比例一致。
                   Expanded(
                     child: Center(
-                      child: FittedBox(fit: BoxFit.scaleDown, child: card),
+                      child: FittedBox(fit: BoxFit.contain, child: card),
                     ),
                   ),
                   const SizedBox(height: 4),
