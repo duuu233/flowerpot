@@ -20,17 +20,19 @@ class MineMenuList extends StatelessWidget {
     return ConstrainedBox(
       constraints: BoxConstraints(minHeight: height),
       // 行高抬到 61、补下划线，与「账号与安全」那张卡一致；缩进对齐 32px 内容边距。
+      // 分隔线自己画（2026-09-23 产品：「去掉个人信息上面的横线，然后在底部放一个横线」）：
+      // 列表组件是在**相邻两项之间**插线，顶上那段留白也算一项，于是「个人信息」上面多一条、
+      // 最后一项下面没有。这里关掉它的自动分隔，改成每一项下面各一条。
       child: AppSettingsList(
         showShadow: false,
-        dividerIndent: 32,
-        dividerEndIndent: 32,
+        showDividers: false,
         borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(24),
           topRight: Radius.circular(24),
         ),
         children: <Widget>[
           const SizedBox(height: AppSpacing.sm),
-          for (final item in items)
+          for (final item in items) ...<Widget>[
             AppSettingsTile(
               title: item.label,
               value: item.kind == MineMenuKind.feedback ? null : item.trailingValue,
@@ -53,6 +55,8 @@ class MineMenuList extends StatelessWidget {
                   : null,
               onTap: () => onItemTap(item.kind),
             ),
+            const Divider(height: 1, indent: 32, endIndent: 32),
+          ],
         ],
       ),
     );
