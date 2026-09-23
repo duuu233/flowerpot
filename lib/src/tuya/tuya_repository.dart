@@ -129,6 +129,16 @@ abstract class TuyaRepository {
 
 
   Future<void> publishDps(String deviceId, Map<int, Object> dps);
+
+  /// 指定通道下发（涂鸦 `publishDps(String, ThingDevicePublishModeEnum, cb)`，2026-09-23 割草机）。
+  /// [mode] 是枚举名：`ThingDevicePublishModeInternet`（只走云端 = Wi-Fi）/
+  /// `ThingDevicePublishModeLocal`（只走局域网）/ `ThingDevicePublishModeAuto`（SDK 自选，
+  /// Wi-Fi 断了、蓝牙连着时就是蓝牙）。
+  Future<void> publishDpsWithMode(
+    String deviceId,
+    Map<int, Object> dps, {
+    required String mode,
+  });
   Future<void> renameDevice(String deviceId, String name);
   Future<void> removeDevice(String deviceId, {required bool resetFactory});
 
@@ -852,6 +862,17 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         'deviceId': deviceId,
         'dps': dps.map((key, value) => MapEntry('$key', value)),
       });
+
+  @override
+  Future<void> publishDpsWithMode(
+    String deviceId,
+    Map<int, Object> dps, {
+    required String mode,
+  }) => _invoke<void>('publishDpsWithMode', <String, Object?>{
+    'deviceId': deviceId,
+    'dps': dps.map((key, value) => MapEntry('$key', value)),
+    'mode': mode,
+  });
 
   @override
   Future<void> renameDevice(String deviceId, String name) => _invoke<void>(

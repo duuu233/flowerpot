@@ -52,6 +52,11 @@ class MowerDevice extends ChangeNotifier {
   DateTime? _lastAutoConnect;
   bool _autoConnecting = false;
 
+  /// 绑定期间监听状态层（设备在线变化由涂鸦 `onStatusChanged` 推到那里），
+  /// Wi-Fi 一掉线就**主动降级连蓝牙**（2026-09-23 产品：「设备离线后，需要主动通过监听降级为蓝牙连接」）。
+  FlowerpotState? _watchedState;
+  bool? _lastOnline;
+
   // ── 控制类 ──────────────────────────────────────────────
   /// DP2：true=运行中（按钮显示「停止」），false=已暂停（按钮显示「继续」）。
   late bool switchGo;
@@ -152,6 +157,9 @@ class MowerDevice extends ChangeNotifier {
     notifyListeners();
     // 进页面就把蓝牙连上（2026-09-23 产品：「我进来设备正常情况下 wifi 和蓝牙图标应该都是亮的」）。
     unawaited(refreshLink(state, autoConnect: true));
+    _watchedState = state;
+    _lastOnline = state.deviceById(deviceId)?.online;
+    state.addListener(_onStateChanged);
     _reportSub = state.mowerReports
         .where((report) => report.deviceId == deviceId)
         .listen(
@@ -167,7 +175,24 @@ class MowerDevice extends ChangeNotifier {
     _releaseLive();
   }
 
+  /// 设备在线状态从 true 变 false：立刻降级连蓝牙（不受 [autoReconnectEvery] 节流）。
+  void _onStateChanged() {
+    final state = _watchedState;
+    final id = _deviceId;
+    if (state == null || id == null) return;
+    final online = state.deviceById(id)?.online;
+    final was = _lastOnline;
+    _lastOnline = online;
+    if (was == true && online == false) {
+      state.logMowerInteraction('离线 ⚠ 割草机 Wi-Fi 掉线，主动降级连接蓝牙');
+      unawaited(refreshLink(state, autoConnect: true, force: true));
+    }
+  }
+
   void _releaseLive() {
+    _watchedState?.removeListener(_onStateChanged);
+    _watchedState = null;
+    _lastOnline = null;
     unawaited(_reportSub?.cancel());
     _reportSub = null;
     for (final timer in _echoTimers) {
@@ -225,17 +250,30 @@ class MowerDevice extends ChangeNotifier {
 
   /// 按涂鸦的分通道状态刷新两个图标；[autoConnect] 时蓝牙没连就在后台连一次（不弹框，
   /// 最多每 [autoReconnectEvery] 一次）。状态变了才记日志，免得每几秒刷一屏。
+  ///
+  /// [force]：不看节流（Wi-Fi 刚掉线时的主动降级）。Wi-Fi 从亮变灭也按 force 处理。
   Future<void> refreshLink(
     FlowerpotState state, {
     bool autoConnect = false,
+    bool force = false,
   }) async {
     final id = _deviceId;
     if (id == null) return;
+    final wifiBefore = wifiLinked;
     _applyLink(state, await state.deviceLinkState(id), id);
     if (!autoConnect || bleLinked || _autoConnecting || _deviceId != id) return;
+    final wifiDropped = wifiBefore && !wifiLinked;
+    if (wifiDropped) {
+      state.logMowerInteraction('离线 ⚠ 割草机 Wi-Fi 通道断开，主动降级连接蓝牙');
+    }
     final now = DateTime.now();
     final last = _lastAutoConnect;
-    if (last != null && now.difference(last) < autoReconnectEvery) return;
+    if (!force &&
+        !wifiDropped &&
+        last != null &&
+        now.difference(last) < autoReconnectEvery) {
+      return;
+    }
     _lastAutoConnect = now;
     _autoConnecting = true;
     state.logMowerInteraction('蓝牙 ⚠ 割草机蓝牙未连接，后台自动连接（不弹框）');

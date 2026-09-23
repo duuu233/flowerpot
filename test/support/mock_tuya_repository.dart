@@ -367,6 +367,19 @@ class MockTuyaRepository implements TuyaRepository {
     if (error != null) throw error;
   }
 
+  /// [publishDpsWithMode] 每次用的模式，按顺序（和 [publishedDps] 一一对应的那几条）。
+  final List<String> publishedModes = <String>[];
+
+  @override
+  Future<void> publishDpsWithMode(
+    String deviceId,
+    Map<int, Object> dps, {
+    required String mode,
+  }) async {
+    publishedModes.add(mode);
+    await publishDps(deviceId, dps);
+  }
+
   @override
   Future<void> renameDevice(String deviceId, String name) async {
     await _wait();

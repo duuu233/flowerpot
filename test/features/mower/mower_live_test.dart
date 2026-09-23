@@ -170,7 +170,9 @@ void main() {
 
   testWidgets('设备离线：指令不发，页面收到一句提示，界面画回设备的值', (tester) async {
     final repository = _MowerRepository(online: false)
+      ..wifiLinked = false
       ..bleLinked = false
+      ..bleConnectSucceeds = false
       ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.switchGo: false};
     final state = await _state(repository);
     final device = MowerDevice.instance;
@@ -189,8 +191,26 @@ void main() {
     device.resetForTest();
   });
 
-  testWidgets('Wi-Fi 离线但蓝牙连着：照常下发（交给涂鸦 SDK 走蓝牙）', (tester) async {
+  testWidgets('设备在线：指令一定走 Wi-Fi（Internet 模式），蓝牙连着也不走蓝牙', (tester) async {
+    final repository = _MowerRepository()
+      ..wifiLinked = true
+      ..bleLinked = true
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.switchGo: false};
+    final state = await _state(repository);
+    final device = MowerDevice.instance;
+    await device.bind(state, owner: _owner, deviceId: _mowerId);
+
+    device.setSwitch(state, on: true);
+    await tester.pump();
+    await tester.pump();
+
+    expect(repository.publishedModes, <String>['ThingDevicePublishModeInternet']);
+    device.resetForTest();
+  });
+
+  testWidgets('Wi-Fi 离线但蓝牙连着：降级走蓝牙（Auto 模式，SDK 只剩蓝牙可选）', (tester) async {
     final repository = _MowerRepository(online: false)
+      ..wifiLinked = false
       ..bleLinked = true
       ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.switchGo: false};
     final state = await _state(repository);
@@ -202,8 +222,9 @@ void main() {
     await tester.pump();
 
     expect(repository.publishedDps.single.$2[MowerDp.switchGo], isTrue);
+    expect(repository.publishedModes, <String>['ThingDevicePublishModeAuto']);
     expect(
-      state.interactionLog.any((line) => line.contains('走蓝牙')),
+      state.interactionLog.any((line) => line.contains('蓝牙（Wi-Fi 离线降级）')),
       isTrue,
     );
     device.resetForTest();

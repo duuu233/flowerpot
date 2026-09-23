@@ -1350,26 +1350,51 @@ class FlowerpotState extends ChangeNotifier {
   /// 同一行联调日志。**不占 [_guard] 的忙锁**——割草机页面上连着点几个开关是常态，
   /// 占锁的话第二下会被挡成「请等待当前操作完成」；顺序由 `MowerDevice` 自己排队保证。
   ///
-  /// ⚠️ **割草机只连蓝牙也能控制**（2026-09-23 产品：「割草机是可以只有蓝牙连接就操控的；涂鸦的
-  /// SDK 是可以自动切换 wifi 和蓝牙连接」）：设备被标成离线（Wi-Fi 那一路断了）时，先看蓝牙
-  /// 连没连——连着就照常交给 SDK（`IThingDevice.publishDps` 自己选通道），蓝牙也没连才按离线拦。
+  /// **通道（2026-09-23 产品，底层逻辑）**：
+  /// 1. 设备在线（Wi-Fi：云端 / MQTT）时**一定走 Wi-Fi 通道**——`ThingDevicePublishModeInternet`
+  ///    （SDK 的 `publishDpsByCloud`）；只有局域网通时走 `ThingDevicePublishModeLocal`（也是 Wi-Fi）。
+  ///    控制前的蓝牙连接 / 信号检查是另一层业务判断（在页面上），不影响这里走哪条路。
+  /// 2. Wi-Fi 离线 → **降级蓝牙**：蓝牙连着就用 `ThingDevicePublishModeAuto`（这时 SDK 只剩蓝牙
+  ///    可选）；没连先连一次（涂鸦 `connectBleDevice`），还连不上才按离线拦下。SDK 没有「只走蓝牙」
+  ///    的模式（7.5.1 解包：Local = 只走局域网，不在局域网回 10201）。
+  /// 没接这套桥接的平台（`unsupported`）照旧走 [_publishDps]。
   Future<ActionResult> publishMowerDps(String deviceId, Map<int, Object> dps) =>
       _run(() async {
-        final known = deviceById(deviceId);
-        if (known != null && !known.online) {
-          final link = await _repository.deviceLinkState(deviceId);
-          if (link['ble'] == true) {
-            _logInteraction('下发 → $dps（Wi-Fi 离线、蓝牙连着，交给涂鸦 SDK 走蓝牙）');
-            try {
-              await _repository.publishDps(deviceId, dps);
-            } catch (error) {
-              _logInteraction('下发失败 ✗ $error');
-              rethrow;
-            }
-            return const ActionResult(true, '指令已发送');
-          }
+        final link = await _repository.deviceLinkState(deviceId);
+        if (link['unsupported'] == true) {
+          await _publishDps(deviceId, dps);
+          return const ActionResult(true, '指令已发送');
         }
-        await _publishDps(deviceId, dps);
+        final String mode;
+        final String via;
+        if (link['wifi'] == true) {
+          final lanOnly =
+              link['lan'] == true && link['mqtt'] != true && link['cloud'] != true;
+          mode = lanOnly
+              ? 'ThingDevicePublishModeLocal'
+              : 'ThingDevicePublishModeInternet';
+          via = lanOnly ? 'Wi-Fi（局域网）' : 'Wi-Fi（云端）';
+        } else {
+          var ble = link['ble'] == true;
+          if (!ble) {
+            _logInteraction('下发前 ⚠ Wi-Fi 离线、蓝牙未连，先降级连接蓝牙');
+            final connected = await connectDeviceBle(deviceId);
+            ble = connected['connected'] == true;
+          }
+          if (!ble) {
+            _logInteraction('下发被拦 ✗ Wi-Fi 离线、蓝牙也连不上 $dps');
+            throw const TuyaException('device_offline', '设备已离线');
+          }
+          mode = 'ThingDevicePublishModeAuto';
+          via = '蓝牙（Wi-Fi 离线降级）';
+        }
+        _logInteraction('下发 → $dps（走 $via，$mode）');
+        try {
+          await _repository.publishDpsWithMode(deviceId, dps, mode: mode);
+        } catch (error) {
+          _logInteraction('下发失败 ✗ $error');
+          rethrow;
+        }
         return const ActionResult(true, '指令已发送');
       });
 
