@@ -82,7 +82,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('立刻更新跳到其他设置并直接发起升级', (tester) async {
+  testWidgets('立刻更新跳到其他设置（进页面再弹固件升级框）', (tester) async {
     final (state, pushed) = await pumpHost(tester, FirmwareUpgradeType.remind);
     final id = state.devices.single.id;
 

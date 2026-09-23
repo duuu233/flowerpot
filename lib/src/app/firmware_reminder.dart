@@ -6,6 +6,8 @@ import '../design_system/design_system.dart';
 import '../features/devices/presentation/device_other_settings_page.dart';
 import '../features/mower/mower_device.dart';
 import '../features/mower/presentation/mower_firmware.dart';
+import '../features/mower/presentation/mower_home_page.dart';
+import '../features/mower/presentation/widgets/mower_bottom_nav.dart';
 import '../routes/app_routes.dart';
 import '../state.dart';
 import '../tuya/tuya_models.dart';
@@ -20,7 +22,8 @@ import 'app_route_tracker.dart';
 /// | 强制升级 | 弹「检测到 V x.y.z 新版本，请升级后使用」，只有立刻更新，返回键和点遮罩都关不掉 |
 /// | 检测升级 | 不弹，保持现有的小红点 |
 ///
-/// 「立刻更新」跳到这台设备的「其他设置」并直接发起升级（不再弹「检查更新」确认框）。
+/// 「立刻更新」：关掉提醒弹窗，跳到这台设备的「其他设置」（割草机是切到「设置」栏），
+/// 再弹固件升级框，用户确认后才升级（2026-09-23 产品；此前是跳过去直接升级）。
 ///
 /// **只在设备页上监控**：进设备详情及其下各子页（[_isDevicePage]）时问一次涂鸦
 /// （同一台设备 [recheckInterval] 内不重复问）。设备列表、搜索 / 配网、「我的」一侧的
@@ -224,14 +227,20 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
       _remindDismissed.add(deviceId);
       return;
     }
-    // 割草机：直接在当前页发起（和花盆一样不再弹「检查更新」确认框）。割草机没有「其他设置」页。
+    // 割草机（2026-09-23 产品，与花盆同理）：关提醒弹窗 → 退回割草机外壳、切到「设置」栏（升级入口
+    // 「设备升级」在那一页）→ 再弹固件升级框（当前版本 → 新版本），确认后才升级。
     if (FirmwareReminderHost._isMowerPage(
       widget.routes.currentPage?.settings.name,
     )) {
-      final context = widget.routes.navigator?.overlay?.context;
-      if (context != null) {
-        unawaited(upgradeMowerFirmware(context, deviceId, confirmed: true));
-      }
+      final navigator = widget.routes.navigator;
+      navigator?.popUntil(
+        (route) => route.settings.name == AppRoutes.mowerHome || route.isFirst,
+      );
+      MowerHomePage.tabRequests.value = MowerTab.settings;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final context = navigator?.overlay?.context;
+        if (context != null) unawaited(upgradeMowerFirmware(context, deviceId));
+      });
       return;
     }
     unawaited(

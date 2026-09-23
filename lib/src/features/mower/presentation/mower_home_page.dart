@@ -40,6 +40,12 @@ class MowerHomePage extends StatefulWidget {
   /// 涂鸦设备 ID。
   final String deviceId;
 
+  /// 外部要求切到某一栏（固件升级提醒点「立刻更新」要切到「设置」，2026-09-23）。
+  /// 设一个值，外壳切过去后清回 null。
+  static final ValueNotifier<MowerTab?> tabRequests = ValueNotifier<MowerTab?>(
+    null,
+  );
+
   @override
   State<MowerHomePage> createState() => _MowerHomePageState();
 }
@@ -51,6 +57,7 @@ class _MowerHomePageState extends State<MowerHomePage> {
   @override
   void initState() {
     super.initState();
+    MowerHomePage.tabRequests.addListener(_onTabRequest);
     _failures = MowerDevice.instance.failures.listen((message) {
       if (!mounted) return;
       showAppMessage(context, message, tone: AppMessageTone.error);
@@ -68,8 +75,16 @@ class _MowerHomePageState extends State<MowerHomePage> {
     });
   }
 
+  void _onTabRequest() {
+    final tab = MowerHomePage.tabRequests.value;
+    if (tab == null || !mounted) return;
+    MowerHomePage.tabRequests.value = null;
+    _select(tab);
+  }
+
   @override
   void dispose() {
+    MowerHomePage.tabRequests.removeListener(_onTabRequest);
     unawaited(_failures?.cancel());
     MowerDevice.instance.release(this);
     super.dispose();

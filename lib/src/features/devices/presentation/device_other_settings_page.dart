@@ -20,8 +20,9 @@ class DeviceOtherSettingsArguments {
 
   final String deviceId;
 
-  /// 进页面就发起固件升级：固件升级提醒弹窗里点了「立刻更新」，用户已经确认过，
-  /// 不再弹「检查更新」确认框（2026-09-15 产品：跳转到其他设置并执行固件升级交互）。
+  /// 从固件升级提醒弹窗点「立刻更新」过来：进页面就弹固件升级框（当前版本 → 新版本），
+  /// 用户在这一页确认后才升级（2026-09-23 产品：「点击立即更新需要关闭弹窗，跳转到设置那个页面
+  /// 再弹出下面的固件升级框，花盆同理」；2026-09-15 那版是跳过来直接升级、不弹框）。
   final bool startFirmwareUpgrade;
 }
 
@@ -57,7 +58,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
       final state = FlowerpotScope.of(context);
       final device = state.deviceById(widget.deviceId);
       if (widget.startFirmwareUpgrade && device != null) {
-        _checkFirmware(device, confirmed: true);
+        _checkFirmware(device);
         return;
       }
       state.refreshFirmwareUpdate(widget.deviceId);

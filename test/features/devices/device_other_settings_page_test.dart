@@ -427,8 +427,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('从升级提醒过来：不再弹检查更新框，直接发起升级', (tester) async {
-    // 2026-09-15 产品：提醒 / 强制升级弹框点「立刻更新」→ 跳到其他设置并执行固件升级交互。
+  testWidgets('从升级提醒过来：进页面弹固件升级框，确认后才升级', (tester) async {
+    // 2026-09-23 产品：「立刻更新」→ 关提醒弹窗、跳到其他设置、再弹固件升级框（此前是直接升级）。
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final state = await _stateWithDevice();
@@ -451,8 +451,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.byKey(const Key('firmware-update-dialog')), findsNothing);
-    expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    expect(find.byKey(const Key('firmware-update-dialog')), findsOneWidget);
+    expect(state.otaProgressFor('device-01'), isNull, reason: '没确认之前不升级');
     expect(tester.takeException(), isNull);
   });
 
