@@ -59,6 +59,17 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with NetworkRetryAware<HomePage> {
+  /// 首页背景图（`bg01.png`，光圈 + 底座光晕）的纵向位置（2026-09-23 产品：「背景图的位置尽量和 UI
+  /// 的位置一致」）。
+  ///
+  /// 稿子（Figma 156:4304）是 iPhone X：状态栏 44、背景贴屏幕顶端、按 375 宽画，光圈中心在 y≈246
+  /// （bg01 里 2x 像素 492），比植物中心（状态栏下 194）低 8。安卓状态栏只有 24~32、屏也常比 375 宽，
+  /// 背景却一直贴顶按宽铺——前景跟着状态栏上移、背景没动还被放大，光圈就和植物错开。
+  /// 这里按实际状态栏和屏宽反推，让「光圈中心 = 植物中心 + 8」：
+  /// `顶边 = 状态栏 + 194 + 8 − 246 × 屏宽/375`；375 宽、状态栏 44 时正好是 0（与稿子一致）。
+  static double backgroundTopFor(double statusBar, double width) =>
+      statusBar + 202 - 246 * (width / 375);
+
   /// 进页面的检查只跑一次，依赖变化重建时不会再弹一遍。
   bool _entryChecked = false;
 
@@ -293,10 +304,14 @@ class _HomePageState extends State<HomePage> with NetworkRetryAware<HomePage> {
     final VoidCallback? onBack = widget.showBackButton ? goBack : null;
     final VoidCallback onAvatarTap = widget.onOpenProfile ?? openProfile;
 
+    final media = MediaQuery.of(context);
     return AppPageScaffold(
       background: model.isWithoutDevice
           ? AppPageBackground.white
           : AppPageBackground.home,
+      backgroundImageTop: model.isWithoutDevice
+          ? 0
+          : backgroundTopFor(media.padding.top, media.size.width),
       body: model.isWithoutDevice
           ? HomeEmptyDeviceContent(
               userLabel: model.userLabel,
@@ -329,9 +344,11 @@ class _HomePageState extends State<HomePage> with NetworkRetryAware<HomePage> {
                     slivers: <Widget>[
                       SliverToBoxAdapter(
                         child: ResponsiveContent(
+                          // 顶部 16：标题栏中心落在状态栏下 33，植物图顶边在 +108（稿子 156:4304 为
+                          // +33 / +109；原来 20，整体低 4，2026-09-23 按 Figma 微调）。
                           padding: EdgeInsets.fromLTRB(
                             horizontalPadding,
-                            AppSpacing.xl,
+                            16,
                             horizontalPadding,
                             24,
                           ),
@@ -363,8 +380,10 @@ class _HomePageState extends State<HomePage> with NetworkRetryAware<HomePage> {
                                   },
                                 ),
                               ),
+                              // 22：养护条顶边落在状态栏下 347（稿子 391 − 44；原来 18，
+                              // 顶部内边距收了 4 之后一并补上）。
                               SizedBox(
-                                height: model.showCompanionSummary ? 18 : 9,
+                                height: model.showCompanionSummary ? 22 : 13,
                               ),
                               HomeCareBanner(
                                 title: model.careTitle,

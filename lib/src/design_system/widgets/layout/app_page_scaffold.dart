@@ -15,6 +15,7 @@ class AppPageScaffold extends StatelessWidget {
     this.resizeToAvoidBottomInset,
     this.useSafeArea = true,
     this.background = AppPageBackground.standard,
+    this.backgroundImageTop = 0,
   });
 
   final Widget body;
@@ -24,6 +25,10 @@ class AppPageScaffold extends StatelessWidget {
   final bool? resizeToAvoidBottomInset;
   final bool useSafeArea;
   final AppPageBackground background;
+
+  /// 背景图（[AppPageBackground.assetPath]）的纵向位置，默认贴屏幕顶端。首页用它让背景里的
+  /// 光圈跟着植物走（见 `HomePage.backgroundTopFor`，2026-09-23 按 Figma 156:4304 对齐）。
+  final double backgroundImageTop;
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +60,21 @@ class AppPageScaffold extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: <Widget>[
-            if (background.assetPath != null)
+            if (background.assetPath != null && backgroundImageTop != 0)
+              Positioned(
+                top: backgroundImageTop,
+                left: 0,
+                right: 0,
+                child: Image.asset(
+                  background.assetPath!,
+                  key: const Key('app-page-background-image'),
+                  fit: BoxFit.fitWidth,
+                  alignment: Alignment.topCenter,
+                  filterQuality: FilterQuality.high,
+                  excludeFromSemantics: true,
+                ),
+              )
+            else if (background.assetPath != null)
               Image.asset(
                 background.assetPath!,
                 key: const Key('app-page-background-image'),
