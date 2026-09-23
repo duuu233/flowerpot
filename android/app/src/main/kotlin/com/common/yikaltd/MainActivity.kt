@@ -3080,6 +3080,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             val builder = builderClass.getDeclaredConstructor().newInstance()
             invoke(builder, "setDevId", id)
             if (uuid.isNotEmpty()) invoke(builder, "setUuid", uuid)
+            // directConnect = false：先扫描、按这一轮扫到的广播去连，不拿缓存地址直连
+            // （2026-09-23 涂鸦答复：「App 端需持续扫描并维持蓝牙连接，避免仅依赖缓存 devId」）。
+            invoke(builder, "setDirectConnect", false)
             invoke(builder, "setScanTimeout", timeoutMs.toInt())
             // FORCE：连接池满了就断开别的来连这台（NORMAL 在池满时直接不连）。
             val level = runCatching {
@@ -3092,7 +3095,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             if (level != null) invoke(builder, "setLevel", level)
             invoke(manager, "connectBleDevice", listOf(builder))
             diagnostic += "connectBleDevice(devId=$id, uuid=$uuid, level=${level ?: "默认"}, " +
-                "scanTimeout=$timeoutMs) 已发起"
+                "directConnect=false 先扫描, scanTimeout=$timeoutMs) 已发起"
         }.onFailure {
             finish(false, "connectBleDevice ✗ ${it.cause ?: it}")
             return
