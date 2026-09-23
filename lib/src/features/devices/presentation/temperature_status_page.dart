@@ -82,7 +82,7 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
             child: ResponsiveContent(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
-                AppSpacing.xxxl,
+                23,
                 AppSpacing.pageMargin,
                 32,
               ),
@@ -90,7 +90,7 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   TemperatureStatusSummaryCard(model: summaryModel),
-                  const SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: 10),
                   DateRangeNavigator(
                     label: _dateLabel(),
                     // 窗口就是设备日包的 7 天（当天 + 往前 6 天），到边点不动。
@@ -104,7 +104,7 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
                         ? () => setState(() => periodOffset++)
                         : null,
                   ),
-                  const SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: 10),
                   if (values.isEmpty)
                     const MetricHistoryEmptyCard(title: '暂无温度历史')
                   else

@@ -15,9 +15,10 @@ Future<bool?> showMowerOverlapDialog(
     barrierColor: const Color(0x471A1F1F),
     builder: (context) => _MowerCenterDialog(
       dialogKey: const Key('mower-plan-overlap-dialog'),
+      // 稿子 661:6898：感叹号圆底 36。
       icon: Container(
-        width: 56,
-        height: 56,
+        width: 36,
+        height: 36,
         alignment: Alignment.center,
         decoration: const BoxDecoration(
           shape: BoxShape.circle,
@@ -27,7 +28,7 @@ Future<bool?> showMowerOverlapDialog(
           '!',
           style: TextStyle(
             color: MowerColors.brand,
-            fontSize: 26,
+            fontSize: 20,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -56,9 +57,10 @@ Future<bool?> showMowerRestoreDefaultDialog(BuildContext context) {
     barrierColor: const Color(0x471A1F1F),
     builder: (context) => _MowerCenterDialog(
       dialogKey: const Key('mower-plan-restore-dialog'),
+      // 稿子 661:7289：图标 28。
       icon: const Icon(
         Icons.history_rounded,
-        size: 46,
+        size: 28,
         color: MowerColors.brand,
       ),
       title: '恢复默认计划？',
@@ -73,7 +75,7 @@ Future<bool?> showMowerRestoreDefaultDialog(BuildContext context) {
             onTap: () => Navigator.of(context).pop(false),
           ),
         ),
-        const SizedBox(width: 14),
+        const SizedBox(width: 23),
         Expanded(
           child: _DialogButton(
             label: '恢复计划',
@@ -114,12 +116,12 @@ class _MowerCenterDialog extends StatelessWidget {
         borderRadius: BorderRadius.all(Radius.circular(24)),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(22, 26, 22, 22),
+        padding: const EdgeInsets.fromLTRB(20, 30, 20, 22),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             icon,
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Text(
               title,
               textAlign: TextAlign.center,
@@ -139,7 +141,7 @@ class _MowerCenterDialog extends StatelessWidget {
                 height: 1.55,
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
             Row(children: actions),
           ],
         ),
@@ -166,7 +168,7 @@ class _DialogButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 52,
+      height: 48,
       child: FilledButton(
         key: buttonKey,
         onPressed: onTap,

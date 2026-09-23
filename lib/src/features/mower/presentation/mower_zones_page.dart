@@ -99,12 +99,12 @@ class _MowerZonesPageState extends State<MowerZonesPage> {
       appBar: const AppPageHeader(title: '区域设置', leading: AppBackButton()),
       body: SingleChildScrollView(
         key: const Key('mower-zones-scroll-view'),
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             MowerCard(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -112,7 +112,7 @@ class _MowerZonesPageState extends State<MowerZonesPage> {
                     children: <Widget>[
                       Expanded(child: _ColumnHeader(text: '区域占比')),
                       SizedBox(
-                        width: 96,
+                        width: 91,
                         child: _ColumnHeader(
                           text: '距离',
                           align: TextAlign.center,
@@ -130,7 +130,7 @@ class _MowerZonesPageState extends State<MowerZonesPage> {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             MowerNoteList(
               notes: <String>[
                 '1. 区域设置总和不能大于 100%（当前 $_total%）',
@@ -138,7 +138,7 @@ class _MowerZonesPageState extends State<MowerZonesPage> {
                 '3. 百分比为 0 表示删除该区域（DP${MowerDp.zoneConfig} 口径）',
               ],
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 33),
             MowerSaveButton(
               buttonKey: const Key('mower-zones-save'),
               onPressed: _save,
@@ -184,7 +184,8 @@ class _ZoneRow extends StatelessWidget {
     return Column(
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          // 稿子 561:3090 一行 72 高。
+          padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
             children: <Widget>[
               Expanded(
@@ -223,16 +224,24 @@ class _ZoneRow extends StatelessWidget {
                         ),
                         thumbColor: MowerColors.brand,
                         overlayColor: MowerColors.brand.withValues(alpha: .12),
+                        // 稿子滑块直径 14；按压光圈收到 14，滑条本身只占 28 高
+                        // （默认 48 的触控留白把一行撑到 95，稿子 72）。
                         thumbShape: const RoundSliderThumbShape(
-                          enabledThumbRadius: 9,
+                          enabledThumbRadius: 7,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 14,
                         ),
                         trackShape: const RoundedRectSliderTrackShape(),
                       ),
-                      child: Slider(
-                        key: Key('mower-zone-slider-${zone.index}'),
-                        value: zone.percent.toDouble(),
-                        max: 100,
-                        onChanged: (value) => onChanged(value.round()),
+                      child: SizedBox(
+                        height: 28,
+                        child: Slider(
+                          key: Key('mower-zone-slider-${zone.index}'),
+                          value: zone.percent.toDouble(),
+                          max: 100,
+                          onChanged: (value) => onChanged(value.round()),
+                        ),
                       ),
                     ),
                   ],
@@ -243,15 +252,15 @@ class _ZoneRow extends StatelessWidget {
                 key: Key('mower-zone-meters-${zone.index}'),
                 onTap: onEditMeters,
                 child: Container(
-                  width: 96,
-                  height: 56,
+                  width: 91,
+                  height: 38,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: .6),
                     border: Border.all(
                       color: MowerColors.brand.withValues(alpha: .35),
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(11),
                   ),
                   child: Text(
                     '${zone.meters} 米',

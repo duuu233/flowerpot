@@ -118,7 +118,7 @@ class DeviceListPage extends StatelessWidget {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.pageMargin,
-                    35,
+                    25,
                     AppSpacing.pageMargin,
                     24,
                   ),
@@ -217,7 +217,7 @@ class _DeviceListCard extends StatelessWidget {
         child: SizedBox(
           height: 92,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 7, 17, 7),
+            padding: const EdgeInsets.fromLTRB(18, 7, 17, 7),
             child: Row(
               children: <Widget>[
                 SizedBox(

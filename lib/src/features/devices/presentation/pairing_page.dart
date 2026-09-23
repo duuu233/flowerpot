@@ -449,11 +449,12 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
             // 还是被挡住）。
             padding: const EdgeInsets.only(bottom: _startButtonInset),
             child: ResponsiveContent(
-              // 顶部留白由 88 收到 56：这一页的目标是**整屏放得下、不用滚**，
-              // 88 是按「上面还有一段说明」排的，那段已经删了。
+              // 顶部留白 88 → 56 → 10：这一页的目标是**整屏放得下、不用滚**。
+              // 2026-09-23 按稿子 247:7496 对齐：提示句在 y=387（正文从 y=90 起，
+              // 10 + 插图 270 + 17），原 56 让整页低约 60，底部说明被开始按钮挡住。
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
-                56,
+                10,
                 AppSpacing.pageMargin,
                 16,
               ),
@@ -461,7 +462,7 @@ class _PairingPageState extends State<PairingPage> with WidgetsBindingObserver {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   const _WifiConnectionIllustration(),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 17),
                   // 2026-09-10 动线调整后这里不再画「已选择设备 xxx」：设备是在
                   // **搜索页**上点「连接」确认的，热点那时也已经连上，这一页的任务只剩
                   // 「选一个要让设备加入的 Wi-Fi 并输密码」，再重复一遍设备名只是占地方。

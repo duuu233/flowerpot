@@ -41,9 +41,11 @@ class HomeUnplantedContent extends StatelessWidget {
                 child: SizedBox(
                   height: contentHeight,
                   child: ResponsiveContent(
+                    // 稿子 156:4536：头部顶 16（与已种植首页同一口径），胶囊 / 设备图低 7 → 间距 34、
+                    // 设备图 110、标题上间距 12。
                     padding: EdgeInsets.fromLTRB(
                       horizontalPadding,
-                      AppSpacing.xl,
+                      16,
                       horizontalPadding,
                       74,
                     ),
@@ -56,9 +58,9 @@ class HomeUnplantedContent extends StatelessWidget {
                           onAvatarTap: onAvatarTap,
                           onBack: onBack,
                         ),
-                        const SizedBox(height: 37),
+                        const SizedBox(height: 34),
                         _UnplantedHero(model: model),
-                        const SizedBox(height: 15),
+                        const SizedBox(height: 12),
                         Text(
                           model.emptyTitle,
                           textAlign: TextAlign.center,
@@ -110,11 +112,11 @@ class _UnplantedHero extends StatelessWidget {
             children: <Widget>[
               Positioned(
                 top: 78,
-                left: (constraints.maxWidth - 106) / 2,
+                left: (constraints.maxWidth - 110) / 2,
                 child: Image.asset(
                   AppAssets.smartPlanterDevice,
-                  width: 106,
-                  height: 106,
+                  width: 110,
+                  height: 110,
                   fit: BoxFit.contain,
                   filterQuality: FilterQuality.high,
                   semanticLabel: 'YSplanter 设备',

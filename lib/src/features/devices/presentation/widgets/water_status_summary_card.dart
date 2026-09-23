@@ -39,8 +39,8 @@ class WaterStatusSummaryCard extends StatelessWidget {
                           assetPath: AppAssets.statusWaterIcon,
                           semanticLabel: '需水状态',
                           backgroundColor: Colors.transparent,
-                          size: 27,
-                          iconSize: 27,
+                          size: 32,
+                          iconSize: 32,
                         ),
                         const SizedBox(width: AppSpacing.md),
                         Flexible(

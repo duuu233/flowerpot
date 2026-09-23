@@ -28,14 +28,14 @@ void main() {
     final accountCard = find.byType(LoginPasswordAccountCard);
     final saveButton = find.byKey(const Key('save-login-password'));
     expect(tester.getSize(accountCard), const Size(339, 90));
-    expect(tester.getTopLeft(accountCard), const Offset(18, 84));
+    expect(tester.getTopLeft(accountCard), const Offset(18, 65));
     expect(
       tester.getSize(find.byType(AccountPasswordFormCard)),
       const Size(339, 153),
     );
     expect(tester.getSize(find.byType(LoginPasswordAdviceCard)).width, 323);
     expect(tester.getSize(saveButton), const Size(339, 50));
-    expect(tester.getTopLeft(saveButton), const Offset(18, 520));
+    expect(tester.getTopLeft(saveButton), const Offset(18, 501));
     expect(tester.takeException(), isNull);
   });
 

@@ -80,7 +80,7 @@ class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
                 child: ResponsiveContent(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.pageMargin,
-                    AppSpacing.xxxl,
+                    24,
                     AppSpacing.pageMargin,
                     16,
                   ),

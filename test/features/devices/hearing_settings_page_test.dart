@@ -29,7 +29,7 @@ void main() {
     expect(findAssetImage(AppAssets.hearingWaveformSymbol), findsOneWidget);
     final card = find.byType(HearingSettingsCard);
     expect(tester.getSize(card), const Size(339, 425));
-    expect(tester.getTopLeft(card), const Offset(18, 93));
+    expect(tester.getTopLeft(card), const Offset(18, 73));
     expect(tester.takeException(), isNull);
   });
 

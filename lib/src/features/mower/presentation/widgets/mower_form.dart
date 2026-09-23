@@ -38,6 +38,29 @@ class MowerSaveButton extends StatelessWidget {
   }
 }
 
+/// 割草机设置子页（时间同步 / 雨淋设置 / 语言切换）底部的保存按钮条。
+///
+/// 稿子（561:3154 / 735:2559 / 735:2641）三页的「保存」都在 y=596，按钮底离 home 条 132——
+/// 不是贴底。原来贴底（底边距 24）比稿子低约 108，卡片和按钮之间空出一大块。
+/// 按屏高等比取这段距离（812 稿子上正好 132），矮屏最少留 24，别把卡片挤进滚动。
+class MowerSaveBar extends StatelessWidget {
+  const MowerSaveBar({required this.child, super.key});
+
+  static const double designBottomGap = 132;
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.sizeOf(context).height;
+    final gap = (designBottomGap * height / 812).clamp(24.0, designBottomGap);
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 12, 20, gap),
+      child: child,
+    );
+  }
+}
+
 /// 「标题 + 副标题 + 开关」的一行。雨淋设置、时间同步两页反复用它。
 class MowerSwitchRow extends StatelessWidget {
   const MowerSwitchRow({
@@ -47,7 +70,7 @@ class MowerSwitchRow extends StatelessWidget {
     super.key,
     this.subtitle,
     this.switchKey,
-    this.padding = const EdgeInsets.fromLTRB(20, 16, 16, 16),
+    this.padding = const EdgeInsets.fromLTRB(20, 14, 20, 12),
   });
 
   final String title;
@@ -76,7 +99,7 @@ class MowerSwitchRow extends StatelessWidget {
                   ),
                 ),
                 if (subtitle case final String text) ...<Widget>[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     text,
                     style: const TextStyle(
@@ -93,7 +116,14 @@ class MowerSwitchRow extends StatelessWidget {
           Transform.scale(
             scale: .9,
             alignment: Alignment.centerRight,
-            child: Switch(key: switchKey, value: value, onChanged: onChanged),
+            // shrinkWrap：不再按 48 的触控高度占位（Transform.scale 只缩画面不缩布局），
+            // 否则每行都被撑到 76，稿子 64。
+            child: Switch(
+              key: switchKey,
+              value: value,
+              onChanged: onChanged,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
           ),
         ],
       ),

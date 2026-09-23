@@ -31,7 +31,8 @@ class AboutBrandLockup extends StatelessWidget {
           filterQuality: FilterQuality.high,
           semanticLabel: model.appName,
         ),
-        const SizedBox(height: AppSpacing.sm),
+        // 稿子 213:5868 字标到标语约 3。
+        const SizedBox(height: 4),
         Text(
           model.tagline,
           style: AppTypography.status.copyWith(

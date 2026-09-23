@@ -27,9 +27,9 @@ void main() {
     final formCard = find.byType(AccountPasswordFormCard);
     final confirmButton = find.byKey(const Key('confirm-modify-password'));
     expect(tester.getSize(formCard), const Size(339, 230));
-    expect(tester.getTopLeft(formCard), const Offset(18, 84));
+    expect(tester.getTopLeft(formCard), const Offset(18, 65));
     expect(tester.getSize(confirmButton), const Size(339, 50));
-    expect(tester.getTopLeft(confirmButton), const Offset(18, 519));
+    expect(tester.getTopLeft(confirmButton), const Offset(18, 500));
     expect(tester.takeException(), isNull);
   });
 

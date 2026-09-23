@@ -202,7 +202,7 @@ class _MowerMessagesPageState extends State<MowerMessagesPage> {
           child: SingleChildScrollView(
             key: const Key('mower-messages-scroll-view'),
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
@@ -272,12 +272,13 @@ class _CategoryTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 稿子 651:2573：条高 40、内边距 4、外圆角 12 / 选中块 9。
     return Container(
-      height: 52,
-      padding: const EdgeInsets.all(5),
+      height: 40,
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: .9),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: <Widget>[
@@ -293,7 +294,7 @@ class _CategoryTabs extends StatelessWidget {
                     color: i == current
                         ? MowerColors.brand
                         : Colors.transparent,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(9),
                   ),
                   child: Text(
                     _tabs[i],
@@ -327,7 +328,7 @@ class _DateFilterCard extends StatelessWidget {
       child: MowerCard(
         color: Colors.white.withValues(alpha: .92),
         radius: 15,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: SizedBox(
           height: 52,
           child: Row(
@@ -369,7 +370,7 @@ class _MessageCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return MowerCard(
       color: Colors.white.withValues(alpha: .86),
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[

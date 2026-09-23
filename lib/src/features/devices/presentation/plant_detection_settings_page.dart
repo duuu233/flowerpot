@@ -68,7 +68,7 @@ class _PlantDetectionSettingsPageState
         child: ResponsiveContent(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
-            37,
+            27,
             AppSpacing.pageMargin,
             40,
           ),

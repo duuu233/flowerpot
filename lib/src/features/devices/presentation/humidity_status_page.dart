@@ -83,7 +83,7 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
             child: ResponsiveContent(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
-                AppSpacing.xxxl,
+                23,
                 AppSpacing.pageMargin,
                 32,
               ),
@@ -91,7 +91,7 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   HumidityStatusSummaryCard(model: summaryModel),
-                  const SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: 10),
                   DateRangeNavigator(
                     label: _dateLabel(),
                     // 窗口就是设备日包的 7 天（当天 + 往前 6 天），到边点不动。
@@ -105,7 +105,7 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
                         ? () => setState(() => periodOffset++)
                         : null,
                   ),
-                  const SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: 10),
                   if (values.isEmpty)
                     const MetricHistoryEmptyCard(title: '暂无湿度历史')
                   else

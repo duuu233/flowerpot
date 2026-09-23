@@ -36,7 +36,7 @@ class BatteryStatusSummaryCard extends StatelessWidget {
                   children: <Widget>[
                     Row(
                       children: <Widget>[
-                        const ChargingBatteryBadge(size: 27),
+                        const ChargingBatteryBadge(size: 32),
                         const SizedBox(width: AppSpacing.md),
                         Flexible(
                           child: Text(

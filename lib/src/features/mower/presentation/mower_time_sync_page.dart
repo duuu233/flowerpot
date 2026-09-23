@@ -91,7 +91,7 @@ class _MowerTimeSyncPageState extends State<MowerTimeSyncPage> {
           Expanded(
             child: SingleChildScrollView(
               key: const Key('mower-time-sync-scroll-view'),
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
               child: MowerCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -155,8 +155,7 @@ class _MowerTimeSyncPageState extends State<MowerTimeSyncPage> {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          MowerSaveBar(
             child: MowerSaveButton(
               buttonKey: const Key('mower-time-sync-save'),
               onPressed: _save,
@@ -204,7 +203,7 @@ class _TimeZoneField extends StatelessWidget {
                   link: link,
                   targetAnchor: Alignment.bottomLeft,
                   followerAnchor: Alignment.topLeft,
-                  offset: const Offset(0, 8),
+                  offset: const Offset(0, 4),
                   child: Align(
                     alignment: Alignment.topLeft,
                     child: SizedBox(
@@ -223,15 +222,16 @@ class _TimeZoneField extends StatelessWidget {
               child: GestureDetector(
                 key: const Key('mower-time-zone-field'),
                 onTap: enabled ? menu.toggle : null,
+                // 稿子 735:2559 时区框 48 高、圆角 10。
                 child: Container(
-                  height: 56,
+                  height: 48,
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: .6),
                     border: Border.all(
                       color: MowerColors.brand.withValues(alpha: .35),
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Row(
                     children: <Widget>[
@@ -276,7 +276,8 @@ class _TimeZoneMenu extends StatelessWidget {
       color: Colors.white,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        constraints: const BoxConstraints(maxHeight: 320),
+        // 稿子 738:2620 下拉菜单最高 276（6 行 × 46）。
+        constraints: const BoxConstraints(maxHeight: 276),
         decoration: BoxDecoration(
           border: Border.all(color: MowerColors.brand.withValues(alpha: .28)),
           borderRadius: BorderRadius.circular(12),

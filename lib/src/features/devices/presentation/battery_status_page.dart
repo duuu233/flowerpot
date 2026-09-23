@@ -33,7 +33,7 @@ class BatteryStatusPage extends StatelessWidget {
             child: ResponsiveContent(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
-                AppSpacing.xxxl,
+                23,
                 AppSpacing.pageMargin,
                 32,
               ),

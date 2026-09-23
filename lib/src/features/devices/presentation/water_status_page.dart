@@ -95,7 +95,7 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
             child: ResponsiveContent(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
-                AppSpacing.xxxl,
+                23,
                 AppSpacing.pageMargin,
                 32,
               ),
@@ -110,7 +110,7 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
                     labelBuilder: _rangeLabel,
                     onChanged: _changeRange,
                   ),
-                  const SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: 12),
                   DateRangeNavigator(
                     label: _dateLabel(),
                     // 窗口按周期来：日 = 设备日包的 7 天（当天 + 往前 6 天）；
@@ -124,7 +124,7 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
                         ? () => setState(() => periodOffset++)
                         : null,
                   ),
-                  const SizedBox(height: AppSpacing.sm),
+                  const SizedBox(height: 10),
                   if (values.isEmpty)
                     const MetricHistoryEmptyCard(title: '暂无历史数据')
                   else

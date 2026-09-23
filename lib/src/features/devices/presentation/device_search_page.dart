@@ -1119,9 +1119,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
               children: <Widget>[
                 Expanded(
                   child: SingleChildScrollView(
+                    // 稿子 233:6127：雷达中心 y≈235、标题 y=342（正文从 y=90 起）。
+                    // 原 84 让整块比稿子低约 100，扫到设备后一屏只看得到一台。
                     padding: EdgeInsets.fromLTRB(
                       12,
-                      compact ? 54 : 84,
+                      compact ? 10 : 23,
                       12,
                       AppSpacing.lg,
                     ),
@@ -1137,7 +1139,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           // undersized.
                           size: compact ? 210 : 244,
                         ),
-                        SizedBox(height: compact ? 12 : 20),
+                        // 素材四周留白多，稿子里标题压进插图框约 15，这里贴着放。
+                        SizedBox(height: compact ? 4 : 0),
                         Text(
                           outcome.title,
                           key: const Key('searching-device-label'),
@@ -1278,15 +1281,18 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                     ),
                   ),
                 ),
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    AppSpacing.pageMargin,
-                    0,
-                    AppSpacing.pageMargin,
-                    compact ? 10 : 18,
+                // 扫到设备后不再画小提示（稿子 561:2633「选择设备」列表下面没有它）：
+                // 它常驻底部时列表只露出一台多，提示的内容（开机、靠近）此时也已经不需要了。
+                if (_found.isEmpty)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      AppSpacing.pageMargin,
+                      0,
+                      AppSpacing.pageMargin,
+                      compact ? 10 : 18,
+                    ),
+                    child: const _SearchTipCard(),
                   ),
-                  child: const _SearchTipCard(),
-                ),
               ],
             );
           },

@@ -145,7 +145,7 @@ class MowerSettingsPage extends StatelessWidget {
       ),
       body: SingleChildScrollView(
         key: const Key('mower-settings-scroll-view'),
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[

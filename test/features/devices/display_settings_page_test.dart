@@ -27,7 +27,7 @@ void main() {
     expect(findAssetImage(AppAssets.brightnessSymbol), findsOneWidget);
     final card = find.byType(DisplaySettingsCard);
     expect(tester.getSize(card), const Size(339, 339));
-    expect(tester.getTopLeft(card), const Offset(18, 93));
+    expect(tester.getTopLeft(card), const Offset(18, 73));
     expect(tester.takeException(), isNull);
   });
 

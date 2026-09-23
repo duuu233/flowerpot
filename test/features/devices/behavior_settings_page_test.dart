@@ -33,8 +33,8 @@ void main() {
     final cards = find.byType(BehaviorScheduleCard);
     expect(cards, findsNWidgets(2));
     expect(tester.getSize(cards.first), const Size(339, 268));
-    expect(tester.getTopLeft(cards.first), const Offset(18, 93));
-    expect(tester.getTopLeft(cards.last), const Offset(18, 373));
+    expect(tester.getTopLeft(cards.first), const Offset(18, 73));
+    expect(tester.getTopLeft(cards.last), const Offset(18, 353));
     expect(tester.takeException(), isNull);
   });
 

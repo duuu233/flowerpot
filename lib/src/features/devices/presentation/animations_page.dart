@@ -97,7 +97,7 @@ class _AnimationsPageState extends State<AnimationsPage>
                 child: ResponsiveContent(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.pageMargin,
-                    AppSpacing.xxxl,
+                    23,
                     AppSpacing.pageMargin,
                     // 给底部那条悬浮按钮留位置，否则最后一行缩略图会被压在下面。
                     _GalleryActionBar.height + AppSpacing.xxl,
@@ -428,8 +428,9 @@ class _UploadCard extends StatelessWidget {
           child: InkWell(
             borderRadius: AppRadius.card,
             onTap: enabled ? onTap : null,
+            // 稿子 156:5548 虚线区 267 高。
             child: SizedBox(
-              height: 252,
+              height: 267,
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -512,7 +513,8 @@ class _UploadedFilesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppSurfaceCard(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+      // 稿子 692:2612：卡片内边距 12，网格横 12 / 纵 8，格子 96×100。
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -551,8 +553,9 @@ class _UploadedFilesCard extends StatelessWidget {
             itemCount: files.length,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 12,
+              childAspectRatio: 96 / 100,
             ),
             itemBuilder: (context, index) => _GalleryTile(
               file: files[index],

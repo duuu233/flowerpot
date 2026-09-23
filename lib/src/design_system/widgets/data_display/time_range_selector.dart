@@ -26,7 +26,8 @@ class TimeRangeSelector<T> extends StatelessWidget {
         borderRadius: AppRadius.card,
       ),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xxs),
+        // 稿子选择器 38 高（原约 44）：外边距 3、每格上下 6。
+        padding: const EdgeInsets.all(3),
         child: Row(
           children: values
               .map((value) {
@@ -37,9 +38,7 @@ class TimeRangeSelector<T> extends StatelessWidget {
                     onTap: () => onChanged(value),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 180),
-                      padding: const EdgeInsets.symmetric(
-                        vertical: AppSpacing.sm,
-                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 6),
                       decoration: BoxDecoration(
                         color: isSelected
                             ? AppColors.brandPrimary

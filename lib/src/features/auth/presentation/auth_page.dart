@@ -139,11 +139,12 @@ class _AuthPageState extends State<AuthPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      const SizedBox(height: 82),
+                      // 稿子 156:5672：Logo 顶 y=110、字标 186×39 顶 207、副标题 256、面板 297。
+                      const SizedBox(height: 66),
                       const Center(child: _BrandLogo()),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 22),
                       const Center(child: _BrandTitle()),
-                      const SizedBox(height: AppSpacing.sm),
+                      const SizedBox(height: 10),
                       Text(
                         '登录账号，连接和管理你的智能设备',
                         textAlign: TextAlign.center,
@@ -152,7 +153,7 @@ class _AuthPageState extends State<AuthPage> {
                           fontSize: 15,
                         ),
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 19),
                       Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: AppSpacing.pageMargin,
@@ -737,14 +738,18 @@ class _SocialButton extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         customBorder: const CircleBorder(),
-        child: Image.asset(
-          assetPath,
-          key: ValueKey<String>('auth-social-icon:$assetPath'),
-          width: 48,
-          height: 48,
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
-          excludeFromSemantics: true,
+        // 稿子 483:1880 图标 40；外面补 4 把点击范围留在 48。
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Image.asset(
+            assetPath,
+            key: ValueKey<String>('auth-social-icon:$assetPath'),
+            width: 40,
+            height: 40,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            excludeFromSemantics: true,
+          ),
         ),
       ),
     );
@@ -853,8 +858,8 @@ class _BrandTitle extends StatelessWidget {
       child: Image.asset(
         AppAssets.ysplanterWordmark,
         key: const Key('auth-wordmark'),
-        width: 210,
-        height: 47,
+        width: 186,
+        height: 39,
         fit: BoxFit.contain,
         filterQuality: FilterQuality.high,
         excludeFromSemantics: true,

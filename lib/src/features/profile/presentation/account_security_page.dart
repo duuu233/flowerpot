@@ -28,7 +28,7 @@ class AccountSecurityPage extends StatelessWidget {
         child: ResponsiveContent(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
-            32,
+            19,
             AppSpacing.pageMargin,
             40,
           ),

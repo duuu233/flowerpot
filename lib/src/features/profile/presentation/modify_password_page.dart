@@ -119,7 +119,7 @@ class _ModifyPasswordPageState extends State<ModifyPasswordPage> {
         child: ResponsiveContent(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
-            28,
+            19,
             AppSpacing.pageMargin,
             40,
           ),

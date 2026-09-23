@@ -110,7 +110,7 @@ class _HelpCenterFaqTile extends StatelessWidget {
                     key: Key('help-faq-answer-${item.id}'),
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
+                      horizontal: 10,
                       vertical: AppSpacing.sm,
                     ),
                     decoration: BoxDecoration(

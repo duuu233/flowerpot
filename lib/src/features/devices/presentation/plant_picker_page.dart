@@ -226,7 +226,7 @@ class _PlantPickerPageState extends State<PlantPickerPage>
                 child: ResponsiveContent(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.pageMargin,
-                    28,
+                    13,
                     AppSpacing.pageMargin,
                     0,
                   ),
@@ -380,8 +380,9 @@ class _PlantTipCard extends StatelessWidget {
         color: AppColors.brandSurfaceAlt,
         borderRadius: AppRadius.card,
       ),
+      // 稿子 156:5717 / 156:5793：左 20、上下 11，圆底 40，文字从 x=72 起。
       child: const Padding(
-        padding: EdgeInsets.all(12),
+        padding: EdgeInsets.fromLTRB(20, 11, 17, 11),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
@@ -430,7 +431,7 @@ class _TipIcon extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       child: SizedBox.square(
-        dimension: 36,
+        dimension: 40,
         child: Center(
           child: Image.asset(
             AppAssets.plantCareTipIcon,

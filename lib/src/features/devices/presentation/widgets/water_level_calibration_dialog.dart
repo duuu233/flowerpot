@@ -88,7 +88,8 @@ class _WaterLevelCalibrationDialogState
   @override
   Widget build(BuildContext context) {
     final availableHeight = MediaQuery.sizeOf(context).height - 48;
-    final dialogHeight = math.min(420.0, availableHeight);
+    // 稿子 216:5899 等四步：弹窗 406 高、步骤条 195 宽。
+    final dialogHeight = math.min(406.0, availableHeight);
 
     return Dialog(
       key: const Key('water-level-calibration-dialog'),
@@ -117,7 +118,7 @@ class _WaterLevelCalibrationDialogState
                       const SizedBox(height: AppSpacing.lg),
                       SizedBox(
                         key: const Key('water-level-calibration-stepper'),
-                        width: 208,
+                        width: 195,
                         child: AppStepIndicator(
                           stepCount: WaterLevelCalibrationModel.steps.length,
                           currentStep: _currentStep,
@@ -245,29 +246,49 @@ class _CalibrationStepContent extends StatelessWidget {
         final compact = constraints.maxWidth < 280;
         return Column(
           children: <Widget>[
-            Text(
-              step.instruction,
-              key: const Key('water-level-calibration-instruction'),
-              textAlign: TextAlign.center,
-              style: AppTypography.deviceTitle.copyWith(
-                fontSize: compact ? 18 : 20,
-                fontWeight: FontWeight.w500,
-                height: 1.47,
+            // 说明区固定两行高、垂直居中（稿子 222:6239：第四步单行的「校准完成！」
+            // 放在两行的中间）。原来顶对齐，进第四步时插图上跳约 29 并被拉大。
+            ConstrainedBox(
+              // 至少两行高；万一窄屏折成三行照常撑开，不截字。
+              constraints: BoxConstraints(
+                minHeight: (compact ? 18 : 20) * 1.47 * 2,
+              ),
+              child: Center(
+                heightFactor: 1,
+                child: Text(
+                  step.instruction,
+                  key: const Key('water-level-calibration-instruction'),
+                  textAlign: TextAlign.center,
+                  style: AppTypography.deviceTitle.copyWith(
+                    fontSize: compact ? 18 : 20,
+                    fontWeight: FontWeight.w500,
+                    height: 1.47,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: AppSpacing.xs),
+            // 插图固定 230×164（稿子四步一致），空间不够时按比例缩。
             Expanded(
-              child: Semantics(
-                label: step.semanticLabel,
-                image: true,
-                child: Image.asset(
-                  _assetFor(step.visual),
-                  key: const Key('water-level-calibration-illustration'),
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
-                  excludeFromSemantics: true,
-                  errorBuilder: (context, error, stackTrace) =>
-                      const _CalibrationIllustrationFallback(),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 230,
+                    maxHeight: 164,
+                  ),
+                  child: Semantics(
+                    label: step.semanticLabel,
+                    image: true,
+                    child: Image.asset(
+                      _assetFor(step.visual),
+                      key: const Key('water-level-calibration-illustration'),
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
+                      excludeFromSemantics: true,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const _CalibrationIllustrationFallback(),
+                    ),
+                  ),
                 ),
               ),
             ),

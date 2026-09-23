@@ -276,8 +276,11 @@ class _MowerControlPageState extends State<MowerControlPage> {
                   // 电量环按剩余的宽、高**等比缩放撑满**（2026-09-23 产品：「圈的直径再大一点，结合 UI 看
                   // 实际明显小一圈」）。原来是只缩不放（scaleDown）：宽屏上还是稿子的 263，比稿子占屏比例小；
                   // 高度被下面几块吃掉时还会再缩。稿子 375 宽屏上环 263 ≈ 屏宽 70%，这里按宽撑满后比例一致。
+                  // 贴下对齐：多出来的高度留在标题下面，状态卡贴着黄条 / 今日计划
+                  // （居中时环比稿子 784:3844 高约 10，卡下还空一截）。
                   Expanded(
-                    child: Center(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
                       child: FittedBox(fit: BoxFit.contain, child: card),
                     ),
                   ),
@@ -507,7 +510,8 @@ class _ActionPanel extends StatelessWidget {
     return MowerCard(
       key: const Key('mower-action-panel'),
       radius: 14,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      // 稿子面板 104 高（按钮 86 + 上下 9）。
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: <Widget>[

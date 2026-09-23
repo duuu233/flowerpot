@@ -190,7 +190,8 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
               ),
               child: AppSurfaceCard(
                 // 左右 24 是设计稿量的（卡片 335 宽、字段 286 宽，两边各 24.5）。
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                // 稿子 513:2155 卡片内边距约 22/15/22/16（原 24/20/24/24，整卡比稿子高约 50）。
+                padding: const EdgeInsets.fromLTRB(22, 15, 22, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
@@ -199,7 +200,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                       onChanged: (value) =>
                           setState(() => _entry = _entry.copyWith(enabled: value)),
                     ),
-                    const Divider(height: 32),
+                    const Divider(height: 40),
                     const _FieldLabel('标题'),
                     const SizedBox(height: 10),
                     if (_fixed)
@@ -230,14 +231,14 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                           decoration: _bareFieldDecoration('请输入纪念日标题'),
                         ),
                       ),
-                    const SizedBox(height: 26),
+                    const SizedBox(height: 22),
                     const _FieldLabel('日期'),
                     const SizedBox(height: 10),
                     _DateField(
                       label: _entry.dateLabel,
                       onTap: _pickDate,
                     ),
-                    const SizedBox(height: 26),
+                    const SizedBox(height: 22),
                     const _FieldLabel('内容'),
                     const SizedBox(height: 10),
                     if (_fixed)
@@ -458,19 +459,36 @@ class _FixedContentChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Align(
       alignment: Alignment.centerLeft,
+      // 稿子 513:2025：和分段控件同一套外观，只放一格——灰底 44 高、圆角 12，
+      // 里面白色选中块 38 高、圆角 10。
       child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: AppRadius.full,
-          border: Border.all(color: AppColors.divider),
+        decoration: const BoxDecoration(
+          color: AppColors.fieldFill,
+          borderRadius: BorderRadius.all(Radius.circular(12)),
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.brandPrimary,
-              fontSize: 17,
+          padding: const EdgeInsets.all(3),
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.all(Radius.circular(10)),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 142, minHeight: 38),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Center(
+                  widthFactor: 1,
+                  heightFactor: 1,
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      color: AppColors.brandPrimary,
+                      fontSize: 17,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -488,12 +506,13 @@ class _ContentTypeTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
+      // 稿子分段控件：外框 44 高、圆角 12，选中块 38 高、内缩 3、圆角 10（原 56 / 46 / 16）。
       decoration: const BoxDecoration(
         color: AppColors.fieldFill,
-        borderRadius: AppRadius.card,
+        borderRadius: BorderRadius.all(Radius.circular(12)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(5),
+        padding: const EdgeInsets.all(3),
         child: Row(
           children: <Widget>[
             Expanded(
@@ -536,13 +555,13 @@ class _Tab extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: selected ? AppColors.surface : Colors.transparent,
-      borderRadius: AppRadius.card,
+      borderRadius: const BorderRadius.all(Radius.circular(10)),
       child: InkWell(
         key: tabKey,
-        borderRadius: AppRadius.card,
+        borderRadius: const BorderRadius.all(Radius.circular(10)),
         onTap: onTap,
         child: SizedBox(
-          height: 46,
+          height: 38,
           child: Center(
             child: Text(
               label,
@@ -642,8 +661,10 @@ class _ImageContentSlot extends StatelessWidget {
     final preview = localPath;
     return Align(
       alignment: Alignment.centerLeft,
-      child: SizedBox.square(
-        dimension: 132,
+      // 稿子上传框 143×147（原 132 见方）。
+      child: SizedBox(
+        width: 143,
+        height: 147,
         child: AppDashedBorder(
           child: Material(
             color: AppColors.brandSurface.withValues(alpha: .34),

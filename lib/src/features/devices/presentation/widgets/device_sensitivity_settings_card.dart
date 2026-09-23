@@ -51,7 +51,15 @@ class DeviceSensitivitySettingsCard extends StatelessWidget {
           SizedBox(
             height: 184,
             width: double.infinity,
-            child: DeviceSettingOrbitIllustration(symbol: symbol),
+            child: Padding(
+              padding: const EdgeInsets.only(
+                top: DeviceSettingOrbitIllustration.topInset,
+              ),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: DeviceSettingOrbitIllustration(symbol: symbol),
+              ),
+            ),
           ),
           SizedBox(
             height: 68,

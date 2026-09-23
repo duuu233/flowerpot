@@ -45,9 +45,15 @@ class AppInfoCard extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(color: colors.$2, borderRadius: AppRadius.card),
       child: Padding(
-        padding: AppSpacing.cardPadding,
+        // 状态页建议卡（emphasized）按 Figma 156:5082 / 156:4814：左 20、上下 11，图标与文字垂直居中
+        // （原四边 16、顶对齐，卡高约 100，稿子 78）。
+        padding: emphasized
+            ? const EdgeInsets.fromLTRB(20, 11, 17, 11)
+            : AppSpacing.cardPadding,
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: emphasized
+              ? CrossAxisAlignment.center
+              : CrossAxisAlignment.start,
           children: <Widget>[
             if (emphasized)
               DecoratedBox(

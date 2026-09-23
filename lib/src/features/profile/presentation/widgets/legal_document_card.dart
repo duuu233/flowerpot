@@ -12,7 +12,8 @@ class LegalDocumentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppSurfaceCard(
       key: const Key('legal-document-card'),
-      padding: const EdgeInsets.fromLTRB(17, 20, 17, 28),
+      // 稿子 213:5710 / 213:5789：内边距 16/15/16，标题到日期行 10。
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 28),
       color: AppColors.surfaceTranslucent,
       borderRadius: AppRadius.large,
       showShadow: false,
@@ -30,7 +31,7 @@ class LegalDocumentCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           Row(
             children: <Widget>[
               Expanded(

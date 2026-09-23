@@ -54,14 +54,16 @@ class HomeEmptyDeviceContent extends StatelessWidget {
                             onBack: onBack,
                           ),
                         ),
+                        // 稿子 195:5515（首页内容区从状态栏下算）：插图 302×291 顶 67、
+                        // 标题 298、说明 343、底部按钮区离底 17（原 244 / 78 / 325 / 365 / 12）。
                         const Positioned(
-                          top: 78,
+                          top: 67,
                           left: 0,
                           right: 0,
                           child: Center(child: _EmptyDeviceRadar()),
                         ),
                         const Positioned(
-                          top: 325,
+                          top: 298,
                           left: 12,
                           right: 12,
                           child: Text(
@@ -76,7 +78,7 @@ class HomeEmptyDeviceContent extends StatelessWidget {
                           ),
                         ),
                         const Positioned(
-                          top: 365,
+                          top: 343,
                           left: 18,
                           right: 18,
                           child: Text(
@@ -92,7 +94,7 @@ class HomeEmptyDeviceContent extends StatelessWidget {
                         Positioned(
                           left: horizontalPadding,
                           right: horizontalPadding,
-                          bottom: 12,
+                          bottom: 17,
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: <Widget>[
@@ -134,8 +136,8 @@ class _EmptyDeviceRadar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Image.asset(
       AppAssets.pairingDeviceSearchIllustration,
-      width: 244,
-      height: 244,
+      width: 302,
+      height: 291,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       excludeFromSemantics: true,

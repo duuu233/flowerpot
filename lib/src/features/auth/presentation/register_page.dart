@@ -155,7 +155,7 @@ class _RegisterPageState extends State<RegisterPage> {
         builder: (context, constraints) {
           return SingleChildScrollView(
             child: ResponsiveContent(
-              padding: const EdgeInsets.fromLTRB(28, AppSpacing.xxxl, 28, 24),
+              padding: const EdgeInsets.fromLTRB(28, 22, 28, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -243,7 +243,7 @@ class _RegisterPageState extends State<RegisterPage> {
                             ),
                     ),
                   ),
-                  const SizedBox(height: 155),
+                  const SizedBox(height: 158),
                   FilledButton(
                     onPressed: state.busy ? null : _register,
                     style: FilledButton.styleFrom(
@@ -265,7 +265,7 @@ class _RegisterPageState extends State<RegisterPage> {
                           )
                         : const Text('注册'),
                   ),
-                  const SizedBox(height: AppSpacing.lg),
+                  const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
@@ -435,7 +435,9 @@ class _RegisterAgreement extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 稿子 162:5483：协议行整体居中（从 x=57 起），不是贴左。
     return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         SizedBox.square(
@@ -448,7 +450,7 @@ class _RegisterAgreement extends StatelessWidget {
           ),
         ),
         const SizedBox(width: AppSpacing.sm),
-        Expanded(
+        Flexible(
           child: Wrap(
             crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[

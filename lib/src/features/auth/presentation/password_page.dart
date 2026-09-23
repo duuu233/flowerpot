@@ -165,7 +165,7 @@ class _PasswordPageState extends State<PasswordPage> {
       background: AppPageBackground.account,
       body: SingleChildScrollView(
         child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(28, AppSpacing.xxxl, 28, 24),
+          padding: const EdgeInsets.fromLTRB(28, 22, 28, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
@@ -284,7 +284,7 @@ class _PasswordPageState extends State<PasswordPage> {
                       )
                     : const Text('确认'),
               ),
-              const SizedBox(height: 240),
+              const SizedBox(height: 24),
             ],
           ),
         ),

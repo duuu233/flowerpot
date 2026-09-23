@@ -70,17 +70,21 @@ class _NavigationButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 稿子（156:5082 / 156:5196 / 156:4814）左右切换是 24 的白色圆（原 40，整行被撑高 16）。
     return IconButton.filled(
-      visualDensity: VisualDensity.compact,
       style: IconButton.styleFrom(
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textSecondary,
+        fixedSize: const Size.square(24),
+        minimumSize: const Size.square(24),
+        padding: EdgeInsets.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
       onPressed: onPressed,
       icon: Image.asset(
         assetPath,
-        width: 18,
-        height: 18,
+        width: 12,
+        height: 12,
         fit: BoxFit.contain,
         filterQuality: FilterQuality.high,
         excludeFromSemantics: true,

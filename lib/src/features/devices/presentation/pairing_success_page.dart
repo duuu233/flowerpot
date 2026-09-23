@@ -20,8 +20,10 @@ class PairingSuccessPage extends StatelessWidget {
       background: AppPageBackground.account,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final contentHeight = constraints.maxHeight < 690
-              ? 690.0
+          // 稿子 195:5583（正文从 y=90 起）：插图 288×273 顶在 0，标题 252，说明 297。
+          // 最小高原来 690，比 iPhone X 的可用高度（688）还大，整页平白多滚一截。
+          final contentHeight = constraints.maxHeight < 560
+              ? 560.0
               : constraints.maxHeight;
           final horizontalPadding = constraints.maxWidth < 360 ? 12.0 : 20.0;
           return SingleChildScrollView(
@@ -33,13 +35,13 @@ class PairingSuccessPage extends StatelessWidget {
                 child: Stack(
                   children: <Widget>[
                     const Positioned(
-                      top: 70,
+                      top: 0,
                       left: 0,
                       right: 0,
                       child: Center(child: _SuccessRadar()),
                     ),
                     const Positioned(
-                      top: 315,
+                      top: 252,
                       left: 12,
                       right: 12,
                       child: Text(
@@ -55,7 +57,7 @@ class PairingSuccessPage extends StatelessWidget {
                       ),
                     ),
                     const Positioned(
-                      top: 362,
+                      top: 297,
                       left: 16,
                       right: 16,
                       child: Text(
@@ -105,8 +107,8 @@ class _SuccessRadar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Image.asset(
       AppAssets.pairingSuccessIllustration,
-      width: 235,
-      height: 235,
+      width: 288,
+      height: 273,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       excludeFromSemantics: true,

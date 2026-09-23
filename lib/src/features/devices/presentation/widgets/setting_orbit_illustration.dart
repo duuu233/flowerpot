@@ -7,11 +7,18 @@ enum DeviceSettingSymbol { brightness, sound, vibration, touch, plant, led }
 class DeviceSettingOrbitIllustration extends StatelessWidget {
   const DeviceSettingOrbitIllustration({required this.symbol, super.key});
 
+  static const double orbitSize = 159;
+
+  /// 卡片顶到轨道外圈的距离（稿子 23）。卡片里插图区仍是 184 高：23 + 159 = 182。
+  static const double topInset = 23;
+
   final DeviceSettingSymbol symbol;
 
   @override
   Widget build(BuildContext context) {
-    final symbolSize = switch (symbol) {
+    // 稿子（246:6815 / 247:7033 / 244:6485 / 246:6931）轨道外圈 159（素材 318 = 159@2x），
+    // 原来画到 184 大了 16%；中间符号按同一比例 ×0.86（听觉声波 78 → 稿子 65×62）。
+    final baseSize = switch (symbol) {
       DeviceSettingSymbol.brightness => 62.0,
       DeviceSettingSymbol.sound => 78.0,
       DeviceSettingSymbol.vibration => 76.0,
@@ -19,14 +26,15 @@ class DeviceSettingOrbitIllustration extends StatelessWidget {
       DeviceSettingSymbol.plant => 66.0,
       DeviceSettingSymbol.led => 66.0,
     };
+    final symbolSize = baseSize * orbitSize / 184;
     return RepaintBoundary(
       child: Stack(
         alignment: Alignment.center,
         children: <Widget>[
           Image.asset(
             AppAssets.settingOrbitBackground,
-            width: 184,
-            height: 184,
+            width: orbitSize,
+            height: orbitSize,
             fit: BoxFit.contain,
             filterQuality: FilterQuality.high,
             excludeFromSemantics: true,

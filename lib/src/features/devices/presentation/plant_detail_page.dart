@@ -107,7 +107,7 @@ class _PlantDetailPageState extends State<PlantDetailPage>
             child: ResponsiveContent(
               padding: EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
-                32,
+                23,
                 AppSpacing.pageMargin,
                 // 有确认按钮时给它让出位置，免得最后一张卡被压在按钮底下。
                 arguments.selectable ? 96 : 28,
@@ -252,22 +252,25 @@ class _PlantSummaryCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
+                  // 稿子 156:5869：右列从卡内 y≈30 起、指标行距 48（原 16 起、43），
+                  // 右列挤在上半、分隔线高了 29。
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
+                        const SizedBox(height: 14),
                         _EnvironmentMetric(
                           assetPath: AppAssets.metricTemperatureIcon,
                           label: '适宜温度',
                           value: data.temperature,
                         ),
-                        const SizedBox(height: 7),
+                        const SizedBox(height: 12),
                         _EnvironmentMetric(
                           assetPath: AppAssets.statusHumidityIcon,
                           label: '适宜湿度',
                           value: data.humidity,
                         ),
-                        const SizedBox(height: 7),
+                        const SizedBox(height: 12),
                         _EnvironmentMetric(
                           assetPath: AppAssets.metricLightIcon,
                           label: '光照需求',
@@ -277,12 +280,23 @@ class _PlantSummaryCard extends StatelessWidget {
                         const SizedBox(height: 7),
                         const Divider(height: 1, color: AppColors.divider),
                         const SizedBox(height: 10),
-                        Text(
-                          data.summary,
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 12,
-                            height: 1.45,
+                        // 卡片是定高的：简介放得下几行就画几行，多出来的收成省略号，
+                        // 不让右列溢出（上面按稿子加了间距之后余量更小了）。
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, box) => Text(
+                              data.summary,
+                              maxLines: (box.maxHeight / (12 * 1.45))
+                                  .floor()
+                                  .clamp(1, 20)
+                                  .toInt(),
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 12,
+                                height: 1.45,
+                              ),
+                            ),
                           ),
                         ),
                       ],

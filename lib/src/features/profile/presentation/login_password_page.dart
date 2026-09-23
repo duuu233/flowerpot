@@ -94,7 +94,7 @@ class _LoginPasswordPageState extends State<LoginPasswordPage> {
         child: ResponsiveContent(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
-            28,
+            19,
             AppSpacing.pageMargin,
             40,
           ),

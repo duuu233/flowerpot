@@ -67,7 +67,7 @@ class _LegalPageState extends State<LegalPage>
       body: SingleChildScrollView(
         key: const Key('legal-document-scroll-view'),
         child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(23, 28, 23, 30),
+          padding: const EdgeInsets.fromLTRB(23, 14, 23, 30),
           child: LegalDocumentCard(model: model),
         ),
       ),

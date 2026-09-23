@@ -36,7 +36,8 @@ class MineProfileHeader extends StatelessWidget {
           backgroundColor: AppColors.brandSurface,
           onTap: onEdit,
         ),
-        const SizedBox(height: 14),
+        // 稿子 156:4583 头像到昵称 10。
+        const SizedBox(height: 10),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[

@@ -71,14 +71,14 @@ class _AboutPageState extends State<AboutPage>
         child: ResponsiveContent(
           padding: EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
-            compact ? 78 : 110,
+            compact ? 68 : 100,
             AppSpacing.pageMargin,
             48,
           ),
           child: Column(
             children: <Widget>[
               AboutBrandLockup(model: model),
-              const SizedBox(height: 32),
+              const SizedBox(height: 36),
               AboutVersionCard(
                 model: model,
                 onCheckUpdate: () => _checkUpdate(context),

@@ -59,7 +59,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
   }
 
   List<Widget> _sections(DeviceInfoData details) => <Widget>[
-    const SizedBox(height: 16),
+    const SizedBox(height: 12),
     const _InformationSectionTitle(label: '软件'),
     const SizedBox(height: 10),
     _InformationCard(
@@ -67,7 +67,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
         _InformationRowData(label: '固件版本', value: details.firmwareVersion),
       ],
     ),
-    const SizedBox(height: 16),
+    const SizedBox(height: 12),
     const _InformationSectionTitle(label: '硬件'),
     const SizedBox(height: 10),
     _InformationCard(
@@ -173,7 +173,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
             child: ResponsiveContent(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
-                37,
+                27,
                 AppSpacing.pageMargin,
                 28,
               ),
@@ -343,7 +343,7 @@ class _DeviceInfoHero extends StatelessWidget {
         borderRadius: AppRadius.card,
       ),
       child: SizedBox(
-        height: 110,
+        height: 106,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
           child: Row(
@@ -353,7 +353,8 @@ class _DeviceInfoHero extends StatelessWidget {
                 child: Center(
                   child: mower
                       ? _mowerImage()
-                      : DevicePlantArtwork(deviceId: device.id, width: 62),
+                      // 稿子 156:6356 头卡植物 74×96（原 62）。
+                      : DevicePlantArtwork(deviceId: device.id, width: 74),
                 ),
               ),
               const SizedBox(width: 14),
@@ -474,7 +475,7 @@ class _InformationCard extends StatelessWidget {
         borderRadius: AppRadius.card,
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
         child: Column(
           children: <Widget>[
             for (final row in rows)

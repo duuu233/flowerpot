@@ -123,7 +123,7 @@ class _HelpPageState extends State<HelpPage> with NetworkRetryAware<HelpPage> {
           child: ResponsiveContent(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.pageMargin,
-              AppSpacing.lg,
+              6,
               AppSpacing.pageMargin,
               40,
             ),

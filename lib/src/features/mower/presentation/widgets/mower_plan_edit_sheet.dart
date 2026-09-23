@@ -235,8 +235,9 @@ class _MowerPlanEditSheetState extends State<_MowerPlanEditSheet> {
                               onChanged: _updateActive,
                             ),
                             const SizedBox(height: 14),
+                            // 稿子 673:7897 时长条 36 高（原 56，整张弹层比稿子高约 110，要内部滚动）。
                             Container(
-                              height: 56,
+                              height: 36,
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 color: MowerColors.brand.withValues(alpha: .08),
@@ -614,7 +615,8 @@ class _SheetSwitchCard extends StatelessWidget {
         value: value,
         switchKey: switchKey,
         onChanged: onChanged,
-        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+        // 稿子开关卡 48 高。
+        padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
       ),
     );
   }

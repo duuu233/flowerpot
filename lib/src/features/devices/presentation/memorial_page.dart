@@ -65,7 +65,7 @@ class _MemorialPageState extends State<MemorialPage>
         child: ResponsiveContent(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.pageMargin,
-            28,
+            22,
             AppSpacing.pageMargin,
             40,
           ),
@@ -87,6 +87,8 @@ class _MemorialPageState extends State<MemorialPage>
                 ),
                 const SizedBox(height: AppSpacing.md),
               ],
+              // 稿子 513:1880：最后一张卡到「新增纪念日」20（卡间距 12 之外再补 8）。
+              const SizedBox(height: 8),
               _AddMemorialButton(
                 enabled: customCount < TuyaMemorialCodec.maxCustomEntries,
                 onTap: () => _add(context, state.nextMemorialId(deviceId)),
@@ -263,12 +265,13 @@ class _MemorialCard extends StatelessWidget {
                   color: AppColors.brandSurface,
                   shape: BoxShape.circle,
                 ),
+                // 稿子图标 36、到文字 12（原 46 / 16）。
                 child: SizedBox.square(
-                  dimension: 46,
-                  child: Icon(_icon, color: AppColors.brandPrimary, size: 22),
+                  dimension: 36,
+                  child: Icon(_icon, color: AppColors.brandPrimary, size: 20),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -326,19 +329,20 @@ class _AddMemorialButton extends StatelessWidget {
         onTap: enabled ? onTap : null,
         child: AppDashedBorder(
           color: color,
+          // 稿子按钮 52 高、加号 24、间距 8（原 64 / 30 / 12）。
           child: SizedBox(
-            height: 64,
+            height: 52,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 DecoratedBox(
                   decoration: BoxDecoration(color: color, shape: BoxShape.circle),
                   child: const SizedBox.square(
-                    dimension: 30,
-                    child: Icon(Icons.add, color: AppColors.surface, size: 18),
+                    dimension: 24,
+                    child: Icon(Icons.add, color: AppColors.surface, size: 16),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Text(
                   '新增纪念日',
                   style: TextStyle(color: color, fontSize: 17),

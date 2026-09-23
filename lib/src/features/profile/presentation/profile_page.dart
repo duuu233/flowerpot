@@ -62,7 +62,7 @@ class _ProfilePageState extends State<ProfilePage>
             child: ResponsiveContent(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
-                32,
+                19,
                 AppSpacing.pageMargin,
                 0,
               ),
@@ -84,8 +84,13 @@ class _ProfilePageState extends State<ProfilePage>
             hasScrollBody: false,
             child: Align(
               alignment: Alignment.bottomCenter,
+              // 稿子 156:8076「退出登录」中心在 y=679，离 home 条约 75，不是贴底
+              // （原底边距 16，比稿子低 59，卡片和按钮之间空一大块）。按屏高等比，矮屏最少 16。
               child: Padding(
-                padding: const EdgeInsets.only(bottom: 16),
+                padding: EdgeInsets.only(
+                  bottom: (75 * MediaQuery.sizeOf(context).height / 812)
+                      .clamp(16.0, 75.0),
+                ),
                 child: PersonalInfoLogoutButton(
                   onPressed: state.busy ? null : _confirmLogout,
                 ),

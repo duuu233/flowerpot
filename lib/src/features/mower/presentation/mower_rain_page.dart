@@ -27,7 +27,7 @@ class MowerRainPage extends StatefulWidget {
 }
 
 class _MowerRainPageState extends State<MowerRainPage> {
-  static const double _itemExtent = 56;
+  static const double _itemExtent = 50;
 
   /// DP105 的上限（分钟）。
   static const int _maxDelay = 120;
@@ -109,7 +109,7 @@ class _MowerRainPageState extends State<MowerRainPage> {
           Expanded(
             child: SingleChildScrollView(
               key: const Key('mower-rain-scroll-view'),
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
               child: MowerCard(
                 child: Column(
                   children: <Widget>[
@@ -139,15 +139,16 @@ class _MowerRainPageState extends State<MowerRainPage> {
                             height: _itemExtent * 3,
                             child: Stack(
                               children: <Widget>[
+                                // 稿子 561:3154：选中带 50 高、12 圆角、品牌色 8%。
                                 Center(
                                   child: Container(
-                                    height: _itemExtent + 8,
-                                    decoration: const BoxDecoration(
-                                      color: MowerColors.chipFill,
-                                      border: Border.symmetric(
-                                        horizontal: BorderSide(
-                                          color: MowerColors.divider,
-                                        ),
+                                    height: _itemExtent,
+                                    decoration: BoxDecoration(
+                                      color: MowerColors.brand.withValues(
+                                        alpha: .08,
+                                      ),
+                                      borderRadius: const BorderRadius.all(
+                                        Radius.circular(12),
                                       ),
                                     ),
                                   ),
@@ -162,6 +163,7 @@ class _MowerRainPageState extends State<MowerRainPage> {
                                         count: _maxDelay ~/ 60 + 1,
                                         selected: _hours,
                                         itemExtent: _itemExtent,
+                                        activeFontSize: 24,
                                         unit: '时',
                                         onSelected: (value) => setState(() {
                                           _hours = value;
@@ -176,6 +178,7 @@ class _MowerRainPageState extends State<MowerRainPage> {
                                         count: 60,
                                         selected: _minutes,
                                         itemExtent: _itemExtent,
+                                        activeFontSize: 24,
                                         unit: '分',
                                         onSelected: (value) => setState(() {
                                           _minutes = value;
@@ -207,8 +210,7 @@ class _MowerRainPageState extends State<MowerRainPage> {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          MowerSaveBar(
             child: MowerSaveButton(
               buttonKey: const Key('mower-rain-save'),
               onPressed: _save,

@@ -75,7 +75,7 @@ class _MowerLanguagePageState extends State<MowerLanguagePage> {
           Expanded(
             child: SingleChildScrollView(
               key: const Key('mower-language-scroll-view'),
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
@@ -117,8 +117,7 @@ class _MowerLanguagePageState extends State<MowerLanguagePage> {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          MowerSaveBar(
             child: MowerSaveButton(
               buttonKey: const Key('mower-language-save'),
               onPressed: _save,
@@ -147,7 +146,7 @@ class _LanguageRow extends StatelessWidget {
       key: Key('mower-language-${language.code}'),
       onTap: onTap,
       child: SizedBox(
-        height: 60,
+        height: 56,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Row(
@@ -177,8 +176,8 @@ class _LanguageRow extends StatelessWidget {
                 ),
               ),
               Container(
-                width: 26,
-                height: 26,
+                width: 24,
+                height: 24,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,

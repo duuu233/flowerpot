@@ -208,7 +208,7 @@ class PairingFailurePage extends StatelessWidget {
     // 各步耗时，常常四五行）整页就超出一屏、出滚动条，按钮和小提示被挤到屏幕外。现在分三段：
     //
     // 1. 上半区（`_FailureSummary`）吃掉按钮和小提示之外的**全部**高度：插图随文字多少
-    //    缩放（200 → 最小 96），文字一个字都不截；极端情况（超矮屏 + 超长原因）才整块等比缩。
+    //    缩放（263 → 最小 96），文字一个字都不截；极端情况（超矮屏 + 超长原因）才整块等比缩。
     // 2. 小提示卡**贴着按钮上方**，和设计稿 `docs/UI/连接设备失败.png` 一样，中间的空白留在
     //    文字和小提示之间。
     // 3. 按钮沉底。
@@ -218,7 +218,8 @@ class PairingFailurePage extends StatelessWidget {
       body: LayoutBuilder(
         builder: (context, constraints) {
           final horizontalPadding = constraints.maxWidth < 360 ? 12.0 : 20.0;
-          final compact = constraints.maxHeight < 690;
+          // iPhone X 可用高度 688（标题栏 46）不算矮屏；原 690 把它也当矮屏收了间距。
+          final compact = constraints.maxHeight < 660;
           return ResponsiveContent(
             key: const Key('pairing-failure-content'),
             padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
@@ -305,7 +306,8 @@ class _FailureSummary extends StatelessWidget {
   final String subtitle;
   final bool compact;
 
-  static const double _maxArt = 200;
+  // 稿子 195:5548 插图 277×263；原封顶 200，文字和小提示之间空出约 100。
+  static const double _maxArt = 263;
   static const double _minArt = 96;
   static const double _titleGap = 12;
 

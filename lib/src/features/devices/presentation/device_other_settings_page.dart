@@ -96,7 +96,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
             child: ResponsiveContent(
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.pageMargin,
-                AppSpacing.xl,
+                11,
                 AppSpacing.pageMargin,
                 40,
               ),
@@ -437,11 +437,12 @@ class _SettingsChoiceSheetState extends State<_SettingsChoiceSheet> {
       key: Key('${widget.keyPrefix}-sheet'),
       top: false,
       child: Padding(
+        // 稿子 214:6138 / 215:5871：弹层 222 高，标题紧贴拖动条、两项紧挨、底部不再留白。
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.pageMargin,
           10,
           AppSpacing.pageMargin,
-          18,
+          4,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -455,7 +456,7 @@ class _SettingsChoiceSheetState extends State<_SettingsChoiceSheet> {
                 borderRadius: AppRadius.full,
               ),
             ),
-            const SizedBox(height: AppSpacing.sm),
+            const SizedBox(height: 2),
             SizedBox(
               height: 50,
               child: Row(
@@ -506,7 +507,7 @@ class _SettingsChoiceSheetState extends State<_SettingsChoiceSheet> {
                 ],
               ),
             ),
-            const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: 20),
             for (var index = 0; index < widget.options.length; index++) ...[
               _SettingsChoiceOption(
                 key: Key('${widget.options[index].value}-${widget.keyPrefix}'),
@@ -516,8 +517,6 @@ class _SettingsChoiceSheetState extends State<_SettingsChoiceSheet> {
                   () => _selectedValue = widget.options[index].value,
                 ),
               ),
-              if (index < widget.options.length - 1)
-                const SizedBox(height: AppSpacing.xxs),
             ],
           ],
         ),
@@ -590,8 +589,9 @@ Future<bool> showFirmwareUpdateDialog(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
+                // 稿子 214:5981：左右 38，标题到版本 20、两行间 11、到分隔线 30。
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+                  padding: const EdgeInsets.fromLTRB(38, 28, 38, 30),
                   child: Column(
                     children: <Widget>[
                       Text(
@@ -600,12 +600,12 @@ Future<bool> showFirmwareUpdateDialog(
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: AppSpacing.xxl),
+                      const SizedBox(height: 20),
                       _FirmwareVersionRow(
                         label: '当前版本',
                         version: _displayVersion(currentVersion),
                       ),
-                      const SizedBox(height: AppSpacing.lg),
+                      const SizedBox(height: 11),
                       _FirmwareVersionRow(
                         label: '发现新版本',
                         version: _displayVersion(availableVersion),

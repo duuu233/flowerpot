@@ -111,7 +111,9 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
           key: const Key('home-care-notice'),
           // ⚠️ **内边距要和下面那一支一模一样**（2026-09-11）：这两支是同一张卡的两个
           // 状态，差 2px 也会在切换时看出来。
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          // 上下 4 + 两行区 36 = 44，稿子 156:4427 / 156:4304 的养护条高（原上下 10，条高 56，
+          // 下面的快捷列表和帮助卡整体低 12）。两支同高的口径不变。
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
           color: AppColors.surfaceTranslucent,
           borderRadius: AppRadius.large,
           side: const BorderSide(color: AppColors.surface),
@@ -157,7 +159,7 @@ class _HomeCareBannerState extends State<HomeCareBanner> {
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 44),
       child: AppSurfaceCard(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
         color: AppColors.surfaceTranslucent,
         borderRadius: AppRadius.large,
         side: const BorderSide(color: AppColors.surface),
