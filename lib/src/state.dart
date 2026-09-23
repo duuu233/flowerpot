@@ -3231,13 +3231,25 @@ class FlowerpotState extends ChangeNotifier {
     // 不传就是花盆那条：同样**先在 deviceIdList 里找花盆的产品 ID**，找不到才退回第一个。
     // ⚠️ 这一行不能省——后台把割草机也加进同一个列表之后，「取第一个」会随后台排序
     // 把花盆的常见问题换成割草机的。
-    final (resolved, source) = _faqProductId(
-      basicError,
-      productId ?? TuyaConfig.productId,
-    );
+    //
+    // ⚠️ **调用方明确给了产品 ID（割草机设置页传 `MowerDp.productId`）就一定用它**
+    // （2026-09-23：割草机帮助中心出不来）。原来它不在 `deviceIdList` 里时也会退回列表
+    // 第一个——那是花盆的，等于拿花盆的产品 ID 去查割草机的帮助。回落只留给「没指定」
+    // 的花盆那条路。
+    final ids = _basicData.deviceIdList;
+    final (resolved, source) = productId != null && productId.isNotEmpty
+        ? (
+            productId,
+            '调用方指定（${ids.contains(productId) ? '在' : '⚠️ 不在'} getBasicData deviceIdList 里）',
+          )
+        : _faqProductId(basicError, TuyaConfig.productId);
     final request = resolved.isEmpty
         ? 'getProductFaqList 未带 broadcastId（$source）'
         : 'getProductFaqList broadcastId=$resolved（取自$source）';
+    _logInteraction(
+      '帮助中心 → 语言=$_languageCode deviceIdList=$ids'
+      '${basicError == null ? '' : ' getBasicData 失败：$basicError'}',
+    );
     try {
       final faqs = await _backend.getFaqs(broadcastId: resolved);
       _logInteraction('帮助中心 ← $request，返回 ${faqs.length} 条');

@@ -8,6 +8,10 @@ import '../../mower_ui.dart';
 /// （约 5–7 px/小时）——白天才是用户真正排任务的区间，夜里那两段只是为了让轴完整。
 /// [_anchors] 就是从稿子上量出来的那几个刻度位置，块的上下沿和左边的刻度用的是
 /// 同一套映射，所以两边永远对得齐。
+///
+/// **纵轴高度随屏幕走**（2026-09-23 产品：「根据屏幕自适应一下高度，留有少许的间隔」）：
+/// 图表撑满父级给的高度，纵轴拿剩下的那段；锚点按稿子上的**比例**缩放
+/// （稿子纵轴 340：08 点在 40、18 点在 300），不再写死 340 像素。
 class MowerPlanChart extends StatelessWidget {
   const MowerPlanChart({
     required this.enabledDays,
@@ -26,37 +30,42 @@ class MowerPlanChart extends StatelessWidget {
   final void Function(int day, int? slot) onEditDay;
   final void Function(MowerPlanSlot slot) onDeleteSlot;
 
-  /// 刻度锚点：`分钟 -> 相对纵轴顶端的像素`，取自稿子（card 坐标 74…414）。
+  /// 刻度锚点：`分钟 -> 占纵轴的比例`，取自稿子（纵轴 340：0 / 40 / 300 / 340）。
   static const List<(int, double)> _anchors = <(int, double)>[
     (0, 0.0),
-    (8 * 60, 40.0),
-    (18 * 60, 300.0),
-    (24 * 60, 340.0),
+    (8 * 60, 40 / 340),
+    (18 * 60, 300 / 340),
+    (24 * 60, 1.0),
   ];
 
-  static const double _axisHeight = 340;
+  /// 稿子上的纵轴高度；父级没给有界高度时（比如放在不限高的滚动里）用它。
+  static const double designAxisHeight = 340;
 
   /// 色块的最小高度：两行时间标签（各 16）加上下内边距就是这么高，
   /// 比它再矮字就叠一起了——稿子上 1 小时的块也是按这个高度画的。
   static const double _minBlockHeight = 38;
 
-  /// 把「当天第几分钟」换算成纵轴上的位置（0…[_axisHeight]）。
-  static double offsetForMinutes(int minutes) {
+  /// 把「当天第几分钟」换算成纵轴上的位置（0…[axisHeight]）。
+  static double offsetForMinutes(
+    int minutes, [
+    double axisHeight = designAxisHeight,
+  ]) {
     final value = minutes.clamp(0, 24 * 60);
     for (var i = 0; i < _anchors.length - 1; i++) {
       final (startMinutes, startOffset) = _anchors[i];
       final (endMinutes, endOffset) = _anchors[i + 1];
       if (value <= endMinutes) {
         final ratio = (value - startMinutes) / (endMinutes - startMinutes);
-        return startOffset + (endOffset - startOffset) * ratio;
+        return (startOffset + (endOffset - startOffset) * ratio) * axisHeight;
       }
     }
-    return _axisHeight;
+    return axisHeight;
   }
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         Padding(
@@ -104,10 +113,16 @@ class MowerPlanChart extends StatelessWidget {
             ],
           ),
         ),
-        Padding(
+        Flexible(
+          child: Padding(
           padding: const EdgeInsets.fromLTRB(30, 10, 20, 0),
-          child: SizedBox(
-            height: _axisHeight,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+            final axisHeight = constraints.hasBoundedHeight
+                ? constraints.maxHeight
+                : designAxisHeight;
+            return SizedBox(
+            height: axisHeight,
             child: Stack(
               clipBehavior: Clip.none,
               children: <Widget>[
@@ -115,7 +130,7 @@ class MowerPlanChart extends StatelessWidget {
                 for (final hour in MowerPlanAxis.axisHours)
                   Positioned(
                     left: -30,
-                    top: offsetForMinutes(hour * 60) - 7,
+                    top: offsetForMinutes(hour * 60, axisHeight) - 7,
                     child: SizedBox(
                       width: 24,
                       child: Text(
@@ -136,6 +151,7 @@ class MowerPlanChart extends StatelessWidget {
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
                           child: _DayColumn(
+                            axisHeight: axisHeight,
                             day: day,
                             enabled: enabledDays[day],
                             slots: slots
@@ -150,6 +166,9 @@ class MowerPlanChart extends StatelessWidget {
                 ),
               ],
             ),
+            );
+            },
+          ),
           ),
         ),
         const SizedBox(height: 26),
@@ -168,6 +187,7 @@ class MowerPlanChart extends StatelessWidget {
 /// 一天一列：底下是整日的底槽，上面浮着这一天的时段块。
 class _DayColumn extends StatelessWidget {
   const _DayColumn({
+    required this.axisHeight,
     required this.day,
     required this.enabled,
     required this.slots,
@@ -175,6 +195,7 @@ class _DayColumn extends StatelessWidget {
     required this.onDelete,
   });
 
+  final double axisHeight;
   final int day;
   final bool enabled;
   final List<MowerPlanSlot> slots;
@@ -202,10 +223,11 @@ class _DayColumn extends StatelessWidget {
         ),
         for (final slot in slots)
           Positioned(
-            top: MowerPlanChart.offsetForMinutes(slot.startMinutes),
+            top: MowerPlanChart.offsetForMinutes(slot.startMinutes, axisHeight),
             left: 0,
             right: 0,
             child: _SlotBlock(
+              axisHeight: axisHeight,
               slot: slot,
               onTap: () => onEdit(slot.day, slot.slot),
               onLongPress: () => onDelete(slot),
@@ -218,11 +240,13 @@ class _DayColumn extends StatelessWidget {
 
 class _SlotBlock extends StatelessWidget {
   const _SlotBlock({
+    required this.axisHeight,
     required this.slot,
     required this.onTap,
     required this.onLongPress,
   });
 
+  final double axisHeight;
   final MowerPlanSlot slot;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
@@ -230,8 +254,8 @@ class _SlotBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final span =
-        MowerPlanChart.offsetForMinutes(slot.endMinutes) -
-        MowerPlanChart.offsetForMinutes(slot.startMinutes);
+        MowerPlanChart.offsetForMinutes(slot.endMinutes, axisHeight) -
+        MowerPlanChart.offsetForMinutes(slot.startMinutes, axisHeight);
     return GestureDetector(
       key: Key('mower-plan-slot-${slot.day}-${slot.slot}'),
       onTap: onTap,

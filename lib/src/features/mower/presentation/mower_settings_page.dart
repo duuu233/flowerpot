@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
+import '../../../shared/widgets/blocking_progress.dart';
+import '../../devices/presentation/device_online_guard.dart';
 import '../mower_ui.dart';
 import '../mower_device.dart';
 import '../mower_dp.dart';
+import 'mower_firmware.dart';
 import 'mower_messages_page.dart';
 import 'widgets/mower_bottom_nav.dart';
 import 'widgets/mower_card.dart';
@@ -20,10 +23,9 @@ import 'widgets/mower_card.dart';
 /// | --- | --- |
 /// | 设备参数 / 区域设置 / 雨淋设置 / 时间同步 / 语言切换 | 各自的页面（已接 DP） |
 /// | 帮助中心 | 帮助中心页，**按割草机的产品 ID 拉常见问题**（[MowerDp.productId]） |
-/// | 重新配网 / 设备升级 / 删除设备 | 提示「当前还没有支持的 DPID」（2026-09-18 用户口径） |
-///
-/// ⚠️ 设备升级对应的是 DP116 ota_status（只上报），本轮没有升级动线，所以也归到
-/// 「还没有支持的 DPID」那一档，不假装有页面。
+/// | 设备升级 | 涂鸦 OTA，和花盆同一套（`upgradeMowerFirmware`，2026-09-23） |
+/// | 删除设备 | 和花盆「移除设备」同一套：涂鸦解绑 + 删后台记录（2026-09-23） |
+/// | 重新配网 | **暂时隐藏**（2026-09-23 产品） |
 class MowerSettingsPage extends StatelessWidget {
   const MowerSettingsPage({required this.onTabRequested, super.key});
 
@@ -34,7 +36,7 @@ class MowerSettingsPage extends StatelessWidget {
     '设备参数',
     '区域设置',
     '雨淋设置',
-    '重新配网',
+    // '重新配网' 暂时隐藏（2026-09-23 产品）。
     '时间同步',
     '设备升级',
     '语言切换',
@@ -42,6 +44,11 @@ class MowerSettingsPage extends StatelessWidget {
   ];
 
   Future<void> _open(BuildContext context, String entry) async {
+    if (entry == '设备升级') {
+      final id = MowerDevice.instance.deviceId;
+      if (id != null) await upgradeMowerFirmware(context, id);
+      return;
+    }
     if (entry == '帮助中心') {
       // 帮助中心按**产品**筛常见问题：割草机要带自己的产品 ID，不能跟着花盆那条走
       // （后台 getBasicData 的 deviceIdList 里两款都有，见 FlowerpotState._faqProductId）。
@@ -64,6 +71,41 @@ class MowerSettingsPage extends StatelessWidget {
       return;
     }
     await Navigator.of(context).pushNamed(route);
+  }
+
+  /// 删除设备：和花盆「移除设备」同一套（2026-09-23 产品：「跟花盆一样的啊，只是产品 ID 不一样」）——
+  /// 确认 → 涂鸦解绑（`removeDevice`）+ 删后台记录 → 回到首页。
+  /// 不走花盆的「恢复出厂」那条：它要先发花盆的 DP 141，割草机没有这个 DP。
+  Future<void> _removeDevice(BuildContext context) async {
+    final id = MowerDevice.instance.deviceId;
+    if (id == null) return;
+    final state = FlowerpotScope.of(context);
+    final name = state.deviceById(id)?.name ?? '';
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: '删除设备',
+      message: '删除后需要重新配网才能使用“$name”，确定继续吗？',
+      confirmLabel: '删除设备',
+      destructive: true,
+    );
+    if (!confirmed || !context.mounted) return;
+    state.logMowerInteraction('删除 → 割草机 $id（涂鸦解绑 + 删后台记录）');
+    // 不可逆，点一次就够。
+    final result = await withBlockingProgress(
+      context,
+      () => state.removeDevice(id, resetFactory: false),
+    );
+    if (result == null) return;
+    state.logMowerInteraction(
+      result.success ? '删除 ✓ ${result.message}' : '删除 ✗ ${result.message}',
+    );
+    if (!context.mounted) return;
+    if (!result.success) {
+      showDeviceActionResult(context, result);
+      return;
+    }
+    showAppMessage(context, result.message, tone: AppMessageTone.success);
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   /// 消息通知要把「退回来切到哪一栏」带进去，所以这一页直接 push，不走
@@ -138,17 +180,7 @@ class MowerSettingsPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _DeleteDeviceButton(
-              onTap: () {
-                MowerDevice.instance.logUnsupported(
-                  FlowerpotScope.of(context),
-                  '删除设备',
-                );
-                showAppMessage(
-                  context,
-                  '当前还没有支持的 DPID',
-                  tone: AppMessageTone.info,
-                );
-              },
+              onTap: () => unawaited(_removeDevice(context)),
             ),
           ],
         ),

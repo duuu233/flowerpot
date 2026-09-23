@@ -194,7 +194,8 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
             _RestoreDefaultButton(onTap: () => unawaited(_restoreDefault())),
           ],
         ),
-        body: SingleChildScrollView(
+        body: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
           key: const Key('mower-plan-scroll-view'),
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
           child: Column(
@@ -249,12 +250,15 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
                 ),
               MowerCard(
                 padding: const EdgeInsets.only(bottom: 18),
-                child: MowerPlanChart(
-                  enabledDays: _enabledDays,
-                  slots: _chartSlots,
-                  onToggleDay: _toggleDay,
-                  onEditDay: (day, slot) => unawaited(_edit(day, slot)),
-                  onDeleteSlot: _deleteSlot,
+                child: SizedBox(
+                  height: _chartHeight(constraints),
+                  child: MowerPlanChart(
+                    enabledDays: _enabledDays,
+                    slots: _chartSlots,
+                    onToggleDay: _toggleDay,
+                    onEditDay: (day, slot) => unawaited(_edit(day, slot)),
+                    onDeleteSlot: _deleteSlot,
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -262,9 +266,29 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
             ],
           ),
         ),
+        ),
       ),
     );
   }
+
+  /// 图表卡片（不含卡片底边距 18）的高度：**撑满一屏、底下留一点缝**
+  /// （2026-09-23 产品：「根据屏幕自适应一下高度，留有少许的间隔」）。
+  ///
+  /// 一屏 = 页面可用高度 − 上内边距 20 −「本周计划」那行约 20 − 间距 10 −（空周提示约 28）
+  /// − 卡片底边距 18 − 底部留缝 [_bottomGap]。临时解析窗口在卡片下面，往下滚才看得到。
+  /// 太矮的屏不再压：不低于 [_minChartHeight]，超出的部分滚动。
+  double _chartHeight(BoxConstraints constraints) {
+    if (!constraints.hasBoundedHeight) return _minChartHeight;
+    final hint = _chartSlots.isEmpty ? 28.0 : 0.0;
+    final height =
+        constraints.maxHeight - 20 - 20 - 10 - hint - 18 - _bottomGap;
+    return height < _minChartHeight ? _minChartHeight : height;
+  }
+
+  static const double _bottomGap = 12;
+
+  /// 图表的固定部分（星期、勾选、图例、说明）约 150，纵轴至少再留 280。
+  static const double _minChartHeight = 430;
 }
 
 /// 标题栏右边那颗「恢复默认」。

@@ -384,6 +384,17 @@ class MowerDevice extends ChangeNotifier {
         state.logMowerInteraction('上报 ← 割草机 DP$dp $identifier=${dps[dp]}');
       }
     }
+    // DP116 ota_status（协议 V2.3 §7.2，只上报）：设备拒绝 / 升级失败时说一句。
+    // 只看实时上报（changed 里有它），刚进页面读快照时那条旧值不弹。
+    if (changed != null && changed.contains(MowerDp.otaStatus)) {
+      final code = '${dps[MowerDp.otaStatus] ?? ''}'.trim();
+      final message = switch (code) {
+        '7' => '割草机不在待机，拒绝了固件升级，请先停到待机再升级',
+        '20' => '割草机固件升级失败',
+        _ => null,
+      };
+      if (message != null && !_failures.isClosed) _failures.add(message);
+    }
     if (scheduleTouched) {
       final bytes = TuyaRaw.bytes(dps[MowerDp.mowSchedule]);
       if (bytes != null) {

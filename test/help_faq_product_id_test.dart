@@ -61,6 +61,26 @@ void main() {
     expect(backend.requestedBroadcastIds.last, 'mz7g3yzaufvoh4ls');
   });
 
+  test('割草机指定了自己的产品 ID：不在 deviceIdList 里也照样用它，不退回花盆那个（2026-09-23）', () async {
+    // 原来会退回列表第一个（花盆），拿花盆的产品 ID 查割草机的帮助，割草机那几条永远出不来。
+    final backend = _FaqBackend(
+      deviceIds: const <String>['yciq4kssu1fv8umn'],
+    );
+    final state = FlowerpotState(
+      repository: MockTuyaRepository(latency: Duration.zero),
+      backendRepository: backend,
+    );
+    addTearDown(state.dispose);
+
+    await state.loadFaqs(productId: 'mz7g3yzaufvoh4ls');
+
+    expect(backend.requestedBroadcastIds.last, 'mz7g3yzaufvoh4ls');
+    expect(
+      state.interactionLog.any((line) => line.contains('⚠️ 不在 getBasicData deviceIdList 里')),
+      isTrue,
+    );
+  });
+
   test('列表里没有本产品时退回第一个（仍然不写死兜底）', () async {
     final backend = _FaqBackend(
       deviceIds: const <String>['other-product', 'second-id'],

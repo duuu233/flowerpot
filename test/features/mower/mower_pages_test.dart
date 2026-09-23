@@ -237,13 +237,15 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('设置页「设备参数」：名称是设备名，型号 / SN 没有来源就空着', (tester) async {
+  testWidgets('设置页：重新配网隐藏；「设备参数」名称是设备名，型号 / SN 没有来源就空着', (tester) async {
     await _pumpMowerHome(tester, <int, Object?>{});
     await tester.tap(find.byKey(const Key('mower-nav-settings')));
     await tester.pump();
 
     expect(find.byKey(const Key('mower-settings-区域设置')), findsOneWidget);
     expect(find.byKey(const Key('mower-settings-delete')), findsOneWidget);
+    expect(find.byKey(const Key('mower-settings-重新配网')), findsNothing);
+    expect(find.byKey(const Key('mower-settings-设备升级')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('mower-settings-设备参数')));
     await tester.pumpAndSettle();
