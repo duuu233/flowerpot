@@ -214,57 +214,82 @@ class _MowerControlPageState extends State<MowerControlPage> {
           title: _deviceName(context),
           leading: const AppBackButton(),
         ),
-        // 内容恰好撑满首屏（2026-09-23 产品：「下面不要留下太多的留白，高度适配一下，让内容恰好
-        // 适配首屏，但是也要有间距」）：一屏放得下时，多出来的高度平分到两个 Spacer（电量环与
-        // 今日计划之间、今日计划与按钮之间），按钮区贴近底部；放不下就按最小间距排、可滚动。
+        // 按 Figma「割草机-控制」#784:3844 重排（2026-09-23 产品：「整体适配，不要出现过多的白色空白区域」）：
+        // 按钮面板贴底（离底部导航 14），今日计划、黄色提醒按稿子的间距（8 / 8 / 4）紧跟在上面；
+        // **多出来的高度只给最上面的电量环**——环在剩下的空间里居中，屏幕矮时整块等比缩小。
+        // 之前是把余量平分到各块之间，结果中间拉出两段空白。
+        // 太矮（连缩到 80% 都放不下）才退回可滚动的按稿子尺寸排。
         body: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            key: const Key('mower-control-scroll-view'),
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                // 30 = 上下内边距（10 + 20）。
-                minHeight: constraints.hasBoundedHeight && constraints.maxHeight > 30
-                    ? constraints.maxHeight - 30
-                    : 0.0,
+          builder: (context, constraints) {
+            final lower = <Widget>[
+              // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
+              if (_device.faultMessage case final fault?) ...<Widget>[
+                _NoticeBar(fault: fault),
+                const SizedBox(height: 8),
+              ],
+              _TodayPlanCard(schedule: _device.schedule),
+              const SizedBox(height: 8),
+              _ActionPanel(
+                device: _device,
+                checking: _checking,
+                onMode: (mode) => unawaited(_sendMode(mode)),
+                onToggleSwitch: () => unawaited(_toggleSwitch()),
               ),
-              child: IntrinsicHeight(
+            ];
+            final card = SizedBox(
+              width: _cardWidth,
+              child: MowerStatusCard(
+                tone: _tone,
+                percent: _device.battery,
+                statusLabel: _device.status.label,
+                wifiLinked: _device.wifiLinked,
+                bleLinked: _device.bleLinked,
+              ),
+            );
+            final fits = constraints.hasBoundedHeight &&
+                constraints.maxHeight >= _minFittedHeight;
+            if (!fits) {
+              return SingleChildScrollView(
+                key: const Key('mower-control-scroll-view'),
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    MowerStatusCard(
-                      tone: _tone,
-                      percent: _device.battery,
-                      statusLabel: _device.status.label,
-                      wifiLinked: _device.wifiLinked,
-                      bleLinked: _device.bleLinked,
-                    ),
-                    const SizedBox(height: 24),
-                    const Spacer(),
-                    // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
-                    if (_device.faultMessage case final fault?) ...<Widget>[
-                      _NoticeBar(fault: fault),
-                      const SizedBox(height: 8),
-                    ],
-                    _TodayPlanCard(schedule: _device.schedule),
-                    const SizedBox(height: 8),
-                    const Spacer(),
-                    _ActionPanel(
-                      device: _device,
-                      checking: _checking,
-                      onMode: (mode) => unawaited(_sendMode(mode)),
-                      onToggleSwitch: () => unawaited(_toggleSwitch()),
-                    ),
+                    FittedBox(fit: BoxFit.scaleDown, child: card),
+                    const SizedBox(height: 4),
+                    ...lower,
                   ],
                 ),
+              );
+            }
+            return Padding(
+              key: const Key('mower-control-scroll-view'),
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Expanded(
+                    child: Center(
+                      child: FittedBox(fit: BoxFit.scaleDown, child: card),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ...lower,
+                ],
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
   }
 }
+
+/// 状态卡（电量环）的设计宽度：稿子卡片 335 宽。
+const double _cardWidth = 335;
+
+/// 电量环缩到 80% 时整页需要的最小高度（环 292×0.8 + 提醒 38 + 计划 110 + 按钮面板 104 + 间距 / 边距）。
+const double _minFittedHeight = 520;
 
 /// 黄色提醒条：只在 DP18 有故障位时出现，画那条故障文案（位序最低的一条）。
 /// DP18 = 0（正常）或没报过时整条不画（协议 V2.3，2026-09-23 产品）——原来那句稿子上的
