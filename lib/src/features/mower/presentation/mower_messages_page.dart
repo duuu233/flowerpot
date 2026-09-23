@@ -271,7 +271,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
 
   /// 调试板的版本印子。**每改一次这块板就往上加一版**：贴回来的日志里有没有这行、是第几版，
   /// 一眼就能看出跑的是不是最新的包——之前两轮就卡在"看不出他跑的是哪一版"上。
-  static const String _probeVersion = 'probe-v9 · 2026-09-21';
+  static const String _probeVersion = 'probe-v10 · 2026-09-23';
 
   /// 调试板默认填的设备 ID；**置空 = 取当前账号已绑定的第一台**（现在就是置空的）。
   ///
@@ -307,6 +307,12 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
   Map<String, Object?>? _result;
   Map<String, Object?>? _logs;
 
+  /// 实时推送（2026-09-23）：点一次注册，之后收到的每一条都追加在这里，最新的在前。
+  Map<String, Object?>? _listen;
+  bool _startingListen = false;
+  StreamSubscription<Map<String, Object?>>? _pushSub;
+  final List<Map<String, Object?>> _pushes = <Map<String, Object?>>[];
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -332,6 +338,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
 
   @override
   void dispose() {
+    _pushSub?.cancel();
     _deviceId.dispose();
     _dpIds.dispose();
     _startDay.dispose();
@@ -366,6 +373,63 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
       _loadingWindow = false;
       _window = data;
     });
+  }
+
+  /// 注册涂鸦实时推送监听，并订阅收到的推送。页面关了再进会重新订阅，
+  /// 原生那边的监听整个进程只注册一次。
+  Future<void> _startListen() async {
+    final state = FlowerpotScope.of(context);
+    setState(() => _startingListen = true);
+    _pushSub ??= state.pushMessages.listen((message) {
+      if (!mounted) return;
+      setState(() => _pushes.insert(0, message));
+    });
+    final data = await state.startPushListen();
+    if (!mounted) return;
+    setState(() {
+      _startingListen = false;
+      _listen = data;
+    });
+  }
+
+  /// 一条推送 → 几行文本：时间、来源、bean 类名，然后全部字段原样；
+  /// `msg` 是 JSON 的话再展开一层（类型区分可能藏在里面）。
+  List<String> _pushLines(Map<String, Object?> push) {
+    final at = DateTime.fromMillisecondsSinceEpoch(
+      (push['receivedAt'] as num?)?.toInt() ?? 0,
+    );
+    String two(int v) => v.toString().padLeft(2, '0');
+    final fields = (push['fields'] as Map?) ?? const <Object?, Object?>{};
+    final lines = <String>[
+      '${two(at.hour)}:${two(at.minute)}:${two(at.second)}  '
+          '${push['source']}  ${push['beanClass'] ?? '-'}',
+      for (final entry in fields.entries) '  ${entry.key} = ${entry.value}',
+    ];
+    for (final entry in fields.entries) {
+      final value = entry.value;
+      if (value is! String || !value.trimLeft().startsWith('{')) continue;
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is Map) {
+          lines.add('  ${entry.key} 展开：');
+          decoded.forEach((key, v) => lines.add('    $key = $v'));
+        }
+      } on FormatException {
+        // 不是 JSON 就只留原文。
+      }
+    }
+    return lines;
+  }
+
+  /// 按 `来源/type` 数一数，一眼看出有没有类型区分。
+  String get _pushTypeSummary {
+    final counts = <String, int>{};
+    for (final push in _pushes) {
+      final fields = (push['fields'] as Map?) ?? const <Object?, Object?>{};
+      final key = '${push['source']}/type=${fields['type'] ?? '-'}';
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts.entries.map((e) => '${e.key} ×${e.value}').join('  ');
   }
 
   Future<void> _load() async {
@@ -490,6 +554,19 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
       )
       ..writeln('dpIds=${_dpIds.text.trim()}')
       ..writeln('时间窗=${_startDay.text.trim()} ~ ${_endDay.text.trim()}');
+    final listen = _listen;
+    if (listen != null) {
+      buffer
+        ..writeln('--- 实时推送 ---')
+        ..writeln('ok=${listen['ok']}  已注册=${listen['registered']}');
+      for (final line in (listen['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
+        buffer.writeln('· $line');
+      }
+      buffer.writeln('收到 ${_pushes.length} 条  $_pushTypeSummary');
+      for (final push in _pushes) {
+        buffer.writeAll(_pushLines(push).map((line) => '$line\n'));
+      }
+    }
     final result = _result;
     if (result == null) {
       buffer.writeln('（还没点「拉取涂鸦消息」）');
@@ -610,6 +687,63 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                 height: 1.5,
               ),
             ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 40,
+              child: FilledButton(
+                key: const Key('mower-messages-debug-listen'),
+                onPressed: _startingListen ? null : () => unawaited(_startListen()),
+                style: FilledButton.styleFrom(
+                  backgroundColor: MowerColors.brand,
+                  foregroundColor: Colors.white,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(10)),
+                  ),
+                ),
+                child: Text(
+                  _startingListen
+                      ? '注册中…'
+                      : _listen?['ok'] == true
+                      ? '接收中（收到 ${_pushes.length} 条）'
+                      : '开始接收推送（实时）',
+                ),
+              ),
+            ),
+            if (_listen != null) ...<Widget>[
+              const SizedBox(height: 8),
+              SelectableText(
+                <String>[
+                  '推送监听 ok=${_listen!['ok']}  已注册=${_listen!['registered'] ?? '-'}',
+                  for (final line
+                      in (_listen!['diagnostic'] as List<Object?>?) ??
+                          const <Object?>[])
+                    '· $line',
+                  if (_pushes.isEmpty)
+                    '还没收到推送'
+                  else
+                    '收到 ${_pushes.length} 条：$_pushTypeSummary',
+                ].join('\n'),
+                style: const TextStyle(
+                  color: MowerColors.inkSecondary,
+                  fontSize: 11,
+                  height: 1.45,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              for (final push in _pushes.take(30))
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: SelectableText(
+                    _pushLines(push).join('\n'),
+                    style: const TextStyle(
+                      color: MowerColors.ink,
+                      fontSize: 11,
+                      height: 1.45,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+            ],
             const SizedBox(height: 12),
             TextField(
               key: const Key('mower-messages-debug-device'),

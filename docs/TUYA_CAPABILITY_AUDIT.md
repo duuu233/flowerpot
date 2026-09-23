@@ -366,3 +366,24 @@ iOS 侧要调的是 `ThingSmartMessage` 的
 **`fetchEncryptMessageDetailListWithListRequestModel:success:failure:`**（请求模型里带
 `msgSrcId` / 类型 / 分页），**不是**安卓的 `getMessageListByMsgSrcId`（产品 2026-09-20 提供，
 是之前踩过的坑）。iOS 桥接本轮仍未接，Dart 侧的 `MissingPluginException` 分支已经把这行方法名带回去。
+
+### 5.5 实时推送监听（2026-09-23 解包核对）
+
+消息中心是事后去拉；推送到达的那一刻要收，用 `ThingHomeSdk.getPushInstance()` → `IThingPush`
+（实现类 `personallib.qqpddqd` 同时是设备 MQTT 协议监听，构造时注册了三个协议 bean）：
+
+| 方法 | MQTT 协议 | 回调里的对象 | 字段 |
+| --- | --- | --- | --- |
+| `registerPushAlarmListener(IThingGetBeanCallback)` | 802 | `MQ_802_PushAlarmBean` | `String type`、`String msg` |
+| `registerMQPushListener(IThingGetBeanCallback)` | 52 | `MQCompensationBean`（由 `MQ_52_DataPushBean` 转来） | `String type`、`String link`、`long timeStamp` |
+| `registerThingPushListener(String topic, IThingDataCallback)` | 自订阅 topic | — | 本轮未接 |
+
+- `IThingGetBeanCallback` 只有一个 `onResult(Object)`；两个 register 只往 SDK 内部的列表里加，**没有注销方法**，
+  所以桥接 `startPushListen` 整个进程只注册一次。
+- 桥接把收到的对象原样 dump（全部无参 getter）经事件通道推上来（`type=pushMessage`，`source=alarm802|mq52`），
+  调试板「开始接收推送（实时）」逐条打印，并按 `来源/type` 计数；`msg` 是 JSON 时再展开一层。
+- 同一对象上还有 `getPushStatusByType(PushType)` / `getNonRepeatRemindByType(PushType)`（`PushType`：
+  `PUSH_ALARM` / `PUSH_ALARM_SYSTEM` / `PUSH_ALARM_PHONE` / `PUSH_ALARM_SMS` / `PUSH_FAMILY` / `PUSH_NOTIFY` / `PUSH_MARKETING`），
+  本轮没接；只收到第一条、后面不来时再看「不重复提醒」时长。
+- `registerDevice(token, provider, cb)` 是系统推送（FCM 等）通道注册，本 App 没接，**App 在后台 / 被杀时收不到**这两路 MQTT 推送；
+  测试时 App 要开在前台。

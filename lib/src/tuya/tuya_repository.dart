@@ -242,6 +242,20 @@ abstract class TuyaRepository {
     int limit,
   });
 
+  /// 注册涂鸦的**实时推送监听**（排查用，2026-09-23）。
+  ///
+  /// 安卓 `ThingHomeSdk.getPushInstance()` 上的两路（7.5.1 解包核对）：
+  /// `registerPushAlarmListener` → MQTT 802，回 `MQ_802_PushAlarmBean {type, msg}`；
+  /// `registerMQPushListener` → MQTT 52，回 `MQCompensationBean {type, link, timeStamp}`。
+  /// 收到的每一条从 [pushMessages] 推上来。进程内只注册一次（SDK 没有注销方法）。
+  ///
+  /// 返回结构：`{ok, registered?: List<String>, diagnostic: List<String>}`，永远不抛错。
+  Future<Map<String, Object?>> startPushListen();
+
+  /// [startPushListen] 注册之后收到的推送，原样：
+  /// `{source: 'alarm802'|'mq52', callback, beanClass, fields: Map, receivedAt: 毫秒}`。
+  Stream<Map<String, Object?>> get pushMessages;
+
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
   Future<void> startFirmwareUpgrade(String deviceId);
@@ -397,6 +411,13 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       .map((event) => _stringField(event, 'pairingLog', 'line'))
       .where((line) => line != null && line.isNotEmpty)
       .cast<String>();
+
+  @override
+  late final Stream<Map<String, Object?>> pushMessages = _rawEvents
+      .where(
+        (event) => event is Map && '${event['type'] ?? ''}' == 'pushMessage',
+      )
+      .map((event) => (event as Map).cast<String, Object?>());
 
   @override
   late final Stream<BleDevice> bleDevices = _rawEvents
@@ -1027,6 +1048,32 @@ class MethodChannelTuyaRepository implements TuyaRepository {
           'iOS 要调的是 ThingSmartDevice 的 '
               'queryDeviceOperateLogWithDpIds:offset:limit:startTime:endTime:isASC:success:failure:',
         ],
+      };
+    } on PlatformException catch (error) {
+      return <String, Object?>{
+        'ok': false,
+        'code': error.code,
+        'message': error.message,
+        'diagnostic': <String>['原生抛错：${error.code} ${error.message}'],
+      };
+    }
+  }
+
+  @override
+  Future<Map<String, Object?>> startPushListen() async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, Object?>(
+        'startPushListen',
+      );
+      return raw ??
+          <String, Object?>{
+            'ok': false,
+            'diagnostic': <String>['原生侧返回了 null'],
+          };
+    } on MissingPluginException {
+      return <String, Object?>{
+        'ok': false,
+        'diagnostic': <String>['本端未接入 startPushListen：只做了 Android 侧桥接，iOS 待补'],
       };
     } on PlatformException catch (error) {
       return <String, Object?>{

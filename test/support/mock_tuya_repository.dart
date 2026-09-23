@@ -589,6 +589,23 @@ class MockTuyaRepository implements TuyaRepository {
     'diagnostic': <String>['Mock 仓库没有涂鸦设备日志，只有真机能答这个问题'],
   };
 
+  final StreamController<Map<String, Object?>> _pushMessages =
+      StreamController<Map<String, Object?>>.broadcast();
+
+  @override
+  Stream<Map<String, Object?>> get pushMessages => _pushMessages.stream;
+
+  /// 让用例模拟涂鸦推来一条告警。
+  void emitPushMessage(Map<String, Object?> message) =>
+      _pushMessages.add(message);
+
+  @override
+  Future<Map<String, Object?>> startPushListen() async => <String, Object?>{
+    'ok': true,
+    'registered': <String>['mock'],
+    'diagnostic': <String>['Mock 仓库：推送由用例 emitPushMessage 模拟'],
+  };
+
   @override
   Future<Map<String, Object?>> messagesByTime({
     required int startTime,

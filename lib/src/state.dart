@@ -1290,6 +1290,21 @@ class FlowerpotState extends ChangeNotifier {
     return data;
   }
 
+  /// 注册涂鸦实时推送监听（排查用，2026-09-23），详见 [TuyaRepository.startPushListen]。
+  Future<Map<String, Object?>> startPushListen() async {
+    _logInteraction('推送监听 → 注册');
+    final data = await _repository.startPushListen();
+    _logInteraction(
+      data['ok'] == true
+          ? '推送监听 ← ${(data['registered'] as List<Object?>?)?.join('、') ?? ''}'
+          : '推送监听 ✗ ${(data['diagnostic'] as List<Object?>?)?.join('；') ?? '未知原因'}',
+    );
+    return data;
+  }
+
+  /// 注册之后收到的推送（原样）。
+  Stream<Map<String, Object?>> get pushMessages => _repository.pushMessages;
+
   /// 割草机页面的 DP 记账入口（2026-09-18）。
   ///
   /// 行首一律带「割草机」，与花盆那些行区分开；静态演示数据模拟出来的上报还会带「［模拟］」。

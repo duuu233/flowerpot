@@ -451,6 +451,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "deviceMessages" -> deviceMessages(call, result)
                 "deviceOperateLogs" -> deviceOperateLogs(call, result)
                 "messagesByTime" -> messagesByTime(call, result)
+                "startPushListen" -> startPushListen(result)
                 "checkFirmware" -> checkFirmware(call, result)
                 "startFirmwareUpgrade" -> startFirmwareUpgrade(call, result)
                 "uploadAnimation" -> result.error(
@@ -2773,6 +2774,114 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             )
         }
         fetch(0)
+    }
+
+    /**
+     * 推送监听只注册一次：`IThingPush.register*Listener` 只往 SDK 内部的列表里加，
+     * 7.5.1 解包核对没有对应的注销方法，重复注册会让同一条推送回调好几遍。
+     */
+    private val pushListening = AtomicBoolean(false)
+
+    /** 监听代理的强引用（SDK 那边也握着，这里再留一份，免得哪天 SDK 改成弱引用）。 */
+    private val pushListeners = mutableListOf<Any>()
+
+    /**
+     * 实时接收涂鸦的**设备告警推送**（排查用，2026-09-23）。
+     *
+     * 消息中心（[deviceMessages]）是事后去拉；这一条是推送到达的那一刻就收到。
+     * 解包核对（`thingsmart-personallib` / `thingsmart-device-api` 7.5.1）：
+     *
+     * - `ThingHomeSdk.getPushInstance()` → `IThingPush`，实现类同时是设备 MQTT 协议监听；
+     * - `registerPushAlarmListener(IThingGetBeanCallback)`：MQTT **802** 协议，
+     *   回 `MQ_802_PushAlarmBean { String type; String msg }` —— **自带 type 字段**；
+     * - `registerMQPushListener(IThingGetBeanCallback)`：MQTT **52** 协议，
+     *   回 `MQCompensationBean { String type; String link; long timeStamp }`。
+     *
+     * 两路收到什么都原样推给 Dart（事件 `type=pushMessage`），bean 的全部无参 getter 照旧 dump，
+     * 不挑字段。
+     */
+    private fun startPushListen(result: MethodChannel.Result) {
+        val diagnostic = mutableListOf<String>()
+        val sdk = runCatching { sdkClass() }.getOrElse { error ->
+            success(result, mapOf("ok" to false, "diagnostic" to listOf("涂鸦 SDK 未链接：$error")))
+            return
+        }
+        val push = runCatching { invokeStatic(sdk, "getPushInstance") }.getOrNull()
+        if (push == null) {
+            success(
+                result,
+                mapOf("ok" to false, "diagnostic" to listOf("ThingHomeSdk.getPushInstance() 取不到")),
+            )
+            return
+        }
+        diagnostic += "推送实例 ${push.javaClass.name}"
+        val registered = mutableListOf<String>()
+        if (pushListening.compareAndSet(false, true)) {
+            val routes = listOf(
+                "registerPushAlarmListener" to "alarm802",
+                "registerMQPushListener" to "mq52",
+            )
+            for ((name, source) in routes) {
+                val method = push.javaClass.methods.firstOrNull {
+                    it.name == name && it.parameterTypes.size == 1
+                }
+                if (method == null) {
+                    diagnostic += "没有 $name"
+                    continue
+                }
+                val listenerType = method.parameterTypes[0]
+                val loader = listenerType.classLoader ?: activity.classLoader
+                val listener = Proxy.newProxyInstance(loader, arrayOf(listenerType)) { proxy, m, args ->
+                    when (m.name) {
+                        "equals" -> proxy === args?.firstOrNull()
+                        "hashCode" -> System.identityHashCode(proxy)
+                        "toString" -> "TuyaPushListener($source)"
+                        else -> {
+                            val bean = args?.firstOrNull()
+                            emit(
+                                mapOf(
+                                    "type" to "pushMessage",
+                                    "source" to source,
+                                    "callback" to m.name,
+                                    "beanClass" to bean?.javaClass?.name,
+                                    "fields" to pushFields(bean),
+                                    "receivedAt" to System.currentTimeMillis(),
+                                ),
+                            )
+                            defaultValue(m.returnType)
+                        }
+                    }
+                }
+                runCatching { method.invoke(push, listener) }
+                    .onSuccess {
+                        pushListeners += listener
+                        registered += "$name($source)"
+                    }
+                    .onFailure { diagnostic += "$name ✗ ${it.cause ?: it}" }
+            }
+            // 一路都没挂上就把标记放回去，下次点还能再试。
+            if (registered.isEmpty()) pushListening.set(false)
+            diagnostic += "已注册：" + registered.ifEmpty { listOf("（无）") }.joinToString()
+        } else {
+            diagnostic += "监听在本次进程里已经注册过，沿用（SDK 没有注销方法，不重复注册）"
+        }
+
+        success(
+            result,
+            mapOf(
+                "ok" to pushListening.get(),
+                "registered" to registered,
+                "diagnostic" to diagnostic,
+            ),
+        )
+    }
+
+    /** 推送回调里的对象 → 能过 MethodChannel 的 map（基本类型包成 `value`）。 */
+    private fun pushFields(bean: Any?): Map<String, Any?> = when (bean) {
+        null -> emptyMap()
+        is String, is Number, is Boolean -> mapOf("value" to bean)
+        is Map<*, *> -> bean.entries.associate { "${it.key}" to it.value?.toString() }
+        else -> beanMap(bean)
     }
 
     /**
