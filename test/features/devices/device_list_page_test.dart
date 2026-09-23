@@ -170,13 +170,13 @@ void main() {
       onMowerArguments: (value) => mowerArguments = value,
     );
 
-    // 中文名不加粗（系统中文字体没有中等字重，w500 会落到粗体上），英文名照旧 w500。
+    // 所有设备名同一个样式（中文 / 英文都是常规字重）。
     FontWeight? weightOf(String id) => tester
         .widget<Text>(find.byKey(Key('device-list-name-$id')))
         .style
         ?.fontWeight;
     expect(weightOf('mower-01'), FontWeight.w400);
-    expect(weightOf('device-01'), FontWeight.w500);
+    expect(weightOf('device-01'), FontWeight.w400);
 
     await tester.tap(find.byKey(const Key('device-list-item-mower-01')));
     await tester.pumpAndSettle();

@@ -106,7 +106,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
   /// 四颗按钮（自动 / 定点 / 回归 / 停止·继续）下发前的蓝牙检查（2026-09-23 产品）：
   ///
   /// 1. 蓝牙没连 → 先连；连不上 → 「无法连接设备蓝牙，请检查设备或靠近设备10米内」，不下发；
-  /// 2. 连着 → 读信号，弱于 [MowerDevice.minBleRssi]（-80 dBm）或读不到 →
+  /// 2. 连着 → 读信号，弱于 [MowerDevice.minBleRssi]（-90 dBm）或读不到 →
   ///    「因安全要求必须在10米内控制设备」，不下发；
   /// 3. 都过了返回 null，否则返回要弹的那句话（弹框放在按钮恢复原样之后，见 [_guarded]）。
   /// 每一步都记进联调日志。
@@ -214,34 +214,51 @@ class _MowerControlPageState extends State<MowerControlPage> {
           title: _deviceName(context),
           leading: const AppBackButton(),
         ),
-        body: SingleChildScrollView(
-          key: const Key('mower-control-scroll-view'),
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              MowerStatusCard(
-                tone: _tone,
-                percent: _device.battery,
-                statusLabel: _device.status.label,
-                wifiLinked: _device.wifiLinked,
-                bleLinked: _device.bleLinked,
+        // 内容恰好撑满首屏（2026-09-23 产品：「下面不要留下太多的留白，高度适配一下，让内容恰好
+        // 适配首屏，但是也要有间距」）：一屏放得下时，多出来的高度平分到两个 Spacer（电量环与
+        // 今日计划之间、今日计划与按钮之间），按钮区贴近底部；放不下就按最小间距排、可滚动。
+        body: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            key: const Key('mower-control-scroll-view'),
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                // 30 = 上下内边距（10 + 20）。
+                minHeight: constraints.hasBoundedHeight && constraints.maxHeight > 30
+                    ? constraints.maxHeight - 30
+                    : 0.0,
               ),
-              const SizedBox(height: 24),
-              // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
-              if (_device.faultMessage case final fault?) ...<Widget>[
-                _NoticeBar(fault: fault),
-                const SizedBox(height: 8),
-              ],
-              _TodayPlanCard(schedule: _device.schedule),
-              const SizedBox(height: 8),
-              _ActionPanel(
-                device: _device,
-                checking: _checking,
-                onMode: (mode) => unawaited(_sendMode(mode)),
-                onToggleSwitch: () => unawaited(_toggleSwitch()),
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    MowerStatusCard(
+                      tone: _tone,
+                      percent: _device.battery,
+                      statusLabel: _device.status.label,
+                      wifiLinked: _device.wifiLinked,
+                      bleLinked: _device.bleLinked,
+                    ),
+                    const SizedBox(height: 24),
+                    const Spacer(),
+                    // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
+                    if (_device.faultMessage case final fault?) ...<Widget>[
+                      _NoticeBar(fault: fault),
+                      const SizedBox(height: 8),
+                    ],
+                    _TodayPlanCard(schedule: _device.schedule),
+                    const SizedBox(height: 8),
+                    const Spacer(),
+                    _ActionPanel(
+                      device: _device,
+                      checking: _checking,
+                      onMode: (mode) => unawaited(_sendMode(mode)),
+                      onToggleSwitch: () => unawaited(_toggleSwitch()),
+                    ),
+                  ],
+                ),
               ),
-            ],
+            ),
           ),
         ),
       ),

@@ -170,6 +170,7 @@ void main() {
 
   testWidgets('设备离线：指令不发，页面收到一句提示，界面画回设备的值', (tester) async {
     final repository = _MowerRepository(online: false)
+      ..bleLinked = false
       ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.switchGo: false};
     final state = await _state(repository);
     final device = MowerDevice.instance;
@@ -185,6 +186,26 @@ void main() {
     expect(failures, <String>['割草机已离线，指令没有发出去']);
     expect(device.switchGo, isFalse);
     await sub.cancel();
+    device.resetForTest();
+  });
+
+  testWidgets('Wi-Fi 离线但蓝牙连着：照常下发（交给涂鸦 SDK 走蓝牙）', (tester) async {
+    final repository = _MowerRepository(online: false)
+      ..bleLinked = true
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.switchGo: false};
+    final state = await _state(repository);
+    final device = MowerDevice.instance;
+    await device.bind(state, owner: _owner, deviceId: _mowerId);
+
+    device.setSwitch(state, on: true);
+    await tester.pump();
+    await tester.pump();
+
+    expect(repository.publishedDps.single.$2[MowerDp.switchGo], isTrue);
+    expect(
+      state.interactionLog.any((line) => line.contains('走蓝牙')),
+      isTrue,
+    );
     device.resetForTest();
   });
 

@@ -121,28 +121,19 @@ class _BatteryLine extends StatelessWidget {
       key: const Key('mower-battery-label'),
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        // 充电态图标背后多一圈光晕（`充电动效 / 光晕`）。
-        Container(
-          alignment: Alignment.center,
+        // 充电态图标背后原有一圈光晕（稿子 `充电动效 / 光晕`），2026-09-23 产品要求去掉。
+        SizedBox(
           width: 28,
           height: 28,
-          decoration: tone.showChargingHalo
-              ? BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: MowerColors.brand.withValues(alpha: .1),
-                  border: Border.all(
-                    color: MowerColors.brand.withValues(alpha: .5),
-                    width: 1.5,
-                  ),
-                )
-              : null,
-          child: Image.asset(
-            tone.statusIcon!,
-            width: 22,
-            height: 16,
-            fit: BoxFit.contain,
-            filterQuality: FilterQuality.high,
-            excludeFromSemantics: true,
+          child: Center(
+            child: Image.asset(
+              tone.statusIcon!,
+              width: 22,
+              height: 16,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              excludeFromSemantics: true,
+            ),
           ),
         ),
         const SizedBox(width: 5),

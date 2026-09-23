@@ -1349,8 +1349,26 @@ class FlowerpotState extends ChangeNotifier {
   /// 走和花盆同一个 [_publishDps]：同一道离线门禁（离线回 `device_offline`、指令不发）、
   /// 同一行联调日志。**不占 [_guard] 的忙锁**——割草机页面上连着点几个开关是常态，
   /// 占锁的话第二下会被挡成「请等待当前操作完成」；顺序由 `MowerDevice` 自己排队保证。
+  ///
+  /// ⚠️ **割草机只连蓝牙也能控制**（2026-09-23 产品：「割草机是可以只有蓝牙连接就操控的；涂鸦的
+  /// SDK 是可以自动切换 wifi 和蓝牙连接」）：设备被标成离线（Wi-Fi 那一路断了）时，先看蓝牙
+  /// 连没连——连着就照常交给 SDK（`IThingDevice.publishDps` 自己选通道），蓝牙也没连才按离线拦。
   Future<ActionResult> publishMowerDps(String deviceId, Map<int, Object> dps) =>
       _run(() async {
+        final known = deviceById(deviceId);
+        if (known != null && !known.online) {
+          final link = await _repository.deviceLinkState(deviceId);
+          if (link['ble'] == true) {
+            _logInteraction('下发 → $dps（Wi-Fi 离线、蓝牙连着，交给涂鸦 SDK 走蓝牙）');
+            try {
+              await _repository.publishDps(deviceId, dps);
+            } catch (error) {
+              _logInteraction('下发失败 ✗ $error');
+              rethrow;
+            }
+            return const ActionResult(true, '指令已发送');
+          }
+        }
         await _publishDps(deviceId, dps);
         return const ActionResult(true, '指令已发送');
       });

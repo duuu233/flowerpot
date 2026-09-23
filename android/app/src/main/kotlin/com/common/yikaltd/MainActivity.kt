@@ -2965,8 +2965,37 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val singleBle = bean?.let { optionalGetter(it, "isSingleBle") }
         val bleChannel = bean?.let { channelOnline(it, "BLE") }
         val ability = runCatching { invoke(manager, "getBleConnectAbility", id) }.getOrNull()
+        // SDK 自己「连不连」的判断（7.5.1 解包 ppqbqbb.addConnectTask / qbdddpd）：
+        //   1. BluetoothUtils.isBluetoothEnabled() 为 false → 直接 return，什么都不报；
+        //   2. DeviceBean.isBluetooth() = ProductBean.capability & 1024 为 0 → 这台被跳过，
+        //      「target list is empty」，同样不报错。
+        // 两种都提前判出来、写明原因，不再白等 15 秒超时。
+        val product = bean?.let { optionalGetter(it, "getProductBean") }
+        val capability = product?.let { (optionalGetter(it, "getCapability") as? Number)?.toInt() }
+        val isBluetooth = bean?.let { optionalGetter(it, "isBluetooth") as? Boolean }
+        val phoneBluetoothOn = runCatching {
+            Class.forName(
+                "com.thingclips.sdk.blelib.utils.BluetoothUtils",
+                false,
+                manager.javaClass.classLoader ?: activity.classLoader,
+            ).getMethod("isBluetoothEnabled").invoke(null) as? Boolean
+        }.getOrNull()
+        val bleBit = capability?.let { it.and(1024) != 0 }
         diagnostic += "设备 uuid=$uuid mac=$mac hasBle=$hasBle singleBle=$singleBle " +
-            "bleChannel=$bleChannel connectAbility=$ability"
+            "bleChannel=$bleChannel connectAbility=$ability " +
+            "产品capability=$capability(蓝牙位1024=$bleBit) isBluetooth=$isBluetooth " +
+            "手机蓝牙开=$phoneBluetoothOn"
+        if (phoneBluetoothOn == false) {
+            diagnostic += "手机蓝牙没开：SDK 的 connectBleDevice 会直接返回"
+            success(result, mapOf("connected" to false, "reason" to "phone_bluetooth_off", "diagnostic" to diagnostic))
+            return
+        }
+        if (isBluetooth == false) {
+            diagnostic += "SDK 认为这台不是蓝牙设备（平台产品 capability 没有蓝牙位 1024），" +
+                "connectBleDevice 会跳过它——要在涂鸦平台给产品开蓝牙能力 / 确认模组是双模"
+            success(result, mapOf("connected" to false, "reason" to "not_bluetooth_product", "diagnostic" to diagnostic))
+            return
+        }
         val done = AtomicBoolean(false)
         val handler = Handler(Looper.getMainLooper())
         var listener: Any? = null

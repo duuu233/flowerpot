@@ -199,6 +199,13 @@ class _DayColumn extends StatelessWidget {
   final int day;
   final bool enabled;
   final List<MowerPlanSlot> slots;
+
+  /// 色块顶边：按起点算；块底会伸出纵轴就往上挪到贴底（见上面 Positioned 的说明）。
+  double _blockTop(MowerPlanSlot slot) {
+    final top = MowerPlanChart.offsetForMinutes(slot.startMinutes, axisHeight);
+    final bottomLimit = axisHeight - _blockHeight(slot, axisHeight);
+    return top > bottomLimit ? (bottomLimit < 0 ? 0 : bottomLimit) : top;
+  }
   final void Function(int day, int? slot) onEdit;
   final void Function(MowerPlanSlot slot) onDelete;
 
@@ -223,7 +230,11 @@ class _DayColumn extends StatelessWidget {
         ),
         for (final slot in slots)
           Positioned(
-            top: MowerPlanChart.offsetForMinutes(slot.startMinutes, axisHeight),
+            // 色块至少 [MowerPlanChart._minBlockHeight] 高（放两行时间）。夜里 18–24 点那段
+            // 被压得很扁，21:00–23:00 真按比例只有十几像素，按起点往下画 38 就伸出纵轴底部、
+            // 被下面的图例盖住（2026-09-23 产品：「设置到 21:00 到 23:00 在下面就被挡住了」）。
+            // 伸出去的就整块往上挪，贴着纵轴底边；时间标签照旧写真实时间。
+            top: _blockTop(slot),
             left: 0,
             right: 0,
             child: _SlotBlock(
@@ -236,6 +247,16 @@ class _DayColumn extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 色块高度：按比例的跨度，不足 [MowerPlanChart._minBlockHeight] 就用它。
+double _blockHeight(MowerPlanSlot slot, double axisHeight) {
+  final span =
+      MowerPlanChart.offsetForMinutes(slot.endMinutes, axisHeight) -
+      MowerPlanChart.offsetForMinutes(slot.startMinutes, axisHeight);
+  return span < MowerPlanChart._minBlockHeight
+      ? MowerPlanChart._minBlockHeight
+      : span;
 }
 
 class _SlotBlock extends StatelessWidget {
@@ -253,17 +274,12 @@ class _SlotBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final span =
-        MowerPlanChart.offsetForMinutes(slot.endMinutes, axisHeight) -
-        MowerPlanChart.offsetForMinutes(slot.startMinutes, axisHeight);
     return GestureDetector(
       key: Key('mower-plan-slot-${slot.day}-${slot.slot}'),
       onTap: onTap,
       onLongPress: onLongPress,
       child: Container(
-        height: span < MowerPlanChart._minBlockHeight
-            ? MowerPlanChart._minBlockHeight
-            : span,
+        height: _blockHeight(slot, axisHeight),
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
         decoration: BoxDecoration(
           color: slot.color,

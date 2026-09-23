@@ -34,8 +34,10 @@ class MowerDevice extends ChangeNotifier {
   static const Duration echoTimeout = Duration(seconds: 5);
 
   /// 控制前的蓝牙信号下限（dBm）。**弱于它就拦下、不下发**（2026-09-23 产品：「因安全要求必须在
-  /// 10 米内控制设备」；阈值先说 -50，同日改为 **-80**）。RSSI 越大越近：-60 放行，-85 拦下。
-  static const int minBleRssi = -80;
+  /// 10 米内控制设备」；阈值先说 -50，同日改 -80，再改为 **-90**）。RSSI 越大越近：-85 放行，-95 拦下。
+  ///
+  /// 不管 Wi-Fi 连没连，控制前都要蓝牙连着、信号达标（同日产品确认）。
+  static const int minBleRssi = -90;
 
   /// 蓝牙掉了之后后台自动重连的最短间隔（不弹框；点按钮时的连接不受它限制）。
   static const Duration autoReconnectEvery = Duration(seconds: 30);

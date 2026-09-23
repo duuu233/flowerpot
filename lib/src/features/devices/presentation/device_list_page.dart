@@ -33,7 +33,9 @@ class DeviceListPage extends StatelessWidget {
     SmartPlanterDevice device,
   ) {
     // 这里已经是设备列表页，提示即可，不用再往列表页跳。
-    if (!device.online) {
+    // ⚠️ 割草机不拦（2026-09-23）：它只连蓝牙也能控制，而蓝牙是进了割草机页面才去连的——
+    // 这里按「Wi-Fi 离线」拦下，就永远连不上蓝牙。花盆照旧拦。
+    if (!device.online && !state.isMowerDevice(device)) {
       showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.error);
       return;
     }
@@ -233,10 +235,14 @@ class _DeviceListCard extends StatelessWidget {
                         key: Key('device-list-name-${device.id}'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
+                        // 所有设备名同一个样式（2026-09-23 产品：割草机和花盆「除了图标和名称，
+                        // 其它样式保持一致」）。字重统一常规：App 没带字体，安卓系统中文字体
+                        // 多半只有常规 / 粗体两档，w500 的中文名会落到粗体上，看着比英文名粗。
+                        // （同日曾按「中文 w400、英文 w500」分开，两种设备反而不一样，已撤回。）
+                        style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 18,
-                          fontWeight: _nameWeight(device.name),
+                          fontWeight: FontWeight.w400,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -253,17 +259,6 @@ class _DeviceListCard extends StatelessWidget {
     );
   }
 }
-
-/// 设备名的字重：**名字里有中文就用常规（w400），纯英文用 w500**（2026-09-23 产品：
-/// 「割草机的字体不要加粗了，和花盆的一样就行」）。
-///
-/// 两种设备用的是同一个样式；看着不一样是字体的事：App 没带字体，用系统的。英文 w500 有
-/// 真正的中等字重（Roboto Medium），很多安卓机的中文字体只有常规和粗体两档，w500 就落到
-/// 粗体上——割草机的名字是中文，于是比花盆的「YSplanter-01」粗一圈。
-FontWeight _nameWeight(String name) =>
-    RegExp(r'[\u3400-\u9fff\uf900-\ufaff]').hasMatch(name)
-    ? FontWeight.w400
-    : FontWeight.w500;
 
 /// 设备列表那一列的图：**直接用涂鸦平台上配的产品图**（`DeviceBean.getIconUrl`）。
 ///

@@ -93,11 +93,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('蓝牙信号弱于 -80：提示必须在 10 米内、不下发；-70 就放行', (tester) async {
+  testWidgets('蓝牙信号弱于 -90：提示必须在 10 米内、不下发；-85 就放行', (tester) async {
     final repository = await _pumpMowerHome(
       tester,
       <int, Object?>{MowerDp.switchGo: true, MowerDp.mode: 'standby'},
-      setup: (repository) => repository.bleRssi = -85,
+      setup: (repository) => repository.bleRssi = -95,
     );
 
     await tester.tap(find.byKey(const Key('mower-action-switch')));
@@ -107,7 +107,7 @@ void main() {
     await tester.tap(find.text('我知道了'));
     await tester.pumpAndSettle();
 
-    repository.bleRssi = -70;
+    repository.bleRssi = -85;
     await tester.tap(find.byKey(const Key('mower-action-switch')));
     await tester.pump();
     expect(_sentDps(repository), <int>[MowerDp.switchGo]);

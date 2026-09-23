@@ -67,9 +67,6 @@ enum MowerPowerState {
     batteryWarning => MowerAssets.batteryWarningIcon,
     batteryLow => MowerAssets.batteryLowIcon,
   };
-
-  /// 充电态在图标背后多一圈光晕（`充电动效 / 光晕`）。
-  bool get showChargingHalo => this == MowerPowerState.charging;
 }
 
 // ⚠️ 原来这里有个 `MowerAction` 枚举（自动/定点/回归/停止）。2026-09-18 接 DP 之后
