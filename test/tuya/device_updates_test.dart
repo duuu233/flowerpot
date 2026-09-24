@@ -166,19 +166,19 @@ void main() {
       return (await repository.getDevices()).single.firmwareVersion;
     }
 
-    test('花盆读 DP148，不看 113（花盆的 113 是空气温度状态）', () async {
+    test('花盆读 DP148，不看 112（花盆的 112 是空气温度）', () async {
       final raw = _deviceMap();
       raw['firmwareVersion'] = '9.9.9';
-      raw['dps'] = <Object?, Object?>{'113': '1', '148': '1.0.13'};
+      raw['dps'] = <Object?, Object?>{'112': 246, '148': '1.0.13'};
 
       expect(await firmwareOf(raw), '1.0.13');
     });
 
-    test('割草机读 DP113 fw_version', () async {
+    test('割草机读 DP112 fw_version', () async {
       final raw = _deviceMap();
       raw['productId'] = 'mz7g3yzaufvoh4ls';
       raw['firmwareVersion'] = '9.9.9';
-      raw['dps'] = <Object?, Object?>{'113': '1.1.3'};
+      raw['dps'] = <Object?, Object?>{'112': '1.1.3'};
 
       expect(await firmwareOf(raw), '1.1.3');
     });

@@ -1471,9 +1471,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
     final reportedDays = dp('together_days');
     final productId = '${raw['productId'] ?? raw['pid'] ?? ''}';
-    // 当前固件版本以设备上报的 DP 为准：花盆 DP 148，割草机 DP 113 `fw_version`
-    // （2026-09-24 用户：割草机同步花盆的取法）。两款的 DP 号不能混用——花盆的 113 是
-    // 空气温度状态。都没报时才退回 SDK 的 `verSw`（原生层 `firmwareVersion`）。
+    // 当前固件版本以设备上报的 DP 为准：花盆 DP 148，割草机 DP 112 `fw_version`
+    // （2026-09-24 用户：割草机同步花盆的取法）。两款的 DP 号不能混用——花盆的 112 是
+    // 空气温度。都没报时才退回 SDK 的 `verSw`（原生层 `firmwareVersion`）。
     final firmware =
         (productId.trim() == MowerDp.productId
             ? dps['${MowerDp.fwVersion}'] ?? dps[MowerDp.fwVersion]

@@ -88,10 +88,10 @@ abstract final class MowerDp {
   /// string ro：升级状态。`"7"` 非待机拒绝升级 / `"20"` 升级失败，收到就弹提示（`MowerDevice`）。
   static const int otaStatus = 116;
 
-  /// string ro：当前固件版本，如 `"1.1.3"`（2026-09-24 用户：割草机已有 DP113
-  /// `fw_version`，协议 V2.3 里写的「113 割草记录已下架」是旧编号）。和花盆 DP148 同一用法：
+  /// string ro：当前固件版本，如 `"1.1.3"`（2026-09-24 用户：割草机已有 DP112
+  /// `fw_version`，协议 V2.3 里写的「112 刀片重置已下架」是旧用途，编号已复用）。和花盆 DP148 同一用法：
   /// 设备「当前版本」取它，取不到才退回 SDK 的 `verSw`（`TuyaRepository._device`）。
-  static const int fwVersion = 113;
+  static const int fwVersion = 112;
 
   /// value rw：每次出桩作业时长上限 1-24 小时。本轮没有对应界面。
   static const int operatingTime = 119;
