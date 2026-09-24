@@ -64,6 +64,10 @@ class MowerStatusCard extends StatelessWidget {
                         trackColor: tone.ringTrackColor,
                       ),
                     ),
+                    // 充电中：整机图上方那颗闪电，1.4 s 缓入缓出、循环（稿子 746:2657）。
+                    // 环是 263 见方、Stack 居中，只给 top，横向自动居中。
+                    if (tone == MowerPowerState.charging)
+                      const Positioned(top: 46, child: _ChargingBolt()),
                     // 整机图比环心低 8 px（稿子上它压在环的下半圈里）。
                     Transform.translate(
                       offset: const Offset(0, 8),
@@ -122,21 +126,24 @@ class _BatteryLine extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         // 充电态图标背后原有一圈光晕（稿子 `充电动效 / 光晕`），2026-09-23 产品要求去掉。
-        SizedBox(
-          width: 28,
-          height: 28,
-          child: Center(
-            child: Image.asset(
-              tone.statusIcon!,
-              width: 22,
-              height: 16,
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.high,
-              excludeFromSemantics: true,
+        // 2026-09-24 新稿 746:2657：充电中这一行只剩「充电中 78%」，闪电挪进环里（[_ChargingBolt]）。
+        if (tone != MowerPowerState.charging) ...<Widget>[
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: Center(
+              child: Image.asset(
+                tone.statusIcon!,
+                width: 22,
+                height: 16,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                excludeFromSemantics: true,
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: 5),
+          const SizedBox(width: 5),
+        ],
         // 状态词和百分比放进**同一个 Text** 的两段，共用一条基线（2026-09-23 产品：「电量告警」
         // 「30%」没对齐）。原来是 Row 里两个 Text 各自按方框居中：中文和数字走的是不同字体，
         // 字框高度 / 基线位置不一样，居中后就上下错开。
@@ -158,6 +165,105 @@ class _BatteryLine extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 充电中那颗闪电（稿子 746:2657 图层「Charging/Lightning · 1.4s Ease In Out · Loop ∞」，32×32，#70AFB5）。
+///
+/// 稿子只在图层名里写了**时长、曲线、循环**，没有写动的是什么（Figma 接口也拿不到原型动画），
+/// 这里取「呼吸」：一个周期 1.4 s，前半程变亮放大、后半程变暗缩回，两段都是 ease-in-out。
+/// 系统开了「减弱动态效果」时停在最亮那一帧，不动。
+class _ChargingBolt extends StatefulWidget {
+  const _ChargingBolt();
+
+  @override
+  State<_ChargingBolt> createState() => _ChargingBoltState();
+}
+
+class _ChargingBoltState extends State<_ChargingBolt>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  );
+
+  late final Animation<double> _pulse = TweenSequence<double>(
+    <TweenSequenceItem<double>>[
+      TweenSequenceItem<double>(
+        tween: Tween<double>(
+          begin: 0,
+          end: 1,
+        ).chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 1,
+      ),
+      TweenSequenceItem<double>(
+        tween: Tween<double>(
+          begin: 1,
+          end: 0,
+        ).chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 1,
+      ),
+    ],
+  ).animate(_controller);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final still = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (still) {
+      _controller
+        ..stop()
+        ..value = .5; // 序列的中点 = 最亮、最大
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      key: const Key('mower-charging-bolt'),
+      opacity: _pulse.drive(Tween<double>(begin: .35, end: 1)),
+      child: ScaleTransition(
+        scale: _pulse.drive(Tween<double>(begin: .9, end: 1.04)),
+        child: const CustomPaint(
+          size: Size.square(32),
+          painter: _BoltPainter(),
+        ),
+      ),
+    );
+  }
+}
+
+/// 闪电形状，照抄稿子导出的 SVG 路径（32×32 视框）。
+class _BoltPainter extends CustomPainter {
+  const _BoltPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.width / 32;
+    final path = Path()
+      ..moveTo(18.4524, 2.9091)
+      ..lineTo(6.1797, 17.5709)
+      ..lineTo(15.6472, 17.5709)
+      ..lineTo(12.1407, 29.0909)
+      ..lineTo(25.8161, 13.0327)
+      ..lineTo(16.3485, 13.0327)
+      ..close();
+    canvas
+      ..save()
+      ..scale(scale)
+      ..drawPath(path, Paint()..color = MowerColors.brand)
+      ..restore();
+  }
+
+  @override
+  bool shouldRepaint(_BoltPainter oldDelegate) => false;
 }
 
 /// 状态胶囊 + 两颗连接图标。稿子上它们压在环的下沿上。
