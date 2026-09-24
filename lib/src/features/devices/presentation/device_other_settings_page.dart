@@ -6,8 +6,8 @@ import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/widgets/blocking_progress.dart';
 import '../../../tuya/tuya_models.dart';
-import '../../../tuya/tuya_repository.dart' show TuyaException;
 import 'device_online_guard.dart';
+import 'firmware_upgrade_flow.dart';
 import 'widgets/ota_progress_dialog.dart';
 import 'widgets/water_level_calibration_dialog.dart';
 
@@ -45,8 +45,6 @@ class DeviceOtherSettingsPage extends StatefulWidget {
 
 class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     with NetworkRetryAware<DeviceOtherSettingsPage> {
-  bool _updatingFirmware = false;
-
   @override
   void initState() {
     super.initState();
@@ -56,9 +54,9 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final state = FlowerpotScope.of(context);
-      final device = state.deviceById(widget.deviceId);
-      if (widget.startFirmwareUpgrade && device != null) {
-        _checkFirmware(device);
+      if (widget.startFirmwareUpgrade &&
+          state.deviceById(widget.deviceId) != null) {
+        _checkFirmware();
         return;
       }
       state.refreshFirmwareUpdate(widget.deviceId);
@@ -105,13 +103,15 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
                 children: <Widget>[
                   _GeneralSettingsCard(
                     device: device,
-                    updatingFirmware: _updatingFirmware,
+                    updatingFirmware: state.isCheckingFirmware(
+                      widget.deviceId,
+                    ),
                     ota: ota,
                     firmwareUpdate: state.hasFirmwareUpdate(widget.deviceId),
                     onTemperatureUnit: () => _chooseTemperatureUnit(device),
                     onClockFormat: () => _chooseClockFormat(device),
                     onCalibration: _calibrateWaterLevel,
-                    onFirmware: () => _checkFirmware(device),
+                    onFirmware: _checkFirmware,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _DeviceActionsCard(
@@ -178,103 +178,8 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     );
   }
 
-  /// 检查固件，有新版本就弹确认框并发起升级。
-  ///
-  /// 「发起」和「完成」是两件事：涂鸦的 `startOta` 返回时设备才刚开始下载，
-  /// 之后几分钟的进度和最终成败都从事件通道回来（见 `FlowerpotState.otaUpdates`），
-  /// 所以这里只负责起头，进度显示在功能行上。
-  ///
-  /// [confirmed] 为 true 时跳过「检查更新」确认框：用户已经在固件升级提醒弹窗里点过
-  /// 「立刻更新」，见 `FirmwareReminderHost`。
-  Future<void> _checkFirmware(
-    SmartPlanterDevice device, {
-    bool confirmed = false,
-  }) async {
-    if (_updatingFirmware) return;
-    final state = FlowerpotScope.of(context);
-    // 升级发起后本地标志就复位了，真正的进行中状态在 state 里，否则用户能在
-    // 设备还在烧录时再发起一次。
-    final running =
-        state.otaProgressFor(widget.deviceId)?.status == OtaStatus.running;
-    // 进页面时静默查过一次，红点就是那次的结论；只有用户点的是「重新检查」时
-    // 才不能拿那份旧结论糊弄他。
-    var useKnownVersion = true;
-    if (running) {
-      // 设备掉电、掉线或校验失败时，涂鸦可能再也不回终态。十分钟没有任何事件
-      // 就让用户重新检查，而不是把他锁在一个永远不动的进度上。
-      if (!state.otaStalled(widget.deviceId)) {
-        showAppMessage(context, '固件正在升级中，请等待完成', tone: AppMessageTone.info);
-        return;
-      }
-      final retry = await showAppConfirmDialog(
-        context,
-        title: '升级似乎已中断',
-        message:
-            '设备已经很久没有回报升级进度。可以重新检查固件；'
-            '若设备仍在升级中，请等它完成后再试。',
-        confirmLabel: '重新检查',
-        icon: Icons.sync_problem_outlined,
-      );
-      if (!retry || !mounted) return;
-      useKnownVersion = false;
-      state.clearOtaProgress(widget.deviceId);
-    }
-    setState(() => _updatingFirmware = true);
-    try {
-      // 已经知道版本号就不再问第二遍，直接把两个版本摆给用户看。
-      final known = useKnownVersion
-          ? state.availableFirmwareFor(widget.deviceId)
-          : null;
-      final update = known ?? await state.checkFirmware(widget.deviceId);
-      if (!mounted) return;
-      // 「当前版本」优先用同一条 OTA 记录里的那个：设备可能有 MCU、Wi-Fi 模块
-      // 几个可升级组件，拿设备列表里的固件版本和另一个组件的新版本并排显示，
-      // 两行就对不上。SDK 没给才退回设备列表里的版本。
-      final currentVersion = update?.currentVersion ?? device.firmwareVersion;
-      if (update == null || update.version == currentVersion) {
-        showAppMessage(context, '当前已是最新固件版本');
-        return;
-      }
-      if (!confirmed) {
-        setState(() => _updatingFirmware = false);
-        final accepted = await showFirmwareUpdateDialog(
-          context,
-          currentVersion: currentVersion,
-          availableVersion: update.version,
-        );
-        if (!accepted || !mounted) return;
-        setState(() => _updatingFirmware = true);
-      }
-      final result = await state.upgradeFirmware(
-        widget.deviceId,
-        update.version,
-      );
-      if (!mounted) return;
-      if (!result.success) {
-        showDeviceActionResult(context, result);
-        return;
-      }
-      // 升级只是「发起」了，进度和成败随后从事件通道回来：盖一个进度弹层，
-      // 用户点完更新能看见百分比在动，而不是对着一行小字干等。
-      await showOtaProgressDialog(context, deviceId: widget.deviceId);
-    } on TuyaException catch (error) {
-      // SDK 的原始码对用户没有意义，但 message 是能照着做的那句；直接把
-      // `Instance of 'TuyaException'` 丢到界面上是之前的行为。
-      if (mounted) {
-        showAppMessage(
-          context,
-          '固件检查失败：${error.message}',
-          tone: AppMessageTone.error,
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        showAppMessage(context, '固件检查失败：$error', tone: AppMessageTone.error);
-      }
-    } finally {
-      if (mounted) setState(() => _updatingFirmware = false);
-    }
-  }
+  /// 固件版本更新：和割草机「设备升级」共用 [runFirmwareUpgrade]（逻辑和交互都是那一份）。
+  Future<void> _checkFirmware() => runFirmwareUpgrade(context, widget.deviceId);
 
   /// 重新配网 = 先解绑，再从搜索设备重新走一遍。
   ///
@@ -562,123 +467,6 @@ class _SettingsChoiceOption extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-Future<bool> showFirmwareUpdateDialog(
-  BuildContext context, {
-  required String currentVersion,
-  required String availableVersion,
-}) async {
-  return await showDialog<bool>(
-        context: context,
-        barrierColor: Colors.black.withValues(alpha: .42),
-        builder: (dialogContext) => Dialog(
-          key: const Key('firmware-update-dialog'),
-          // **居中**（产品 2026-09-12：「检查更新弹框要居中」）。
-          //
-          // 这里推翻了 2026-09-11 的口径——那次两个弹框一起贴了底。现在两个各归各位：
-          // 「检查更新」是个要看清版本号、需要做决定的框，居中；点了「立即更新」之后
-          // 的进度层才是底部弹层（见 `showOtaProgressDialog`）。alignment 不写就是
-          // Flutter 默认的居中，insetPadding 也回到默认的左右 40 / 上下 24。
-          shape: const RoundedRectangleBorder(borderRadius: AppRadius.dialog),
-          clipBehavior: Clip.antiAlias,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 327),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                // 稿子 214:5981：左右 38，标题到版本 20、两行间 11、到分隔线 30。
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(38, 28, 38, 30),
-                  child: Column(
-                    children: <Widget>[
-                      Text(
-                        '检查更新',
-                        style: AppTypography.deviceTitle.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      _FirmwareVersionRow(
-                        label: '当前版本',
-                        version: _displayVersion(currentVersion),
-                      ),
-                      const SizedBox(height: 11),
-                      _FirmwareVersionRow(
-                        label: '发现新版本',
-                        version: _displayVersion(availableVersion),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                IntrinsicHeight(
-                  child: Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: TextButton(
-                          key: const Key('postpone-firmware-update'),
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size.fromHeight(56),
-                            foregroundColor: AppColors.textSecondary,
-                            shape: const RoundedRectangleBorder(),
-                          ),
-                          onPressed: () => Navigator.pop(dialogContext, false),
-                          child: Text(
-                            '稍后',
-                            style: AppTypography.status.copyWith(
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const VerticalDivider(width: 1),
-                      Expanded(
-                        child: TextButton(
-                          key: const Key('install-firmware-update'),
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size.fromHeight(56),
-                            foregroundColor: AppColors.brandPrimary,
-                            shape: const RoundedRectangleBorder(),
-                          ),
-                          onPressed: () => Navigator.pop(dialogContext, true),
-                          child: Text(
-                            '立即更新',
-                            style: AppTypography.status.copyWith(
-                              color: AppColors.brandPrimary,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ) ??
-      false;
-}
-
-String _displayVersion(String version) =>
-    version.startsWith('V') ? version : 'V$version';
-
-class _FirmwareVersionRow extends StatelessWidget {
-  const _FirmwareVersionRow({required this.label, required this.version});
-
-  final String label;
-  final String version;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Expanded(child: Text(label, style: AppTypography.status)),
-        Text(version, style: AppTypography.status),
-      ],
     );
   }
 }

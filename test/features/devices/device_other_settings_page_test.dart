@@ -398,6 +398,54 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('固件版本更新：离线时提示「花盆已离线」，不弹框也不升级', (tester) async {
+    // 2026-09-24 用户：离线也拦，花盆同步割草机的提示，不跳页。
+    final repository = _OtherSettingsRepository()..online = false;
+    final state = await _pumpOtherSettings(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+
+    await tester.tap(find.text('固件版本更新'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('花盆已离线，无法检查固件'), findsOneWidget);
+    expect(find.byKey(const Key('firmware-update-dialog')), findsNothing);
+    expect(state.otaProgressFor('device-01'), isNull);
+    expect(find.byType(DeviceOtherSettingsPage), findsOneWidget, reason: '不跳页');
+    expect(tester.takeException(), isNull);
+    await tester.pump(const Duration(seconds: 11));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('升级中再点「固件版本更新」：重新打开进度弹层', (tester) async {
+    // 2026-09-24 用户：花盆同步割草机的，升级中点入口打开进度弹层（原来只弹一句提示）。
+    final repository = _OtherSettingsRepository();
+    final state = await _pumpOtherSettings(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await state.upgradeFirmware('device-01', '1.1.2');
+    await tester.pump();
+    expect(find.byKey(const Key('ota-progress-dialog')), findsNothing);
+
+    await tester.tap(find.text('固件版本更新'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byKey(const Key('ota-progress-dialog')), findsOneWidget);
+    expect(find.byKey(const Key('firmware-update-dialog')), findsNothing);
+
+    // 收尾：报成功，停掉进度条的循环动画。
+    repository.pushOtaProgress(
+      const OtaProgress(deviceId: 'device-01', status: OtaStatus.success),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a firmware waiting to be installed shows a red dot', (
     tester,
   ) async {

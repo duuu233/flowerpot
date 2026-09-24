@@ -89,6 +89,11 @@ class MowerSettingsPage extends StatelessWidget {
         state.otaProgressFor(id)?.status != OtaStatus.running;
   }
 
+  static bool _firmwareChecking(BuildContext context) {
+    final id = MowerDevice.instance.deviceId;
+    return id != null && FlowerpotScope.of(context).isCheckingFirmware(id);
+  }
+
   /// 删除设备：和花盆「移除设备」同一套（2026-09-23 产品：「跟花盆一样的啊，只是产品 ID 不一样」）——
   /// 确认 → 涂鸦解绑（`removeDevice`）+ 删后台记录 → 回到首页。
   /// 不走花盆的「恢复出厂」那条：它要先发花盆的 DP 141，割草机没有这个 DP。
@@ -158,6 +163,9 @@ class MowerSettingsPage extends StatelessWidget {
                       // 有新固件就在「设备升级」亮红点（与花盆「固件版本更新」同口径：
                       // 升级进行中不亮）。
                       badge: _entries[i] == '设备升级' && _firmwareBadge(context),
+                      // 问云端 / 发起升级期间转圈，和花盆那一行同一个状态。
+                      loading:
+                          _entries[i] == '设备升级' && _firmwareChecking(context),
                       onTap: () => unawaited(_open(context, _entries[i])),
                     ),
                     if (i != _entries.length - 1) const MowerRowDivider(),
@@ -192,6 +200,7 @@ class MowerSettingsRow extends StatelessWidget {
     super.key,
     this.height = 56,
     this.badge = false,
+    this.loading = false,
   });
 
   final String label;
@@ -200,6 +209,9 @@ class MowerSettingsRow extends StatelessWidget {
 
   /// 行尾箭头前的小红点（和花盆设置行同一个 [AppNoticeDot]）。
   final bool badge;
+
+  /// 箭头前转圈（和花盆设置行同一个样式：16 见方、线宽 2）。
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
@@ -224,6 +236,13 @@ class MowerSettingsRow extends StatelessWidget {
               ),
               if (badge) ...<Widget>[
                 const AppNoticeDot(semanticLabel: '有新固件'),
+                const SizedBox(width: 6),
+              ],
+              if (loading) ...<Widget>[
+                const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
                 const SizedBox(width: 6),
               ],
               const Icon(

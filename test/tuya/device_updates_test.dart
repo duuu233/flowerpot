@@ -157,6 +157,42 @@ void main() {
     });
   });
 
+  group('当前固件版本', () {
+    Future<String> firmwareOf(Map<Object?, Object?> raw) async {
+      messenger.setMockMethodCallHandler(
+        const MethodChannel(_methodChannel),
+        (call) async => call.method == 'getDevices' ? <Object?>[raw] : null,
+      );
+      return (await repository.getDevices()).single.firmwareVersion;
+    }
+
+    test('花盆读 DP148，不看 113（花盆的 113 是空气温度状态）', () async {
+      final raw = _deviceMap();
+      raw['firmwareVersion'] = '9.9.9';
+      raw['dps'] = <Object?, Object?>{'113': '1', '148': '1.0.13'};
+
+      expect(await firmwareOf(raw), '1.0.13');
+    });
+
+    test('割草机读 DP113 fw_version', () async {
+      final raw = _deviceMap();
+      raw['productId'] = 'mz7g3yzaufvoh4ls';
+      raw['firmwareVersion'] = '9.9.9';
+      raw['dps'] = <Object?, Object?>{'113': '1.1.3'};
+
+      expect(await firmwareOf(raw), '1.1.3');
+    });
+
+    test('设备没报版本 DP 时退回 SDK 的 verSw', () async {
+      final raw = _deviceMap();
+      raw['productId'] = 'mz7g3yzaufvoh4ls';
+      raw['firmwareVersion'] = '1.1.0';
+      raw['dps'] = <Object?, Object?>{'148': '1.0.13'};
+
+      expect(await firmwareOf(raw), '1.1.0');
+    });
+  });
+
   group('FlowerpotState', () {
     setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../features/mower/mower_dp.dart' show MowerDp;
 import 'tuya_config.dart';
 import 'tuya_history_codec.dart';
 import 'tuya_memorial_codec.dart';
@@ -1469,12 +1470,18 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     _snapshots[deviceId] = raw;
 
     final reportedDays = dp('together_days');
-    // DP 148 is the firmware the device runs; `getPv` on the device bean is the
-    // protocol version, so it is only a fallback.
-    final firmware = dp('firmware_version') ?? raw['firmwareVersion'];
+    final productId = '${raw['productId'] ?? raw['pid'] ?? ''}';
+    // 当前固件版本以设备上报的 DP 为准：花盆 DP 148，割草机 DP 113 `fw_version`
+    // （2026-09-24 用户：割草机同步花盆的取法）。两款的 DP 号不能混用——花盆的 113 是
+    // 空气温度状态。都没报时才退回 SDK 的 `verSw`（原生层 `firmwareVersion`）。
+    final firmware =
+        (productId.trim() == MowerDp.productId
+            ? dps['${MowerDp.fwVersion}'] ?? dps[MowerDp.fwVersion]
+            : dp('firmware_version')) ??
+        raw['firmwareVersion'];
     return SmartPlanterDevice(
       id: deviceId,
-      productId: '${raw['productId'] ?? raw['pid'] ?? ''}',
+      productId: productId,
       name: '${raw['name'] ?? '智能花盆'}',
       iconUrl: '${raw['iconUrl'] ?? ''}',
       online: boolean(raw['online'], false),

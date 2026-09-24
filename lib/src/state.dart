@@ -57,6 +57,10 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, FirmwareUpdate> _availableFirmware =
       <String, FirmwareUpdate>{};
 
+  /// 正在走升级入口（问云端 / 发起升级）的设备。花盆「固件版本更新」和割草机「设备升级」
+  /// 两行的转圈、以及入口的防连点都看它，见 `runFirmwareUpgrade`。
+  final Set<String> _firmwareChecking = <String>{};
+
   /// [probeWifi] 自己的重入保护，见那里的说明。
   bool _wifiScanning = false;
 
@@ -2899,6 +2903,18 @@ class FlowerpotState extends ChangeNotifier {
     } catch (_) {
       // 查不到就当作「这次没查到新版本」，保留上一次的结论。
     }
+  }
+
+  /// 这台设备是不是正在走升级入口（入口那一行转圈）。
+  bool isCheckingFirmware(String deviceId) =>
+      _firmwareChecking.contains(deviceId);
+
+  /// 由 `runFirmwareUpgrade` 进出时各调一次。
+  void setCheckingFirmware(String deviceId, bool checking) {
+    final changed = checking
+        ? _firmwareChecking.add(deviceId)
+        : _firmwareChecking.remove(deviceId);
+    if (changed) notifyListeners();
   }
 
   /// 这台设备有没有待装的新固件（小红点）。
