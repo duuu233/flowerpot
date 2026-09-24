@@ -6,6 +6,7 @@
 
 | 日期 | 更新内容 | 落点 |
 | --- | --- | --- |
+| 2026-09-24 | 新增附录：发起升级与进度的实现步骤（逐层调用的方法） | 附录 A |
 | 2026-09-24 | 更正：割草机版本号是 DP112（此前误写 113）；固件方「订阅 DP112」对割草机成立 | §4、§5 |
 | 2026-09-24 | 花盆与割草机的升级入口统一为 `runFirmwareUpgrade`；割草机当前版本改读设备 DP | §1 触发时机、§4、§5 |
 | 2026-09-24 | 改为只讲升级状态监控：新版本怎么发现、升级中状态怎么收、结束与兜底、现状缺口 | 全文重写 |
@@ -38,6 +39,8 @@
 ## 2. 升级中状态监控（推送）
 
 ### 2.1 链路
+
+逐层调用的方法见 [附录 A](#附录-a发起升级与进度实现步骤)。
 
 ```
 发起升级（原生层只回答「已发起」）
@@ -119,3 +122,88 @@
 - iOS 不转发阶段码，只有百分比和成败。
 - 涂鸦 App SDK 有没有「新版本可用」的推送接口，还没解包核对。
 - 固件方清单里的「订阅 DP112」：对**割草机**成立——DP112 `fw_version` 是它上报的当前版本，设备重新连上云端时会报一次，App 目前只拿它显示版本，还没用它触发重查新版本（即上面第二条）。花盆的 112 是空气温度，花盆对应的是 DP148。
+
+## 附录 A：发起升级与进度——实现步骤
+
+**通道**：方法通道 `com.common.yikaltd/tuya`（Dart 调原生），事件通道 `com.common.yikaltd/tuya_events`（原生推给 Dart）。
+
+### A1. 入口（Dart，花盆和割草机共用）
+
+`runFirmwareUpgrade(context, deviceId, {confirmed, log})`（`features/devices/presentation/firmware_upgrade_flow.dart`）：
+- 花盆：「其他设置 → 固件版本更新」（`DeviceOtherSettingsPage._checkFirmware`）调它；
+- 割草机：「设置 → 设备升级」经 `upgradeMowerFirmware` 调它，额外传入联调日志 `log`；
+- 升级提醒弹窗（`FirmwareReminderHost`）点「立刻更新」：先跳到上面两个设置页，再调它。
+
+入口里依次处理：
+1. 正在升级、没卡住 → `showOtaProgressDialog`；卡住了 → `showAppConfirmDialog`（「升级似乎已中断」），确认后 `clearOtaProgress`；
+2. `isDeviceOnline` 为 false → `showAppMessage`（「花盆 / 割草机已离线，无法检查固件」）；
+3. `setCheckingFirmware(id, true)`，入口行开始转圈；
+4. 取 `availableFirmwareFor(id)`，没有就 `checkFirmware(id)` 问云端；
+5. `showFirmwareUpdateDialog`（当前版本 → 新版本）；
+6. 用户点「立即更新」→ `FlowerpotState.upgradeFirmware(id, version)`；
+7. 成功 → `showOtaProgressDialog`；失败 → `showDeviceActionResult`；
+8. `finally` 里 `setCheckingFirmware(id, false)`。
+
+### A2. 状态层发起（`state.dart`）
+
+`upgradeFirmware` 包在 `_guard` 里：
+1. `await _repository.startFirmwareUpgrade(id)`；
+2. `_pendingOtaVersion[id] = version`，记下目标版本；
+3. `_otaProgress[id] = OtaProgress(running, percent: 0)`；
+4. `_otaUpdatedAt[id] = now`；
+5. 返回 `ActionResult(true, …)`。
+
+### A3. 仓库层（`tuya_repository.dart`）
+
+`MethodChannelTuyaRepository.startFirmwareUpgrade(deviceId)` → `_invoke('startFirmwareUpgrade', {deviceId})`。
+
+### A4. 原生发起
+
+**Android**（`MainActivity.kt`，涂鸦类通过反射调用）：
+1. `handle(call)` 收到 `"startFirmwareUpgrade"` → `startFirmwareUpgrade(call, result)`；
+2. `otaInstance(deviceId)`：`ThingHomeSdk.newOTAInstance(devId)`，按 deviceId 缓存在 `otaInstances`，避免监听被回收；
+3. `ota.setOtaListener(otaListenerProxy(...))`，这是 `IThingOtaListener` 的动态代理；
+4. `ota.startOta()`，随即 `answerStarted()`，也就是 `result.success(null)`，只代表「已发起」；
+5. 老版本 SDK 没有 `setOtaListener` 时，改用 `startOta(callback)`。
+
+**iOS**（`AppDelegate.swift`）：
+1. `startFirmwareUpgrade(args, result)`；
+2. `otaDevice(id)`：设备已在监听中就复用那个实例，否则新建 `ThingSmartDevice`，设 `delegate = self`，放进 `upgrading` 留住引用；
+3. `device.getFirmwareUpgradeInfo` 取 `upgradeStatus == 1` 那条记录；没有就回错误 `firmware_up_to_date`；
+4. `device.upgradeFirmware(pending.type, success: result(nil), failure: releaseOta + 回错误)`。
+
+### A5. 原生回调 → 事件
+
+事件格式统一为 `{deviceId, ota: {status, percent?, stage?, message?}}`：Android 经 `emitOta` → `emit` → `events.success`，iOS 经 `emitOta` → `emit` → `eventSink`。
+
+| Android 回调（代理） | iOS 回调（delegate） | 发出的事件 |
+| --- | --- | --- |
+| `onProgress(type, percent)` | `device(_:firmwareUpgradeProgress:progress:)` | `running` + `percent`（iOS 为 `progress × 100`） |
+| `onStatusChanged(code, type)`，只转 2/5/6/13/14/100 | 无 | `running` + `stage` |
+| `onSuccess` | `deviceFirmwareUpgradeSuccess` | `success`，然后 `releaseOta` |
+| `onFailure` / `onError` | `deviceFirmwareUpgradeFailure` | `failed` + `message`，然后 `releaseOta` |
+
+`releaseOta`：Android 移出缓存并调 `onDestroy`；iOS 移出 `upgrading` 并把 `delegate` 置空。退出登录时，`releaseDeviceListeners` 会把所有 OTA 实例一起释放。
+
+### A6. Dart 接收（`tuya_repository.dart` → `state.dart`）
+
+1. `otaUpdates = _rawEvents.map(_otaUpdate)`：把事件解析成 `OtaProgress`，阶段码经 `OtaStage.fromTuya` 转换；
+2. `_listenForDeviceUpdates()` 里订阅：`_repository.otaUpdates.listen(_applyOtaProgress)`；
+3. `_applyOtaProgress(incoming)`：
+   - 已经有了结论（成功或失败），迟到的 `running` 事件直接丢弃；
+   - 百分比和阶段码缺哪个，就沿用上一次的值；
+   - 更新 `_otaProgress[id]`、`_otaUpdatedAt[id]`；
+   - `success`：`_availableFirmware.remove(id)` 熄灭红点，`_replaceDevice(... firmwareVersion: 目标版本)`；
+   - `failed`：`_pendingOtaVersion.remove(id)`；
+   - 最后 `notifyListeners()`。
+
+### A7. 界面（`ota_progress_dialog.dart`）
+
+- `showOtaProgressDialog`：`showDialog` 贴底、满宽，`PopScope(canPop: !running)`，升级结束前关不掉；
+- `_OtaProgressDialog` 读 `state.otaProgressFor(id)`，由 `OtaProgress.displayStage` 决定显示哪个阶段，文案由 `otaRunningLabel` 生成：0% 准备中 / 1–97% 升级中 N% / ≥98% 或阶段码 6 安装中；
+- `_holding`：进度走到 98% 时先停留 0.9 秒（`_holdAt98`），再切到安装中。
+
+### A8. 兜底
+
+- `otaStalled(id)`：状态还是 `running`，但超过 10 分钟（`otaStallTimeout`）没有任何事件，就判定为卡住；再点入口时走 A1 的第 1 步；
+- 割草机另有 DP116：`MowerDevice` 处理上报时，看到 `changed` 里有 116，`"7"` 或 `"20"` 就经 `_failures` 发给 `MowerHomePage`，弹提示。
