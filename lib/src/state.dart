@@ -46,7 +46,8 @@ class FlowerpotState extends ChangeNotifier {
   /// [otaStalled]。
   final Map<String, DateTime> _otaUpdatedAt = <String, DateTime>{};
 
-  /// 已发起升级但尚未收到 success 的目标版本号，收到后才写回设备。
+  /// 已发起升级但尚未收到 success 的目标版本号（涂鸦检测升级返回的新版本），收到后才写回
+  /// 设备。涂鸦报失败时不清——版本号 DP 兜底还要拿它比（`_confirmOtaByReportedVersion`）。
   final Map<String, String> _pendingOtaVersion = <String, String>{};
 
   /// 云端说这台设备可以装、但还没装上的固件。
@@ -3590,10 +3591,43 @@ class FlowerpotState extends ChangeNotifier {
           (device) => device.copyWith(firmwareVersion: target),
         );
       }
-    } else if (progress.status == OtaStatus.failed) {
-      _pendingOtaVersion.remove(progress.deviceId);
     }
+    // 失败时**不丢**目标版本：涂鸦报了失败（多半是超时）而设备其实装上了的话，
+    // 随后版本号 DP 报上来仍能按目标版本认成功（[_confirmOtaByReportedVersion]）。
+    // 重新检查（[clearOtaProgress]）或下一次成功时才清。
     notifyListeners();
+  }
+
+  /// OTA 兜底：设备上报的版本号等于这次升级的**目标版本**，就按升级完成处理
+  /// （2026-09-24 用户：花盆看 DP148、割草机看 DP112；目标版本是涂鸦 SDK 检测升级
+  /// 返回的新版本号，不是设备当前版本号）。
+  ///
+  /// 涂鸦的成功回调可能丢（监听被回收、App 切后台、SDK 先报了超时失败），界面就会一直
+  /// 停在「固件安装中」。设备装完重启、连上云端后会报一次版本号 DP，这里拿它补上结论：
+  /// 进度弹层随之换成「升级完成」，红点熄灭，版本号更新。
+  ///
+  /// 只认**这条报文里真的带了**版本号 DP（[DeviceUpdate.changedDps]），并且 App 里
+  /// 发起过这次升级（有目标版本）；已经是成功的不再重复。
+  void _confirmOtaByReportedVersion(
+    SmartPlanterDevice device,
+    Set<int> changedDps,
+  ) {
+    final dpId = isMowerDevice(device)
+        ? MowerDp.fwVersion
+        : TuyaConfig.dp['firmware_version'];
+    if (dpId == null || !changedDps.contains(dpId)) return;
+    final target = _pendingOtaVersion[device.id];
+    if (target == null) return;
+    if (_otaProgress[device.id]?.status == OtaStatus.success) return;
+    String bare(String version) =>
+        version.trim().replaceFirst(RegExp('^[Vv]'), '');
+    if (bare(device.firmwareVersion) != bare(target)) return;
+    _logInteraction(
+      'OTA 兜底 ← DP$dpId 上报版本 ${device.firmwareVersion} = 目标版本，按升级完成处理',
+    );
+    _applyOtaProgress(
+      OtaProgress(deviceId: device.id, status: OtaStatus.success),
+    );
   }
 
   /// Applies a change the device pushed on its own.
@@ -3637,6 +3671,7 @@ class FlowerpotState extends ChangeNotifier {
     // A report for a device the session does not hold: the next list refresh
     // is what introduces it.
     if (index < 0) return;
+    _confirmOtaByReportedVersion(device, update.changedDps);
     // 割草机：列表那一行换成最新快照（在线态、名字）就够了。下面是花盆专用的——
     // 割草机的 DP116 是升级状态，当成植物 id 去后端查只会白发请求。
     if (isMowerDevice(device)) {

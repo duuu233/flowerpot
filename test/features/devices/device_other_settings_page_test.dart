@@ -446,6 +446,38 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('OTA 兜底：DP148 报了目标版本，进度弹层换成「升级完成」', (tester) async {
+    // 2026-09-24 用户：和涂鸦成功回调并存，任何一方满足就跳成功页。这里只报版本号、不报回调。
+    final repository = _OtherSettingsRepository();
+    final state = await _pumpOtherSettings(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.tap(find.text('固件版本更新'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('install-firmware-update')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('ota-progress-dialog')), findsOneWidget);
+
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _device.copyWith(firmwareVersion: '1.1.2'),
+        changedDps: <int>{TuyaConfig.dp['firmware_version']!},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ota-progress-title'))).data,
+      '升级完成',
+    );
+    expect(find.byKey(const Key('ota-progress-close')), findsOneWidget);
+    expect(state.deviceById('device-01')?.firmwareVersion, '1.1.2');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a firmware waiting to be installed shows a red dot', (
     tester,
   ) async {
