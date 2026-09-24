@@ -47,7 +47,7 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, DateTime> _otaUpdatedAt = <String, DateTime>{};
 
   /// 已发起升级但尚未收到 success 的目标版本号（涂鸦检测升级返回的新版本），收到后才写回
-  /// 设备。涂鸦报失败时不清——版本号 DP 兜底还要拿它比（`_confirmOtaByReportedVersion`）。
+  /// 设备；版本号 DP 兜底也拿它比（`_confirmOtaByReportedVersion`）。
   final Map<String, String> _pendingOtaVersion = <String, String>{};
 
   /// 云端说这台设备可以装、但还没装上的固件。
@@ -3591,10 +3591,9 @@ class FlowerpotState extends ChangeNotifier {
           (device) => device.copyWith(firmwareVersion: target),
         );
       }
+    } else if (progress.status == OtaStatus.failed) {
+      _pendingOtaVersion.remove(progress.deviceId);
     }
-    // 失败时**不丢**目标版本：涂鸦报了失败（多半是超时）而设备其实装上了的话，
-    // 随后版本号 DP 报上来仍能按目标版本认成功（[_confirmOtaByReportedVersion]）。
-    // 重新检查（[clearOtaProgress]）或下一次成功时才清。
     notifyListeners();
   }
 
@@ -3602,12 +3601,17 @@ class FlowerpotState extends ChangeNotifier {
   /// （2026-09-24 用户：花盆看 DP148、割草机看 DP112；目标版本是涂鸦 SDK 检测升级
   /// 返回的新版本号，不是设备当前版本号）。
   ///
-  /// 涂鸦的成功回调可能丢（监听被回收、App 切后台、SDK 先报了超时失败），界面就会一直
-  /// 停在「固件安装中」。设备装完重启、连上云端后会报一次版本号 DP，这里拿它补上结论：
-  /// 进度弹层随之换成「升级完成」，红点熄灭，版本号更新。
+  /// 涂鸦的成功回调可能丢（监听被回收、App 切后台），界面就会一直停在「固件安装中」。
+  /// 设备装完重启、连上云端后会报一次版本号 DP，这里拿它补上结论：进度弹层随之换成
+  /// 「升级完成」，红点熄灭，版本号更新。和涂鸦成功回调**并存**，谁先到谁算。
   ///
-  /// 只认**这条报文里真的带了**版本号 DP（[DeviceUpdate.changedDps]），并且 App 里
-  /// 发起过这次升级（有目标版本）；已经是成功的不再重复。
+  /// 三个条件都要满足：
+  /// - **只在「固件安装中」这一段判断**（2026-09-24 用户：「必须是 98% 以后，就是出现
+  ///   固件安装中这个过程才去判断」）：仍在升级中，且 [OtaProgress.displayStage] 是
+  ///   安装中（进度 ≥ [OtaProgress.installingPercent] 或涂鸦报了阶段 6）。已成功、已失败、
+  ///   还在准备或下载的都不看；
+  /// - **这条报文里真的带了**版本号 DP（[DeviceUpdate.changedDps]），不看快照里的旧值；
+  /// - App 里发起过这次升级（有目标版本），且版本号相等（忽略前面的 `V`）。
   void _confirmOtaByReportedVersion(
     SmartPlanterDevice device,
     Set<int> changedDps,
@@ -3616,9 +3620,14 @@ class FlowerpotState extends ChangeNotifier {
         ? MowerDp.fwVersion
         : TuyaConfig.dp['firmware_version'];
     if (dpId == null || !changedDps.contains(dpId)) return;
+    final progress = _otaProgress[device.id];
+    if (progress == null ||
+        progress.status != OtaStatus.running ||
+        progress.displayStage != OtaStage.installing) {
+      return;
+    }
     final target = _pendingOtaVersion[device.id];
     if (target == null) return;
-    if (_otaProgress[device.id]?.status == OtaStatus.success) return;
     String bare(String version) =>
         version.trim().replaceFirst(RegExp('^[Vv]'), '');
     if (bare(device.firmwareVersion) != bare(target)) return;

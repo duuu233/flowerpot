@@ -264,8 +264,9 @@ void main() {
     state.dispose();
   });
 
-  group('OTA 兜底：版本号 DP 等于目标版本就算升级完成', () {
-    // 2026-09-24 用户：花盆看 DP148、割草机看 DP112；目标版本是涂鸦检测升级返回的新版本。
+  group('OTA 兜底：安装中（≥98%）时版本号 DP 等于目标版本就算升级完成', () {
+    // 2026-09-24 用户：花盆看 DP148、割草机看 DP112；目标版本是涂鸦检测升级返回的新版本；
+    // 必须是 98% 以后（出现「固件安装中」）才判断；和涂鸦成功回调并存，任何一方满足就算。
     Future<void> report(
       _OtaRepository repository,
       String version,
@@ -281,11 +282,32 @@ void main() {
       await Future<void>.delayed(Duration.zero);
     }
 
-    test('花盆：DP148 报了目标版本 → 升级完成', () async {
+    Future<void> progress(
+      _OtaRepository repository, {
+      int? percent,
+      OtaStage? stage,
+    }) async {
+      repository.pushOtaProgress(
+        OtaProgress(
+          deviceId: 'device-01',
+          status: OtaStatus.running,
+          percent: percent,
+          stage: stage,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    test('花盆：到 98% 后 DP148 报了目标版本 → 升级完成', () async {
       final repository = _OtaRepository();
       final state = await _state(repository);
       await state.refreshFirmwareUpdate('device-01');
       await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
+      expect(
+        state.otaProgressFor('device-01')?.displayStage,
+        OtaStage.installing,
+      );
 
       await report(repository, '1.1.0', <int>{148});
 
@@ -295,10 +317,23 @@ void main() {
       state.dispose();
     });
 
-    test('割草机：DP112 报了目标版本 → 升级完成', () async {
+    test('涂鸦报了阶段 6（固件已下载到设备）也算安装中', () async {
+      final repository = _OtaRepository();
+      final state = await _state(repository);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 60, stage: OtaStage.installing);
+
+      await report(repository, 'V1.1.0', <int>{148});
+
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
+      state.dispose();
+    });
+
+    test('割草机：到 98% 后 DP112 报了目标版本 → 升级完成', () async {
       final repository = _OtaRepository(productId: MowerDp.productId);
       final state = await _state(repository);
       await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
 
       await report(
         repository,
@@ -311,10 +346,25 @@ void main() {
       state.dispose();
     });
 
+    test('还没到 98%（准备中 / 升级中）：版本号对上也不判', () async {
+      final repository = _OtaRepository();
+      final state = await _state(repository);
+      await state.upgradeFirmware('device-01', '1.1.0');
+
+      await report(repository, '1.1.0', <int>{148});
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+
+      await progress(repository, percent: 97);
+      await report(repository, '1.1.0', <int>{148});
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+      state.dispose();
+    });
+
     test('割草机报 DP148 不算（那是花盆的版本号 DP）', () async {
       final repository = _OtaRepository(productId: MowerDp.productId);
       final state = await _state(repository);
       await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
 
       await report(
         repository,
@@ -327,10 +377,11 @@ void main() {
       state.dispose();
     });
 
-    test('报的不是目标版本：仍在升级中', () async {
+    test('报的不是目标版本：仍在安装中', () async {
       final repository = _OtaRepository();
       final state = await _state(repository);
       await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
 
       await report(repository, '1.0.0', <int>{148});
 
@@ -342,6 +393,7 @@ void main() {
       final repository = _OtaRepository();
       final state = await _state(repository);
       await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
 
       await report(repository, '1.1.0', <int>{105});
 
@@ -349,19 +401,19 @@ void main() {
       state.dispose();
     });
 
-    test('涂鸦先报了失败，随后版本号对上目标版本 → 改判升级完成', () async {
+    test('涂鸦已经报了失败：版本号对上也不改判', () async {
       final repository = _OtaRepository();
       final state = await _state(repository);
       await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
       repository.pushOtaProgress(
         const OtaProgress(deviceId: 'device-01', status: OtaStatus.failed),
       );
       await Future<void>.delayed(Duration.zero);
+
+      await report(repository, '1.1.0', <int>{148});
+
       expect(state.otaProgressFor('device-01')?.status, OtaStatus.failed);
-
-      await report(repository, 'V1.1.0', <int>{148});
-
-      expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
       state.dispose();
     });
 
@@ -371,6 +423,7 @@ void main() {
 
       // ① 版本号先到，回调后到。
       await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
       await report(repository, '1.1.0', <int>{148});
       expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
       repository.pushOtaProgress(
@@ -382,6 +435,7 @@ void main() {
 
       // ② 回调先到，版本号后到。
       await state.upgradeFirmware('device-01', '1.2.0');
+      await progress(repository, percent: 98);
       repository.pushOtaProgress(
         const OtaProgress(deviceId: 'device-01', status: OtaStatus.success),
       );

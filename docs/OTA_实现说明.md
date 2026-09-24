@@ -6,6 +6,7 @@
 
 | 日期 | 更新内容 | 落点 |
 | --- | --- | --- |
+| 2026-09-24 | 兜底改为只在「固件安装中」（≥98% 或阶段 6）时判断；去掉「失败后改判成功」 | §2.3、§2.5、附录 A6/A8 |
 | 2026-09-24 | 新增成功判定兜底：版本号 DP（花盆 148 / 割草机 112）等于目标版本即升级完成，与涂鸦成功回调并存 | §2.3、§2.5、附录 A6/A8 |
 | 2026-09-24 | 新增附录：发起升级与进度的实现步骤（逐层调用的方法） | 附录 A |
 | 2026-09-24 | 更正：割草机版本号是 DP112（此前误写 113）；固件方「订阅 DP112」对割草机成立 | §4、§5 |
@@ -77,7 +78,7 @@
 - 已经有了结论（成功或失败），迟到的 `running` 事件一律丢弃。
 - 百分比和阶段码往往分开到达，缺哪个就沿用上一次的值，不会把进度条打回 0。
 - 每收到一个事件都刷新「最后事件时间」，用于判断是否卡住。
-- **成功**：熄灭小红点，版本号显示为目标版本。**失败**：弹层显示失败原因；目标版本号**保留**，供版本号兜底继续比对。
+- **成功**：熄灭小红点，版本号显示为目标版本。**失败**：清掉目标版本号，弹层显示失败原因。
 
 ### 2.4 界面怎么读
 
@@ -87,9 +88,9 @@
 ### 2.5 兜底
 
 - **成功判定兜底（版本号 DP）**：设备上报的版本号等于这次升级的**目标版本**（涂鸦检测升级返回的新版本号，不是设备当前版本号），就按升级完成处理，进度弹层换成「升级完成」。花盆看 DP148，割草机看 DP112。
+  - **只在「固件安装中」这一段判断**：仍在升级中，且进度 ≥98% 或涂鸦报了阶段码 6。准备中、下载中（<98%）、已失败、已成功都不判断。
   - 和涂鸦成功回调**并存**：任何一方先满足就跳到成功页，后到的一方不再改变结论。
   - 条件：这条上报里真的带了版本号 DP（`changedDps`），并且 App 里发起过这次升级（`_pendingOtaVersion` 有值）；比较时忽略版本号前面的 `V`。
-  - 涂鸦先报了失败（例如超时），随后版本号对上了，也会改判为升级完成。
   - 实现：`FlowerpotState._confirmOtaByReportedVersion`，在 `_applyDeviceUpdate` 里调用。
 - **卡住**：10 分钟没有任何事件就判定为已中断（`otaStallTimeout`），允许用户重新检查；同时提醒框也恢复弹出。
 - **割草机 DP116 `ota_status`**：设备自己上报，`"7"` 表示不在待机、拒绝升级，`"20"` 表示升级失败，收到就弹提示（`mower_device.dart`）。它是涂鸦回调之外的补充，不参与进度。
@@ -200,7 +201,7 @@
    - 百分比和阶段码缺哪个，就沿用上一次的值；
    - 更新 `_otaProgress[id]`、`_otaUpdatedAt[id]`；
    - `success`：`_availableFirmware.remove(id)` 熄灭红点，`_replaceDevice(... firmwareVersion: 目标版本)`；
-   - `failed`：保留 `_pendingOtaVersion`，供版本号兜底继续比对；
+   - `failed`：`_pendingOtaVersion.remove(id)`；
    - 最后 `notifyListeners()`。
 
 ### A7. 界面（`ota_progress_dialog.dart`）
@@ -213,7 +214,8 @@
 
 - 版本号 DP 兜底：`_listenForDeviceUpdates` → `_applyDeviceUpdate(update)` → `_confirmOtaByReportedVersion(device, changedDps)`：
   1. 取版本号 DP 号：割草机 `MowerDp.fwVersion`（112），花盆 `TuyaConfig.dp['firmware_version']`（148）；这条上报的 `changedDps` 里没有它就直接返回；
-  2. 目标版本取 `_pendingOtaVersion[id]`，没有（App 里没发起过升级）就返回；已经是 `success` 也返回；
-  3. `device.firmwareVersion` 与目标版本比较（去掉前面的 `V`），相等就 `_applyOtaProgress(OtaProgress(success))`。之后的处理和涂鸦成功回调完全一样（A6 第 3 步）。
+  2. 当前进度必须是 `running` 且 `displayStage == OtaStage.installing`（≥98% 或阶段 6），否则返回；
+  3. 目标版本取 `_pendingOtaVersion[id]`，没有（App 里没发起过升级）就返回；
+  4. `device.firmwareVersion` 与目标版本比较（去掉前面的 `V`），相等就 `_applyOtaProgress(OtaProgress(success))`。之后的处理和涂鸦成功回调完全一样（A6 第 3 步）。
 - `otaStalled(id)`：状态还是 `running`，但超过 10 分钟（`otaStallTimeout`）没有任何事件，就判定为卡住；再点入口时走 A1 的第 1 步；
 - 割草机另有 DP116：`MowerDevice` 处理上报时，看到 `changed` 里有 116，`"7"` 或 `"20"` 就经 `_failures` 发给 `MowerHomePage`，弹提示。

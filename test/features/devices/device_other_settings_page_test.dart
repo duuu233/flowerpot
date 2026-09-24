@@ -446,8 +446,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('OTA 兜底：DP148 报了目标版本，进度弹层换成「升级完成」', (tester) async {
-    // 2026-09-24 用户：和涂鸦成功回调并存，任何一方满足就跳成功页。这里只报版本号、不报回调。
+  testWidgets('OTA 兜底：安装中 DP148 报了目标版本，进度弹层换成「升级完成」', (tester) async {
+    // 2026-09-24 用户：98% 以后（固件安装中）才判断；和涂鸦成功回调并存，任何一方满足就跳
+    // 成功页。这里只报版本号、不报回调。
     final repository = _OtherSettingsRepository();
     final state = await _pumpOtherSettings(
       tester,
@@ -460,6 +461,21 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const Key('ota-progress-dialog')), findsOneWidget);
+
+    repository.pushOtaProgress(
+      const OtaProgress(
+        deviceId: 'device-01',
+        status: OtaStatus.running,
+        percent: 98,
+      ),
+    );
+    // 安装中是循环动画，不能 pumpAndSettle；多推一秒让「98% 先亮一拍」的计时器走完。
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ota-progress-title'))).data,
+      '固件安装中',
+    );
 
     repository.pushDeviceUpdate(
       DeviceUpdate.changed(
