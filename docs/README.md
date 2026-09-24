@@ -31,6 +31,7 @@
 | [`UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md`](UI/FLUTTER_UI_IMPLEMENTATION_STANDARD.md) | Active | 本项目 UI 页面和组件实施规范。 |
 | [`UI/UI_ASSET_INTEGRATION_PROGRESS.md`](UI/UI_ASSET_INTEGRATION_PROGRESS.md) | Tracking | 图片和图标接入进度。 |
 | [`PRODUCT_RULES.md`](PRODUCT_RULES.md) | Active | **产品口径与硬性要求**（必须怎样 / 绝对不要怎样）。动手前先读；与它冲突的改动先停下来问。技术事实在 `AI_CONTEXT.md`，试错过程在 `history/`。 |
+| [`OTA_实现说明.md`](OTA_实现说明.md) | Active | 固件 OTA 实现逻辑（查版本、提醒、升级、进度），花盆与割草机的差异。 |
 | [`TUYA_CAPABILITY_AUDIT.md`](TUYA_CAPABILITY_AUDIT.md) | Active | 项目功能点逐条对照涂鸦官方文档：哪些已用官方 API、哪些涂鸦不支持只能自研、哪些接错了 SDK。 |
 | [`reference/`](reference/) | Reference | 涂鸦官方文档的本地存档（AP 热点模式 Android / iOS、扩展 SDK），仅作依据引用，不是本项目口径。 |
 | [`更新说明-2026-09-17-第二轮.md`](更新说明-2026-09-17-第二轮.md) | Historical | 2026-09-17 第二轮的速览（定制动画改单选、日报表一次拿 7 天并按日期左右切；上传压缩那条本轮只核对未改）。 |
