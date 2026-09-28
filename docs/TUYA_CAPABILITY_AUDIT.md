@@ -387,3 +387,39 @@ iOS 侧要调的是 `ThingSmartMessage` 的
   本轮没接；只收到第一条、后面不来时再看「不重复提醒」时长。
 - `registerDevice(token, provider, cb)` 是系统推送（FCM 等）通道注册，本 App 没接，**App 在后台 / 被杀时收不到**这两路 MQTT 推送；
   测试时 App 要开在前台。
+
+### 5.6 官方文档核对：消息通知页「日志 / 提醒 / 告警」能不能靠涂鸦接口分开（2026-09-28）
+
+页面三档（割草机「消息通知」，稿子 `割草机-消息通知.png`）对照涂鸦开发者文档，逐档结论：
+
+| 页面分类 | 涂鸦有没有现成的 | 依据 | 结论 |
+| --- | --- | --- | --- |
+| 日志 | 有：`getRequestInstance().queryDeviceOperateLogs(...)`（DP 上报 / 下发历史，5.3.6 已真机跑通） | 解包 + 真机 | **能做**。但它只给 DP 原值，稿子上「割草任务已完成 / 计划已调整」要 App 按 DP 翻成文案；「设备重新上线」这类上下线事件只有云端 `/v1.0/devices/{id}/logs`，要后端代理 |
+| 告警 | 有：消息中心告警档 `MSG_REPORT`，按设备 `getMessageListByMsgSrcId`（iOS `fetchEncryptMessageDetailListWithListRequestModel`） | 官方文档：「Only the alerts of MSG_REPORT type are supported」「Per-device queries are supported only for alert-type messages」 | **能做**（已接） |
+| 提醒 | **没有单独的一档** | 见下 | 涂鸦的分类本身分不出来，只能靠推送规则的「推送等级」或规则自身来分，见下 |
+
+**为什么「提醒」没有现成的一档**：
+- App SDK 的消息中心只有三类：告警（1）/ 家庭（2）/ 通知（3）；实时推送的 `PushType` 是告警 / 家庭 / 通知 / 营销。
+  **平台上配的设备消息推送（不管什么等级）都进「告警」这一档**，「通知」档是账号类系统消息（登录提醒等），不是设备的。
+- 涂鸦平台「推送设备消息」规则**有等级**：「共有 **通知**、**轻微**、**严重** 三种不同等级。不同设备消息推送等级在 App
+  设备列表页……会展示不同的醒目颜色」（这是涂鸦公版 App 的表现）。**SDK 文档的 `MessageBean` 里没有写等级字段**
+  （只列了 `dateTime` / `icon` / `msgTypeContent` / `msgContent` / `msgType` / `msgSrcId` / `id` / `hasNotRead`）。
+- 解包出来的 `MessageBean` 还有文档没写的 `alarmType`、`msgCode`、`extendParams`（5.2）——**等级如果随消息下发，只可能在这三个里**。
+- 查过的另两条路都不适用：「告警列表 / 告警类别（`msgCodes` + `getMessageSchemes`）」只给摄像头（IPC，`ThingSmartCameraMessage`）；
+  平台「消息类型」（`bizCode`：`deviceOnline` / `deviceEventMessage` …）是云端推给后端的消息服务，不是 App 消息中心。
+
+**所以能不能实现**：
+1. 日志、告警：能，按上表。
+2. 提醒 vs 告警：**取决于一次真机验证**——在本账号的设备上各触发一条「通知」等级和一条「轻微 / 严重」等级的推送，
+   拉告警档看这两条的 `alarmType` / `msgCode` / `extendParams` 有没有区别：
+   - 有区别（例如等级落在 `alarmType`）→ App 按等级分：通知 → 「提醒」，轻微 / 严重 → 「告警」，接口不变；
+   - 没区别 → 退一步按**规则**分：两类规则的 `msgCode`（若每条规则不同）或规则内容在 App 里建一张对照表；
+     这条依赖平台配置不改名，不如按等级稳。
+3. 前提：推送规则要配在**本账号能看到的设备**上（5.3.7：推送只投给触发设备的主人 / 被分享者）。
+
+来源：[推送设备消息](https://developer.tuya.com/cn/docs/iot/alarm?id=K93ixsmlff32o)、
+[Android 消息相关功能](https://developer.tuya.com/en/docs/app-development/android-message-about?id=Kaj16vvx1n8jw)、
+[Android 设置消息推送](https://developer.tuya.com/cn/docs/app-development/android-message-push?id=Kaj16d3iwgq4r)、
+[iOS 消息相关功能](https://developer.tuya.com/en/docs/app-development/iOS-message-function?id=Kaj0t5zaofjfd)、
+[告警列表（IPC）](https://developer.tuya.com/en/docs/app-development/messagelist?id=Kdmgaswbhh83p)、
+[平台消息类型](https://developer.tuya.com/en/docs/iot/message-type?id=Kavqerli65a1u)。
