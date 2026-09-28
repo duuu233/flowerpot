@@ -15,9 +15,9 @@ class LedSettingsPageModel {
 
   String get status => ledEnabled ? '已开启' : '已关闭';
 
+  /// 2026-09-28 产品改文案（背后已是 DP166 双色 LED，不再是屏幕指示灯）。
   List<String> get descriptionLines => const <String>[
-    '关闭后，YSplanter的屏幕指示灯将不再亮起，',
-    '设备仍会正常记录数据并推送提醒。',
+    '关闭后，YSplanter的双色 LED 灯效将不再亮起',
   ];
 
   String get description => descriptionLines.join('\n');
