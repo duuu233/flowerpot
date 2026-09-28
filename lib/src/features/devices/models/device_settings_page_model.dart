@@ -11,6 +11,7 @@ enum DeviceSettingsMenuKind {
   behavior,
   memorial,
   battery,
+  messages,
   other,
 }
 
@@ -106,6 +107,11 @@ class DeviceSettingsPageModel {
         ),
         // 帮助中心 2026-09-08 从「我的」搬到这里，2026-09-14 又按产品要求挪到首页快捷列表，
         // 这里不再保留。
+        // 2026-09-28 产品：花盆照割草机加消息通知（列表与割草机共用 `DeviceMessagesView`）。
+        const DeviceSettingsMenuItem(
+          kind: DeviceSettingsMenuKind.messages,
+          label: '消息通知',
+        ),
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.other,
           label: '其他设置',

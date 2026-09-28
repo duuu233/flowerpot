@@ -140,12 +140,14 @@ class _LeadingIcon extends StatelessWidget {
     DeviceSettingsMenuKind.led ||
     DeviceSettingsMenuKind.memorial ||
     DeviceSettingsMenuKind.battery ||
+    DeviceSettingsMenuKind.messages ||
     DeviceSettingsMenuKind.plantDetection => null,
   };
 
   static IconData _iconFor(DeviceSettingsMenuKind kind) => switch (kind) {
     DeviceSettingsMenuKind.memorial => Icons.event_note_outlined,
     DeviceSettingsMenuKind.plantDetection => Icons.eco_outlined,
+    DeviceSettingsMenuKind.messages => Icons.notifications_none_rounded,
     _ => Icons.lightbulb_outline,
   };
 }

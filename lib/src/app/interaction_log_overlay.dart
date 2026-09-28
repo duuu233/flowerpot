@@ -178,6 +178,7 @@ class InteractionLogRouteObserver extends NavigatorObserver {
     AppRoutes.temperatureStatus: '空气温度',
     AppRoutes.humidityStatus: '相对湿度',
     AppRoutes.batteryStatus: '电量',
+    AppRoutes.deviceMessages: '消息通知',
     AppRoutes.deviceSearch: '搜索设备',
     AppRoutes.pairing: '配网',
   };

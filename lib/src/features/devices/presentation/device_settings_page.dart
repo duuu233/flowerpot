@@ -119,7 +119,16 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage>
     SmartPlanterDevice device,
     DeviceSettingsMenuKind kind,
   ) {
-    // 每一项点进去都要先确认设备在线。
+    // 消息通知看的是涂鸦云端的历史推送，设备离线也能看（和割草机一样不拦）。
+    if (kind == DeviceSettingsMenuKind.messages) {
+      Navigator.pushNamed(
+        context,
+        AppRoutes.deviceMessages,
+        arguments: device.id,
+      );
+      return;
+    }
+    // 其余每一项点进去都要先确认设备在线。
     if (!ensureDeviceOnline(context, device.id)) {
       return;
     }
@@ -154,6 +163,7 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage>
       DeviceSettingsMenuKind.behavior => AppRoutes.behaviorSettings,
       DeviceSettingsMenuKind.memorial => AppRoutes.memorial,
       DeviceSettingsMenuKind.battery => AppRoutes.batteryStatus,
+      DeviceSettingsMenuKind.messages => AppRoutes.deviceMessages,
       DeviceSettingsMenuKind.other => AppRoutes.deviceOtherSettings,
       DeviceSettingsMenuKind.plantDetection => AppRoutes.plantDetectionSettings,
     };

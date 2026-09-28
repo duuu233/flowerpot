@@ -9,6 +9,7 @@ import '../features/devices/presentation/behavior_settings_page.dart';
 import '../features/devices/models/water_status_page_model.dart';
 import '../features/devices/presentation/device_info_page.dart';
 import '../features/devices/presentation/device_list_page.dart';
+import '../features/devices/presentation/device_messages_page.dart';
 import '../features/devices/presentation/device_other_settings_page.dart';
 import '../features/devices/presentation/device_search_page.dart';
 import '../features/devices/presentation/device_settings_page.dart';
@@ -76,6 +77,7 @@ abstract final class AppRoutes {
   static const temperatureStatus = '/devices/temperature-status';
   static const humidityStatus = '/devices/humidity-status';
   static const batteryStatus = '/devices/battery-status';
+  static const deviceMessages = '/devices/messages';
   static const plantPicker = '/devices/plants';
   static const plantDetail = '/devices/plant-detail';
   static const deviceSettings = '/devices/settings';
@@ -197,6 +199,9 @@ abstract final class AppRoutes {
         deviceId: settings.arguments! as String,
       ),
       animations => AnimationsPage(deviceId: settings.arguments! as String),
+      deviceMessages => DeviceMessagesPage(
+        deviceId: settings.arguments! as String,
+      ),
       mowerHome => MowerHomePage(
         deviceId: (settings.arguments! as MowerHomeArguments).deviceId,
       ),

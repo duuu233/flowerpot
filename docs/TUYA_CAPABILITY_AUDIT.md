@@ -453,6 +453,8 @@ class MQ_56_WarnMessageBean { WarnMessageBean warnMessageBean; }   // MQTT 56 �
 - **真机要做的一次**：在本账号的割草机上，分别配 / 触发一条「通知」「轻微」「严重」等级的推送（`docs/涂鸦消息推送对接方案.md` 里的规则），
   App 开在消息通知页，看联调日志里的「设备告警 warn56：warnLevel=…」和「等级字段：alarmType=… → 哪栏」三行对不对。
   对不上就改 `_levelCodes`；如果 `alarmType` 三个等级都一样，说明它不是等级，把第 4 步去掉，历史消息就只能靠 warn56 当场记下。
+- 2026-09-28 花盆也加了消息通知页，列表和割草机共用 `DeviceMessagesView`（`features/messages/device_messages_view.dart`），
+  `_levelCodes` 等判定只有这一份，定下来两款一起生效。花盆要有消息，得在涂鸦平台上给**花盆产品**另配推送规则。
 
 另：按 V2.5 核对 DP 表，代码与文档一致，**只缺 DP113 `shutdown_report`（V2.5 新增关机上报）**，当时未接（收到 true 应显示「已关机」、
 随后离线不报异常，见协议 §4.7 / §9.9）。**同日已接上**：纯 DP 上报，不涉及 SDK 新能力——设备快照 / 实时上报里的 DP113

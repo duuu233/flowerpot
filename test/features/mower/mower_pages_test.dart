@@ -432,6 +432,28 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('消息通知：列表是和花盆共用的那套（三栏 + 日期筛选），底下照旧有调试板', (tester) async {
+    await _pumpMowerHome(tester, <int, Object?>{});
+    await tester.tap(find.byKey(const Key('mower-nav-settings')));
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('mower-settings-消息通知')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mower-settings-消息通知')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+
+    for (var i = 0; i < 3; i++) {
+      expect(find.byKey(Key('mower-messages-tab-$i')), findsOneWidget);
+    }
+    expect(find.byKey(const Key('mower-messages-date')), findsOneWidget);
+    expect(find.text('全部日期'), findsOneWidget);
+    // Mock 没有消息中心：如实写取不到
+    expect(find.textContaining('没有取到：'), findsOneWidget);
+    expect(find.byKey(const Key('mower-messages-debug-panel')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('设置页：重新配网隐藏；「设备参数」进花盆同一页「更多设备信息」', (tester) async {
     await _pumpMowerHome(
       tester,
