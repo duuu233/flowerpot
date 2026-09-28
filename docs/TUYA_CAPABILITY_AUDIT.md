@@ -453,6 +453,9 @@ class MQ_56_WarnMessageBean { WarnMessageBean warnMessageBean; }   // MQTT 56 �
 - **真机要做的一次**：在本账号的割草机上，分别配 / 触发一条「通知」「轻微」「严重」等级的推送（`docs/涂鸦消息推送对接方案.md` 里的规则），
   App 开在消息通知页，看联调日志里的「设备告警 warn56：warnLevel=…」和「等级字段：alarmType=… → 哪栏」三行对不对。
   对不上就改 `_levelCodes`；如果 `alarmType` 三个等级都一样，说明它不是等级，把第 4 步去掉，历史消息就只能靠 warn56 当场记下。
+- 2026-09-28 花盆消息通知页底部加了「后台消息监控对照」调试台（`MessageMonitorConsole`）：产品贴来的后台 10 条记录写死，
+  按记录里的三台设备 / 两段触发时间写死调 `getMessageListByMsgSrcId` 与聚合 `getMessageList(…, 开始, 结束)`，逐条对 App 查没查到。
+  记录的用户账号是 YS391 / YS444 / YS556 开头的；按 5.3.7 的结论，**只有用那个账号登录才可能查到**，调试台最上面直接判当前账号。
 - 2026-09-28 花盆也加了消息通知页，列表和割草机共用 `DeviceMessagesView`（`features/messages/device_messages_view.dart`），
   `_levelCodes` 等判定只有这一份，定下来两款一起生效。花盆要有消息，得在涂鸦平台上给**花盆产品**另配推送规则。
 
