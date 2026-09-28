@@ -187,6 +187,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('割草机报过 DP113 非在桩关机（离线、快照 true）：胶囊写「已关机」，不写「离线」', (tester) async {
+    await _pumpDeviceList(
+      tester,
+      const Size(375, 812),
+      devices: <SmartPlanterDevice>[
+        _device(id: 'device-01', name: 'YSplanter-01', online: false),
+        _device(
+          id: 'mower-01',
+          name: '割草机',
+          online: false,
+          productId: MowerDp.productId,
+        ),
+      ],
+      rawDps: <String, Map<int, Object?>>{
+        'mower-01': <int, Object?>{MowerDp.shutdownReport: true},
+      },
+    );
+    await tester.pump();
+
+    expect(find.text('已关机'), findsOneWidget);
+    expect(find.text('离线'), findsOneWidget, reason: '花盆照旧写离线');
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('device-list-item-mower-01')),
+        matching: find.text('已关机'),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('设备列表读不出来时给错误和重试，而不是「暂无设备」', (tester) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -243,11 +273,13 @@ Future<FlowerpotState> _pumpDeviceList(
   ValueChanged<Object?>? onDeviceArguments,
   ValueChanged<Object?>? onPlantPickerArguments,
   ValueChanged<Object?>? onMowerArguments,
+  Map<String, Map<int, Object?>> rawDps = const <String, Map<int, Object?>>{},
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final state = FlowerpotState(
-    repository: _DeviceListRepository(devices ?? _devices),
+    repository: _DeviceListRepository(devices ?? _devices)
+      ..rawDpsByDevice.addAll(rawDps),
   );
   addTearDown(state.dispose);
   await state.refreshDevices();

@@ -99,6 +99,8 @@ class _MowerControlPageState extends State<MowerControlPage> {
   void _checkFault() {
     if (!mounted || !widget.active || _faultDialogOpen) return;
     if (ModalRoute.of(context)?.isCurrent == false) return;
+    // 已关机（DP113）：关机前留下的故障位不弹，开机后按新上报再判。
+    if (_device.shutdown) return;
     final bitmap = _device.faultBitmap;
     if (bitmap == null) return;
     final active = MowerFault.activeBits(bitmap).toSet();
@@ -301,10 +303,14 @@ class _MowerControlPageState extends State<MowerControlPage> {
         // 太矮（连缩到 80% 都放不下）才退回可滚动的按稿子尺寸排。
         body: LayoutBuilder(
           builder: (context, constraints) {
+            // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
+            // 已关机（DP113）时这一条换成关机提示，顶掉故障文案。
+            final notice = _device.shutdown
+                ? _shutdownNotice
+                : _device.faultMessage;
             final lower = <Widget>[
-              // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
-              if (_device.faultMessage case final fault?) ...<Widget>[
-                _NoticeBar(fault: fault),
+              if (notice != null) ...<Widget>[
+                _NoticeBar(fault: notice),
                 const SizedBox(height: 8),
               ],
               _TodayPlanCard(schedule: _device.schedule),
@@ -321,7 +327,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
               child: MowerStatusCard(
                 tone: _tone,
                 percent: _device.battery,
-                statusLabel: _device.status.label,
+                statusLabel: _device.shutdown ? '已关机' : _device.status.label,
                 wifiLinked: _device.wifiLinked,
                 bleLinked: _device.bleLinked,
               ),
@@ -370,6 +376,9 @@ class _MowerControlPageState extends State<MowerControlPage> {
     );
   }
 }
+
+/// 已关机（DP113 非在桩关机，协议 V2.5 §9.9）时黄条上的那句话。
+const String _shutdownNotice = '割草机已关机，开机后可继续操作';
 
 /// 状态卡（电量环）的设计宽度：稿子卡片 335 宽。
 const double _cardWidth = 335;
@@ -609,7 +618,8 @@ class _ActionPanel extends StatelessWidget {
             label: device.switchGo ? '停止' : '继续',
             active: false,
             busy: checking == 'switch',
-            enabled: true,
+            // 已关机（DP113）时发不出去，置灰。
+            enabled: !device.shutdown,
             onTap: onToggleSwitch,
           ),
         ],

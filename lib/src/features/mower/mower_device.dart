@@ -73,6 +73,7 @@ class MowerDevice extends ChangeNotifier {
   /// Wi-Fi 一掉线就**主动降级连蓝牙**（2026-09-23 产品：「设备离线后，需要主动通过监听降级为蓝牙连接」）。
   FlowerpotState? _watchedState;
   bool? _lastOnline;
+  bool _lastShutdown = false;
 
   // ── 控制类 ──────────────────────────────────────────────
   /// DP2：true=运行中（按钮显示「停止」），false=已暂停（按钮显示「继续」）。
@@ -176,6 +177,7 @@ class MowerDevice extends ChangeNotifier {
     unawaited(refreshLink(state, autoConnect: true));
     _watchedState = state;
     _lastOnline = state.deviceById(deviceId)?.online;
+    _lastShutdown = state.isMowerShutdown(deviceId);
     state.addListener(_onStateChanged);
     _reportSub = state.mowerReports
         .where((report) => report.deviceId == deviceId)
@@ -193,6 +195,7 @@ class MowerDevice extends ChangeNotifier {
   }
 
   /// 设备在线状态从 true 变 false：立刻降级连蓝牙（不受 [autoReconnectEvery] 节流）。
+  /// 已关机（DP113）的那次离线是预期的：不降级、不报掉线（协议 V2.5 §9.9）。
   void _onStateChanged() {
     final state = _watchedState;
     final id = _deviceId;
@@ -200,7 +203,16 @@ class MowerDevice extends ChangeNotifier {
     final online = state.deviceById(id)?.online;
     final was = _lastOnline;
     _lastOnline = online;
+    final off = state.isMowerShutdown(id);
+    if (off != _lastShutdown) {
+      _lastShutdown = off;
+      notifyListeners();
+    }
     if (was == true && online == false) {
+      if (off) {
+        state.logMowerInteraction('离线 · 割草机已关机（DP113），断电离线属预期，不降级蓝牙');
+        return;
+      }
       state.logMowerInteraction('离线 ⚠ 割草机 Wi-Fi 掉线，主动降级连接蓝牙');
       unawaited(refreshLink(state, autoConnect: true, force: true));
     }
@@ -210,6 +222,7 @@ class MowerDevice extends ChangeNotifier {
     _watchedState?.removeListener(_onStateChanged);
     _watchedState = null;
     _lastOnline = null;
+    _lastShutdown = false;
     unawaited(_reportSub?.cancel());
     _reportSub = null;
     for (final timer in _echoTimers) {
@@ -279,6 +292,8 @@ class MowerDevice extends ChangeNotifier {
     final wifiBefore = wifiLinked;
     _applyLink(state, await state.deviceLinkState(id), id);
     if (!autoConnect || bleLinked || _autoConnecting || _deviceId != id) return;
+    // 已关机 = 断电了，蓝牙也连不上，别每几秒去连一次。
+    if (state.isMowerShutdown(id)) return;
     final wifiDropped = wifiBefore && !wifiLinked;
     if (wifiDropped) {
       state.logMowerInteraction('离线 ⚠ 割草机 Wi-Fi 通道断开，主动降级连接蓝牙');
@@ -348,7 +363,16 @@ class MowerDevice extends ChangeNotifier {
   ///   待机态设备报的 DP2 也是 false，结果刚开机连「自动」都点不了、没法启动
   ///   （协议 §9.2：待机启动就是发 DP3=smart）。所以「停止」改按设备真的**暂停了**来认：
   ///   DP5 = paused（协议 §9.3：停止发 DP2=false → 设备报 DP5=paused）。
-  bool get commandsEnabled => status != MowerStatus.paused;
+  ///
+  /// 已关机（[shutdown]）时也不可点。
+  bool get commandsEnabled => status != MowerStatus.paused && !shutdown;
+
+  /// 已关机：DP113 报过 true（非在桩关机）、还没再开机。判定只有一份，在状态层
+  /// （`FlowerpotState.isMowerShutdown`，设备列表也用它）；这里只是转一下，没绑设备时为 false。
+  bool get shutdown {
+    final id = _deviceId;
+    return id != null && (_watchedState?.isMowerShutdown(id) ?? false);
+  }
 
   /// 这个模式是不是当前 DP3 的值——是就置灰，不给重复下发。
   bool isCurrentMode(MowerMode target) => mode == target;
@@ -714,7 +738,9 @@ class MowerDevice extends ChangeNotifier {
             state.logMowerInteraction('下发失败 ✗ 割草机 $label：${result.message}');
             if (!_failures.isClosed) {
               _failures.add(
-                result.code == 'device_offline'
+                state.isMowerShutdown(id)
+                    ? '割草机已关机，请开机后再操作'
+                    : result.code == 'device_offline'
                     ? '割草机已离线，指令没有发出去'
                     : '指令没有发出去：${result.message}',
               );

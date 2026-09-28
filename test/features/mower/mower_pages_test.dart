@@ -194,6 +194,69 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('DP113 非在桩关机：状态写「已关机」，黄条换成关机提示，按钮全部置灰，不弹设备告警', (tester) async {
+    final repository = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.fault: 0,
+    });
+    expect(find.text('已关机'), findsNothing);
+
+    repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = true;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: <int>{MowerDp.shutdownReport},
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('已关机'), findsOneWidget);
+    expect(find.text('割草机已关机，开机后可继续操作'), findsOneWidget);
+    for (final key in <String>[
+      'mower-action-smart',
+      'mower-action-spot',
+      'mower-action-gotoCharge',
+      'mower-action-switch',
+    ]) {
+      expect(tester.widget<InkWell>(find.byKey(Key(key))).onTap, isNull);
+    }
+
+    // 关机前后留下的故障位：不弹「设备告警」，黄条仍是关机提示
+    repository.rawDpsByDevice[_mowerId]![MowerDp.fault] = 1;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.fault}),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('设备告警'), findsNothing);
+    expect(find.text('割草机已关机，开机后可继续操作'), findsOneWidget);
+
+    // 下次开机首报 DP113=false：复位，故障位按新上报再弹
+    repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = false;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: <int>{MowerDp.shutdownReport},
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('已关机'), findsNothing);
+    expect(
+      tester
+          .widget<InkWell>(find.byKey(const Key('mower-action-switch')))
+          .onTap,
+      isNotNull,
+    );
+    expect(find.text('设备告警'), findsOneWidget);
+    await tester.tap(find.text('我知道了'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('设备没报过割草计划：首页「暂无割草计划」、计划页不画任何色块、编辑框不预填', (tester) async {
     await _pumpMowerHome(tester, <int, Object?>{MowerDp.battery: 50});
 

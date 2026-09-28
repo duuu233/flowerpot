@@ -241,6 +241,114 @@ void main() {
     expect(state.deviceById(_mowerId)!.online, isFalse);
   });
 
+  testWidgets('DP113 非在桩关机：判「已关机」，随后断电离线不降级蓝牙；开机首报 false 复位', (tester) async {
+    final repository = _MowerRepository()
+      ..bleLinked = false
+      ..bleConnectSucceeds = false
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{};
+    final state = await _state(repository);
+    final device = MowerDevice.instance;
+    await device.bind(state, owner: _owner, deviceId: _mowerId);
+    await tester.pump();
+    final connects = repository.bleConnectCalls;
+
+    // 设备连发约 9 次 true：只认第一次
+    repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = true;
+    for (var i = 0; i < 3; i++) {
+      repository.pushDeviceUpdate(
+        DeviceUpdate.changed(
+          _mower(),
+          changedDps: <int>{MowerDp.shutdownReport},
+        ),
+      );
+      await tester.pump();
+    }
+    expect(state.isMowerShutdown(_mowerId), isTrue);
+    expect(device.shutdown, isTrue);
+    expect(device.commandsEnabled, isFalse);
+    expect(
+      state.interactionLog.where(
+        (line) => line.contains('DP113 shutdown_report=true'),
+      ),
+      hasLength(1),
+    );
+
+    // 约 1 秒后断电离线：预期的离线，不降级连蓝牙、不报掉线
+    repository.pushDeviceUpdate(DeviceUpdate.changed(_mower(online: false)));
+    await tester.pump();
+    await tester.pump();
+    expect(state.isMowerShutdown(_mowerId), isTrue);
+    expect(repository.bleConnectCalls, connects);
+    expect(
+      state.interactionLog.any((line) => line.contains('Wi-Fi 掉线，主动降级')),
+      isFalse,
+    );
+
+    // 关机期间下发：提示写「已关机」
+    final failures = <String>[];
+    final sub = device.failures.listen(failures.add);
+    device.setSwitch(state, on: true);
+    await tester.pump();
+    await tester.pump();
+    expect(failures, <String>['割草机已关机，请开机后再操作']);
+    await sub.cancel();
+
+    // 下次开机：连云上线 + 首报 DP113=false
+    repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = false;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: <int>{MowerDp.shutdownReport},
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(state.isMowerShutdown(_mowerId), isFalse);
+    expect(device.shutdown, isFalse);
+    device.resetForTest();
+  });
+
+  testWidgets('DP113 首报 false 丢了：离线过又上线也算开机，清掉「已关机」', (tester) async {
+    final repository = _MowerRepository()
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.shutdownReport: false};
+    final state = await _state(repository);
+
+    repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = true;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: <int>{MowerDp.shutdownReport},
+      ),
+    );
+    await tester.pump();
+    expect(state.isMowerShutdown(_mowerId), isTrue);
+
+    // 关机那 1 秒里还在线的上报不算开机
+    repository.pushDeviceUpdate(DeviceUpdate.changed(_mower()));
+    await tester.pump();
+    expect(state.isMowerShutdown(_mowerId), isTrue);
+
+    repository.pushDeviceUpdate(DeviceUpdate.changed(_mower(online: false)));
+    await tester.pump();
+    repository.pushDeviceUpdate(DeviceUpdate.changed(_mower()));
+    await tester.pump();
+    expect(state.isMowerShutdown(_mowerId), isFalse);
+  });
+
+  testWidgets('设备清单拉回来：离线且快照 DP113=true 才算「已关机」，在线的旧值不认', (tester) async {
+    final off = _MowerRepository(online: false)
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.shutdownReport: true};
+    final offState = await _state(off);
+    await tester.pump();
+    expect(offState.isMowerShutdown(_mowerId), isTrue);
+
+    final on = _MowerRepository()
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.shutdownReport: true};
+    final onState = await _state(on);
+    await tester.pump();
+    expect(onState.isMowerShutdown(_mowerId), isFalse);
+  });
+
   testWidgets('搜索页：割草机的产品 ID 也算本 App 的产品，扫到就列出来', (tester) async {
     final repository = _MowerRepository();
     final state = FlowerpotState(repository: repository);

@@ -46,6 +46,11 @@ abstract final class MowerDp {
   /// bool ro：盖子状态。true=合盖（可启动），false=开盖（启动前预检要拦）。
   static const int coverStatus = 118;
 
+  /// bool ro：关机上报（V2.5 §4.7 / §9.9）。true = **非在桩**关机，设备连发约 9 次（100 ms 间隔）
+  /// 后约 1 秒断电离线——这次离线是预期的，不按异常离线处理；在桩关机不上报；下次开机连云后
+  /// 首报 false。App 侧的「已关机」判定在 `FlowerpotState.isMowerShutdown`。
+  static const int shutdownReport = 113;
+
   // ── 计划与区域 ──────────────────────────────────────────
   /// raw rw：割草计划，88 字节，见 [MowerScheduleCodec]。
   static const int mowSchedule = 101;
@@ -119,6 +124,7 @@ abstract final class MowerDp {
     fwVersion: 'fw_version',
     chargingStatus: 'charging_status',
     coverStatus: 'cover_status',
+    shutdownReport: 'shutdown_report',
     operatingTime: 'opearting_time',
   };
 

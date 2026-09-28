@@ -1412,6 +1412,85 @@ class FlowerpotState extends ChangeNotifier {
   Future<Map<int, Object?>?> mowerDps(String deviceId) =>
       _repository.rawDps(deviceId);
 
+  /// 报过「非在桩关机」（DP113 shutdown_report=true）的割草机 → 从那以后有没有见过它离线。
+  ///
+  /// 协议 V2.5 §9.9：DP113=true 连发约 9 次后约 1 秒断电离线，这次离线是**预期的**；在桩关机不报；
+  /// 下次开机连云后首报 false。清掉只有两条路：报了 DP113=false，或者**离线过之后又上线**
+  /// （首报 false 还没到、或固件漏报时兜底）。只看「在线」不行——关机那 1 秒它还在线。
+  final Map<String, bool> _mowerShutdown = <String, bool>{};
+
+  /// 这台割草机是不是「已关机」（DP113 报 true 之后、下次开机之前）。
+  ///
+  /// 设备列表的在线胶囊、割草机控制页都按它显示「已关机」，离线不再当成异常离线处理
+  /// （不降级连蓝牙、不报「掉线」）。
+  bool isMowerShutdown(String deviceId) => _mowerShutdown.containsKey(deviceId);
+
+  /// 实时上报里带了 DP113：true 置位（连发的 9 次只认第一次），false 清掉。
+  Future<void> _noteMowerShutdownReport(SmartPlanterDevice device) async {
+    final dps = await _repository.rawDps(device.id);
+    final flag = _dpFlag(dps?[MowerDp.shutdownReport]);
+    if (flag == null) return;
+    if (flag) {
+      if (_mowerShutdown.containsKey(device.id)) return;
+      _mowerShutdown[device.id] = !(deviceById(device.id)?.online ?? false);
+      _logInteraction(
+        '关机 ← ${device.name} DP113 shutdown_report=true：非在桩关机，约 1 秒后断电离线属预期',
+      );
+    } else {
+      if (_mowerShutdown.remove(device.id) == null) return;
+      _logInteraction('开机 ← ${device.name} DP113 shutdown_report=false：清除「已关机」');
+    }
+    notifyListeners();
+  }
+
+  /// 在线态变了之后对一遍：已关机的割草机见到离线就记下；离线过又上线 = 开机了，清掉。
+  /// 不 notify，由调用方统一刷新。
+  void _syncMowerShutdownOnline() {
+    if (_mowerShutdown.isEmpty) return;
+    for (final id in _mowerShutdown.keys.toList(growable: false)) {
+      final device = deviceById(id);
+      if (device == null) {
+        _mowerShutdown.remove(id);
+      } else if (!device.online) {
+        _mowerShutdown[id] = true;
+      } else if (_mowerShutdown[id] == true) {
+        _mowerShutdown.remove(id);
+        _logInteraction('开机 ← ${device.name} 离线后重新上线：清除「已关机」');
+      }
+    }
+  }
+
+  /// 设备清单刚拉回来：离线的割草机，快照里 DP113 还是 true = 上次是非在桩关机，
+  /// 列表一打开就显示「已关机」而不是「离线」。在线的不认（开机首报 false 之前的旧值）。
+  Future<void> _seedMowerShutdown(int epoch) async {
+    var changed = false;
+    for (final device in _devices.toList(growable: false)) {
+      if (!isMowerDevice(device) || _mowerShutdown.containsKey(device.id)) {
+        continue;
+      }
+      if (deviceById(device.id)?.online ?? true) continue;
+      final dps = await _repository.rawDps(device.id);
+      if (epoch != _sessionEpoch) return;
+      if (_dpFlag(dps?[MowerDp.shutdownReport]) != true) continue;
+      // 等快照的这一下里可能已经上线了，再看一次。
+      if (deviceById(device.id)?.online ?? true) continue;
+      _mowerShutdown[device.id] = true;
+      changed = true;
+      _logInteraction('关机 · ${device.name} 离线，快照里 DP113=true：按「已关机」显示');
+    }
+    if (changed) notifyListeners();
+  }
+
+  /// bool 型 DP 的原始值：涂鸦给 bool，个别桥接给 0/1 或字符串。认不出返回 null。
+  static bool? _dpFlag(Object? value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final text = '${value ?? ''}'.trim().toLowerCase();
+    if (text == 'true' || text == '1') return true;
+    if (text == 'false' || text == '0') return false;
+    return null;
+  }
+
   /// 割草机的 DP 下发（2026-09-21 接真机）。
   ///
   /// 走和花盆同一个 [_publishDps]：同一道离线门禁（离线回 `device_offline`、指令不发）、
@@ -3541,6 +3620,9 @@ class FlowerpotState extends ChangeNotifier {
       if (device != null && isMowerDevice(device)) {
         _applyDeviceUpdate(update);
         _mowerReports.add((deviceId: device.id, changedDps: update.changedDps));
+        if (update.changedDps.contains(MowerDp.shutdownReport)) {
+          unawaited(_noteMowerShutdownReport(device));
+        }
         return;
       }
       if (device != null) {
@@ -3725,6 +3807,7 @@ class FlowerpotState extends ChangeNotifier {
     // 割草机的 DP116 是升级状态，当成植物 id 去后端查只会白发请求。
     if (isMowerDevice(device)) {
       _devices[index] = device;
+      _syncMowerShutdownOnline();
       notifyListeners();
       return;
     }
@@ -4175,7 +4258,10 @@ class FlowerpotState extends ChangeNotifier {
           );
         }
       }
-      if (changed) notifyListeners();
+      if (changed) {
+        _syncMowerShutdownOnline();
+        notifyListeners();
+      }
     } finally {
       _probing = false;
     }
@@ -4227,6 +4313,7 @@ class FlowerpotState extends ChangeNotifier {
     }
     if (!changed) return;
     _devices = next;
+    _syncMowerShutdownOnline();
     notifyListeners();
   }
 
@@ -4261,7 +4348,9 @@ class FlowerpotState extends ChangeNotifier {
       }
       _logDevices();
       _ensureOnlinePolling();
+      _syncMowerShutdownOnline();
       notifyListeners();
+      unawaited(_seedMowerShutdown(epoch));
     } catch (error) {
       if (epoch != _sessionEpoch) return;
       // 失败不清空已有列表：断网重进时保留上一次拿到的设备，比直接白屏好。
@@ -4391,6 +4480,7 @@ class FlowerpotState extends ChangeNotifier {
     _user = null;
     _devices = <SmartPlanterDevice>[];
     _unreachable.clear();
+    _mowerShutdown.clear();
     _probeMisses.clear();
     _reachProbe?.cancel();
     _reachProbe = null;

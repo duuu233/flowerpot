@@ -129,6 +129,7 @@ class DeviceListPage extends StatelessWidget {
                     return _DeviceListCard(
                       key: Key('device-list-item-${device.id}'),
                       device: device,
+                      shutdown: state.isMowerShutdown(device.id),
                       onTap: () => _openDevice(context, state, device),
                     );
                   },
@@ -201,10 +202,18 @@ class _AddDeviceButton extends StatelessWidget {
 }
 
 class _DeviceListCard extends StatelessWidget {
-  const _DeviceListCard({required this.device, required this.onTap, super.key});
+  const _DeviceListCard({
+    required this.device,
+    required this.onTap,
+    this.shutdown = false,
+    super.key,
+  });
 
   final SmartPlanterDevice device;
   final VoidCallback onTap;
+
+  /// 割草机报过 DP113 非在桩关机、还没再开机：胶囊写「已关机」而不是「离线」/「在线」。
+  final bool shutdown;
 
   @override
   Widget build(BuildContext context) {
@@ -246,7 +255,7 @@ class _DeviceListCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      _OnlinePill(online: device.online),
+                      _OnlinePill(online: device.online, shutdown: shutdown),
                     ],
                   ),
                 ),
@@ -295,16 +304,20 @@ class _DeviceListIcon extends StatelessWidget {
 }
 
 class _OnlinePill extends StatelessWidget {
-  const _OnlinePill({required this.online});
+  const _OnlinePill({required this.online, this.shutdown = false});
 
   final bool online;
 
+  /// 已关机（割草机 DP113）：按离线的灰色画，字写「已关机」——关机那 1 秒设备还在线，也按这个显示。
+  final bool shutdown;
+
   @override
   Widget build(BuildContext context) {
-    final foreground = online
+    final lit = online && !shutdown;
+    final foreground = lit
         ? AppColors.brandPrimary
         : AppColors.textSecondary;
-    final background = online
+    final background = lit
         ? AppColors.brandSurface
         : AppColors.divider.withValues(alpha: .72);
     return DecoratedBox(
@@ -326,7 +339,11 @@ class _OnlinePill extends StatelessWidget {
             ),
             const SizedBox(width: 7),
             Text(
-              online ? '在线' : '离线',
+              shutdown
+                  ? '已关机'
+                  : lit
+                  ? '在线'
+                  : '离线',
               style: TextStyle(color: foreground, fontSize: 14, height: 1),
             ),
           ],
