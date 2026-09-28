@@ -1318,15 +1318,18 @@ class FlowerpotState extends ChangeNotifier {
     required DateTime start,
     required DateTime end,
     String deviceId = '',
+    int offset = 0,
     int limit = 50,
   }) async {
     _logInteraction(
-      '消息中心（时间窗）→ ${start.toIso8601String()} ~ ${end.toIso8601String()}',
+      '消息中心（时间窗）→ ${start.toIso8601String()} ~ ${end.toIso8601String()}'
+      '${offset == 0 ? '' : ' offset=$offset'}',
     );
     final data = await _repository.messagesByTime(
       startTime: start.millisecondsSinceEpoch,
       endTime: end.millisecondsSinceEpoch,
       deviceId: deviceId,
+      offset: offset,
       limit: limit,
     );
     _logInteraction(

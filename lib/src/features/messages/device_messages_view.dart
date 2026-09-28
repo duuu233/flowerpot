@@ -66,6 +66,17 @@ class DeviceMessagesView extends StatefulWidget {
 /// 三个分类（界面文案）。
 const List<String> _tabs = <String>['日志', '提醒', '告警'];
 
+/// 调试台用：一条消息按**列表同一套规则**分到哪一栏，写成一句话，
+/// 如「告警(严重)，依据 alarmType=3（推测编码）」「告警(严重)，没认出等级，按告警」。
+/// 规则只在 `_DeviceMessagesViewState._gradeOf` 一处，这里只是转一下。
+String describeMessageGrade(Map<Object?, Object?> item) {
+  final at = _DeviceMessagesViewState._alarmEntry(item).at;
+  final grade = _DeviceMessagesViewState._gradeOf(item, at);
+  final basis = grade.basis;
+  return '${_tabs[grade.level.tab]}(${grade.level.label})，'
+      '${basis == null ? '没认出等级，按告警' : '依据 $basis${grade.guessed ? '（推测编码）' : ''}'}';
+}
+
 /// 平台推送规则的三个等级 → 页面三栏（2026-09-28 产品：**日志 = 通知、提醒 = 轻微、告警 = 严重**）。
 enum _PushLevel {
   notice('通知'),
@@ -180,7 +191,7 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
         in (messages['items'] as List<Object?>?) ?? const <Object?>[]) {
       if (item is! Map) continue;
       final entry = _alarmEntry(item);
-      final grade = _gradeOf(item, entry.at);
+      final grade = _gradeOf(item, entry.at, _warns);
       buckets[grade.level.tab].add(entry);
       if (grade.basis == null) {
         unknown++;
@@ -234,10 +245,14 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
   /// 3. 页面开着时收到的**设备告警** `warn56`：同一台设备、时间前后 60 秒内的那条的 `warnLevel` → 按 [_levelCodes]；
   /// 4. 消息的 `alarmType` 非 0 → 按 [_levelCodes]（这个字段是不是等级也没确认）；
   /// 5. 都没有 → 归「告警」（`basis == null`），宁可放在最显眼的一栏，也不把严重的藏进日志。
-  ({_PushLevel level, String? basis, bool guessed}) _gradeOf(
+  ///
+  /// [warns] 是页面开着时收到的设备告警（第 3 步用）；调试台那边没有，传空（[describeMessageGrade]）。
+  static ({_PushLevel level, String? basis, bool guessed}) _gradeOf(
     Map<Object?, Object?> item,
-    DateTime at,
-  ) {
+    DateTime at, [
+    List<({String devId, DateTime at, int level})> warns =
+        const <({String devId, DateTime at, int level})>[],
+  ]) {
     final candidates = <String, Object?>{};
     void collect(Map<Object?, Object?> source, String prefix) {
       source.forEach((key, value) {
@@ -285,7 +300,7 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
     }
 
     final devId = '${item['msgSrcId'] ?? ''}';
-    for (final warn in _warns.reversed) {
+    for (final warn in warns.reversed) {
       if (warn.devId.isNotEmpty && devId.isNotEmpty && warn.devId != devId) continue;
       if (warn.at.difference(at).inSeconds.abs() > 60) continue;
       final level = _levelCodes[warn.level];

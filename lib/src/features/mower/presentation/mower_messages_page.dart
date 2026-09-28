@@ -9,6 +9,7 @@ import '../../../design_system/design_system.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_config.dart';
 import '../../messages/device_messages_view.dart';
+import '../../messages/message_monitor_console.dart';
 import '../mower_ui.dart';
 import '../mower_device.dart';
 import 'widgets/mower_bottom_nav.dart';
@@ -22,26 +23,58 @@ import 'widgets/mower_card.dart';
 /// 列表本身（三栏按推送等级分、日期筛选、来推送自动重拉）是和花盆共用的 [DeviceMessagesView]，
 /// 分栏规则见那边；这一页只套标题栏、底部导航和调试板。
 ///
-/// ## 页面底部的调试板（2026-09-18 产品追加）
+/// ## 页面底部
 ///
-/// 排查用：把涂鸦消息中心的每条消息**所有字段原样打印**，另可实时接收推送。
+/// - [MessageMonitorConsole]（2026-09-28 产品：花盆那套「这套逻辑照搬到割草机，只是参数不一样」）：
+///   进页面按写死的参数自动查——这台割草机按设备取告警档、最近 [_monitorDays] 天按时间窗（聚合）取，
+///   返回原样打印，每条标它分到哪栏（日志 = 通知、提醒 = 轻微、告警 = 严重）。割草机没有后台监控记录可对，
+///   所以不做逐条对照；产品贴来割草机的后台记录后，照花盆页把 `records` 填上即可。
+/// - 原来的调试板（2026-09-18 产品追加）：手动选消息类型拉取、拉设备日志、实时接收推送。
 class MowerMessagesPage extends StatelessWidget {
   const MowerMessagesPage({required this.onTabRequested, super.key});
 
   /// 退回外壳之后要切到哪一栏。
   final ValueChanged<MowerTab> onTabRequested;
 
+  /// 调试台按时间窗查最近几天。
+  static const int _monitorDays = 7;
+
+  static String _stamp(DateTime at) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${at.year}-${two(at.month)}-${two(at.day)} ${two(at.hour)}:${two(at.minute)}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final deviceId = MowerDevice.instance.deviceId;
+    final now = DateTime.now();
+    final from = now.subtract(const Duration(days: _monitorDays));
     return Scaffold(
       backgroundColor: AppColors.canvas,
       body: AppPageScaffold(
         appBar: const AppPageHeader(title: '消息通知', leading: AppBackButton()),
         body: DeviceMessagesView(
-          deviceId: MowerDevice.instance.deviceId,
+          deviceId: deviceId,
           pageName: '割草机-消息通知',
           keyPrefix: 'mower-messages',
-          footer: const _MessageDebugPanel(),
+          footer: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              MessageMonitorConsole(
+                title: '调试台 · 割草机消息查询',
+                deviceIds: <String>[?deviceId],
+                windows: <MonitorWindow>[
+                  (
+                    label: '最近 $_monitorDays 天（手机本地时间 ${_stamp(from)} ~ ${_stamp(now)}）',
+                    start: from,
+                    end: now,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const _MessageDebugPanel(),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: MowerBottomNav(

@@ -451,6 +451,13 @@ void main() {
     // Mock 没有消息中心：如实写取不到
     expect(find.textContaining('没有取到：'), findsOneWidget);
     expect(find.byKey(const Key('mower-messages-debug-panel')), findsOneWidget);
+    // 2026-09-28：花盆那套写死参数的调试台照搬过来，参数换成这台割草机 + 最近 7 天
+    expect(find.byKey(const Key('message-monitor-console')), findsOneWidget);
+    final params = tester
+        .widget<SelectableText>(find.byKey(const Key('message-monitor-params')))
+        .data;
+    expect(params, contains('按设备取：$_mowerId'));
+    expect(params, contains('最近 7 天'));
     expect(tester.takeException(), isNull);
   });
 
