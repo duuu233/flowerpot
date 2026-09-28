@@ -1617,7 +1617,8 @@ class FlowerpotState extends ChangeNotifier {
 
   Object? _settingLogValue(DeviceControlSettings settings, String key) =>
       switch (key) {
-        'autoBrightness' || 'led' => settings.autoBrightness,
+        'autoBrightness' => settings.autoBrightness,
+        'led' => settings.ledEnabled,
         'soundInteraction' => settings.soundInteraction,
         'soundSensitivity' => settings.soundSensitivity,
         'touchInteraction' => settings.touchInteraction,
@@ -2357,10 +2358,9 @@ class FlowerpotState extends ChangeNotifier {
     _replaceDevice(id, (device) {
       final current = device.settings;
       final next = switch (key) {
-        // 'led' 走的是同一个功能点（117），本地状态也要跟着走同一个字段。
-        'autoBrightness' || 'led' => current.copyWith(
-          autoBrightness: value as bool,
-        ),
+        'autoBrightness' => current.copyWith(autoBrightness: value as bool),
+        // 'led' 2026-09-28 起走自己的 166，不再和屏幕（117）共用一个字段。
+        'led' => current.copyWith(ledEnabled: value as bool),
         'soundInteraction' => current.copyWith(soundInteraction: value as bool),
         'soundSensitivity' => current.copyWith(soundSensitivity: value as int),
         'touchInteraction' => current.copyWith(touchInteraction: value as bool),
@@ -3761,6 +3761,43 @@ class FlowerpotState extends ChangeNotifier {
     );
   }
 
+  /// DP168 `ota_result`（花盆，2026-09-28 固件新增）：设备重启连云后自己比对「目标版本 == 当前版本」，
+  /// 成功报 2、失败报 3（失败会恢复资源再重启，回来补发 3）。App 发起的升级还没结论时拿它收尾，
+  /// 升级页不再一直停在「升级中」；和涂鸦回调、版本号兜底（[_confirmOtaByReportedVersion]）并存，谁先到谁算。
+  ///
+  /// - 只看**这条报文里带了** 168 的，不看快照里的旧值（那是上一次升级的结论）；
+  /// - 只收尾**进行中**的升级（已成功 / 已失败的不改），不看阶段——报 2 / 3 时设备已经重启连云，
+  ///   中间「重启中」那段本来就不判失败；
+  /// - 0 idle / 1 downloading 只记日志。
+  void _confirmOtaByResultDp(SmartPlanterDevice device, Set<int> changedDps) {
+    if (isMowerDevice(device)) return;
+    final dpId = TuyaConfig.dp['ota_result'];
+    if (dpId == null || !changedDps.contains(dpId)) return;
+    final progress = _otaProgress[device.id];
+    final running = progress != null && progress.status == OtaStatus.running;
+    final code = device.otaResultCode;
+    _logInteraction(
+      'OTA ← DP$dpId ota_result=${device.otaResult}'
+      '${running ? '' : '（App 这边没有进行中的升级，只记录）'}',
+    );
+    if (!running) return;
+    if (code == 2) {
+      _logInteraction('OTA ← DP$dpId 设备报升级成功，按升级完成处理');
+      _applyOtaProgress(
+        OtaProgress(deviceId: device.id, status: OtaStatus.success),
+      );
+    } else if (code == 3) {
+      _logInteraction('OTA ✗ DP$dpId 设备报升级失败');
+      _applyOtaProgress(
+        OtaProgress(
+          deviceId: device.id,
+          status: OtaStatus.failed,
+          message: '设备报告固件升级失败，请稍后重试。',
+        ),
+      );
+    }
+  }
+
   /// Applies a change the device pushed on its own.
   ///
   /// The device is authoritative here: the pushed snapshot already carries
@@ -3803,6 +3840,7 @@ class FlowerpotState extends ChangeNotifier {
     // is what introduces it.
     if (index < 0) return;
     _confirmOtaByReportedVersion(device, update.changedDps);
+    _confirmOtaByResultDp(device, update.changedDps);
     // 割草机：列表那一行换成最新快照（在线态、名字）就够了。下面是花盆专用的——
     // 割草机的 DP116 是升级状态，当成植物 id 去后端查只会白发请求。
     if (isMowerDevice(device)) {

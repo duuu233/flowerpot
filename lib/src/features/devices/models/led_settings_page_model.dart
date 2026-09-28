@@ -2,17 +2,14 @@ import '../../../tuya/tuya_models.dart';
 
 /// The LED page is a single switch, laid out like 震动设置.
 ///
-/// It rides on `disp_brightness_switch` (DP 117, 显示屏幕亮度开关): the
-/// 2026-09-03 platform export has no separate LED function point, and 117 is
-/// the only on/off the firmware exposes for the light the planter shows. The
-/// 显示 page presents the same DP as 「自动屏幕亮度」, so the two rows move
-/// together — repointing this at a real LED DP is one line in
-/// `TuyaConfig.setting` once the firmware adds one.
+/// 背后是 `led_switch`（DP 166，双色 LED 灯效总开关，2026-09-28 固件新增，默认关）。
+/// 原来固件没有单独的 LED 功能点，和「显示」页共用 117；新 DP 说明写明 117 是屏幕背光、
+/// 166 是双色 LED，两个独立开关，所以两页不再联动。
 class LedSettingsPageModel {
   const LedSettingsPageModel({required this.ledEnabled});
 
   factory LedSettingsPageModel.fromSettings(DeviceControlSettings settings) =>
-      LedSettingsPageModel(ledEnabled: settings.autoBrightness);
+      LedSettingsPageModel(ledEnabled: settings.ledEnabled);
 
   final bool ledEnabled;
 

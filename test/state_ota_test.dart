@@ -458,6 +458,71 @@ void main() {
     });
   });
 
+  group('DP168 ota_result：设备重启连云后报 2 成功 / 3 失败，给进行中的升级收尾', () {
+    // 2026-09-28 花盆新增 DP：升级页要能收 2 / 3 收尾，不要一直停在「升级中」。
+    Future<void> result(_OtaRepository repository, String value) async {
+      repository.pushDeviceUpdate(
+        DeviceUpdate.changed(
+          _deviceOf().copyWith(otaResult: value),
+          changedDps: <int>{168},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    test('报 2（success）：升级完成，版本号换成目标版本，红点熄灭', () async {
+      final repository = _OtaRepository();
+      final state = await _state(repository);
+      await state.refreshFirmwareUpdate('device-01');
+      await state.upgradeFirmware('device-01', '1.1.0');
+
+      await result(repository, '2');
+
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
+      expect(state.deviceById('device-01')?.firmwareVersion, '1.1.0');
+      expect(state.hasFirmwareUpdate('device-01'), isFalse);
+      state.dispose();
+    });
+
+    test('报 3（英文名 failed 也认）：升级失败，带原因', () async {
+      final repository = _OtaRepository();
+      final state = await _state(repository);
+      await state.upgradeFirmware('device-01', '1.1.0');
+
+      await result(repository, 'failed');
+
+      final progress = state.otaProgressFor('device-01');
+      expect(progress?.status, OtaStatus.failed);
+      expect(progress?.message, contains('设备报告固件升级失败'));
+      state.dispose();
+    });
+
+    test('报 1（downloading）只记日志，仍在升级中', () async {
+      final repository = _OtaRepository();
+      final state = await _state(repository);
+      await state.upgradeFirmware('device-01', '1.1.0');
+
+      await result(repository, '1');
+
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+      expect(
+        state.interactionLog.any((line) => line.contains('ota_result=1')),
+        isTrue,
+      );
+      state.dispose();
+    });
+
+    test('App 里没有进行中的升级：只记录，不弹结论', () async {
+      final repository = _OtaRepository();
+      final state = await _state(repository);
+
+      await result(repository, '2');
+
+      expect(state.otaProgressFor('device-01'), isNull);
+      state.dispose();
+    });
+  });
+
   test('a device that never started an upgrade is never stalled', () async {
     final state = await _state();
 

@@ -1437,6 +1437,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
     final settings = DeviceControlSettings(
       autoBrightness: boolean(dp('disp_brightness_switch'), true),
+      ledEnabled: boolean(dp('led_switch'), false),
       soundInteraction: boolean(dp('voice_interaction_switch'), true),
       soundSensitivity: integer(dp('sound_sensitivity'), 60),
       touchInteraction: boolean(dp('touch_interact_switch'), true),
@@ -1524,6 +1525,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       birthday: TuyaMemorialCodec.decodeFixedDate(dp('memorial_birthday')),
       weddingDay: TuyaMemorialCodec.decodeFixedDate(dp('memorial_wedding')),
       lastOperationResult: '${dp('op_result') ?? ''}',
+      otaResult: '${dp('ota_result') ?? ''}',
     );
   }
 

@@ -72,8 +72,8 @@ class DeviceSettingsPageModel {
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.led,
           label: 'LED设置',
-          // 与「显示」共用 DP 117，见 LedSettingsPageModel。
-          value: settings.autoBrightness ? '已开启' : '已关闭',
+          // DP 166 `led_switch`，和「显示」（117）是两个独立开关，见 LedSettingsPageModel。
+          value: settings.ledEnabled ? '已开启' : '已关闭',
         ),
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.hearing,

@@ -144,6 +144,8 @@ class InteractionLogRouteObserver extends NavigatorObserver {
         AppRoutes.deviceSettings: <String>[
           'plantDetection',
           'autoBrightness',
+          // LED 2026-09-28 起是自己的 166，不再跟着 117 走，单列一项。
+          'led',
           'soundInteraction',
           'touchInteraction',
           'vibration',

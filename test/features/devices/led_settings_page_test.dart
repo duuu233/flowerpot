@@ -16,27 +16,25 @@ void main() {
 
     expect(find.text('LED设置'), findsOneWidget);
     expect(find.text('启用LED'), findsOneWidget);
-    expect(find.text('已开启'), findsOneWidget);
+    // DP166 固件默认关（2026-09-28），没报过也按关画
+    expect(find.text('已关闭'), findsOneWidget);
     expect(find.text('关闭后，YSplanter的屏幕指示灯将不再亮起，'), findsOneWidget);
     expect(find.byKey(const Key('led-switch')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the LED switch writes the display brightness DP', (
-    tester,
-  ) async {
-    // 09-03 的功能点表里没有单独的 LED 开关，这一页和「显示」共用 117。
+  testWidgets('LED 开关写 DP166 led_switch，不再动屏幕的 117', (tester) async {
+    // 2026-09-28 固件新增 166：117 = 屏幕背光、166 = 双色 LED，两个独立开关。
     final result = await _pumpLedSettings(tester, const Size(375, 812));
 
     await tester.tap(find.byKey(const Key('led-switch')));
     await tester.pumpAndSettle();
 
-    expect(result.repository.lastDps, <int, Object>{117: false});
-    expect(
-      result.state.deviceById('device-01')?.settings.autoBrightness,
-      isFalse,
-    );
-    expect(find.text('已关闭'), findsOneWidget);
+    expect(result.repository.lastDps, <int, Object>{166: true});
+    final settings = result.state.deviceById('device-01')?.settings;
+    expect(settings?.ledEnabled, isTrue);
+    expect(settings?.autoBrightness, isTrue, reason: '屏幕开关不跟着变');
+    expect(find.text('已开启'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

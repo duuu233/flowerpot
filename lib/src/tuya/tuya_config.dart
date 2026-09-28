@@ -146,6 +146,10 @@ abstract final class TuyaConfig {
     // [historyVariableFrames] and `TuyaHistoryCodec`.
     'temp_daily_hist': 164, // raw, ro：空气温度日历史
     'humi_daily_hist': 165, // raw, ro：空气湿度日历史
+    // 2026-09-28 新增（`docs/新增 DP 说明 — DP166 ~ DP169.md`）。167 power_off 关机 / 169 file_download
+    // 文件分片下载暂不对接（产品：页面没有先不弄），这里不登记。
+    'led_switch': 166, // bool rw：双色 LED 灯效总开关，默认 false（关）；和 117 屏幕是两个独立开关
+    'ota_result': 168, // enum ro：0 idle / 1 downloading / 2 success / 3 failed
   };
 
   /// DPs the device transmits as an integer scaled by a power of ten (涂鸦
@@ -161,10 +165,10 @@ abstract final class TuyaConfig {
   /// resolved by [settingDps] instead.
   static const setting = <String, String>{
     'autoBrightness': 'disp_brightness_switch',
-    // LED 设置页和显示页共用 117：2026-09-03 的功能点表里没有单独的 LED 开关，
-    // 而 117 「显示屏幕亮度开关」就是设备唯一的亮灯开关。固件补了独立功能点后，
-    // 改这一行即可，页面不用动。
-    'led': 'disp_brightness_switch',
+    // LED 设置页走 166 `led_switch`（2026-09-28 固件新增，双色 LED 灯效总开关）。原来 09-03 的功能点表里
+    // 没有单独的 LED 开关，和显示页共用 117；新 DP 说明写明「117 = 屏幕背光、166 = 双色 LED，两个独立开关，
+    // APP 不要共用一个」。
+    'led': 'led_switch',
     'soundInteraction': 'voice_interaction_switch',
     'soundSensitivity': 'sound_sensitivity',
     'touchInteraction': 'touch_interact_switch',

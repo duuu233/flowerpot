@@ -487,6 +487,7 @@ class SensorSnapshot {
 class DeviceControlSettings {
   const DeviceControlSettings({
     this.autoBrightness = true,
+    this.ledEnabled = false,
     this.soundInteraction = true,
     this.soundSensitivity = 62,
     this.touchInteraction = true,
@@ -507,6 +508,11 @@ class DeviceControlSettings {
   });
 
   final bool autoBrightness;
+
+  /// `led_switch`（166）：双色 LED 灯效总开关，关着时告警灯 / 配网灯 / 呼吸灯全灭。
+  /// 和 [autoBrightness]（117 屏幕）是两个独立开关。固件默认 false（2026-09-28 变更），
+  /// 没报过也按关画——旧固件不报 166，LED 页显示「已关闭」，开关下发不会生效。
+  final bool ledEnabled;
   final bool soundInteraction;
   final int soundSensitivity;
   final bool touchInteraction;
@@ -602,6 +608,7 @@ class DeviceControlSettings {
 
   DeviceControlSettings copyWith({
     bool? autoBrightness,
+    bool? ledEnabled,
     bool? soundInteraction,
     int? soundSensitivity,
     bool? touchInteraction,
@@ -621,6 +628,7 @@ class DeviceControlSettings {
     bool? plantDetection,
   }) => DeviceControlSettings(
     autoBrightness: autoBrightness ?? this.autoBrightness,
+    ledEnabled: ledEnabled ?? this.ledEnabled,
     soundInteraction: soundInteraction ?? this.soundInteraction,
     soundSensitivity: soundSensitivity ?? this.soundSensitivity,
     touchInteraction: touchInteraction ?? this.touchInteraction,
@@ -668,6 +676,7 @@ class SmartPlanterDevice {
     this.birthday,
     this.weddingDay,
     this.lastOperationResult = '',
+    this.otaResult = '',
   });
 
   final String id;
@@ -729,6 +738,26 @@ class SmartPlanterDevice {
   /// `<操作>:<对象>:<结果>`. Empty until it reports one.
   final String lastOperationResult;
 
+  /// `ota_result`（168，2026-09-28 固件新增）：设备自己报的 OTA 结果，原样留着。
+  /// 空串 = 没报过（旧固件没有这个 DP）。数字码见 [otaResultCode]。
+  final String otaResult;
+
+  /// [otaResult] 的数字码：0 idle / 1 downloading / 2 success / 3 failed。
+  ///
+  /// DP 说明写「枚举类 DP 传数字下标、平台显示字符串由云端映射」，App 这边经 SDK 拿到的是哪种没实测过，
+  /// 数字和英文名都认；认不出为 null。
+  int? get otaResultCode {
+    final text = otaResult.trim().toLowerCase();
+    return int.tryParse(text) ??
+        switch (text) {
+          'idle' => 0,
+          'downloading' => 1,
+          'success' => 2,
+          'failed' || 'fail' => 3,
+          _ => null,
+        };
+  }
+
   /// Whether the last receipt says the operation succeeded. Null when the
   /// device has reported nothing, or something this app cannot parse.
   bool? get lastOperationSucceeded {
@@ -765,6 +794,7 @@ class SmartPlanterDevice {
     DateTime? weddingDay,
     bool clearWeddingDay = false,
     String? lastOperationResult,
+    String? otaResult,
   }) => SmartPlanterDevice(
     id: id,
     productId: productId,
@@ -791,6 +821,7 @@ class SmartPlanterDevice {
     birthday: clearBirthday ? null : (birthday ?? this.birthday),
     weddingDay: clearWeddingDay ? null : (weddingDay ?? this.weddingDay),
     lastOperationResult: lastOperationResult ?? this.lastOperationResult,
+    otaResult: otaResult ?? this.otaResult,
   );
 }
 

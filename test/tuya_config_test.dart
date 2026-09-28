@@ -122,13 +122,14 @@ void main() {
     expect(TuyaConfig.settingDps('deviceLanguage', 'fr'), isNull);
   });
 
-  test('LED rides on the display brightness DP', () {
-    // 09-03 的功能点表里没有单独的 LED 开关，LED 页和显示页共用 117。
-    expect(TuyaConfig.settingDps('led', false), <int, Object>{117: false});
+  test('LED 走自己的 166，和屏幕的 117 分开', () {
+    // 2026-09-28 新增 DP 说明：166 双色 LED 与 117 屏幕是两个独立开关，APP 不要共用一个。
+    expect(TuyaConfig.settingDps('led', true), <int, Object>{166: true});
     expect(
       TuyaConfig.settingDps('autoBrightness', false),
-      TuyaConfig.settingDps('led', false),
+      <int, Object>{117: false},
     );
+    expect(TuyaConfig.dp['ota_result'], 168);
   });
 
   test('a setting the product has no DP for reports as unsupported', () {
