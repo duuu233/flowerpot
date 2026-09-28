@@ -21,19 +21,22 @@ import 'widgets/mower_card.dart';
 ///
 /// ## 数据从哪来（2026-09-23 联调起，稿子上那四条假消息已删）
 ///
-/// | 分类 | 来源 |
+/// 三栏**都来自涂鸦消息中心**：按这台设备取告警档（`MSG_REPORT`，`loadAllDeviceMessages` 翻页取全），
+/// 按平台推送规则的**等级**分栏（2026-09-28 产品，推送规则见 `docs/涂鸦消息推送对接方案.md`）：
+///
+/// | 分类 | 推送等级 |
 /// | --- | --- |
-/// | 日志 | 设备操作日志（DP 上报 / 下发历史）：`loadDeviceOperateLogs`，查割草机全部 DP，最近 30 天 |
-/// | 提醒 | 涂鸦消息中心按这台设备取（告警档 `MSG_REPORT`，翻页取全），**推送等级是「通知」的** |
-/// | 告警 | 同上，推送等级「轻微 / 严重」的，以及认不出等级的 |
+/// | 日志 | 通知 |
+/// | 提醒 | 轻微 |
+/// | 告警 | 严重（以及认不出等级的） |
 ///
-/// 涂鸦消息中心只分告警 / 家庭 / 通知三档，平台上配的设备推送（不管哪个等级）都进告警档，
-/// 所以「提醒 / 告警」只能按推送规则的等级分（2026-09-28，见 `docs/TUYA_CAPABILITY_AUDIT.md` 5.6）。
-/// 等级落在消息哪个字段涂鸦文档没写：先只认明文（[_gradeOf]），认不出来的归「告警」，
-/// 每条的判定依据写进联调日志，真机跑一次就知道要不要补编码。
+/// 涂鸦消息中心只分告警 / 家庭 / 通知三档，平台上配的设备推送（不管哪个等级）都进告警档，所以只能按等级分
+/// （见 `docs/TUYA_CAPABILITY_AUDIT.md` 5.6）。等级字段 / 编码涂鸦文档没写，判定顺序见 [_gradeOf]，
+/// 数字编码是推测（[_levelCodes]），每次加载把判定依据写进联调日志，真机跑一次就能定。
+/// 设备 DP 上报历史（原来的「日志」）不再放在这一栏，调试板上「拉设备日志」照样能看。
 ///
-/// 日期筛选：日志默认今天；提醒 / 告警默认「全部日期」，以前的推送都能看到（按设备取没有时间参数，
-/// 只能全取回来再按天筛）。选某一天后可以点「全部」回到全部日期。没有记录就如实写，不编。
+/// 日期筛选：三栏默认「全部日期」，以前的推送都能看到（按设备取没有时间参数，只能全取回来再按天筛）；
+/// 选某一天后可以点「全部」回到全部日期。没有记录就如实写，不编。
 /// 页面开着时挂上涂鸦实时推送监听，来一条推送就重拉一次（消息中心落库比推送晚一点，所以等 2 秒）。
 ///
 /// ## 页面底部的调试板（2026-09-18 产品追加）
@@ -52,26 +55,47 @@ class MowerMessagesPage extends StatefulWidget {
 /// 三个分类（界面文案）。
 const List<String> _tabs = <String>['日志', '提醒', '告警'];
 
-/// 日志往前查多少天（日期筛选也只给选这个范围）。
-const Duration _logWindow = Duration(days: 30);
+/// 平台推送规则的三个等级 → 页面三栏（2026-09-28 产品：**日志 = 通知、提醒 = 轻微、告警 = 严重**）。
+enum _PushLevel {
+  notice('通知'),
+  minor('轻微'),
+  severe('严重');
+
+  const _PushLevel(this.label);
+
+  final String label;
+
+  /// 第几栏（和 [_tabs] 一一对应）。
+  int get tab => index;
+}
+
+/// 数字等级 → 等级。
+///
+/// ⚠️ **推测，待真机确认**：涂鸦文档没写等级的编码。按 1 = 通知、2 = 轻微、3 = 严重（家庭 / 通知档消息的
+/// `alarmType` 都是 0，所以 0 当「没有等级」）。真机上分别触发三个等级的推送，看联调日志里每条的
+/// `warnLevel`（设备告警监听 `warn56`）与 `alarmType`，对不上就改这张表，别处不用动。
+const Map<int, _PushLevel> _levelCodes = <int, _PushLevel>{
+  1: _PushLevel.notice,
+  2: _PushLevel.minor,
+  3: _PushLevel.severe,
+};
 
 class _MowerMessagesPageState extends State<MowerMessagesPage> {
   int _tab = 0;
 
-  /// 每一栏各自的日期筛选，`null` = 全部日期：日志默认今天，提醒 / 告警默认全部（看得到以前的推送）。
-  final List<DateTime?> _days = <DateTime?>[
-    DateUtils.dateOnly(DateTime.now()),
-    null,
-    null,
-  ];
+  /// 每一栏各自的日期筛选，`null` = 全部日期（默认全部，以前的推送都看得到）。
+  final List<DateTime?> _days = <DateTime?>[null, null, null];
   bool _loading = false;
-  List<_Entry> _logs = const <_Entry>[];
-  List<_Entry> _reminders = const <_Entry>[];
-  List<_Entry> _alarms = const <_Entry>[];
 
-  /// 取数失败时的一句话（原样来自接口 / 原生诊断）。提醒和告警同一个来源，共用一个。
-  String? _logError;
-  String? _alarmError;
+  /// 三栏的条目（按 [_PushLevel.tab] 放），都来自消息中心告警档。
+  List<List<_Entry>> _entries = const <List<_Entry>>[<_Entry>[], <_Entry>[], <_Entry>[]];
+
+  /// 取数失败时的一句话（原样来自接口 / 原生诊断）。三栏同一个来源，共用一个。
+  String? _error;
+
+  /// 页面开着时收到的设备告警（`warn56`，自带 `warnLevel`）：按时间和消息中心的消息对上，给那条定等级。
+  final List<({String devId, DateTime at, int level})> _warns =
+      <({String devId, DateTime at, int level})>[];
 
   StreamSubscription<Map<String, Object?>>? _pushSub;
   Timer? _pushReload;
@@ -85,9 +109,11 @@ class _MowerMessagesPageState extends State<MowerMessagesPage> {
       state.logPageEntry('割草机-消息通知');
       unawaited(_reload());
       // 页面开着时收涂鸦实时推送：来一条就重拉（等 2 秒，消息中心落库比推送晚一点）。
-      // SDK 的监听整个进程只注册一次，重复进页面不会重复注册（见 FlowerpotState.startPushListen）。
+      // SDK 的监听整个进程只注册一次，重复进页面不会重复注册（见 FlowerpotState.startPushListen）；
+      // 设备告警（warn56）的监听随设备 DP 监听一起挂在原生侧（MainActivity.registerWarnListener）。
       unawaited(state.startPushListen());
-      _pushSub = state.pushMessages.listen((_) {
+      _pushSub = state.pushMessages.listen((event) {
+        _rememberWarn(event);
         _pushReload?.cancel();
         _pushReload = Timer(const Duration(seconds: 2), () {
           if (mounted) unawaited(_reload());
@@ -105,67 +131,102 @@ class _MowerMessagesPageState extends State<MowerMessagesPage> {
 
   DateTime? get _day => _days[_tab];
 
+  /// 记下一条设备告警（`source=warn56`）的设备、时间、等级。时间是毫秒还是秒没有文档，按大小认。
+  void _rememberWarn(Map<String, Object?> event) {
+    if (!mounted || '${event['source'] ?? ''}' != 'warn56') return;
+    final fields = event['fields'];
+    if (fields is! Map) return;
+    final level = int.tryParse('${fields['warnLevel'] ?? ''}');
+    final raw = int.tryParse('${fields['latestWarnTime'] ?? ''}');
+    final received = int.tryParse('${event['receivedAt'] ?? ''}');
+    final millis = raw == null
+        ? received
+        : (raw > 100000000000 ? raw : raw * 1000);
+    if (level == null || millis == null) return;
+    _warns.add((
+      devId: '${fields['devId'] ?? ''}',
+      at: DateTime.fromMillisecondsSinceEpoch(millis),
+      level: level,
+    ));
+    FlowerpotScope.of(context).logNote(
+      '消息通知 设备告警 warn56：devId=${fields['devId']} warnLevel=$level '
+      '（按推测编码 = ${_levelCodes[level]?.label ?? '未知'}）latestWarnTime=$raw',
+    );
+  }
+
   Future<void> _reload() async {
     final state = FlowerpotScope.of(context);
     final deviceId = MowerDevice.instance.deviceId;
     if (deviceId == null) return;
     setState(() => _loading = true);
-    final dpIds = (MowerDp.identifiers.keys.toList()..sort()).join(',');
-    final results = await Future.wait(<Future<Map<String, Object?>>>[
-      state.loadDeviceOperateLogs(
-        deviceId: deviceId,
-        dpIds: dpIds,
-        limit: 100,
-        window: _logWindow,
-      ),
-      state.loadAllDeviceMessages(deviceId: deviceId),
-    ]);
+    final messages = await state.loadAllDeviceMessages(deviceId: deviceId);
     if (!mounted) return;
-    final logs = results[0];
-    final messages = results[1];
-    final reminders = <_Entry>[];
-    final alarms = <_Entry>[];
+    final buckets = <List<_Entry>>[<_Entry>[], <_Entry>[], <_Entry>[]];
+    final notes = <String>[];
     var unknown = 0;
+    var guessed = 0;
     for (final item
         in (messages['items'] as List<Object?>?) ?? const <Object?>[]) {
       if (item is! Map) continue;
-      final grade = _gradeOf(item);
-      if (grade.basis == null) unknown++;
-      (grade.reminder ? reminders : alarms).add(_alarmEntry(item));
+      final entry = _alarmEntry(item);
+      final grade = _gradeOf(item, entry.at);
+      buckets[grade.level.tab].add(entry);
+      if (grade.basis == null) {
+        unknown++;
+      } else if (grade.guessed) {
+        guessed++;
+      }
+      if (notes.length < 5) notes.add(_gradeFields(item, grade));
     }
-    reminders.sort((a, b) => b.at.compareTo(a.at));
-    alarms.sort((a, b) => b.at.compareTo(a.at));
+    for (final list in buckets) {
+      list.sort((a, b) => b.at.compareTo(a.at));
+    }
     if (messages['ok'] == true) {
       state.logNote(
-        '消息通知 分档：共 ${reminders.length + alarms.length} 条 → 提醒 ${reminders.length}、告警 ${alarms.length}'
-        '（其中 $unknown 条没认出推送等级，按告警）',
+        '消息通知 分档：共 ${buckets.fold<int>(0, (sum, list) => sum + list.length)} 条 → '
+        '日志(通知) ${buckets[0].length}、提醒(轻微) ${buckets[1].length}、告警(严重) ${buckets[2].length}'
+        '（按推测编码 $guessed 条，认不出等级 $unknown 条按告警）',
       );
-      for (final item
-          in ((messages['items'] as List<Object?>?) ?? const <Object?>[])
-              .take(5)) {
-        if (item is Map) state.logNote('消息通知 等级字段：${_gradeFields(item)}');
+      for (final note in notes) {
+        state.logNote('消息通知 等级字段：$note');
       }
     }
     setState(() {
       _loading = false;
-      _logs = _logEntries(logs['raw']);
-      _logError = logs['ok'] == true ? null : _reason(logs);
-      _reminders = reminders;
-      _alarms = alarms;
-      _alarmError = messages['ok'] == true ? null : _reason(messages);
+      _entries = buckets;
+      _error = messages['ok'] == true ? null : _reason(messages);
     });
   }
 
-  /// 涂鸦平台推送规则的「推送等级」有 **通知 / 轻微 / 严重** 三档（涂鸦文档「推送设备消息」）：
-  /// 通知 → 页面的「提醒」，轻微 / 严重 → 「告警」。
+  static String _reason(Map<String, Object?> data) =>
+      '${data['message'] ?? (data['diagnostic'] as List<Object?>?)?.join('；') ?? '未知原因'}';
+
+  /// 消息中心的一条 → 条目。时间优先取数字的 `time`（秒），没有再解 `dateTime` 字符串。
+  static _Entry _alarmEntry(Map<Object?, Object?> item) {
+    final seconds = int.tryParse('${item['time'] ?? ''}');
+    final at = seconds != null
+        ? DateTime.fromMillisecondsSinceEpoch(seconds * 1000)
+        : DateTime.tryParse('${item['dateTime'] ?? ''}') ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+    String text(Object? value) => '${value ?? ''}'.trim();
+    final title = text(item['msgTitle']).isNotEmpty
+        ? text(item['msgTitle'])
+        : text(item['msgTypeContent']);
+    return _Entry(at: at, title: title, detail: text(item['msgContent']));
+  }
+
+  /// 一条消息属于哪个等级（→ 哪一栏）。依次看：
   ///
-  /// ⚠️ 等级落在消息哪个字段、怎么编码，**涂鸦文档没写**（SDK 文档的 MessageBean 不含等级）；
-  /// 解包看到的候选只有 `alarmType` / `msgCode` / `extendParams`。所以这里只认**明文**：
-  /// `extendParams`（JSON）或消息本身里名字带 level / grade / severity / priority / 等级 的字段，
-  /// 值是「通知 / notice / notification / info / 提醒」算提醒，「轻微 / 严重 / minor / severe …」算告警。
-  /// **认不出来的一律按告警**（`basis == null`，和改之前一样），不猜数字编码——
-  /// 真机拉到消息后，联调日志里有每条的这三个字段（[_gradeFields]），看了再补。
-  static ({bool reminder, String? basis}) _gradeOf(Map<Object?, Object?> item) {
+  /// 1. **明文等级**：消息本身或 `extendParams`（JSON）里名字带 level / grade / severity / priority / 等级 的字段，
+  ///    值是「通知 / 轻微 / 严重」或对应英文 → 直接定（`guessed = false`）；
+  /// 2. 同样那些字段是**数字** → 按 [_levelCodes]（推测编码）；
+  /// 3. 页面开着时收到的**设备告警** `warn56`：同一台设备、时间前后 60 秒内的那条的 `warnLevel` → 按 [_levelCodes]；
+  /// 4. 消息的 `alarmType` 非 0 → 按 [_levelCodes]（这个字段是不是等级也没确认）；
+  /// 5. 都没有 → 归「告警」（`basis == null`），宁可放在最显眼的一栏，也不把严重的藏进日志。
+  ({_PushLevel level, String? basis, bool guessed}) _gradeOf(
+    Map<Object?, Object?> item,
+    DateTime at,
+  ) {
     final candidates = <String, Object?>{};
     void collect(Map<Object?, Object?> source, String prefix) {
       source.forEach((key, value) {
@@ -193,88 +254,57 @@ class _MowerMessagesPageState extends State<MowerMessagesPage> {
       collect(extend, 'extendParams.');
     }
 
-    const reminderWords = <String>['通知', '提醒', 'notice', 'notification', 'info'];
-    const alarmWords = <String>['轻微', '严重', 'minor', 'severe', 'serious', 'critical', 'major'];
+    const words = <_PushLevel, List<String>>{
+      _PushLevel.notice: <String>['通知', '提示', 'notice', 'notification', 'info'],
+      _PushLevel.minor: <String>['轻微', 'minor', 'slight', 'mild'],
+      _PushLevel.severe: <String>['严重', 'severe', 'serious', 'critical', 'major'],
+    };
     for (final entry in candidates.entries) {
       final value = '${entry.value ?? ''}'.trim().toLowerCase();
       if (value.isEmpty) continue;
-      if (reminderWords.any(value.contains)) {
-        return (reminder: true, basis: '${entry.key}=${entry.value}');
+      for (final level in words.keys) {
+        if (words[level]!.any(value.contains)) {
+          return (level: level, basis: '${entry.key}=${entry.value}', guessed: false);
+        }
       }
-      if (alarmWords.any(value.contains)) {
-        return (reminder: false, basis: '${entry.key}=${entry.value}');
+      final code = int.tryParse(value);
+      if (code != null && _levelCodes[code] != null) {
+        return (level: _levelCodes[code]!, basis: '${entry.key}=$code', guessed: true);
       }
     }
-    return (reminder: false, basis: null);
+
+    final devId = '${item['msgSrcId'] ?? ''}';
+    for (final warn in _warns.reversed) {
+      if (warn.devId.isNotEmpty && devId.isNotEmpty && warn.devId != devId) continue;
+      if (warn.at.difference(at).inSeconds.abs() > 60) continue;
+      final level = _levelCodes[warn.level];
+      if (level != null) {
+        return (level: level, basis: 'warn56.warnLevel=${warn.level}', guessed: true);
+      }
+    }
+
+    final alarmType = int.tryParse('${item['alarmType'] ?? ''}');
+    if (alarmType != null && alarmType != 0 && _levelCodes[alarmType] != null) {
+      return (level: _levelCodes[alarmType]!, basis: 'alarmType=$alarmType', guessed: true);
+    }
+    return (level: _PushLevel.severe, basis: null, guessed: false);
   }
 
-  /// 联调日志用：一条消息里可能带推送等级的几个字段，原样。
-  static String _gradeFields(Map<Object?, Object?> item) {
-    final grade = _gradeOf(item);
+  /// 联调日志用：一条消息里可能带推送等级的几个字段原样，加上判定结果。
+  static String _gradeFields(
+    Map<Object?, Object?> item,
+    ({_PushLevel level, String? basis, bool guessed}) grade,
+  ) {
     return '${item['msgTitle'] ?? item['msgTypeContent'] ?? ''} '
         'alarmType=${item['alarmType']} msgCode=${item['msgCode']} '
-        'extendParams=${item['extendParams']} → '
-        '${grade.reminder ? '提醒' : '告警'}（${grade.basis ?? '没认出等级'}）';
-  }
-
-  static String _reason(Map<String, Object?> data) =>
-      '${data['message'] ?? (data['diagnostic'] as List<Object?>?)?.join('；') ?? '未知原因'}';
-
-  /// 设备日志 JSON（真机 2026-09-21：`{dps:[{dpId,timeStamp(秒),timeStr,value}], dpc:[...]}`）
-  /// → 条目。`dps` 是设备上报，`dpc` 是下发。
-  static List<_Entry> _logEntries(Object? raw) {
-    if (raw is! String || raw.isEmpty) return const <_Entry>[];
-    Object? data;
-    try {
-      data = jsonDecode(raw);
-    } on FormatException {
-      return const <_Entry>[];
-    }
-    if (data is! Map) return const <_Entry>[];
-    final entries = <_Entry>[];
-    void add(Object? list, String verb) {
-      if (list is! List) return;
-      for (final item in list) {
-        if (item is! Map) continue;
-        final dp = int.tryParse('${item['dpId']}');
-        final seconds = int.tryParse('${item['timeStamp']}');
-        if (dp == null || seconds == null) continue;
-        entries.add(
-          _Entry(
-            at: DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
-            title: 'DP$dp ${MowerDp.identifiers[dp] ?? ''}'.trim(),
-            detail: '$verb ${item['value']}',
-          ),
-        );
-      }
-    }
-
-    add(data['dps'], '上报');
-    add(data['dpc'], '下发');
-    entries.sort((a, b) => b.at.compareTo(a.at));
-    return entries;
-  }
-
-  /// 消息中心的一条 → 条目。时间优先取数字的 `time`（秒），没有再解 `dateTime` 字符串。
-  static _Entry _alarmEntry(Map<Object?, Object?> item) {
-    final seconds = int.tryParse('${item['time'] ?? ''}');
-    final at = seconds != null
-        ? DateTime.fromMillisecondsSinceEpoch(seconds * 1000)
-        : DateTime.tryParse('${item['dateTime'] ?? ''}') ??
-              DateTime.fromMillisecondsSinceEpoch(0);
-    String text(Object? value) => '${value ?? ''}'.trim();
-    final title = text(item['msgTitle']).isNotEmpty
-        ? text(item['msgTitle'])
-        : text(item['msgTypeContent']);
-    return _Entry(at: at, title: title, detail: text(item['msgContent']));
+        'extendParams=${item['extendParams']} → ${_tabs[grade.level.tab]}(${grade.level.label})'
+        '（${grade.basis == null ? '没认出等级' : '${grade.basis}${grade.guessed ? '，推测编码' : ''}'}）';
   }
 
   Future<void> _pickDay() async {
     final today = DateUtils.dateOnly(DateTime.now());
-    // 日志只取了最近 30 天；提醒 / 告警是全取回来的，可以往前多选（一年够用）
-    final first = today.subtract(
-      _tab == 0 ? _logWindow : const Duration(days: 365),
-    );
+    // 消息是全取回来的，往前一年够用
+    final first = today.subtract(const Duration(days: 365));
     final current = _day;
     final picked = await showDatePicker(
       context: context,
@@ -288,11 +318,7 @@ class _MowerMessagesPageState extends State<MowerMessagesPage> {
   }
 
   List<_Entry> get _visible {
-    final source = switch (_tab) {
-      0 => _logs,
-      1 => _reminders,
-      _ => _alarms,
-    };
+    final source = _entries[_tab];
     final day = _day;
     if (day == null) return source;
     return <_Entry>[
@@ -303,13 +329,9 @@ class _MowerMessagesPageState extends State<MowerMessagesPage> {
 
   String? get _emptyText {
     if (_loading) return '加载中…';
-    final error = _tab == 0 ? _logError : _alarmError;
+    final error = _error;
     if (error != null) return '没有取到：$error';
-    final what = switch (_tab) {
-      0 => '记录',
-      1 => '提醒',
-      _ => '告警',
-    };
+    final what = _tabs[_tab];
     return _day == null ? '暂无$what' : '当天没有$what';
   }
 

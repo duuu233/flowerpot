@@ -429,3 +429,30 @@ iOS 侧要调的是 `ThingSmartMessage` 的
 [iOS 消息相关功能](https://developer.tuya.com/en/docs/app-development/iOS-message-function?id=Kaj0t5zaofjfd)、
 [告警列表（IPC）](https://developer.tuya.com/en/docs/app-development/messagelist?id=Kdmgaswbhh83p)、
 [平台消息类型](https://developer.tuya.com/en/docs/iot/message-type?id=Kavqerli65a1u)。
+
+### 5.7 设备告警监听自带 `warnLevel`（2026-09-28 解包）与消息通知三栏新口径
+
+产品口径改为：**日志 = 通知、提醒 = 轻微、告警 = 严重**（三栏都来自消息中心告警档）。为找等级，把本机缓存的 7.5.1 包
+（`sdk-msg` / `sdk-push` 两组 aar）里消息 / 推送相关类的字符串常量全搜了一遍，只有一处带「等级」：
+
+```java
+// thingsmart-device-api
+interface IThingDevice { void registerWarnMessageListener(IWarningMsgListener); }
+interface IWarningMsgListener { void onWarnMessageArrived(WarnMessageBean); }
+class WarnMessageBean { String uid; String devId; int warnLevel; long latestWarnTime; String productId; long lastProdWarnId; }
+class MQ_56_WarnMessageBean { WarnMessageBean warnMessageBean; }   // MQTT 56 号协议
+```
+
+- **消息中心的 `MessageBean` 上没有等级字段**（只有 `alarmType` / `msgCode` / `extendParams` 三个候选）；
+  `warnLevel` 只在这条**实时**的设备告警里有——只有 App 开着时收得到，历史消息拿不到。
+- 已接：原生 `watchDevice` 给每台已绑定设备顺手挂 `registerWarnMessageListener`（`MainActivity.registerWarnListener`），
+  收到的走现成的 `pushMessage` 事件（`source=warn56`，**不放顶层 deviceId**，免得被当成设备状态更新）。
+- `warnLevel` 的数字是什么意思、`alarmType` 是不是等级，**文档都没写**（查到的「alarmType 1 自定义 / 2 设备告警」
+  是商业照明云 API 的字段，不是这里）。页面按推测编码 1 = 通知、2 = 轻微、3 = 严重（`_levelCodes`，一处可改），
+  判定顺序：明文等级 → 等级字段里的数字 → 页面开着时收到的 warn56（同设备 ±60 秒）→ `alarmType` → 都不行归告警。
+- **真机要做的一次**：在本账号的割草机上，分别配 / 触发一条「通知」「轻微」「严重」等级的推送（`docs/涂鸦消息推送对接方案.md` 里的规则），
+  App 开在消息通知页，看联调日志里的「设备告警 warn56：warnLevel=…」和「等级字段：alarmType=… → 哪栏」三行对不对。
+  对不上就改 `_levelCodes`；如果 `alarmType` 三个等级都一样，说明它不是等级，把第 4 步去掉，历史消息就只能靠 warn56 当场记下。
+
+另：按 V2.5 核对 DP 表，代码与文档一致，**只缺 DP113 `shutdown_report`（V2.5 新增关机上报）**，本轮未接（收到 true 应显示「已关机」、
+随后离线不报异常，见协议 §4.7 / §9.9）。

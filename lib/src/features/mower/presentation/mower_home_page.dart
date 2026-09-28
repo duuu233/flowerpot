@@ -104,7 +104,8 @@ class _MowerHomePageState extends State<MowerHomePage> {
         key: const Key('mower-home-stack'),
         index: MowerTab.values.indexOf(_tab),
         children: <Widget>[
-          const MowerControlPage(),
+          // 只在停在「首页」这一栏时弹 DP18 设备告警（见 MowerControlPage）
+          MowerControlPage(active: _tab == MowerTab.home),
           const MowerPlanPage(),
           MowerSettingsPage(onTabRequested: _select),
         ],

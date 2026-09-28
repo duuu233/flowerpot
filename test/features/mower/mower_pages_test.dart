@@ -153,7 +153,43 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const Key('mower-safety-notice')), findsOneWidget);
-    expect(find.text('左轮异常，请清理异物并重启。'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('mower-safety-notice')),
+        matching: find.text('左轮异常，请清理异物并重启。'),
+      ),
+      findsOneWidget,
+    );
+
+    // 2026-09-28：控制页捕捉到新的故障位 → 弹「设备告警」，内容是该位的文案，按钮「我知道了」
+    expect(find.text('设备告警'), findsOneWidget);
+    expect(find.text('左轮异常，请清理异物并重启。'), findsNWidgets(2));
+    await tester.tap(find.text('我知道了'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('设备告警'), findsNothing);
+
+    // 设备 60 秒兜底重报同一个值：不再弹
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.fault}),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('设备告警'), findsNothing);
+
+    // 又多了一位（第 4 位抬起）：算新故障，再弹，两条文案都列出来
+    repository.rawDpsByDevice[_mowerId]![MowerDp.fault] = 1 | (1 << 4);
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.fault}),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('设备告警'), findsOneWidget);
+    expect(find.textContaining('机器被悬空，请放回地面。'), findsOneWidget);
+    await tester.tap(find.text('我知道了'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });

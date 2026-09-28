@@ -3787,12 +3787,60 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             )
             method.invoke(device, devListenerProxy(method.parameterTypes.last(), deviceId))
             watched[deviceId] = device
+            registerWarnListener(device, deviceId)
         }.onFailure { throwable ->
             val cause = TuyaSdkInitializer.unwrap(throwable)
             Log.w(
                 TUYA_LOG_TAG,
                 "registerDevListener failed for one device: ${cause.javaClass.simpleName}",
             )
+        }
+    }
+
+    /**
+     * 设备告警（2026-09-28，7.5.1 解包 `thingsmart-device-api`）：
+     * `IThingDevice.registerWarnMessageListener(IWarningMsgListener)`，MQTT **56** 协议，回调
+     * `onWarnMessageArrived(WarnMessageBean { devId, warnLevel, latestWarnTime, productId, lastProdWarnId, uid })`。
+     *
+     * 平台推送规则的等级（通知 / 轻微 / 严重）在消息中心的消息里**没有写明字段**（涂鸦文档的 MessageBean 不含等级），
+     * 这一路自带 `warnLevel`，用来在真机上定下等级编码、并给消息通知页分「日志 / 提醒 / 告警」。
+     * 和实时推送走同一个事件（`type=pushMessage`，`source=warn56`，bean 全部 getter 原样 dump）；
+     * **不放顶层 deviceId**——带 deviceId 的事件会被 Dart 当成设备状态更新（bean 里自己有 devId）。
+     * 注册失败只记日志，不影响 DP 监听。随设备实例一起释放（[unwatchDevice] 里 `onDestroy`）。
+     */
+    private fun registerWarnListener(device: Any, deviceId: String) {
+        val method = device.javaClass.methods.firstOrNull {
+            it.name == "registerWarnMessageListener" && it.parameterTypes.size == 1
+        } ?: return
+        runCatching {
+            val listenerType = method.parameterTypes[0]
+            val loader = listenerType.classLoader ?: activity.classLoader
+            val listener = Proxy.newProxyInstance(loader, arrayOf(listenerType)) { proxy, m, args ->
+                when (m.name) {
+                    "equals" -> proxy === args?.firstOrNull()
+                    "hashCode" -> System.identityHashCode(proxy)
+                    "toString" -> "TuyaWarnListener($deviceId)"
+                    else -> {
+                        val bean = args?.firstOrNull()
+                        emit(
+                            mapOf(
+                                "type" to "pushMessage",
+                                "source" to "warn56",
+                                "watchedDeviceId" to deviceId,
+                                "callback" to m.name,
+                                "beanClass" to bean?.javaClass?.name,
+                                "fields" to pushFields(bean),
+                                "receivedAt" to System.currentTimeMillis(),
+                            ),
+                        )
+                        defaultValue(m.returnType)
+                    }
+                }
+            }
+            method.invoke(device, listener)
+        }.onFailure { throwable ->
+            val cause = TuyaSdkInitializer.unwrap(throwable)
+            Log.w(TUYA_LOG_TAG, "registerWarnMessageListener failed: ${cause.javaClass.simpleName}")
         }
     }
 

@@ -35,8 +35,20 @@ import 'widgets/mower_status_card.dart';
 ///
 /// 2026-09-23 起只接真机：只读 DP（盖子/故障/电量/充电）全部以设备上报为准，
 /// 原来长按电量环的模拟上报面板已删。标题是设备在涂鸦里的名字。
+///
+/// ## DP18 设备告警弹窗（2026-09-28 产品）
+///
+/// 这一页捕捉涂鸦上报的 DP18 故障位图：出现**新的**故障位就弹「设备告警」，内容是每个故障位对应的文案
+/// （[MowerFault.messages]，一行一条），按钮「我知道了」。
+/// - 同一组故障只弹一次：设备每 60 秒会重报同值（协议 V2.5 §4 周期兜底），不能每次都弹；
+/// - 故障位清掉之后再出现，算新故障，再弹；弹窗开着时又来了新故障，关掉后接着弹；
+/// - 只在用户看着这一页时弹：外壳是 IndexedStack，切到「计划 / 设置」这一页还活着（[active] 为 false），
+///   上面压着二级页时也不弹；回到这一页后按当前故障补弹。
 class MowerControlPage extends StatefulWidget {
-  const MowerControlPage({super.key});
+  const MowerControlPage({super.key, this.active = true});
+
+  /// 这一栏此刻是不是用户正看着的那一栏（外壳切走了页面还活着）。
+  final bool active;
 
   @override
   State<MowerControlPage> createState() => _MowerControlPageState();
@@ -53,15 +65,76 @@ class _MowerControlPageState extends State<MowerControlPage> {
   /// 检查期间再点任何一颗都不理（连蓝牙最长 15 秒）。
   String? _checking;
 
+  /// 已经弹过、而且还在报的故障位（DP18）。清掉的位会从这里拿掉，再出现就重新弹。
+  final Set<int> _faultShown = <int>{};
+  bool _faultDialogOpen = false;
+  bool _faultCheckScheduled = false;
+
   @override
   void dispose() {
     _linkTimer?.cancel();
+    _device.removeListener(_scheduleFaultCheck);
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(MowerControlPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 切回这一栏：按当前故障补弹
+    if (widget.active && !oldWidget.active) _scheduleFaultCheck();
+  }
+
+  /// 设备一有变化（包括 DP18 上报）就在这一帧画完后看一眼故障位——不在通知回调里直接弹，
+  /// 免得撞上正在构建的页面。
+  void _scheduleFaultCheck() {
+    if (_faultCheckScheduled) return;
+    _faultCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _faultCheckScheduled = false;
+      _checkFault();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _checkFault() {
+    if (!mounted || !widget.active || _faultDialogOpen) return;
+    if (ModalRoute.of(context)?.isCurrent == false) return;
+    final bitmap = _device.faultBitmap;
+    if (bitmap == null) return;
+    final active = MowerFault.activeBits(bitmap).toSet();
+    _faultShown.retainAll(active);
+    if (active.difference(_faultShown).isEmpty) return;
+    unawaited(_showFaultDialog(bitmap, active));
+  }
+
+  Future<void> _showFaultDialog(int bitmap, Set<int> active) async {
+    _faultDialogOpen = true;
+    _faultShown.addAll(active);
+    final bits = active.toList()..sort();
+    final lines = <String>[
+      for (final bit in bits) MowerFault.messages[bit] ?? '未知故障（第 $bit 位）',
+    ];
+    FlowerpotScope.of(context).logMowerInteraction(
+      '弹窗 → 设备告警 DP${MowerDp.fault}=$bitmap'
+      '（${MowerFault.activeIdentifiers(bitmap).join('、')}）',
+    );
+    await showAppNoticeDialog(
+      context,
+      title: '设备告警',
+      message: lines.join('\n'),
+      icon: Icons.warning_amber_rounded,
+      tone: AppDialogTone.danger,
+      barrierDismissible: false,
+    );
+    _faultDialogOpen = false;
+    // 弹窗开着时又来了新故障 → 接着弹
+    if (mounted) _scheduleFaultCheck();
   }
 
   @override
   void initState() {
     super.initState();
+    _device.addListener(_scheduleFaultCheck);
     _linkTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
       unawaited(
@@ -86,6 +159,8 @@ class _MowerControlPageState extends State<MowerControlPage> {
           'DP${MowerDp.chargingStatus}=${_device.charging.code}，'
           'DP${MowerDp.coverStatus}=${_device.coverClosed}',
         );
+      // 进页面时已经有故障，也告诉用户一次
+      _scheduleFaultCheck();
     });
   }
 

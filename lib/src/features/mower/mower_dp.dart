@@ -247,6 +247,12 @@ abstract final class MowerFault {
     return null;
   }
 
+  /// 位图里所有置位的位，从低到高。控制页的「设备告警」弹窗按它列出每条故障的文案。
+  static List<int> activeBits(int bitmap) => <int>[
+    for (var bit = 0; bit < 13; bit++)
+      if (bitmap & (1 << bit) != 0) bit,
+  ];
+
   /// 位图里所有置位的标识符，日志用。
   static List<String> activeIdentifiers(int bitmap) => <String>[
     for (var bit = 0; bit < 13; bit++)
