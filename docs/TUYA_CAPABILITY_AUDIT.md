@@ -417,6 +417,12 @@ iOS 侧要调的是 `ThingSmartMessage` 的
      这条依赖平台配置不改名，不如按等级稳。
 3. 前提：推送规则要配在**本账号能看到的设备**上（5.3.7：推送只投给触发设备的主人 / 被分享者）。
 
+**已按这个方案改页面（同日）**：割草机「消息通知」的提醒 / 告警都来自告警档（`FlowerpotState.loadAllDeviceMessages`
+按设备翻页取全，每页 50、最多 500），逐条按 `_gradeOf` 分档——只认名字带 level / grade / severity / priority / 等级 的字段
+（消息本身或 `extendParams` JSON 里）的**明文值**，认不出的归告警；每次加载往联调日志写「共几条 → 提醒几条、告警几条（几条没认出）」
+和前 5 条的 `alarmType` / `msgCode` / `extendParams` 原值。**真机下一步**：分别触发一条「通知」和「轻微 / 严重」等级的推送，
+看这几行日志——两条这三个字段有区别，就把区别补进 `_gradeOf`；没区别就按规则（`msgCode` / 标题）建对照表。
+
 来源：[推送设备消息](https://developer.tuya.com/cn/docs/iot/alarm?id=K93ixsmlff32o)、
 [Android 消息相关功能](https://developer.tuya.com/en/docs/app-development/android-message-about?id=Kaj16vvx1n8jw)、
 [Android 设置消息推送](https://developer.tuya.com/cn/docs/app-development/android-message-push?id=Kaj16d3iwgq4r)、

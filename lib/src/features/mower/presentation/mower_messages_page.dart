@@ -24,11 +24,17 @@ import 'widgets/mower_card.dart';
 /// | 分类 | 来源 |
 /// | --- | --- |
 /// | 日志 | 设备操作日志（DP 上报 / 下发历史）：`loadDeviceOperateLogs`，查割草机全部 DP，最近 30 天 |
-/// | 提醒 | **还没有数据来源**，空着 |
-/// | 告警 | 涂鸦消息中心按这台设备取（`getMessageListByMsgSrcId`，告警档 `MSG_REPORT`） |
+/// | 提醒 | 涂鸦消息中心按这台设备取（告警档 `MSG_REPORT`，翻页取全），**推送等级是「通知」的** |
+/// | 告警 | 同上，推送等级「轻微 / 严重」的，以及认不出等级的 |
 ///
-/// 日期筛选是真的：默认今天，点开选最近 30 天里的某一天，按那一天过滤。
-/// 没有记录就写「当天没有记录」，不编。
+/// 涂鸦消息中心只分告警 / 家庭 / 通知三档，平台上配的设备推送（不管哪个等级）都进告警档，
+/// 所以「提醒 / 告警」只能按推送规则的等级分（2026-09-28，见 `docs/TUYA_CAPABILITY_AUDIT.md` 5.6）。
+/// 等级落在消息哪个字段涂鸦文档没写：先只认明文（[_gradeOf]），认不出来的归「告警」，
+/// 每条的判定依据写进联调日志，真机跑一次就知道要不要补编码。
+///
+/// 日期筛选：日志默认今天；提醒 / 告警默认「全部日期」，以前的推送都能看到（按设备取没有时间参数，
+/// 只能全取回来再按天筛）。选某一天后可以点「全部」回到全部日期。没有记录就如实写，不编。
+/// 页面开着时挂上涂鸦实时推送监听，来一条推送就重拉一次（消息中心落库比推送晚一点，所以等 2 秒）。
 ///
 /// ## 页面底部的调试板（2026-09-18 产品追加）
 ///
@@ -51,24 +57,53 @@ const Duration _logWindow = Duration(days: 30);
 
 class _MowerMessagesPageState extends State<MowerMessagesPage> {
   int _tab = 0;
-  DateTime _day = DateUtils.dateOnly(DateTime.now());
+
+  /// 每一栏各自的日期筛选，`null` = 全部日期：日志默认今天，提醒 / 告警默认全部（看得到以前的推送）。
+  final List<DateTime?> _days = <DateTime?>[
+    DateUtils.dateOnly(DateTime.now()),
+    null,
+    null,
+  ];
   bool _loading = false;
   List<_Entry> _logs = const <_Entry>[];
+  List<_Entry> _reminders = const <_Entry>[];
   List<_Entry> _alarms = const <_Entry>[];
 
-  /// 取数失败时的一句话（原样来自接口 / 原生诊断）。
+  /// 取数失败时的一句话（原样来自接口 / 原生诊断）。提醒和告警同一个来源，共用一个。
   String? _logError;
   String? _alarmError;
+
+  StreamSubscription<Map<String, Object?>>? _pushSub;
+  Timer? _pushReload;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      FlowerpotScope.of(context).logPageEntry('割草机-消息通知');
+      final state = FlowerpotScope.of(context);
+      state.logPageEntry('割草机-消息通知');
       unawaited(_reload());
+      // 页面开着时收涂鸦实时推送：来一条就重拉（等 2 秒，消息中心落库比推送晚一点）。
+      // SDK 的监听整个进程只注册一次，重复进页面不会重复注册（见 FlowerpotState.startPushListen）。
+      unawaited(state.startPushListen());
+      _pushSub = state.pushMessages.listen((_) {
+        _pushReload?.cancel();
+        _pushReload = Timer(const Duration(seconds: 2), () {
+          if (mounted) unawaited(_reload());
+        });
+      });
     });
   }
+
+  @override
+  void dispose() {
+    _pushReload?.cancel();
+    unawaited(_pushSub?.cancel());
+    super.dispose();
+  }
+
+  DateTime? get _day => _days[_tab];
 
   Future<void> _reload() async {
     final state = FlowerpotScope.of(context);
@@ -83,22 +118,103 @@ class _MowerMessagesPageState extends State<MowerMessagesPage> {
         limit: 100,
         window: _logWindow,
       ),
-      state.loadDeviceMessages(deviceId: deviceId),
+      state.loadAllDeviceMessages(deviceId: deviceId),
     ]);
     if (!mounted) return;
     final logs = results[0];
-    final alarms = results[1];
+    final messages = results[1];
+    final reminders = <_Entry>[];
+    final alarms = <_Entry>[];
+    var unknown = 0;
+    for (final item
+        in (messages['items'] as List<Object?>?) ?? const <Object?>[]) {
+      if (item is! Map) continue;
+      final grade = _gradeOf(item);
+      if (grade.basis == null) unknown++;
+      (grade.reminder ? reminders : alarms).add(_alarmEntry(item));
+    }
+    reminders.sort((a, b) => b.at.compareTo(a.at));
+    alarms.sort((a, b) => b.at.compareTo(a.at));
+    if (messages['ok'] == true) {
+      state.logNote(
+        '消息通知 分档：共 ${reminders.length + alarms.length} 条 → 提醒 ${reminders.length}、告警 ${alarms.length}'
+        '（其中 $unknown 条没认出推送等级，按告警）',
+      );
+      for (final item
+          in ((messages['items'] as List<Object?>?) ?? const <Object?>[])
+              .take(5)) {
+        if (item is Map) state.logNote('消息通知 等级字段：${_gradeFields(item)}');
+      }
+    }
     setState(() {
       _loading = false;
       _logs = _logEntries(logs['raw']);
       _logError = logs['ok'] == true ? null : _reason(logs);
-      _alarms = <_Entry>[
-        for (final item
-            in (alarms['items'] as List<Object?>?) ?? const <Object?>[])
-          if (item is Map) _alarmEntry(item),
-      ];
-      _alarmError = alarms['ok'] == true ? null : _reason(alarms);
+      _reminders = reminders;
+      _alarms = alarms;
+      _alarmError = messages['ok'] == true ? null : _reason(messages);
     });
+  }
+
+  /// 涂鸦平台推送规则的「推送等级」有 **通知 / 轻微 / 严重** 三档（涂鸦文档「推送设备消息」）：
+  /// 通知 → 页面的「提醒」，轻微 / 严重 → 「告警」。
+  ///
+  /// ⚠️ 等级落在消息哪个字段、怎么编码，**涂鸦文档没写**（SDK 文档的 MessageBean 不含等级）；
+  /// 解包看到的候选只有 `alarmType` / `msgCode` / `extendParams`。所以这里只认**明文**：
+  /// `extendParams`（JSON）或消息本身里名字带 level / grade / severity / priority / 等级 的字段，
+  /// 值是「通知 / notice / notification / info / 提醒」算提醒，「轻微 / 严重 / minor / severe …」算告警。
+  /// **认不出来的一律按告警**（`basis == null`，和改之前一样），不猜数字编码——
+  /// 真机拉到消息后，联调日志里有每条的这三个字段（[_gradeFields]），看了再补。
+  static ({bool reminder, String? basis}) _gradeOf(Map<Object?, Object?> item) {
+    final candidates = <String, Object?>{};
+    void collect(Map<Object?, Object?> source, String prefix) {
+      source.forEach((key, value) {
+        final name = '$key'.toLowerCase();
+        if (name.contains('level') ||
+            name.contains('grade') ||
+            name.contains('severity') ||
+            name.contains('priority') ||
+            name.contains('等级')) {
+          candidates['$prefix$key'] = value;
+        }
+      });
+    }
+
+    collect(item, '');
+    final extend = item['extendParams'];
+    if (extend is String && extend.trim().startsWith('{')) {
+      try {
+        final decoded = jsonDecode(extend);
+        if (decoded is Map) collect(decoded, 'extendParams.');
+      } on FormatException {
+        // 不是 JSON 就当没有
+      }
+    } else if (extend is Map) {
+      collect(extend, 'extendParams.');
+    }
+
+    const reminderWords = <String>['通知', '提醒', 'notice', 'notification', 'info'];
+    const alarmWords = <String>['轻微', '严重', 'minor', 'severe', 'serious', 'critical', 'major'];
+    for (final entry in candidates.entries) {
+      final value = '${entry.value ?? ''}'.trim().toLowerCase();
+      if (value.isEmpty) continue;
+      if (reminderWords.any(value.contains)) {
+        return (reminder: true, basis: '${entry.key}=${entry.value}');
+      }
+      if (alarmWords.any(value.contains)) {
+        return (reminder: false, basis: '${entry.key}=${entry.value}');
+      }
+    }
+    return (reminder: false, basis: null);
+  }
+
+  /// 联调日志用：一条消息里可能带推送等级的几个字段，原样。
+  static String _gradeFields(Map<Object?, Object?> item) {
+    final grade = _gradeOf(item);
+    return '${item['msgTitle'] ?? item['msgTypeContent'] ?? ''} '
+        'alarmType=${item['alarmType']} msgCode=${item['msgCode']} '
+        'extendParams=${item['extendParams']} → '
+        '${grade.reminder ? '提醒' : '告警'}（${grade.basis ?? '没认出等级'}）';
   }
 
   static String _reason(Map<String, Object?> data) =>
@@ -155,39 +271,46 @@ class _MowerMessagesPageState extends State<MowerMessagesPage> {
 
   Future<void> _pickDay() async {
     final today = DateUtils.dateOnly(DateTime.now());
+    // 日志只取了最近 30 天；提醒 / 告警是全取回来的，可以往前多选（一年够用）
+    final first = today.subtract(
+      _tab == 0 ? _logWindow : const Duration(days: 365),
+    );
+    final current = _day;
     final picked = await showDatePicker(
       context: context,
-      initialDate: _day,
-      firstDate: today.subtract(_logWindow),
+      initialDate: current == null || current.isBefore(first) ? today : current,
+      firstDate: first,
       lastDate: today,
       helpText: '选择日期',
     );
     if (picked == null || !mounted) return;
-    setState(() => _day = DateUtils.dateOnly(picked));
+    setState(() => _days[_tab] = DateUtils.dateOnly(picked));
   }
 
   List<_Entry> get _visible {
     final source = switch (_tab) {
       0 => _logs,
-      2 => _alarms,
-      _ => const <_Entry>[],
+      1 => _reminders,
+      _ => _alarms,
     };
+    final day = _day;
+    if (day == null) return source;
     return <_Entry>[
       for (final entry in source)
-        if (DateUtils.isSameDay(entry.at, _day)) entry,
+        if (DateUtils.isSameDay(entry.at, day)) entry,
     ];
   }
 
   String? get _emptyText {
     if (_loading) return '加载中…';
-    final error = switch (_tab) {
-      0 => _logError,
-      2 => _alarmError,
-      _ => null,
-    };
+    final error = _tab == 0 ? _logError : _alarmError;
     if (error != null) return '没有取到：$error';
-    if (_tab == 1) return '暂无提醒（还没有数据来源）';
-    return '当天没有记录';
+    final what = switch (_tab) {
+      0 => '记录',
+      1 => '提醒',
+      _ => '告警',
+    };
+    return _day == null ? '暂无$what' : '当天没有$what';
   }
 
   @override
@@ -214,6 +337,7 @@ class _MowerMessagesPageState extends State<MowerMessagesPage> {
                 _DateFilterCard(
                   day: _day,
                   onTap: () => unawaited(_pickDay()),
+                  onShowAll: () => setState(() => _days[_tab] = null),
                 ),
                 const SizedBox(height: 12),
                 if (visible.isEmpty)
@@ -259,8 +383,17 @@ class _Entry {
   final String title;
   final String detail;
 
-  String get time =>
-      '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+  /// 稿子的写法：今天只写「10:42」，昨天「昨天 18:30」，今年「8月30日 09:12」，更早带年份。
+  String timeLabel(DateTime now) {
+    final hm =
+        '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
+    final today = DateUtils.dateOnly(now);
+    final day = DateUtils.dateOnly(at);
+    if (day == today) return hm;
+    if (day == today.subtract(const Duration(days: 1))) return '昨天 $hm';
+    if (at.year == now.year) return '${at.month}月${at.day}日 $hm';
+    return '${at.year}年${at.month}月${at.day}日 $hm';
+  }
 }
 
 /// 日志 / 提醒 / 告警。
@@ -314,10 +447,18 @@ class _CategoryTabs extends StatelessWidget {
 }
 
 class _DateFilterCard extends StatelessWidget {
-  const _DateFilterCard({required this.day, required this.onTap});
+  const _DateFilterCard({
+    required this.day,
+    required this.onTap,
+    required this.onShowAll,
+  });
 
-  final DateTime day;
+  /// `null` = 全部日期。
+  final DateTime? day;
   final VoidCallback onTap;
+
+  /// 选了某一天时，点「全部」回到全部日期。
+  final VoidCallback onShowAll;
 
   @override
   Widget build(BuildContext context) {
@@ -343,8 +484,27 @@ class _DateFilterCard extends StatelessWidget {
                   ),
                 ),
               ),
+              if (day != null) ...<Widget>[
+                GestureDetector(
+                  key: const Key('mower-messages-date-all'),
+                  onTap: onShowAll,
+                  behavior: HitTestBehavior.opaque,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+                    child: Text(
+                      '全部',
+                      style: TextStyle(
+                        color: MowerColors.inkSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               Text(
-                '${day.year}年${day.month}月${day.day}日',
+                day == null
+                    ? '全部日期'
+                    : '${day!.year}年${day!.month}月${day!.day}日',
                 style: const TextStyle(color: MowerColors.brand, fontSize: 15),
               ),
               const SizedBox(width: 8),
@@ -389,7 +549,7 @@ class _MessageCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Text(
-                entry.time,
+                entry.timeLabel(DateTime.now()),
                 style: const TextStyle(
                   color: MowerColors.inkSecondary,
                   fontSize: 13,

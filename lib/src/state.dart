@@ -1200,6 +1200,9 @@ class FlowerpotState extends ChangeNotifier {
   /// 进到某个页面时记一条。
   void logPageEntry(String page) => _logInteraction('进入 ← [$page]');
 
+  /// 往联调日志里记一行页面自己的判定过程（例如消息按推送等级分进「提醒 / 告警」的依据），真机贴日志时对得上。
+  void logNote(String line) => _logInteraction(line);
+
   /// 拉一次**涂鸦消息中心**里某台设备的原始消息（排查用，2026-09-18 起）。
   ///
   /// 产品要回答的问题是「设备消息推送里有没有类型字段」——所以这里不解析、不映射，
@@ -1233,6 +1236,43 @@ class FlowerpotState extends ChangeNotifier {
       );
     }
     return data;
+  }
+
+  /// 按设备把消息中心某一档**全部**取回来：翻页，每页 [pageSize]，最多 [max] 条。
+  ///
+  /// 按设备取**没有时间参数**（见 [TuyaRepository.deviceMessages]），要看以前的推送只能先全取回来，
+  /// 再由页面按日期筛。中间某页失败时，已经取到的照样返回（`partial: true`，原因在 `message`）。
+  Future<Map<String, Object?>> loadAllDeviceMessages({
+    required String deviceId,
+    String msgType = 'MSG_REPORT',
+    int pageSize = 50,
+    int max = 500,
+  }) async {
+    final items = <Object?>[];
+    var last = <String, Object?>{};
+    var offset = 0;
+    while (items.length < max) {
+      last = await loadDeviceMessages(
+        deviceId: deviceId,
+        msgType: msgType,
+        offset: offset,
+        limit: pageSize,
+      );
+      if (last['ok'] != true) break;
+      final page = (last['items'] as List<Object?>?) ?? const <Object?>[];
+      items.addAll(page);
+      offset += page.length;
+      final total = int.tryParse('${last['totalCount'] ?? ''}');
+      if (page.length < pageSize || (total != null && offset >= total)) break;
+    }
+    if (last['ok'] != true && items.isEmpty) return last;
+    return <String, Object?>{
+      ...last,
+      'ok': true,
+      'partial': last['ok'] != true,
+      'items': items,
+      'count': items.length,
+    };
   }
 
   /// 拉一次设备**操作日志（DP 上报历史）**（排查用，2026-09-20）。
