@@ -18,6 +18,10 @@ import 'widgets/mower_form.dart';
 class MowerZonesPage extends StatefulWidget {
   const MowerZonesPage({super.key});
 
+  /// 占比滑条一格 = 5%（2026-10-08 用户：「占比每次滑动按 5 为最小单位来递增递减」）。
+  /// 设备报上来的旧值不是 5 的倍数时照原值显示、不替用户改，拖一下才落到 5 的倍数上。
+  static const int percentStep = 5;
+
   @override
   State<MowerZonesPage> createState() => _MowerZonesPageState();
 }
@@ -233,6 +237,8 @@ class _ZoneRow extends StatelessWidget {
                           overlayRadius: 14,
                         ),
                         trackShape: const RoundedRectSliderTrackShape(),
+                        // 分档后 Material 默认在每一格画个点，稿子上的滑条是光的。
+                        tickMarkShape: SliderTickMarkShape.noTickMark,
                       ),
                       child: SizedBox(
                         height: 28,
@@ -240,7 +246,11 @@ class _ZoneRow extends StatelessWidget {
                           key: Key('mower-zone-slider-${zone.index}'),
                           value: zone.percent.toDouble(),
                           max: 100,
-                          onChanged: (value) => onChanged(value.round()),
+                          divisions: 100 ~/ MowerZonesPage.percentStep,
+                          onChanged: (value) => onChanged(
+                            (value / MowerZonesPage.percentStep).round() *
+                                MowerZonesPage.percentStep,
+                          ),
                         ),
                       ),
                     ),

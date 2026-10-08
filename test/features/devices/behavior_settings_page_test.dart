@@ -6,6 +6,7 @@ import 'package:flowerpot/src/features/devices/presentation/behavior_settings_pa
 import 'package:flowerpot/src/features/devices/presentation/device_settings_page.dart';
 import 'package:flowerpot/src/features/devices/presentation/widgets/behavior_schedule_card.dart';
 import 'package:flowerpot/src/features/devices/presentation/widgets/schedule_slot_dialog.dart';
+import 'package:flowerpot/src/features/mower/presentation/widgets/time_edit_sheet.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -144,6 +145,74 @@ void main() {
     );
     expect(result.repository.lastDps, <int, Object>{129: 1320, 130: 405});
     expect(find.text('次日06:45'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('nap sheet uses the mower plan wheels and only sends on save', (
+    tester,
+  ) async {
+    // 2026-10-08：小憩弹框改成割草计划「编辑周X」那种底部弹层，滚轮选小时和分钟。
+    final result = await _pumpBehaviorSettings(tester, const Size(375, 812));
+
+    await tester.tap(find.byKey(const Key('nap-start-time')));
+    await tester.pumpAndSettle();
+
+    final sheet = find.byKey(const Key('schedule-slot-dialog'));
+    expect(sheet, findsOneWidget);
+    expect(find.byType(TimeEditSheet), findsOneWidget);
+    expect(find.text('编辑中午小憩'), findsOneWidget);
+    expect(find.text('上下滑动选择小时与分钟'), findsOneWidget);
+    expect(find.text('时长 1 小时 30 分'), findsOneWidget);
+    // 开始、结束各一组「小时 : 分钟」，顺序是开始时、开始分、结束时、结束分。
+    final wheels = find.descendant(
+      of: sheet,
+      matching: find.byType(ListWheelScrollView),
+    );
+    expect(wheels, findsNWidgets(4));
+    FixedExtentScrollController wheel(int index) =>
+        tester.widget<ListWheelScrollView>(wheels.at(index)).controller!
+            as FixedExtentScrollController;
+    expect(wheel(0).selectedItem, 12);
+    expect(wheel(1).selectedItem, 0);
+    expect(wheel(2).selectedItem, 13);
+    expect(wheel(3).selectedItem, 30);
+
+    // 开始 12:00 → 12:45，结束 13:30 → 14:30；分钟 1 分一格。
+    wheel(1).jumpToItem(45);
+    await tester.pump();
+    wheel(2).jumpToItem(14);
+    await tester.pumpAndSettle();
+
+    expect(find.text('时长 1 小时 45 分'), findsOneWidget);
+    expect(result.repository.lastDps, isNull);
+
+    await tester.tap(find.byKey(const Key('schedule-slot-save')));
+    await tester.pumpAndSettle();
+
+    expect(sheet, findsNothing);
+    expect(
+      result.state.deviceById('device-01')?.settings.napPeriod,
+      '12:45-14:30',
+    );
+    expect(result.repository.lastDps, <int, Object>{126: 765, 127: 870});
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('cancelling the nap sheet sends nothing', (tester) async {
+    final result = await _pumpBehaviorSettings(tester, const Size(320, 568));
+    final target = find.byKey(const Key('nap-end-time'));
+    await tester.ensureVisible(target);
+    await tester.pump();
+
+    await tester.tap(target);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('schedule-slot-dialog')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('schedule-slot-cancel')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('schedule-slot-dialog')), findsNothing);
+    expect(result.repository.lastDps, isNull);
     expect(tester.takeException(), isNull);
   });
 

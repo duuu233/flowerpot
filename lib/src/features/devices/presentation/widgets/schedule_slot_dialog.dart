@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../../design_system/design_system.dart';
+import '../../../mower/presentation/widgets/time_edit_sheet.dart';
 
 /// One edited time slot, in minutes past midnight.
 class ScheduleSlot {
@@ -21,32 +21,24 @@ class ScheduleSlot {
   String get period => '$startLabel-$endLabel';
 }
 
-/// 时段编辑弹窗（`docs/UI/v2/智能花盆ysplanter/编辑周四时段2.png`）。
+/// 行为页的时段编辑弹层（「编辑中午小憩」「编辑夜间睡眠」）。
 ///
-/// 两根滑条一次改完开始和结束，中间实时显示时长——之前是两个各自独立的系统
-/// 时间选择器，改完才知道自己排了个 20 分钟或者跨了午夜的时段。
+/// **交互和样子照割草计划的「编辑周X」**（2026-10-08 用户：「编辑中午小憩弹出框改成割草计划
+/// 页面的编辑时间段的那种交互和效果，同时可以滚动选择小时和分钟」）：从底部弹出，开始 / 结束
+/// 各一组「小时 : 分钟」滚轮、1 分钟一格，下面实时显示时长，按「保存」才回传——滚动过程中不发 DP。
+/// 外壳、滚轮、时长条直接用割草计划那一份（`time_edit_sheet.dart`），不另写；两个时段走的是
+/// 这同一个弹层，所以夜间睡眠也跟着换了。
 ///
-/// [onDelete] 有值时右上角出现删除按钮，[conflictHint] 有值时在按钮上方显示一行
-/// 提示（frame 里的「时段 1: 09:00–11:30」）。花盆的中午小憩和夜间睡眠都删不掉，
-/// 也没有第二个时段，所以两个都不传。
+/// 原来是居中弹窗 + 两根 5 分钟一档的滑条（`编辑周四时段2.png` 的版式）。割草计划弹层里的
+/// 「启用时段 / 修边 / 复制整周」花盆没有（开关在页面卡片上），这里只放时间。
 Future<ScheduleSlot?> showScheduleSlotDialog(
   BuildContext context, {
   required String title,
   required ScheduleSlot initial,
-  String subtitle = '修改时间，或调整时段长度',
-  String? conflictHint,
-  VoidCallback? onDelete,
 }) {
-  return showDialog<ScheduleSlot>(
-    context: context,
-    barrierColor: Colors.black.withValues(alpha: .4),
-    builder: (_) => ScheduleSlotDialog(
-      title: title,
-      subtitle: subtitle,
-      initial: initial,
-      conflictHint: conflictHint,
-      onDelete: onDelete,
-    ),
+  return showTimeEditSheet<ScheduleSlot>(
+    context,
+    builder: (_) => ScheduleSlotDialog(title: title, initial: initial),
   );
 }
 
@@ -55,22 +47,12 @@ class ScheduleSlotDialog extends StatefulWidget {
     required this.title,
     required this.initial,
     super.key,
-    this.subtitle = '修改时间，或调整时段长度',
-    this.conflictHint,
-    this.onDelete,
   });
 
   static const int minutesInDay = 24 * 60;
 
-  /// 滑条的步长。设备侧的功能点是按分钟的，但 1440 个刻度在手机上根本拖不准，
-  /// 5 分钟一档既够用又拖得住。
-  static const int stepMinutes = 5;
-
   final String title;
-  final String subtitle;
   final ScheduleSlot initial;
-  final String? conflictHint;
-  final VoidCallback? onDelete;
 
   static String clockLabel(int minutes) {
     final wrapped = minutes % minutesInDay;
@@ -84,223 +66,38 @@ class ScheduleSlotDialog extends StatefulWidget {
 }
 
 class _ScheduleSlotDialogState extends State<ScheduleSlotDialog> {
-  late int _start = _snap(widget.initial.startMinutes);
-  late int _end = _snap(widget.initial.endMinutes);
-
-  static int _snap(int minutes) {
-    final step = ScheduleSlotDialog.stepMinutes;
-    final snapped = (minutes / step).round() * step;
-    return snapped.clamp(0, ScheduleSlotDialog.minutesInDay - step);
-  }
+  // 滚轮只有 00:00–23:59，进来先归到一天之内。
+  late int _start =
+      widget.initial.startMinutes % ScheduleSlotDialog.minutesInDay;
+  late int _end = widget.initial.endMinutes % ScheduleSlotDialog.minutesInDay;
 
   ScheduleSlot get _slot => ScheduleSlot(startMinutes: _start, endMinutes: _end);
 
   @override
   Widget build(BuildContext context) {
     final duration = _slot.durationMinutes;
-    final delete = widget.onDelete;
-    return Dialog(
+    return TimeEditSheet(
       key: const Key('schedule-slot-dialog'),
-      backgroundColor: AppColors.surface,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 22),
-      shape: const RoundedRectangleBorder(borderRadius: AppRadius.dialog),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        widget.title,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          height: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        widget.subtitle,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (delete != null)
-                  Material(
-                    color: AppColors.dangerSurface,
-                    borderRadius: AppRadius.card,
-                    child: InkWell(
-                      key: const Key('schedule-slot-delete'),
-                      borderRadius: AppRadius.card,
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        delete();
-                      },
-                      child: const SizedBox.square(
-                        dimension: 44,
-                        child: Icon(
-                          Icons.delete_outline,
-                          color: AppColors.danger,
-                          size: 22,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            _TimeSlider(
-              sliderKey: const Key('schedule-slot-start'),
-              label: '开始时间',
-              minutes: _start,
-              onChanged: (value) => setState(() => _start = value),
-            ),
-            const SizedBox(height: 12),
-            _TimeSlider(
-              sliderKey: const Key('schedule-slot-end'),
-              label: '结束时间',
-              minutes: _end,
-              onChanged: (value) => setState(() => _end = value),
-            ),
-            const SizedBox(height: 16),
-            DecoratedBox(
-              decoration: const BoxDecoration(
-                color: AppColors.brandSurface,
-                borderRadius: AppRadius.card,
-              ),
-              child: SizedBox(
-                height: 52,
-                child: Center(
-                  child: Text(
-                    '时长 ${duration ~/ 60} 小时 ${duration % 60} 分',
-                    key: const Key('schedule-slot-duration'),
-                    style: const TextStyle(
-                      color: AppColors.brandDark,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (widget.conflictHint case final String hint) ...<Widget>[
-              const SizedBox(height: 12),
-              Text(
-                hint,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: AppColors.textTertiary,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-            const SizedBox(height: 18),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: AppDialogButton(
-                    key: const Key('schedule-slot-cancel'),
-                    label: '取消',
-                    textColor: AppColors.brandDark,
-                    background: AppColors.brandSurface,
-                    onTap: () => Navigator.of(context).pop(),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: AppDialogButton(
-                    key: const Key('schedule-slot-save'),
-                    label: '保存',
-                    textColor: AppColors.surface,
-                    gradient: const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: <Color>[
-                        AppColors.brandPrimary,
-                        AppColors.brandDark,
-                      ],
-                    ),
-                    onTap: () => Navigator.of(context).pop(_slot),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TimeSlider extends StatelessWidget {
-  const _TimeSlider({
-    required this.sliderKey,
-    required this.label,
-    required this.minutes,
-    required this.onChanged,
-  });
-
-  final Key sliderKey;
-  final String label;
-  final int minutes;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    const max = ScheduleSlotDialog.minutesInDay - ScheduleSlotDialog.stepMinutes;
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: AppColors.canvas,
-        borderRadius: AppRadius.card,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-                Text(
-                  ScheduleSlotDialog.clockLabel(minutes),
-                  style: const TextStyle(
-                    color: AppColors.brandDark,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            Slider(
-              key: sliderKey,
-              value: minutes.toDouble(),
-              max: max.toDouble(),
-              divisions: max ~/ ScheduleSlotDialog.stepMinutes,
-              label: ScheduleSlotDialog.clockLabel(minutes),
-              onChanged: (value) => onChanged(value.round()),
-            ),
-          ],
-        ),
+      title: widget.title,
+      cancelKey: const Key('schedule-slot-cancel'),
+      saveKey: const Key('schedule-slot-save'),
+      onSave: () => Navigator.of(context).pop(_slot),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          TimeRangeWheels(
+            startMinutes: _start,
+            endMinutes: _end,
+            onStartChanged: (value) => setState(() => _start = value),
+            onEndChanged: (value) => setState(() => _end = value),
+          ),
+          const SizedBox(height: 14),
+          // 结束早于开始按跨夜算（夜间睡眠 22:00–07:30 就是这样），不当成拨错。
+          TimeDurationBar(
+            text: '时长 ${duration ~/ 60} 小时 ${duration % 60} 分',
+            textKey: const Key('schedule-slot-duration'),
+          ),
+        ],
       ),
     );
   }

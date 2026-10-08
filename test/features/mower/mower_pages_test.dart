@@ -7,6 +7,7 @@ import 'package:flowerpot/src/features/devices/presentation/device_search_page.d
 import 'package:flowerpot/src/features/mower/mower_device.dart';
 import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/features/mower/presentation/mower_home_page.dart';
+import 'package:flowerpot/src/features/mower/presentation/mower_zones_page.dart';
 import 'package:flowerpot/src/features/mower/presentation/widgets/mower_plan_edit_sheet.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
@@ -458,6 +459,35 @@ void main() {
         .data;
     expect(params, contains('按设备取：$_mowerId'));
     expect(params, contains('最近 7 天'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('区域设置：占比滑条 5% 一档；设备报的旧值不是 5 的倍数时照原值显示', (tester) async {
+    await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.zoneConfig: TuyaRaw.hex(
+        MowerZoneCodec.encode(const <MowerZoneConfig>[
+          MowerZoneConfig(index: 1, percent: 33, meters: 20),
+        ]),
+      ),
+    });
+    await tester.tap(find.byKey(const Key('mower-nav-settings')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mower-settings-区域设置')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('33%'), findsOneWidget);
+    Slider slider() =>
+        tester.widget<Slider>(find.byKey(const Key('mower-zone-slider-1')));
+    expect(MowerZonesPage.percentStep, 5);
+    expect(slider().divisions, 20);
+
+    // 滑条交上来的值不管是多少，落到页面上的都是 5 的倍数。
+    slider().onChanged!(42);
+    await tester.pump();
+    expect(find.text('40%'), findsOneWidget);
+    slider().onChanged!(43);
+    await tester.pump();
+    expect(find.text('45%'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

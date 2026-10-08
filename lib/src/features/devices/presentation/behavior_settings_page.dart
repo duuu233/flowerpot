@@ -46,10 +46,10 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
     await _update(kind, key, value);
   }
 
-  /// 开始和结束在同一个弹窗里改（`编辑周四时段2` 的版式）。
+  /// 开始和结束在同一个弹层里改（和割草计划「编辑周X」同一套滚轮，见 [showScheduleSlotDialog]）。
   ///
-  /// [start] 只决定弹窗里哪一根滑条更值得先看，两端都能改：分成两个系统时间
-  /// 选择器时，用户改完开始才发现时段只剩十分钟，或者不小心跨了午夜。
+  /// [start] 只是点的哪一格，弹层里两端都能改：分成两个系统时间选择器时，
+  /// 用户改完开始才发现时段只剩十分钟，或者不小心跨了午夜。
   Future<void> _editSlot(
     BehaviorSchedulePageModel schedule, {
     required bool start,
@@ -77,7 +77,6 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
     String title,
     ScheduleSlot initial,
   ) {
-    // 花盆的两个时段都删不掉，也没有第二个时段，所以删除按钮和冲突提示都不传。
     return showScheduleSlotDialog(context, title: title, initial: initial);
   }
 

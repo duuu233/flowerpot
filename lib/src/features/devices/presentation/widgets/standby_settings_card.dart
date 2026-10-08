@@ -123,7 +123,7 @@ String standbyDelayLabel(AppL10n l10n, int minutes) {
 
 /// 改延迟时间的弹窗，返回分钟数；取消返回 null。
 ///
-/// 和时段编辑弹窗（`showScheduleSlotDialog`）同一套外壳：点行→弹窗→保存，用户
+/// 和时段编辑（`showScheduleSlotDialog`）同一套操作：点行→弹出→保存，用户
 /// 在这一页学到的操作在休眠上照样成立。滚轮沿用原休眠页的两根（时 / 分），滚动
 /// 过程中不发 DP，按「保存」才写一次。
 Future<int?> showStandbyDelayDialog(
