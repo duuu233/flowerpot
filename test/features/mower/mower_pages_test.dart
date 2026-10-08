@@ -9,6 +9,7 @@ import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/features/mower/presentation/mower_home_page.dart';
 import 'package:flowerpot/src/features/mower/presentation/mower_zones_page.dart';
 import 'package:flowerpot/src/features/mower/presentation/widgets/mower_plan_edit_sheet.dart';
+import 'package:flowerpot/src/features/mower/presentation/widgets/time_edit_sheet.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -272,12 +273,92 @@ void main() {
     expect(find.text('暂无割草计划（设备还没有上报）'), findsOneWidget);
     expect(find.text('总工作时间：未设置'), findsOneWidget);
 
-    // 空的那天开编辑框：两个时段都是关着的 00:00–00:00，不再是稿子上的 09:00–11:30
+    // 空的那天开编辑框：滚轮停在默认时间（2026-10-08：时段一 08:30–12:00、时段二 14:00–18:00），
+    // 开关关着——不打开就不写进 DP101，也不算「停用的时段」。
     final draft = MowerPlanDraft.forDay(1, MowerDevice.instance.schedule);
     expect(draft.one.enabled, isFalse);
     expect(draft.two.enabled, isFalse);
-    expect(draft.one.startMinutes, 0);
-    expect(draft.one.endMinutes, 0);
+    expect(draft.one.startMinutes, 8 * 60 + 30);
+    expect(draft.one.endMinutes, 12 * 60);
+    expect(draft.two.startMinutes, 14 * 60);
+    expect(draft.two.endMinutes, 18 * 60);
+    expect(draft.day0.slotOne, isNull, reason: '没碰过的默认时段不算排了');
+    expect(draft.day0.slotTwo, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('长按删掉时段后再新建：滚轮停在默认时间，不打开开关不下发，打开就按默认时间排上', (tester) async {
+    final repository = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.mowSchedule: TuyaRaw.hex(
+        MowerScheduleCodec.encodeByDay(_week()),
+      ),
+    });
+    await tester.tap(find.byKey(const Key('mower-nav-plan')));
+    await tester.pump();
+
+    // 周二只有时段 1（10:00–12:00），长按删掉。
+    await tester.longPress(find.byKey(const Key('mower-plan-slot-2-1')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('mower-plan-slot-2-1')), findsNothing);
+    expect(MowerDevice.instance.schedule[2].slotOne, isNull);
+
+    // 点周二空白：开在时段 1，08:30–12:00，开关关着（不是 00:00）。
+    await tester.tap(find.byKey(const Key('mower-plan-column-2')));
+    await tester.pumpAndSettle();
+    FixedExtentScrollController wheel(int index) =>
+        tester
+                .widget<ListWheelScrollView>(
+                  find
+                      .descendant(
+                        of: find.byType(TimeRangeWheels),
+                        matching: find.byType(ListWheelScrollView),
+                      )
+                      .at(index),
+                )
+                .controller!
+            as FixedExtentScrollController;
+    expect(wheel(0).selectedItem, 8);
+    expect(wheel(1).selectedItem, 30);
+    expect(wheel(2).selectedItem, 12);
+    expect(wheel(3).selectedItem, 0);
+    expect(find.text('时长 3 小时 30 分'), findsOneWidget);
+    expect(
+      tester.widget<Switch>(find.byKey(const Key('mower-plan-edit-slot-enabled'))).value,
+      isFalse,
+    );
+
+    // 时段 2 默认 14:00–18:00。
+    await tester.tap(find.byKey(const Key('mower-plan-edit-tab-2')));
+    await tester.pumpAndSettle();
+    expect(wheel(0).selectedItem, 14);
+    expect(wheel(2).selectedItem, 18);
+    expect(find.text('时长 4 小时 0 分'), findsOneWidget);
+
+    // 不开开关直接保存：两个默认时段都不写进 DP101。
+    await tester.tap(find.byKey(const Key('mower-plan-edit-save')));
+    await tester.pumpAndSettle();
+    final bytes = TuyaRaw.bytes(
+      repository.publishedDps.last.$2[MowerDp.mowSchedule],
+    )!;
+    const tuesday = 2 * MowerScheduleCodec.groupSize;
+    expect(bytes.sublist(tuesday, tuesday + 8), everyElement(0));
+    expect(bytes[tuesday + 9], 0);
+    expect(bytes[tuesday + 10], 0);
+    expect(MowerDevice.instance.schedule[2].slotOne, isNull);
+
+    // 再开一次，打开时段 1 的开关保存：按默认时间排上。
+    await tester.tap(find.byKey(const Key('mower-plan-column-2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mower-plan-edit-slot-enabled')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mower-plan-edit-save')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('mower-plan-slot-2-1')), findsOneWidget);
+    final slot = MowerDevice.instance.schedule[2].slotOne;
+    expect(slot?.enabled, isTrue);
+    expect(slot?.startMinutes, 8 * 60 + 30);
+    expect(slot?.endMinutes, 12 * 60);
+    MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
 
