@@ -47,8 +47,9 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
     });
   }
 
-  /// DP 里的一周 → 图表要的色块。修边是**整天**一个标志（DP101 每组一个字节），
-  /// 所以那天的两个时段都画成修边样式。
+  /// DP 里的一周 → 图表要的色块。**只画启用中的时段**：在编辑弹窗里停用的时段不出现在图上，
+  /// 再启用就原样回来（2026-10-08 用户；停用的起止时间照样写进 DP101，见 [MowerScheduleCodec]）。
+  /// 修边不在色块上画，由星期下面那排勾表示。
   List<MowerPlanSlot> get _chartSlots {
     final slots = <MowerPlanSlot>[];
     for (var day = 0; day < _device.schedule.length; day++) {
@@ -61,7 +62,6 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
             startMinutes: slot.startMinutes,
             endMinutes: slot.endMinutes,
             slot: index,
-            trim: source.edge,
           ),
         );
       }
@@ -72,10 +72,15 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
     return slots;
   }
 
-  /// 勾选＝这一天有启用中的时段。取消勾选＝把这天两个时段的有效位清掉（时间留着）。
+  /// 这一天有启用中的时段：星期字和底槽变色用。
   List<bool> get _enabledDays => <bool>[
     for (final day in _device.schedule)
       (day.slotOne?.enabled ?? false) || (day.slotTwo?.enabled ?? false),
+  ];
+
+  /// 星期下面那排勾 = 这天修不修边（DP101 沿边位）。
+  List<bool> get _trimDays => <bool>[
+    for (final day in _device.schedule) day.edge,
   ];
 
   /// 合计只算启用中的时段——关掉的时段设备不会跑。
@@ -107,7 +112,7 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
     var draft = MowerPlanDraft.forDay(
       day,
       _device.schedule,
-      activeSlot: slot ?? 1,
+      activeSlot: slot ?? _blankSlot(day),
     );
     // 重叠时先关弹窗、再弹提示，「返回修改」把同一份草稿原样开回去——
     // 稿子上那张提示图的背景就是计划页本身。
@@ -143,20 +148,20 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
     _publish(week);
   }
 
-  void _toggleDay(int day) {
+  /// 点空白 = 添加：直接开在没启用的那个时段上（还没排的、或被停用的——停用的再打开就能原样启用），
+  /// 两个都在用才开时段 1。
+  int _blankSlot(int day) {
+    final source = _device.schedule[day];
+    if (!(source.slotOne?.enabled ?? false)) return 1;
+    if (!(source.slotTwo?.enabled ?? false)) return 2;
+    return 1;
+  }
+
+  /// 点星期下面那个勾：只翻这一天的修边（DP101 沿边位，整天一个），时段不动，照样整周下发。
+  /// 那天还没有时段也能勾——先记着，排了时段就按修边跑。
+  void _toggleTrim(int day) {
     final week = _week;
-    final source = week[day];
-    final next = !((source.slotOne?.enabled ?? false) ||
-        (source.slotTwo?.enabled ?? false));
-    // 那天一个时段都没有：没什么可开的，直接把编辑器打开让用户排一个。
-    if (next && source.slotOne == null && source.slotTwo == null) {
-      unawaited(_edit(day, 1));
-      return;
-    }
-    week[day] = source.copyWith(
-      slotOne: source.slotOne?.copyWith(enabled: next),
-      slotTwo: source.slotTwo?.copyWith(enabled: next),
-    );
+    week[day] = week[day].copyWith(edge: !week[day].edge);
     _publish(week);
   }
 
@@ -254,8 +259,9 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
                   height: _chartHeight(constraints),
                   child: MowerPlanChart(
                     enabledDays: _enabledDays,
+                    trimDays: _trimDays,
                     slots: _chartSlots,
-                    onToggleDay: _toggleDay,
+                    onToggleTrim: _toggleTrim,
                     onEditDay: (day, slot) => unawaited(_edit(day, slot)),
                     onDeleteSlot: _deleteSlot,
                   ),

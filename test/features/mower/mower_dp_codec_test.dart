@@ -52,7 +52,8 @@ void main() {
       expect(data[offset + 9], 0, reason: '9 分钟的时段不该带有效位');
     });
 
-    test('关掉的时段（总开关 off）不下发', () {
+    test('关掉的时段（总开关 off）有效位 0，但起止照写，解回来是关着的时段', () {
+      // 2026-10-08：停用的时段设备不执行，但回显回来还要认得出时间，再启用才能原样回来。
       final week = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());
       week[3] = const MowerScheduleDay(
         slotOne: MowerScheduleSlot(
@@ -60,10 +61,38 @@ void main() {
           endMinutes: 660,
           enabled: false,
         ),
+        slotTwo: MowerScheduleSlot(startMinutes: 900, endMinutes: 960),
       );
       final data = MowerScheduleCodec.encodeByDay(week);
       final offset = 3 * MowerScheduleCodec.groupSize;
-      expect(data[offset + 9], 0);
+      expect(data[offset + 9], 0, reason: '停用的时段设备不能执行');
+      expect(data[offset] | (data[offset + 1] << 8), 540);
+      expect(data[offset + 2] | (data[offset + 3] << 8), 660);
+      expect(data[offset + 10], 1);
+
+      final decoded = MowerScheduleCodec.decode(data)[3];
+      expect(decoded.slotOne?.enabled, isFalse);
+      expect(decoded.slotOne?.startMinutes, 540);
+      expect(decoded.slotOne?.endMinutes, 660);
+      expect(decoded.slotTwo?.enabled, isTrue);
+      expect(decoded.isEmpty, isFalse);
+    });
+
+    test('还没排的空时段（关着的 00:00–00:00）照旧整段写 0，解回来是没有', () {
+      final week = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());
+      week[1] = const MowerScheduleDay(
+        slotOne: MowerScheduleSlot(
+          startMinutes: 0,
+          endMinutes: 0,
+          enabled: false,
+        ),
+      );
+      final data = MowerScheduleCodec.encodeByDay(week);
+      expect(
+        data.sublist(MowerScheduleCodec.groupSize, 2 * MowerScheduleCodec.groupSize),
+        everyElement(0),
+      );
+      expect(MowerScheduleCodec.decode(data)[1].slotOne, isNull);
     });
 
     test('编码再解码，时间与修边都还原', () {

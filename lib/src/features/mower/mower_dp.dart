@@ -490,19 +490,33 @@ abstract final class MowerScheduleCodec {
   }
 
   static void _writeGroup(Uint8List data, int offset, MowerScheduleDay day) {
-    final one = day.slotOne;
-    final two = day.slotTwo;
-    if (one != null && one.validForDevice) {
-      _writeUint16(data, offset, one.startMinutes);
-      _writeUint16(data, offset + 2, one.endMinutes);
-      data[offset + 9] = 1;
-    }
-    if (two != null && two.validForDevice) {
-      _writeUint16(data, offset + 4, two.startMinutes);
-      _writeUint16(data, offset + 6, two.endMinutes);
-      data[offset + 10] = 1;
-    }
+    _writeSlot(data, offset, offset + 9, day.slotOne);
+    _writeSlot(data, offset + 4, offset + 10, day.slotTwo);
     data[offset + 8] = day.edge ? 1 : 0;
+  }
+
+  /// 设备会执行的时段：写起止，有效位 1。
+  ///
+  /// **停用的时段也把起止写进去，有效位给 0**（2026-10-08 用户：「停用当前时段后在割草计划上就
+  /// 不要出现了，启用后再次出现」）。设备只认有效位非 0 的时段（V2.5 §5.1「flag≠0 且
+  /// start<end≤1440」），这一段写了也不会跑；但 RAW 回显回来 App 还认得出原来的时间，再启用
+  /// 就是原样。原来停用的时段整段写 0，设备一回显时间就没了，再打开只剩 00:00–00:00。
+  /// 启用着却不合法的（≤10 分钟、起止反了）照旧不写——设备反正会丢。
+  static void _writeSlot(
+    Uint8List data,
+    int offset,
+    int flagOffset,
+    MowerScheduleSlot? slot,
+  ) {
+    if (slot == null) return;
+    final parked =
+        !slot.enabled &&
+        slot.startMinutes < slot.endMinutes &&
+        slot.endMinutes <= 1440;
+    if (!slot.validForDevice && !parked) return;
+    _writeUint16(data, offset, slot.startMinutes);
+    _writeUint16(data, offset + 2, slot.endMinutes);
+    data[flagOffset] = slot.validForDevice ? 1 : 0;
   }
 
   /// 小端写入（V2.2：uint16 小端）。
@@ -532,28 +546,38 @@ abstract final class MowerScheduleCodec {
   }
 
   static MowerScheduleDay _readGroup(Uint8List data, int offset) {
-    final oneValid = data[offset + 9] != 0;
-    final twoValid = data[offset + 10] != 0;
     return MowerScheduleDay(
-      slotOne: oneValid
-          ? MowerScheduleSlot(
-              startMinutes: _readUint16(data, offset),
-              endMinutes: _readUint16(data, offset + 2),
-            )
-          : null,
-      slotTwo: twoValid
-          ? MowerScheduleSlot(
-              startMinutes: _readUint16(data, offset + 4),
-              endMinutes: _readUint16(data, offset + 6),
-            )
-          : null,
+      slotOne: _readSlot(data, offset, offset + 9),
+      slotTwo: _readSlot(data, offset + 4, offset + 10),
       edge: data[offset + 8] != 0,
     );
   }
 
+  /// 有效位非 0 = 启用中的时段。有效位 0 但带着合法起止 = **App 停用的时段**（见 [_writeSlot]），
+  /// 解成关着的时段：图表不画、不算进合计，编辑弹窗里还能原样再启用。两样都没有 = 没排。
+  static MowerScheduleSlot? _readSlot(
+    Uint8List data,
+    int offset,
+    int flagOffset,
+  ) {
+    final start = _readUint16(data, offset);
+    final end = _readUint16(data, offset + 2);
+    if (data[flagOffset] != 0) {
+      return MowerScheduleSlot(startMinutes: start, endMinutes: end);
+    }
+    if (start < end && end <= 1440) {
+      return MowerScheduleSlot(
+        startMinutes: start,
+        endMinutes: end,
+        enabled: false,
+      );
+    }
+    return null;
+  }
+
   /// **逐字节解析**成几行人话（2026-09-23 联调：「把数据解析出来打印在日志上，我要对比一下」）。
   ///
-  /// 和 [decode] 不同：[decode] 按设备的执行口径把无效时段丢掉；这里**原样列出每一组的全部字段**
+  /// 和 [decode] 不同：[decode] 只留有效的、和 App 停用的（有效位 0 但起止合法）时段；这里**原样列出每一组的全部字段**
   /// （无效时段的起止时间也列），并按 V2.2 §5.1 标出形态与会被设备丢弃 / 拒绝的时段，
   /// 对照固件或平台日志时不漏东西。
   static List<String> describe(List<int> data) {
@@ -595,7 +619,8 @@ abstract final class MowerScheduleCodec {
       }
       String slot(int index, int start, int end, int valid) {
         final notes = <String>[
-          if (valid == 0) '无效',
+          if (valid == 0 && start < end && end <= 1440) '无效，App 停用的时段，设备不执行'
+          else if (valid == 0) '无效',
           if (valid != 0 && !(start < end && end <= 1440)) '⚠ 起止不合法，设备会丢弃',
           if (valid != 0 && start < end && end - start <= 10) '⚠ ≤10 分钟，设备会丢弃',
         ];

@@ -12,19 +12,28 @@ import '../../mower_ui.dart';
 /// **纵轴高度随屏幕走**（2026-09-23 产品：「根据屏幕自适应一下高度，留有少许的间隔」）：
 /// 图表撑满父级给的高度，纵轴拿剩下的那段；锚点按稿子上的**比例**缩放
 /// （稿子纵轴 340：08 点在 40、18 点在 300），不再写死 340 像素。
+///
+/// **星期下面那排勾 = 修边**（2026-10-08 用户：「最上方打勾，左边加上修边，打勾√代表修边」，
+/// 「去掉修边颜色（用勾代替了）」）：勾上 = 这天先绕边再割（DP101 每组的沿边位，整天一个），
+/// 色块不再用描边区分修边。原来这排勾是「整天启用 / 停用」，停用改到编辑弹窗里按时段关。
 class MowerPlanChart extends StatelessWidget {
   const MowerPlanChart({
     required this.enabledDays,
+    required this.trimDays,
     required this.slots,
-    required this.onToggleDay,
+    required this.onToggleTrim,
     required this.onEditDay,
     required this.onDeleteSlot,
     super.key,
   });
 
+  /// 这天有没有会执行的时段：星期字变色、底槽变淡青，和勾没有关系。
   final List<bool> enabledDays;
+
+  /// 这天修不修边（DP101 沿边位），画在那排勾上。
+  final List<bool> trimDays;
   final List<MowerPlanSlot> slots;
-  final ValueChanged<int> onToggleDay;
+  final ValueChanged<int> onToggleTrim;
 
   /// 点色块（带上那一格的时段号）或点空白（null）都进编辑弹窗。
   final void Function(int day, int? slot) onEditDay;
@@ -97,16 +106,36 @@ class MowerPlanChart extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(30, 9, 20, 0),
+          padding: const EdgeInsets.fromLTRB(0, 9, 20, 0),
           child: Row(
             children: <Widget>[
+              // 左边标一句「修边」，和下面的小时刻度同一列、同样右对齐。
+              const SizedBox(
+                width: 30,
+                child: Padding(
+                  padding: EdgeInsets.only(right: 6),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '修边',
+                      key: Key('mower-plan-trim-label'),
+                      style: TextStyle(
+                        color: MowerColors.inkSecondary,
+                        fontSize: 11,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               for (var day = 0; day < MowerPlanAxis.dayLabels.length; day++)
                 Expanded(
                   child: Center(
                     child: _DayCheckbox(
                       day: day,
-                      checked: enabledDays[day],
-                      onTap: () => onToggleDay(day),
+                      checked: trimDays[day],
+                      onTap: () => onToggleTrim(day),
                     ),
                   ),
                 ),
@@ -213,7 +242,7 @@ class _DayColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: <Widget>[
-        // 底槽：勾上的那几天是淡青，没勾的是灰。点空白处进"新增"。
+        // 底槽：有启用中时段的那几天是淡青，没有的是灰（和修边勾无关）。点空白处进"新增"。
         Positioned.fill(
           child: GestureDetector(
             key: Key('mower-plan-column-$day'),
@@ -284,9 +313,6 @@ class _SlotBlock extends StatelessWidget {
         decoration: BoxDecoration(
           color: slot.color,
           borderRadius: BorderRadius.circular(6),
-          border: slot.trim
-              ? Border.all(color: MowerColors.trimBorder, width: 2.4)
-              : null,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -317,7 +343,7 @@ class _SlotLabel extends StatelessWidget {
   }
 }
 
-/// 那一排勾选框：勾上的是实心品牌色，没勾的是白底描边。
+/// 那一排修边勾：勾上的是实心品牌色，没勾的是白底描边。
 class _DayCheckbox extends StatelessWidget {
   const _DayCheckbox({
     required this.day,
@@ -332,7 +358,7 @@ class _DayCheckbox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      key: Key('mower-plan-day-$day'),
+      key: Key('mower-plan-trim-$day'),
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
@@ -356,34 +382,28 @@ class _DayCheckbox extends StatelessWidget {
   }
 }
 
+/// 图例只剩两个时段的颜色：修边由星期下面那排勾表示，不再是色块描边。
 class _PlanLegend extends StatelessWidget {
   const _PlanLegend();
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return const Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
-        const _LegendItem(color: MowerColors.slotOne, label: '时段一'),
-        const SizedBox(width: 20),
-        const _LegendItem(color: MowerColors.slotTwo, label: '时段二'),
-        const SizedBox(width: 20),
-        _LegendItem(
-          color: Colors.white,
-          label: '修边',
-          border: Border.all(color: MowerColors.trimBorder, width: 2),
-        ),
+        _LegendItem(color: MowerColors.slotOne, label: '时段一'),
+        SizedBox(width: 20),
+        _LegendItem(color: MowerColors.slotTwo, label: '时段二'),
       ],
     );
   }
 }
 
 class _LegendItem extends StatelessWidget {
-  const _LegendItem({required this.color, required this.label, this.border});
+  const _LegendItem({required this.color, required this.label});
 
   final Color color;
   final String label;
-  final BoxBorder? border;
 
   @override
   Widget build(BuildContext context) {
@@ -395,7 +415,6 @@ class _LegendItem extends StatelessWidget {
           height: 10,
           decoration: BoxDecoration(
             color: color,
-            border: border,
             borderRadius: BorderRadius.circular(2),
           ),
         ),

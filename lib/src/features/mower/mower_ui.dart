@@ -83,7 +83,6 @@ class MowerPlanSlot {
     required this.startMinutes,
     required this.endMinutes,
     required this.slot,
-    this.trim = false,
   });
 
   final int day;
@@ -92,9 +91,6 @@ class MowerPlanSlot {
 
   /// 1 = 时段一，2 = 时段二。图例上那两个颜色就是它。
   final int slot;
-
-  /// 修边时段：块上多一圈 `#97DCB6` 的描边（图例里的第三项）。
-  final bool trim;
 
   String get startLabel => formatMinutes(startMinutes);
   String get endLabel => formatMinutes(endMinutes);
@@ -159,7 +155,6 @@ abstract final class MowerColors {
 
   static const Color slotOne = Color(0xFF70AFB5);
   static const Color slotTwo = Color(0xFF70B59C);
-  static const Color trimBorder = Color(0xFF97DCB6);
 
   static const Color danger = Color(0xFFEB7275);
   static const Color dangerBorder = Color(0x8CEB7275);

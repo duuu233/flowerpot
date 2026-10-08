@@ -369,7 +369,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('割草计划页按设备报的计划合计工作时间，取消勾选就整周下发', (tester) async {
+  testWidgets('割草计划页按设备报的计划合计工作时间；星期下面那排勾是修边，点了只翻沿边位、整周下发', (tester) async {
     final repository = await _pumpMowerHome(tester, <int, Object?>{
       MowerDp.mowSchedule: TuyaRaw.hex(
         MowerScheduleCodec.encodeByDay(_week()),
@@ -379,11 +379,93 @@ void main() {
     await tester.pump();
 
     expect(find.text('总工作时间：5小时23分钟'), findsOneWidget);
-    // 周日那两段（08:00–09:00、14:00–15:00）一取消勾选就从合计里去掉。
-    await tester.tap(find.byKey(const Key('mower-plan-day-0')));
+    // 2026-10-08：那排勾左边标「修边」，勾 = 修边；图例只剩两个时段，修边不再画成色块描边。
+    expect(find.byKey(const Key('mower-plan-trim-label')), findsOneWidget);
+    expect(find.text('修边'), findsOneWidget);
+    expect(find.text('时段一'), findsOneWidget);
+    expect(find.text('时段二'), findsOneWidget);
+    Finder tick(int day) => find.descendant(
+      of: find.byKey(Key('mower-plan-trim-$day')),
+      matching: find.byIcon(Icons.check_rounded),
+    );
+    expect(tick(0), findsOneWidget, reason: '周日设备报的是修边');
+    expect(tick(2), findsNothing);
+    expect(tick(4), findsOneWidget);
+
+    // 周日取消勾：只关修边，两个时段照旧在图上、合计不变。
+    await tester.tap(find.byKey(const Key('mower-plan-trim-0')));
     await tester.pump();
-    expect(find.text('总工作时间：3小时23分钟'), findsOneWidget);
+    expect(tick(0), findsNothing);
+    expect(find.text('总工作时间：5小时23分钟'), findsOneWidget);
+    expect(find.byKey(const Key('mower-plan-slot-0-1')), findsOneWidget);
     expect(_sentDps(repository), <int>[MowerDp.mowSchedule]);
+    final sent = TuyaRaw.bytes(
+      repository.publishedDps.last.$2[MowerDp.mowSchedule],
+    )!;
+    const sunday = 7 * MowerScheduleCodec.groupSize;
+    expect(sent[sunday + 8], 0, reason: '周日沿边位清掉');
+    expect(sent[sunday + 9], 1, reason: '时段有效位不动');
+    expect(sent[4 * MowerScheduleCodec.groupSize + 8], 1, reason: '周四修边照旧');
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('编辑弹窗里停用的时段不画在图上；设备回显后时间还在，再启用原样回来', (tester) async {
+    final repository = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.mowSchedule: TuyaRaw.hex(
+        MowerScheduleCodec.encodeByDay(_week()),
+      ),
+    });
+    await tester.tap(find.byKey(const Key('mower-nav-plan')));
+    await tester.pump();
+    expect(find.byKey(const Key('mower-plan-slot-2-1')), findsOneWidget);
+
+    // 周二时段 1（10:00–12:00）：点色块进编辑，关掉「启用时段1」，保存。
+    await tester.tap(find.byKey(const Key('mower-plan-slot-2-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mower-plan-edit-slot-enabled')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mower-plan-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('mower-plan-slot-2-1')), findsNothing);
+    expect(find.text('总工作时间：3小时23分钟'), findsOneWidget);
+    // 下发里这一段有效位 0（设备不执行），起止照写。
+    final sent = repository.publishedDps.last.$2[MowerDp.mowSchedule]!;
+    final bytes = TuyaRaw.bytes(sent)!;
+    const tuesday = 2 * MowerScheduleCodec.groupSize;
+    expect(bytes[tuesday + 9], 0);
+    expect(bytes[tuesday] | (bytes[tuesday + 1] << 8), 600);
+    expect(bytes[tuesday + 2] | (bytes[tuesday + 3] << 8), 720);
+
+    // 设备 RAW 回显：界面按回显重解，这一段还是「停用」，照样不画。
+    repository.rawDpsByDevice[_mowerId]![MowerDp.mowSchedule] = sent;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: <int>{MowerDp.mowSchedule},
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    final parked = MowerDevice.instance.schedule[2].slotOne;
+    expect(parked?.enabled, isFalse);
+    expect(parked?.startMinutes, 600);
+    expect(parked?.endMinutes, 720);
+    expect(find.byKey(const Key('mower-plan-slot-2-1')), findsNothing);
+
+    // 点周二空白：直接开在停用的时段 1 上，时间还是 10:00–12:00；打开开关保存就回到图上。
+    await tester.tap(find.byKey(const Key('mower-plan-column-2')));
+    await tester.pumpAndSettle();
+    expect(find.text('时段1（已关闭）'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('mower-plan-edit-slot-enabled')));
+    await tester.pump();
+    expect(find.text('时长 2 小时 0 分'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('mower-plan-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('mower-plan-slot-2-1')), findsOneWidget);
+    expect(find.text('总工作时间：5小时23分钟'), findsOneWidget);
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
