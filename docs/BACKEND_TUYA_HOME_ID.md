@@ -1,8 +1,8 @@
-# 涂鸦家庭 ID：后端接口需求
+# 涂鸦家庭 ID：当前行为与后端接口需求
 
 > 文档类型：Active（接口契约需求）
-> 最后核验：2026-09-09
-> 事实来源：涂鸦 Home SDK 行为、`https://api.yikaltd.com/v2/api-docs`、`lib/src/core/backend/app_backend_repository.dart`
+> 最后核验：2026-10-08
+> 事实来源：`lib/src/state.dart`、Android/iOS 原生桥接、`lib/src/core/backend/app_backend_repository.dart`、涂鸦官方 SDK 文档。后端字段支持为客户端源码核对，未在本轮请求生产接口。
 
 ## 为什么需要它
 
@@ -24,7 +24,7 @@
 
 后端没下发 `userId` 时，App 退回用涂鸦 uid（即 `userNo`）作为同一用途的键，行为不变。
 
-效果：标记跟**账号**走、不跟手机走 —— 同一台手机反复登录、换一台手机登同一个账号，认到的都是同一个家庭。
+效果：标记跟**账号**走、不跟手机走。同一个账号键能稳定认领同名家庭；若历史上已有多个家庭、家庭名被改过或账号键发生变化，仍需核对设备实际所在的家庭，不能仅凭标记认定归属正确。
 
 `tuYaHomeId` 字段与回写接口（下节）仍然是更快、更准的方案（省掉按名字认领这一步），后端愿意做的话 App 侧代码已经就绪。
 
@@ -59,12 +59,30 @@ POST /Client/User/setTuyaHomeId
 
 优先级：**后端 `tuYaHomeId` > 本地缓存 > 涂鸦家庭列表现挑**。
 
-1. 登录 / 注册拿到 `tuYaHomeId` → 立刻 `setHomeId` 钉给原生，并写入本地 `SharedPreferences`（`tuyaHome:<userNo>`）。
-2. 后端没给 → 用本地缓存钉住；本地也没有 → 由原生按家庭列表解析（先挑带设备的家庭，同样带设备时取 `homeId` 最小的），解析结果写回本地缓存。
-3. **自愈**：用钉住的家庭读设备却读到 0 台，就作废这份缓存并按涂鸦返回的列表重新解析一次——缓存只是缓存，涂鸦返回的才是准的。
-4. 配网前先 `currentHomeId()` 确认家庭再取令牌，两步都在手机还连着路由器时完成；手机已在设备热点上时家庭列表为空**不再自动建家**（直接报 `home_offline`）。
+1. 账号键优先用后端 `userId`，取不到退回涂鸦 uid（`userNo`）；家庭名标记为 `YS-<账号键>`，本地家庭缓存键为 `tuyaHome:<账号键>`。这些账号标识没有被用作涂鸦家庭 ID。
+2. 登录 / 注册拿到有效 `tuYaHomeId` → `setHomeId` 钉给原生，并写入本地缓存；后端没给则使用本地缓存；两者都没有才解析涂鸦家庭列表。
+3. **Android 现挑规则**：名字等于账号标记的优先，其次按家庭列表对象中的设备数从多到少，最后按 `homeId` 从小到大。此处没有逐个读取家庭详情，列表对象的设备计数不等于本轮已经核对过全部家庭设备。
+4. **iOS 现挑规则**：名字等于账号标记的优先，其次按 `homeId` 从小到大，没有 Android 的设备数排序。两类产品在各自平台内共用家庭逻辑；双模 BLE 激活桥接目前只在 Android 实现。
+5. **自愈触发条件**：本次设备列表为 0 台，且 `_pinnedHome != null`，才清除固定家庭并重选一次。只少了一台、列表还留着割草机等设备时不会触发。重选沿用相同标记规则，不会遍历所有家庭核对某个 `deviceId`。
+6. 配网准备阶段先 `currentHomeId()`，再取令牌。Android 在家庭列表为空且进程仍绑着设备热点时回 `home_offline`；正常网络下空列表重查一次，仍空才建家。iOS 空列表重查后建家，不能将 Android 的热点门禁表述为双端都已实现。原生返回明确查询错误时准备失败；返回 `0` 时仅记录诊断，不再用 `home_unresolved` 拦路。
 
-在第 2 条接口就绪之前，功能不受影响，只是换手机 / 重装 / 清数据后需要重新解析一次家庭。
+## 花盆与割草机的注册共用范围
+
+Android 当前产品入口屏蔽 AP（`PairingGate.apEnabled = false`），两类设备均走 BLE 双模配网：搜索页 `prepareForPairing` → `pairViaBle` → 原生 `pairBleDevice` → `startMultiModeActivatorWithHome`。原生将同一个会话家庭传给令牌接口和配网配置的 `gid`，没有按花盆 / 割草机分别选择家庭的业务分支；扫描得到的设备对象由 SDK 按其真实产品与能力处理。
+
+正常成功路径只认 SDK `onSuccess(DeviceBean)`，随后 `_pairInternal` 将设备加入本地列表、作废令牌；没有立即回查家庭设备列表核对本次设备 ID，也没有独立校验 `wifiEnable`。配网与列表读取均不依赖 `addUserProduct` / `getUserProductList`，本轮不存在花盆漏调后端注册、割草机另调后端注册的差异。
+
+SDK 报错时 `_recoverPairedDevice` 回查当前家庭三次，按“本地旧列表之外的新设备”恢复成功；没有按本次扫描 UUID 或产品 ID 匹配。这是两类设备共用的恢复边界。
+
+## 排除家庭问题的证据边界
+
+- **只能排除产品分支差异**：同一 App 会话里，两类设备的家庭选择、缓存和令牌流程一致。这不足以证明历史上每次注册实际使用了相同家庭。
+- **同一账号多个家庭**：列表只读当前家庭。若花盆落在另一个家庭而当前家庭还有割草机，现有空列表自愈不会发现。应按丢失设备 ID 核对账号名下所有家庭，而不是只看当前家庭设备总数。
+- **令牌与家庭切换**：原生令牌缓存只记录令牌和时间；`setHomeId` 没有同步作废令牌。若取令牌后家庭发生切换，当前代码没有校验令牌对应家庭与配网 `gid` 一致。本轮只确认该防护缺口，未复现这种切换，也未认定它是偶现原因。
+- **本地激活与云端激活**：涂鸦官方说明部分双模设备支持蓝牙兜底，Wi-Fi 激活失败时可处于蓝牙本地连接状态，`DeviceBean.meta["wifiEnable"]` 可用于区分云端链路激活。当前成功路径未做该检查；需真机确认具体花盆是否支持以及成功回调实际字段，不能直接把蓝牙兜底认定为丢失原因。依据：[涂鸦蓝牙单点 / 双模设备文档](https://developer.tuya.com/cn/docs/app-development/android-bluetooth-ble?id=Karv7r2ju4c21)。
+- **设备移除与离线**：SDK `onRemoved` 转为 `removed` 事件，状态层移除该设备；`onStatusChanged` 只更新在线状态，离线不会按此路径删除设备。花盆“恢复出厂 / 重新配网”会发 DP141 并调用 SDK `resetFactory`，割草机当前只有普通删除入口。源码未发现配网成功后自动调用这类解绑入口。依据：[涂鸦设备管理文档](https://developer.tuya.com/en/docs/app-development/devicemanage?id=Ka6ki8r2rfiuu)。
+
+彻底排除家庭问题需要：丢失前后是否为同一涂鸦账号、配网用的家庭、列表读取的家庭、目标设备在账号各家庭中的归属，以及是否收到设备移除事件。本轮为源码检查，没有生产账号查询或丢失现场日志。
 
 ## 排查现场信息
 
@@ -74,4 +92,4 @@ POST /Client/User/setTuyaHomeId
 uid <userNo> · 家庭 <homeId> · 设备 N 台 · <失败原因>
 ```
 
-Android 日志（`adb logcat -s flutter`）另有 `home pinned to <id>` 与 `home picked <id> with <n> devices of <m> homes`——`of 2` 就说明该账号下确实有两个家庭。
+Android 原生日志使用 `FlowerpotTuya` 标签：`adb logcat -s FlowerpotTuya flutter`。可核对 `home pinned to <id>`、`home picked <id> (name=..., ... devices) of <m> homes, tag=...` 与 `ble pair: 并行配网 config(..., gid=<id>, ...)`；状态层联调日志中的 `上报 ← 设备被解绑 <deviceId>` 来自设备移除事件。现有日志会带 Wi-Fi 名称和账号归属信息，对外分享前应脱敏，禁止复制令牌与密码。
