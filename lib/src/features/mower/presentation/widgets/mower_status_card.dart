@@ -280,19 +280,25 @@ class _StatusChips extends StatelessWidget {
   final bool wifiLinked;
   final bool bleLinked;
 
-  /// 没连的那颗压淡（稿子只给了亮的图，灭的就按 30% 画）。
-  static Widget _linkIcon(String asset, {required bool on, required Key key}) =>
-      Opacity(
-        key: key,
-        opacity: on ? 1 : .3,
-        child: Image.asset(
-          asset,
-          width: 26,
-          height: 26,
-          filterQuality: FilterQuality.high,
-          excludeFromSemantics: true,
-        ),
-      );
+  /// Wi-Fi 离线置灰；蓝牙断开仍按原来的 30% 透明度显示。
+  static Widget _linkIcon(
+    String asset, {
+    required bool on,
+    required Key key,
+    bool grayWhenOff = false,
+  }) => Opacity(
+    key: key,
+    opacity: on || grayWhenOff ? 1 : .3,
+    child: Image.asset(
+      asset,
+      color: !on && grayWhenOff ? MowerColors.inkSecondary : null,
+      colorBlendMode: BlendMode.srcIn,
+      width: 26,
+      height: 26,
+      filterQuality: FilterQuality.high,
+      excludeFromSemantics: true,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -335,6 +341,7 @@ class _StatusChips extends StatelessWidget {
         _linkIcon(
           MowerAssets.wifiIcon,
           on: wifiLinked,
+          grayWhenOff: true,
           key: Key('mower-link-wifi-${wifiLinked ? 'on' : 'off'}'),
         ),
         const SizedBox(width: 10),

@@ -648,7 +648,7 @@ class _ActionButton extends StatelessWidget {
     this.busy = false,
   });
 
-  /// 控制前检查中：整颗换成转圈（图标 + 文字的位置），尺寸不变。
+  /// 控制前检查中：图标槽位显示转圈，文字和按钮尺寸不变。
   final bool busy;
 
   final Key buttonKey;
@@ -683,26 +683,29 @@ class _ActionButton extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              if (busy)
-                const SizedBox.square(
-                  key: Key('mower-action-busy'),
-                  dimension: 40,
-                  child: Padding(
-                    padding: EdgeInsets.all(8),
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.6,
-                      color: MowerColors.brand,
-                    ),
-                  ),
-                )
-              else
-                Image.asset(
-                  icon,
-                  width: 40,
-                  height: 40,
-                  filterQuality: FilterQuality.high,
-                  excludeFromSemantics: true,
+              SizedBox.square(
+                dimension: 40,
+                child: Center(
+                  child: busy
+                      ? const CircularProgressIndicator(
+                          key: Key('mower-action-busy'),
+                          constraints: BoxConstraints.tightFor(
+                            width: 24,
+                            height: 24,
+                          ),
+                          padding: EdgeInsets.zero,
+                          strokeWidth: 2.6,
+                          color: MowerColors.brand,
+                        )
+                      : Image.asset(
+                          icon,
+                          width: 40,
+                          height: 40,
+                          filterQuality: FilterQuality.high,
+                          excludeFromSemantics: true,
+                        ),
                 ),
+              ),
               const SizedBox(height: 7),
               Text(
                 label,
