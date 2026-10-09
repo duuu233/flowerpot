@@ -287,7 +287,94 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('长按删掉时段后再新建：滚轮停在默认时间，不打开开关不下发，打开就按默认时间排上', (tester) async {
+  for (final slotNumber in <int>[1, 2]) {
+    for (final dismissal in <String>['取消', '返回', '遮罩']) {
+      testWidgets('长按计划时段$slotNumber后$dismissal：保留计划且不下发', (tester) async {
+        final repository = await _pumpMowerHome(tester, <int, Object?>{
+          MowerDp.mowSchedule: TuyaRaw.hex(
+            MowerScheduleCodec.encodeByDay(_week()),
+          ),
+        });
+        await tester.tap(find.byKey(const Key('mower-nav-plan')));
+        await tester.pump();
+        final before = MowerScheduleCodec.encodeByDay(
+          MowerDevice.instance.schedule,
+        );
+        final block = find.byKey(Key('mower-plan-slot-0-$slotNumber'));
+
+        await tester.longPress(block);
+        await tester.pumpAndSettle();
+        expect(find.text('计划时间是否要删除？'), findsOneWidget);
+        expect(block, findsOneWidget);
+        expect(
+          MowerScheduleCodec.encodeByDay(MowerDevice.instance.schedule),
+          before,
+        );
+        expect(repository.publishedDps, isEmpty);
+
+        switch (dismissal) {
+          case '取消':
+            await tester.tap(find.byKey(const Key('app-dialog-cancel')));
+          case '返回':
+            await tester.binding.handlePopRoute();
+          case '遮罩':
+            await tester.tapAt(const Offset(5, 5));
+        }
+        await tester.pumpAndSettle();
+        expect(find.text('计划时间是否要删除？'), findsNothing);
+        expect(block, findsOneWidget);
+        expect(
+          MowerScheduleCodec.encodeByDay(MowerDevice.instance.schedule),
+          before,
+        );
+        expect(repository.publishedDps, isEmpty);
+        MowerDevice.instance.resetForTest();
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('长按计划时段$slotNumber确认：只删除目标时段并整周下发一次', (tester) async {
+      final repository = await _pumpMowerHome(tester, <int, Object?>{
+        MowerDp.mowSchedule: TuyaRaw.hex(
+          MowerScheduleCodec.encodeByDay(_week()),
+        ),
+      });
+      await tester.tap(find.byKey(const Key('mower-nav-plan')));
+      await tester.pump();
+      await tester.longPress(find.byKey(Key('mower-plan-slot-0-$slotNumber')));
+      await tester.pumpAndSettle();
+      expect(repository.publishedDps, isEmpty);
+      await tester.tap(find.byKey(const Key('app-dialog-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(Key('mower-plan-slot-0-$slotNumber')), findsNothing);
+      expect(
+        find.byKey(Key('mower-plan-slot-0-${3 - slotNumber}')),
+        findsOneWidget,
+      );
+      final expected = _week();
+      final source = expected[0];
+      expected[0] = MowerScheduleDay(
+        slotOne: slotNumber == 1 ? null : source.slotOne,
+        slotTwo: slotNumber == 2 ? null : source.slotTwo,
+        edge: source.edge,
+      );
+      expect(_sentDps(repository), <int>[MowerDp.mowSchedule]);
+      expect(repository.publishedDps, hasLength(1));
+      expect(
+        TuyaRaw.bytes(repository.publishedDps.single.$2[MowerDp.mowSchedule]),
+        MowerScheduleCodec.encodeByDay(expected),
+      );
+      expect(
+        MowerScheduleCodec.encodeByDay(MowerDevice.instance.schedule),
+        MowerScheduleCodec.encodeByDay(expected),
+      );
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('长按确认删掉时段后再新建：滚轮停在默认时间，不打开开关不下发，打开就按默认时间排上', (tester) async {
     final repository = await _pumpMowerHome(tester, <int, Object?>{
       MowerDp.mowSchedule: TuyaRaw.hex(
         MowerScheduleCodec.encodeByDay(_week()),
@@ -296,8 +383,12 @@ void main() {
     await tester.tap(find.byKey(const Key('mower-nav-plan')));
     await tester.pump();
 
-    // 周二只有时段 1（10:00–12:00），长按删掉。
+    // 周二只有时段 1（10:00–12:00），长按确认后删掉。
     await tester.longPress(find.byKey(const Key('mower-plan-slot-2-1')));
+    await tester.pumpAndSettle();
+    expect(find.text('计划时间是否要删除？'), findsOneWidget);
+    expect(repository.publishedDps, isEmpty);
+    await tester.tap(find.byKey(const Key('app-dialog-confirm')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('mower-plan-slot-2-1')), findsNothing);
     expect(MowerDevice.instance.schedule[2].slotOne, isNull);
@@ -758,6 +849,8 @@ Future<MockTuyaRepository> _pumpMowerHome(
   Map<int, Object?> snapshot, {
   void Function(MockTuyaRepository repository)? setup,
 }) async {
+  // 发送队列必须在 testWidgets 的假时钟区域内创建，setUp 的外层 Future 不会被 pump 推进。
+  MowerDevice.instance.resetForTest();
   await tester.binding.setSurfaceSize(const Size(375, 812));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final repository = _MowerRepository()..rawDpsByDevice[_mowerId] = snapshot;
@@ -766,6 +859,8 @@ Future<MockTuyaRepository> _pumpMowerHome(
   addTearDown(state.dispose);
   await state.initialize();
   await state.refreshDevices();
+  // 这些页面用例通过主动推送更新设备，不需要在线轮询，避免测试体结束时遗留 Timer。
+  state.pauseDeviceWatch();
   // ⚠️ 必须套 FlowerpotScope：割草机各页进页面都会往联调日志里记一条。
   await tester.pumpWidget(
     FlowerpotScope(

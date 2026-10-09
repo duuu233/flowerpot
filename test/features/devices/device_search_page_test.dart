@@ -676,7 +676,7 @@ Future<void> _runOutSearchWindow(WidgetTester tester) async {
     // 双模全程不离开路由器，所以当前网络就是用户要让设备加入的那个。
     expect(arguments.routerSsid, 'TP-LINK_2.4G');
     // 连之前要停扫：一边扫一边连是在抢同一个射频。
-    expect(repository.bleScanStops, greaterThanOrEqualTo(1));
+    expect(repository.bleScanStopCalls, greaterThanOrEqualTo(1));
     expect(tester.takeException(), isNull);
   });
 

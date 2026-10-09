@@ -107,7 +107,7 @@ class MockTuyaRepository implements TuyaRepository {
 
   /// [startBleScan] / [stopBleScan] 各被调了几次；用例据此断言退出路径有没有停扫。
   int bleScanStarts = 0;
-  int bleScanStops = 0;
+  int bleScanStopCalls = 0;
 
   /// [queryDeviceWifiList] 的返回。默认给两个网络，够页面画列表。
   List<DeviceWifiNetwork> deviceWifiList = const <DeviceWifiNetwork>[
@@ -131,7 +131,7 @@ class MockTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> stopBleScan() async {
-    bleScanStops++;
+    bleScanStopCalls++;
   }
 
   @override

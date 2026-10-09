@@ -565,7 +565,7 @@ void main() {
 
     // 退出动线必须停扫：回调在原生侧握着 Activity，而且在真的耗电。
     await state.stopBleDiscovery();
-    expect(repository.bleScanStops, 1);
+    expect(repository.bleScanStopCalls, 1);
     expect(state.bleScanning, isFalse);
   });
 
@@ -611,7 +611,7 @@ void main() {
 
     // 还在扫的时候重开：先停旧的，再开新的。
     expect(await state.startBleDiscovery(), isTrue);
-    expect(repository.bleScanStops, 1);
+    expect(repository.bleScanStopCalls, 1);
     expect(repository.bleScanStarts, 3);
 
     await state.stopBleDiscovery();

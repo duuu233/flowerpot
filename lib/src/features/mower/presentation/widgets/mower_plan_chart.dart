@@ -204,7 +204,7 @@ class MowerPlanChart extends StatelessWidget {
         const _PlanLegend(),
         const SizedBox(height: 12),
         const Text(
-          '＋ 点击空白添加 · 点击色块编辑·长按时段删除',
+          '＋ 点击空白添加 · 点击色块编辑 · 长按时段确认删除',
           textAlign: TextAlign.center,
           style: TextStyle(color: Color(0xFF8C9496), fontSize: 12),
         ),

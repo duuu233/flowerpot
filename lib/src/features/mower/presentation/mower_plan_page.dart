@@ -165,7 +165,14 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
     _publish(week);
   }
 
-  void _deleteSlot(MowerPlanSlot target) {
+  Future<void> _deleteSlot(MowerPlanSlot target) async {
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: '删除计划时间',
+      message: '计划时间是否要删除？',
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
     final week = _week;
     final source = week[target.day];
     week[target.day] = MowerScheduleDay(
@@ -263,7 +270,7 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
                     slots: _chartSlots,
                     onToggleTrim: _toggleTrim,
                     onEditDay: (day, slot) => unawaited(_edit(day, slot)),
-                    onDeleteSlot: _deleteSlot,
+                    onDeleteSlot: (slot) => unawaited(_deleteSlot(slot)),
                   ),
                 ),
               ),
