@@ -6,7 +6,7 @@
 
 - `lib/src/core/network/`：统一 JSON/文件上传请求、连接复用、公共参数、会话持久化、异常映射、网络重试、鉴权失效和日志脱敏。
 - `lib/src/core/backend/`：封装 APP 后端的国内账号、用户设备、植物目录/绑定和设备图片接口；页面不直接访问 HTTP。
-- `lib/src/shared/widgets/app_toast.dart`：全局单实例、居中展示、自动消失、读屏播报的 Toast。
+- `lib/src/shared/widgets/app_toast.dart`：全局单实例、居中展示、自动消失、读屏播报的 Toast。花盆及割草机复用 `showAppMessage` 映射 success / error / info；相同离线失败使用「设备已离线」与 error 语义，不另做一套组件。设备列表在线 / 离线胶囊共用；割草机可进入页面连接蓝牙的例外见 `PRODUCT_RULES.md` §4.10。
 - `lib/src/features/auth/domain/auth_validator.dart`：手机号、邮箱、验证码和密码的统一校验。
 - `lib/src/features/auth/presentation/verification_code_countdown.dart`：验证码发送后的 60 秒防重复请求。
 - `lib/src/core/cache/image_cache_cleanup.dart`：退出登录和注销后清理上一账号的内存图片缓存。

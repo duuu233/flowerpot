@@ -7,6 +7,8 @@
 
 本文件是 `docs/` 的统一导航。根目录保留执行规则 `AGENTS.md`、当前 AI 快照 `AI_CONTEXT.md` 和现有的结构入口 `PROJECT_STRUCTURE.md`；其余知识、平台手册、UI 规范和历史记录统一从这里查找。
 
+本轮检查记录：[2026-10-10 设备同类提示一致性](history/2026-10/2026-10-10-device-feedback-consistency.md)。
+
 ## 推荐阅读顺序
 
 1. `AGENTS.md`

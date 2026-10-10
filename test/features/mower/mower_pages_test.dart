@@ -33,6 +33,35 @@ void main() {
   setUp(MowerDevice.instance.resetForTest);
   tearDown(MowerDevice.instance.resetForTest);
 
+  testWidgets('Wi-Fi 与蓝牙均不可达：与花盆一样显示离线 toast，连点只保留一条并自动消失', (tester) async {
+    final repository = await _pumpMowerHome(
+      tester,
+      <int, Object?>{MowerDp.switchGo: false},
+      setup: (repository) {
+        repository.wifiLinked = false;
+        repository.bleLinked = false;
+        repository.bleConnectSucceeds = false;
+      },
+    );
+    await tester.tap(find.text('继续'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('设备已离线'), findsOneWidget);
+    expect(find.byIcon(Icons.error_rounded), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(repository.publishedDps, isEmpty);
+
+    await tester.tap(find.text('继续'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.text('设备已离线'), findsOneWidget);
+    expect(repository.publishedDps, isEmpty);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('设备已离线'), findsNothing);
+    expect(tester.takeException(), isNull);
+    MowerDevice.instance.resetForTest();
+  });
+
   testWidgets('搜索页不再列写死的割草机（2026-09-23 联调起删掉）', (tester) async {
     await _pumpSearchPage(tester);
 

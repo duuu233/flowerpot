@@ -830,7 +830,7 @@ class MowerDevice extends ChangeNotifier {
                 state.isMowerShutdown(id)
                     ? '割草机已关机，请开机后再操作'
                     : result.code == 'device_offline'
-                    ? '割草机已离线，指令没有发出去'
+                    ? result.message
                     : '指令没有发出去：${result.message}',
               );
             }

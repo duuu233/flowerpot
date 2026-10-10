@@ -184,7 +184,7 @@ void main() {
     await tester.pump();
 
     expect(repository.publishedDps, isEmpty, reason: '离线门禁在发之前就拦下了');
-    expect(failures, <String>['割草机已离线，指令没有发出去']);
+    expect(failures, <String>['设备已离线']);
     expect(device.switchGo, isFalse);
     unawaited(sub.cancel());
     device.resetForTest();

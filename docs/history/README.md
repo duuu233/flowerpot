@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-10/2026-10-10-device-feedback-consistency.md`](2026-10/2026-10-10-device-feedback-consistency.md)：核对花盆/割草机列表与公共 toast，统一完全离线提示，保留蓝牙入口例外；65 项回归通过，未真机。
+
 - [`2026-10/2026-10-10-mower-stability-plan-confirmation.md`](2026-10/2026-10-10-mower-stability-plan-confirmation.md)：长按删除确认复核、上报变化保护、首页操作异常与会话隔离、Android 下发实例回收；76 项回归通过，原生闪退根因待真机日志。
 
 - [`2026-10/2026-10-09-mower-home-loading-wifi.md`](2026-10/2026-10-09-mower-home-loading-wifi.md)：首页四颗按钮固定图标槽位与 loading 尺寸，离线 Wi-Fi 真正置灰；10 条首页回归通过，额外 3 条设备层用例失败，未真机。

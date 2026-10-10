@@ -127,6 +127,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('离线割草机仍可进入页面连接蓝牙，与花盆共用灰色离线胶囊', (tester) async {
+    Object? mowerArguments;
+    await _pumpDeviceList(
+      tester,
+      const Size(375, 812),
+      withRoutes: true,
+      devices: <SmartPlanterDevice>[
+        _device(id: 'device-01', name: '花盆', online: false),
+        _device(
+          id: 'mower-01',
+          name: '割草机',
+          online: false,
+          productId: MowerDp.productId,
+        ),
+      ],
+      onMowerArguments: (value) => mowerArguments = value,
+    );
+    final labels = tester.widgetList<Text>(find.text('离线')).toList();
+    expect(labels, hasLength(2));
+    expect(labels.first.style, labels.last.style);
+    expect(labels.first.style?.color, AppColors.textSecondary);
+
+    await tester.tap(find.byKey(const Key('device-list-item-mower-01')));
+    await tester.pumpAndSettle();
+    expect(find.text('mower-home-target'), findsOneWidget);
+    expect((mowerArguments! as MowerHomeArguments).deviceId, 'mower-01');
+    expect(find.text('设备已离线'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a device with a chosen plant opens the detail page', (
     tester,
   ) async {
@@ -260,6 +290,7 @@ void main() {
     expect(find.byKey(const Key('device-list-error')), findsNothing);
     expect(find.text('YSplanter-01'), findsOneWidget);
     expect(state.deviceLoadError, isNull);
+    state.pauseDeviceWatch();
     expect(tester.takeException(), isNull);
   });
 
@@ -283,6 +314,8 @@ Future<FlowerpotState> _pumpDeviceList(
   );
   addTearDown(state.dispose);
   await state.refreshDevices();
+  // 列表用例验证点击和刷新，不需要后台在线轮询。
+  state.pauseDeviceWatch();
   await tester.pumpWidget(
     FlowerpotScope(
       state: state,
