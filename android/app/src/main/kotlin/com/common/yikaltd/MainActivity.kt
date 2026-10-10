@@ -2473,59 +2473,77 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
 
     private fun deviceAction(call: MethodCall, result: MethodChannel.Result, method: String) {
         val deviceId = call.argument<String>("deviceId").orEmpty()
-        val device = invokeStatic(sdkClass(), "newDeviceInstance", deviceId)
+        // 连续控制复用已监听的实例；临时实例必须在调用结束后释放。
+        val publishing = method == "publishDps" || method == "publishDpsWithMode"
+        val cached = if (publishing) watched[deviceId] else null
+        val device = cached ?: invokeStatic(sdkClass(), "newDeviceInstance", deviceId)
             ?: throw IllegalStateException("无法创建设备实例")
+        val released = AtomicBoolean(false)
+        fun releaseTemporaryDevice() {
+            if (publishing && cached == null && released.compareAndSet(false, true)) {
+                runCatching { invoke(device, "onDestroy") }
+            }
+        }
         val unbinds = method == "removeDevice" || method == "resetFactory"
         val onSuccess: (Any?) -> Unit = {
             if (unbinds) activity.runOnUiThread { unwatchDevice(deviceId) }
+            releaseTemporaryDevice()
             success(result, null)
         }
-        val onError: (String, String) -> Unit = { code, message -> error(result, code, message) }
-        when (method) {
-            "publishDps" -> {
-                val dps = call.argument<Map<String, Any?>>("dps") ?: emptyMap()
-                invokeWithCallback(
+        val onError: (String, String) -> Unit = { code, message ->
+            releaseTemporaryDevice()
+            error(result, code, message)
+        }
+        try {
+            when (method) {
+                "publishDps" -> {
+                    val dps = call.argument<Map<String, Any?>>("dps") ?: emptyMap()
+                    invokeWithCallback(
+                        device,
+                        method,
+                        JSONObject(dps).toString(),
+                        onSuccess = onSuccess,
+                        onError = onError,
+                    )
+                }
+                // 指定通道下发（2026-09-23 割草机：在线一定走 Wi-Fi，离线降级蓝牙）。
+                // IThingDevice.publishDps(String, ThingDevicePublishModeEnum, IResultCallback)，7.5.1 解包：
+                //   Internet → publishDpsByCloud（只走云端 = 设备的 Wi-Fi 通道）
+                //   Local    → publishDpsByIntranet（只走局域网，不在局域网回 10201）
+                //   Auto     → publishDps（SDK 按可用通道自己选；Wi-Fi 断了、蓝牙连着时就只剩蓝牙）
+                //   Mqtt / Http
+                "publishDpsWithMode" -> {
+                    val dps = call.argument<Map<String, Any?>>("dps") ?: emptyMap()
+                    val modeName = call.argument<String>("mode").orEmpty()
+                    val modeClass = Class.forName(
+                        "com.thingclips.smart.sdk.enums.ThingDevicePublishModeEnum",
+                        false,
+                        device.javaClass.classLoader ?: activity.classLoader,
+                    )
+                    val mode = modeClass.enumConstants?.filterIsInstance<Enum<*>>()
+                        ?.firstOrNull { it.name == modeName }
+                        ?: throw IllegalArgumentException("没有这个下发模式：$modeName")
+                    invokeWithCallback(
+                        device,
+                        "publishDps",
+                        JSONObject(dps).toString(),
+                        mode,
+                        onSuccess = onSuccess,
+                        onError = onError,
+                    )
+                }
+                "renameDevice" -> invokeWithCallback(
                     device,
                     method,
-                    JSONObject(dps).toString(),
+                    call.argument<String>("name").orEmpty(),
                     onSuccess = onSuccess,
                     onError = onError,
                 )
+                else -> invokeWithCallback(device, method, onSuccess = onSuccess, onError = onError)
             }
-            // 指定通道下发（2026-09-23 割草机：在线一定走 Wi-Fi，离线降级蓝牙）。
-            // IThingDevice.publishDps(String, ThingDevicePublishModeEnum, IResultCallback)，7.5.1 解包：
-            //   Internet → publishDpsByCloud（只走云端 = 设备的 Wi-Fi 通道）
-            //   Local    → publishDpsByIntranet（只走局域网，不在局域网回 10201）
-            //   Auto     → publishDps（SDK 按可用通道自己选；Wi-Fi 断了、蓝牙连着时就只剩蓝牙）
-            //   Mqtt / Http
-            "publishDpsWithMode" -> {
-                val dps = call.argument<Map<String, Any?>>("dps") ?: emptyMap()
-                val modeName = call.argument<String>("mode").orEmpty()
-                val modeClass = Class.forName(
-                    "com.thingclips.smart.sdk.enums.ThingDevicePublishModeEnum",
-                    false,
-                    device.javaClass.classLoader ?: activity.classLoader,
-                )
-                val mode = modeClass.enumConstants?.filterIsInstance<Enum<*>>()
-                    ?.firstOrNull { it.name == modeName }
-                    ?: throw IllegalArgumentException("没有这个下发模式：$modeName")
-                invokeWithCallback(
-                    device,
-                    "publishDps",
-                    JSONObject(dps).toString(),
-                    mode,
-                    onSuccess = onSuccess,
-                    onError = onError,
-                )
-            }
-            "renameDevice" -> invokeWithCallback(
-                device,
-                method,
-                call.argument<String>("name").orEmpty(),
-                onSuccess = onSuccess,
-                onError = onError,
-            )
-            else -> invokeWithCallback(device, method, onSuccess = onSuccess, onError = onError)
+        } catch (throwable: Throwable) {
+            releaseTemporaryDevice()
+            throw throwable
         }
     }
 

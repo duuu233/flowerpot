@@ -42,6 +42,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final button in <String>['自动', '定点', '回归', '继续']) {
+    testWidgets('首页$button读取蓝牙异常：恢复按钮并提示，不闪退或下发', (tester) async {
+      MowerBleGate.enabled = true;
+      addTearDown(MowerBleGate.reset);
+      final repository = _FailingMowerRepository();
+      await _pumpMowerHome(tester, <int, Object?>{
+        MowerDp.switchGo: false,
+        MowerDp.coverStatus: true,
+      }, repositoryOverride: repository);
+      await tester.tap(find.text(button));
+      await tester.pumpAndSettle();
+      expect(find.text('设备操作失败，请稍后重试'), findsOneWidget);
+      expect(repository.publishedDps, isEmpty);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      await tester.tap(find.byKey(const Key('app-dialog-confirm')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      MowerDevice.instance.resetForTest();
+    });
+  }
+
   testWidgets('割草机首页：标题是设备名，电量来自 DP13', (tester) async {
     await _pumpMowerHome(tester, <int, Object?>{MowerDp.battery: 78});
 
@@ -151,8 +172,7 @@ void main() {
     repository.pushDeviceUpdate(
       DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.fault}),
     );
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('mower-safety-notice')), findsOneWidget);
     expect(
@@ -175,8 +195,7 @@ void main() {
     repository.pushDeviceUpdate(
       DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.fault}),
     );
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('设备告警'), findsNothing);
 
     // 又多了一位（第 4 位抬起）：算新故障，再弹，两条文案都列出来
@@ -184,8 +203,7 @@ void main() {
     repository.pushDeviceUpdate(
       DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.fault}),
     );
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('设备告警'), findsOneWidget);
     expect(find.textContaining('机器被悬空，请放回地面。'), findsOneWidget);
     await tester.tap(find.text('我知道了'));
@@ -209,8 +227,7 @@ void main() {
         changedDps: <int>{MowerDp.shutdownReport},
       ),
     );
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('已关机'), findsOneWidget);
     expect(find.text('割草机已关机，开机后可继续操作'), findsOneWidget);
@@ -228,8 +245,7 @@ void main() {
     repository.pushDeviceUpdate(
       DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.fault}),
     );
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('设备告警'), findsNothing);
     expect(find.text('割草机已关机，开机后可继续操作'), findsOneWidget);
 
@@ -241,8 +257,7 @@ void main() {
         changedDps: <int>{MowerDp.shutdownReport},
       ),
     );
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('已关机'), findsNothing);
     expect(
       tester
@@ -369,6 +384,49 @@ void main() {
         MowerScheduleCodec.encodeByDay(MowerDevice.instance.schedule),
         MowerScheduleCodec.encodeByDay(expected),
       );
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final targetChanged in <bool>[false, true]) {
+    testWidgets('长按确认期间上报${targetChanged ? '目标' : '其他'}时段变化：不误删或覆盖新计划', (tester) async {
+      final repository = await _pumpMowerHome(tester, <int, Object?>{
+        MowerDp.mowSchedule: TuyaRaw.hex(MowerScheduleCodec.encodeByDay(_week())),
+      });
+      await tester.tap(find.byKey(const Key('mower-nav-plan')));
+      await tester.pump();
+      await tester.longPress(find.byKey(const Key('mower-plan-slot-0-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('计划时间是否要删除？'), findsOneWidget);
+      expect(repository.publishedDps, isEmpty);
+      final updated = _week();
+      final source = updated[0];
+      const changed = MowerScheduleSlot(startMinutes: 960, endMinutes: 1020);
+      updated[0] = MowerScheduleDay(
+        slotOne: targetChanged ? changed : source.slotOne,
+        slotTwo: targetChanged ? source.slotTwo : changed,
+        edge: false,
+      );
+      repository.rawDpsByDevice[_mowerId]![MowerDp.mowSchedule] =
+          TuyaRaw.hex(MowerScheduleCodec.encodeByDay(updated));
+      repository.pushDeviceUpdate(DeviceUpdate.changed(
+        _mower(), changedDps: <int>{MowerDp.mowSchedule},
+      ));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('app-dialog-confirm')));
+      await tester.pumpAndSettle();
+      if (targetChanged) {
+        expect(repository.publishedDps, isEmpty);
+        expect(find.text('计划时间已更新，请重新长按删除'), findsOneWidget);
+      } else {
+        updated[0] = MowerScheduleDay(slotTwo: changed, edge: false);
+        expect(repository.publishedDps, hasLength(1));
+        expect(TuyaRaw.bytes(repository.publishedDps.single.$2[MowerDp.mowSchedule]),
+            MowerScheduleCodec.encodeByDay(updated));
+      }
+      expect(MowerScheduleCodec.encodeByDay(MowerDevice.instance.schedule),
+          MowerScheduleCodec.encodeByDay(updated));
       MowerDevice.instance.resetForTest();
       expect(tester.takeException(), isNull);
     });
@@ -848,12 +906,14 @@ Future<MockTuyaRepository> _pumpMowerHome(
   WidgetTester tester,
   Map<int, Object?> snapshot, {
   void Function(MockTuyaRepository repository)? setup,
+  MockTuyaRepository? repositoryOverride,
 }) async {
   // 发送队列必须在 testWidgets 的假时钟区域内创建，setUp 的外层 Future 不会被 pump 推进。
   MowerDevice.instance.resetForTest();
   await tester.binding.setSurfaceSize(const Size(375, 812));
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  final repository = _MowerRepository()..rawDpsByDevice[_mowerId] = snapshot;
+  final repository = repositoryOverride ?? _MowerRepository();
+  repository.rawDpsByDevice[_mowerId] = snapshot;
   setup?.call(repository);
   final state = FlowerpotState(repository: repository);
   addTearDown(state.dispose);
@@ -900,4 +960,11 @@ Future<void> _pumpSearchPage(WidgetTester tester) async {
     ),
   );
   await tester.pump();
+}
+
+class _FailingMowerRepository extends _MowerRepository {
+  @override
+  Future<Map<String, Object?>> readDeviceBleRssi(String deviceId) async {
+    throw StateError('SDK RSSI failed');
+  }
 }

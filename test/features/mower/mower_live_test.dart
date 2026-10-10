@@ -5,7 +5,6 @@ import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_raw.dart';
-import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/mock_tuya_repository.dart';
@@ -187,7 +186,7 @@ void main() {
     expect(repository.publishedDps, isEmpty, reason: '离线门禁在发之前就拦下了');
     expect(failures, <String>['割草机已离线，指令没有发出去']);
     expect(device.switchGo, isFalse);
-    await sub.cancel();
+    unawaited(sub.cancel());
     device.resetForTest();
   });
 
@@ -224,7 +223,7 @@ void main() {
     expect(repository.publishedDps.single.$2[MowerDp.switchGo], isTrue);
     expect(repository.publishedModes, <String>['ThingDevicePublishModeAuto']);
     expect(
-      state.interactionLog.any((line) => line.contains('蓝牙（Wi-Fi 离线降级）')),
+      state.interactionLog.any((line) => line.contains('蓝牙（Wi-Fi 离线降级')),
       isTrue,
     );
     device.resetForTest();
@@ -268,7 +267,7 @@ void main() {
     expect(device.commandsEnabled, isFalse);
     expect(
       state.interactionLog.where(
-        (line) => line.contains('DP113 shutdown_report=true'),
+        (line) => line.contains('关机 ←') && line.contains('DP113 shutdown_report=true'),
       ),
       hasLength(1),
     );
@@ -291,7 +290,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(failures, <String>['割草机已关机，请开机后再操作']);
-    await sub.cancel();
+    unawaited(sub.cancel());
 
     // 下次开机：连云上线 + 首报 DP113=false
     repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = false;
@@ -353,7 +352,7 @@ void main() {
     final repository = _MowerRepository();
     final state = FlowerpotState(repository: repository);
     addTearDown(state.dispose);
-    expect(await state.startBleDiscovery(), isTrue);
+    expect(await tester.runAsync(() => state.startBleDiscovery()), isTrue);
 
     repository
       ..pushBleDevice(
@@ -381,7 +380,7 @@ void main() {
     await tester.pump();
 
     expect(state.bleDevices.map((item) => item.uuid), <String>['uuid-mower']);
-    await state.stopBleDiscovery();
+    await tester.runAsync(() => state.stopBleDiscovery());
   });
 }
 
@@ -429,5 +428,6 @@ Future<FlowerpotState> _state(MockTuyaRepository repository) async {
   addTearDown(state.dispose);
   await state.initialize();
   await state.refreshDevices();
+  state.pauseDeviceWatch();
   return state;
 }

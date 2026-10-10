@@ -71,6 +71,6 @@ codegraph sync .
 
 记录路径为 `history/YYYY-MM/YYYY-MM-DD-topic.md`。一次集中修改对应一份记录，不维护无限增长的单文件日志。不得记录 Token、涂鸦密钥、安全组件、签名资料、Wi-Fi 密码、个人数据或完整本地配置。
 
-最近记录：[`history/2026-10/2026-10-09-mower-home-loading-wifi.md`](history/2026-10/2026-10-09-mower-home-loading-wifi.md)。此前同日记录：[`history/2026-10/2026-10-09-mower-plan-delete-confirmation.md`](history/2026-10/2026-10-09-mower-plan-delete-confirmation.md)。
+最近记录：[`history/2026-10/2026-10-10-mower-stability-plan-confirmation.md`](history/2026-10/2026-10-10-mower-stability-plan-confirmation.md)。此前记录：[`history/2026-10/2026-10-09-mower-home-loading-wifi.md`](history/2026-10/2026-10-09-mower-home-loading-wifi.md)。此前同日记录：[`history/2026-10/2026-10-09-mower-plan-delete-confirmation.md`](history/2026-10/2026-10-09-mower-plan-delete-confirmation.md)。
 
 此前记录：[`history/2026-09/2026-09-21-我的页去掉设备设置-反馈邮箱读platformEmail-关于改智能设备.md`](history/2026-09/2026-09-21-我的页去掉设备设置-反馈邮箱读platformEmail-关于改智能设备.md)。

@@ -64,6 +64,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
   /// 这颗按钮画成转圈（2026-09-23 产品：「连接蓝牙的 loading 做到按钮那个位置，把按钮替换为转圈」），
   /// 检查期间再点任何一颗都不理（连蓝牙最长 15 秒）。
   String? _checking;
+  bool _operationInProgress = false;
 
   /// 已经弹过、而且还在报的故障位（DP18）。清掉的位会从这里拿掉，再出现就重新弹。
   final Set<int> _faultShown = <int>{};
@@ -209,16 +210,14 @@ class _MowerControlPageState extends State<MowerControlPage> {
     }
     final signal = await state.readDeviceBleRssi(id);
     if (!mounted) return null;
-    final rssi = (signal['rssi'] as num?)?.toInt();
+    final rawRssi = signal['rssi'];
+    final rssi = rawRssi is num && rawRssi.isFinite ? rawRssi.toInt() : null;
     if (signal['ok'] != true || rssi == null || rssi < MowerDevice.minBleRssi) {
       state.logMowerInteraction(
         '控制前检查 ✗ 蓝牙信号 ${rssi == null ? '读不到' : '$rssi dBm'}'
         '（要求不弱于 ${MowerDevice.minBleRssi} dBm），指令不下发',
       );
-      return (
-        message: '因安全要求必须在10米内控制设备',
-        icon: Icons.social_distance_rounded,
-      );
+      return (message: '因安全要求必须在10米内控制设备', icon: Icons.social_distance_rounded);
     }
     state.logMowerInteraction('控制前检查 ✓ 蓝牙已连接，信号 $rssi dBm');
     return null;
@@ -227,30 +226,43 @@ class _MowerControlPageState extends State<MowerControlPage> {
   /// 按钮点击统一入口：检查中不重入；检查期间被点的那颗画成转圈；检查不过先把按钮恢复、
   /// 再弹提示，不下发。[button] 是被点的那颗。
   Future<void> _guarded(String button, Future<void> Function() action) async {
-    // 蓝牙检查暂时关闭（MowerBleGate，2026-09-23 产品）：直接走原来的规则。
-    if (!MowerBleGate.enabled) {
-      await action();
-      return;
-    }
-    if (_checking != null) return;
-    setState(() => _checking = button);
-    ({String message, IconData icon})? problem;
+    if (_operationInProgress) return;
+    _operationInProgress = true;
+    final state = FlowerpotScope.of(context);
     try {
-      problem = await _bleProblem();
-    } finally {
-      if (mounted) setState(() => _checking = null);
-    }
-    if (!mounted) return;
-    if (problem != null) {
+      // 蓝牙检查总闸关闭时保持原来的控制规则。
+      if (!MowerBleGate.enabled) {
+        await action();
+        return;
+      }
+      setState(() => _checking = button);
+      final problem = await _bleProblem();
+      if (!mounted) return;
+      setState(() => _checking = null);
+      if (problem != null) {
+        await showAppNoticeDialog(
+          context,
+          title: '提示',
+          message: problem.message,
+          icon: problem.icon,
+        );
+        return;
+      }
+      await action();
+    } catch (error) {
+      if (!mounted) return;
+      state.logMowerInteraction('控制失败 ✗ 割草机 $button：$error');
+      if (_checking != null) setState(() => _checking = null);
       await showAppNoticeDialog(
         context,
         title: '提示',
-        message: problem.message,
-        icon: problem.icon,
+        message: '设备操作失败，请稍后重试',
+        icon: Icons.error_outline_rounded,
       );
-      return;
+    } finally {
+      _operationInProgress = false;
+      if (mounted && _checking != null) setState(() => _checking = null);
     }
-    await action();
   }
 
   Future<void> _toggleSwitch() => _guarded('switch', () async {
@@ -272,7 +284,8 @@ class _MowerControlPageState extends State<MowerControlPage> {
       await showAppNoticeDialog(
         context,
         title: '盖子未合上',
-        message: '请先合上盖子再启动割草机。\n（DP${MowerDp.coverStatus} cover_status = false）',
+        message:
+            '请先合上盖子再启动割草机。\n（DP${MowerDp.coverStatus} cover_status = false）',
         icon: Icons.info_outline_rounded,
       );
       return;
@@ -332,7 +345,8 @@ class _MowerControlPageState extends State<MowerControlPage> {
                 bleLinked: _device.bleLinked,
               ),
             );
-            final fits = constraints.hasBoundedHeight &&
+            final fits =
+                constraints.hasBoundedHeight &&
                 constraints.maxHeight >= _minFittedHeight;
             if (!fits) {
               return SingleChildScrollView(

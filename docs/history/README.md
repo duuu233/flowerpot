@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-10/2026-10-10-mower-stability-plan-confirmation.md`](2026-10/2026-10-10-mower-stability-plan-confirmation.md)：长按删除确认复核、上报变化保护、首页操作异常与会话隔离、Android 下发实例回收；76 项回归通过，原生闪退根因待真机日志。
+
 - [`2026-10/2026-10-09-mower-home-loading-wifi.md`](2026-10/2026-10-09-mower-home-loading-wifi.md)：首页四颗按钮固定图标槽位与 loading 尺寸，离线 Wi-Fi 真正置灰；10 条首页回归通过，额外 3 条设备层用例失败，未真机。
 
 - [`2026-10/2026-10-09-mower-plan-delete-confirmation.md`](2026-10/2026-10-09-mower-plan-delete-confirmation.md)：长按计划时间先确认，取消不下发，确认仅删目标；9 条长按回归通过。修复 Mock 停扫重名与页面测试夹具，扩大回归 46 通过 / 2 告警用例失败。

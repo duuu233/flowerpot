@@ -31,6 +31,7 @@ class MowerPlanPage extends StatefulWidget {
 
 class _MowerPlanPageState extends State<MowerPlanPage> {
   MowerDevice get _device => MowerDevice.instance;
+  bool _deleteDialogOpen = false;
 
   @override
   void initState() {
@@ -166,15 +167,30 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
   }
 
   Future<void> _deleteSlot(MowerPlanSlot target) async {
-    final confirmed = await showAppConfirmDialog(
-      context,
-      title: '删除计划时间',
-      message: '计划时间是否要删除？',
-      destructive: true,
-    );
+    if (_deleteDialogOpen) return;
+    _deleteDialogOpen = true;
+    final bool confirmed;
+    try {
+      confirmed = await showAppConfirmDialog(
+        context,
+        title: '删除计划时间',
+        message: '计划时间是否要删除？',
+        destructive: true,
+      );
+    } finally {
+      _deleteDialogOpen = false;
+    }
     if (!confirmed || !mounted) return;
     final week = _week;
     final source = week[target.day];
+    final current = target.slot == 1 ? source.slotOne : source.slotTwo;
+    // 确认期间设备可能改了这个时段，不能把另一个新计划误删掉。
+    if (current == null) return;
+    if (current.startMinutes != target.startMinutes ||
+        current.endMinutes != target.endMinutes) {
+      showAppMessage(context, '计划时间已更新，请重新长按删除');
+      return;
+    }
     week[target.day] = MowerScheduleDay(
       slotOne: target.slot == 1 ? null : source.slotOne,
       slotTwo: target.slot == 2 ? null : source.slotTwo,

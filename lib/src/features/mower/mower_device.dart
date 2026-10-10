@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -138,6 +137,12 @@ class MowerDevice extends ChangeNotifier {
   // ── 绑定（真机） ────────────────────────────────────────
   String? _deviceId;
   Object? _owner;
+  // 设备 ID 相同也可能是退出后重进；旧会话的回调不能写进新页面。
+  int _bindingGeneration = 0;
+  Future<void>? _linkRefresh;
+
+  bool _isCurrent(String id, int generation) =>
+      _deviceId == id && _bindingGeneration == generation;
   StreamSubscription<({String deviceId, Set<int> changedDps})>? _reportSub;
 
   /// 下发排队：每条按调用顺序等上一条发完再发。时间同步要求 DP106 → 107 → 108 → 114
@@ -171,6 +176,7 @@ class MowerDevice extends ChangeNotifier {
     _owner = owner;
     _releaseLive();
     _deviceId = deviceId;
+    final generation = _bindingGeneration;
     _loadLiveDefaults();
     notifyListeners();
     // 进页面就把蓝牙连上（2026-09-23 产品：「我进来设备正常情况下 wifi 和蓝牙图标应该都是亮的」）。
@@ -180,9 +186,13 @@ class MowerDevice extends ChangeNotifier {
     _lastShutdown = state.isMowerShutdown(deviceId);
     state.addListener(_onStateChanged);
     _reportSub = state.mowerReports
-        .where((report) => report.deviceId == deviceId)
+        .where((report) => _isCurrent(report.deviceId, generation))
         .listen(
           (report) => unawaited(_syncFromDevice(state, report.changedDps)),
+          onError: (Object error) {
+            if (!_isCurrent(deviceId, generation)) return;
+            state.logMowerInteraction('设备上报监听失败 ✗ 割草机：$error');
+          },
         );
     await _syncFromDevice(state, null);
   }
@@ -219,6 +229,9 @@ class MowerDevice extends ChangeNotifier {
   }
 
   void _releaseLive() {
+    _bindingGeneration++;
+    _linkRefresh = null;
+    _queue = Future<void>.value();
     _watchedState?.removeListener(_onStateChanged);
     _watchedState = null;
     _lastOnline = null;
@@ -260,7 +273,9 @@ class MowerDevice extends ChangeNotifier {
     rainDelayMinutes = 0;
     rainDelaySwitch = false;
     timeSyncEnable = false;
-    timezoneIndex = MowerTimezone.fromDeviceOffset(DateTime.now().timeZoneOffset);
+    timezoneIndex = MowerTimezone.fromDeviceOffset(
+      DateTime.now().timeZoneOffset,
+    );
     dstEnable = false;
     deviceTimeUtcSeconds = null;
     language = null;
@@ -286,12 +301,47 @@ class MowerDevice extends ChangeNotifier {
     FlowerpotState state, {
     bool autoConnect = false,
     bool force = false,
-  }) async {
+  }) {
     final id = _deviceId;
-    if (id == null) return;
+    if (id == null) return Future<void>.value();
+    final existing = _linkRefresh;
+    if (existing != null) return existing;
+    final generation = _bindingGeneration;
+    late final Future<void> pending;
+    pending =
+        _refreshLink(
+              state,
+              id,
+              generation,
+              autoConnect: autoConnect,
+              force: force,
+            )
+            .catchError((Object error) {
+              if (!_isCurrent(id, generation)) return;
+              state.logMowerInteraction('读取连接状态失败 ✗ 割草机：$error');
+            })
+            .whenComplete(() {
+              if (identical(_linkRefresh, pending)) _linkRefresh = null;
+            });
+    _linkRefresh = pending;
+    return pending;
+  }
+
+  Future<void> _refreshLink(
+    FlowerpotState state,
+    String id,
+    int generation, {
+    required bool autoConnect,
+    required bool force,
+  }) async {
     final wifiBefore = wifiLinked;
-    _applyLink(state, await state.deviceLinkState(id), id);
-    if (!autoConnect || bleLinked || _autoConnecting || _deviceId != id) return;
+    _applyLink(state, await state.deviceLinkState(id), id, generation);
+    if (!autoConnect ||
+        bleLinked ||
+        _autoConnecting ||
+        !_isCurrent(id, generation)) {
+      return;
+    }
     // 已关机 = 断电了，蓝牙也连不上，别每几秒去连一次。
     if (state.isMowerShutdown(id)) return;
     final wifiDropped = wifiBefore && !wifiLinked;
@@ -312,14 +362,19 @@ class MowerDevice extends ChangeNotifier {
     try {
       await state.connectDeviceBle(id);
     } finally {
-      _autoConnecting = false;
+      if (_isCurrent(id, generation)) _autoConnecting = false;
     }
-    if (_deviceId != id) return;
-    _applyLink(state, await state.deviceLinkState(id), id);
+    if (!_isCurrent(id, generation)) return;
+    _applyLink(state, await state.deviceLinkState(id), id, generation);
   }
 
-  void _applyLink(FlowerpotState state, Map<String, Object?> link, String id) {
-    if (_deviceId != id) return;
+  void _applyLink(
+    FlowerpotState state,
+    Map<String, Object?> link,
+    String id,
+    int generation,
+  ) {
+    if (!_isCurrent(id, generation)) return;
     final ble = link['ble'] == true;
     final wifi = link['wifi'] == true;
     if (ble == bleLinked && wifi == wifiLinked) return;
@@ -487,8 +542,8 @@ class MowerDevice extends ChangeNotifier {
     timeSyncEnable = enable;
     dstEnable = dst;
     if (enable) {
-      final seconds =
-          (DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000).toString();
+      final seconds = (DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000)
+          .toString();
       _deliver(state, MowerDp.deviceTime, seconds, action: '对时（UTC 秒）');
       deviceTimeUtcSeconds = seconds;
     } else {
@@ -501,7 +556,12 @@ class MowerDevice extends ChangeNotifier {
 
   /// 机器语言（DP109）。
   void setLanguage(FlowerpotState state, MowerLanguage target) {
-    _deliver(state, MowerDp.language, target.code, action: '机器语言 ${target.label}');
+    _deliver(
+      state,
+      MowerDp.language,
+      target.code,
+      action: '机器语言 ${target.label}',
+    );
     language = target;
     notifyListeners();
   }
@@ -518,8 +578,24 @@ class MowerDevice extends ChangeNotifier {
   Future<void> _syncFromDevice(FlowerpotState state, Set<int>? changed) async {
     final id = _deviceId;
     if (id == null) return;
+    final generation = _bindingGeneration;
+    try {
+      await _readSnapshot(state, changed, id, generation);
+    } catch (error) {
+      if (!_isCurrent(id, generation)) return;
+      state.logMowerInteraction('读取设备信息失败 ✗ 割草机：$error');
+      if (changed == null) _failures.add('设备信息读取失败，请返回后重试');
+    }
+  }
+
+  Future<void> _readSnapshot(
+    FlowerpotState state,
+    Set<int>? changed,
+    String id,
+    int generation,
+  ) async {
     final dps = await state.mowerDps(id);
-    if (dps == null || _deviceId != id) return;
+    if (dps == null || !_isCurrent(id, generation)) return;
     // 这一次有没有把 DP101 刷进来：有就逐字节解析打进日志（下面三个分支口径各不相同）。
     final scheduleTouched = changed == null
         ? dps.containsKey(MowerDp.mowSchedule)
@@ -640,7 +716,11 @@ class MowerDevice extends ChangeNotifier {
           if (timeText.isNotEmpty) deviceTimeUtcSeconds = timeText;
         case MowerDp.language:
           language =
-              MowerDp.enumOf(MowerLanguage.values, (item) => item.code, value) ??
+              MowerDp.enumOf(
+                MowerLanguage.values,
+                (item) => item.code,
+                value,
+              ) ??
               language;
         default:
           break;
@@ -683,7 +763,9 @@ class MowerDevice extends ChangeNotifier {
     final identifier = MowerDp.identifiers[dp] ?? 'dp$dp';
     final suffix = action == null ? '' : '（$action）';
     state.logMowerInteraction('下发 → 割草机 DP$dp $identifier=$value$suffix');
-    _publish(state, <int, Object>{dp: value}, label: 'DP$dp $identifier=$value');
+    _publish(state, <int, Object>{
+      dp: value,
+    }, label: 'DP$dp $identifier=$value');
   }
 
   void _deliverRaw(
@@ -696,19 +778,15 @@ class MowerDevice extends ChangeNotifier {
     final identifier = MowerDp.identifiers[dp] ?? 'dp$dp';
     final suffix = action == null ? '' : '（$action）';
     state
-      ..logMowerInteraction(
-        '下发 → 割草机 DP$dp $identifier=${data.length}B$suffix',
-      )
+      ..logMowerInteraction('下发 → 割草机 DP$dp $identifier=${data.length}B$suffix')
       ..logMowerInteraction('　　raw hex: $hex')
       // 涂鸦 raw 型 DP 在设备侧就是这串 base64，联调时要拿它和平台日志对
       ..logMowerInteraction('　　base64: ${base64Encode(data)}');
     // App 侧交给 SDK 的是**十六进制串**，SDK 的 DevUtil.encodeRaw 自己转成 base64
     // （与花盆纪念日 154 等 raw 下发同一口径，见 TuyaRaw）。
-    _publish(
-      state,
-      <int, Object>{dp: TuyaRaw.hex(data)},
-      label: 'DP$dp $identifier=${data.length}B',
-    );
+    _publish(state, <int, Object>{
+      dp: TuyaRaw.hex(data),
+    }, label: 'DP$dp $identifier=${data.length}B');
   }
 
   /// 真机下发：排进队列按顺序发；失败就把界面画回设备快照并报给页面，成功就等回显。
@@ -722,15 +800,26 @@ class MowerDevice extends ChangeNotifier {
       state.logMowerInteraction('下发跳过 ⚠ 割草机 $label：还没绑定设备');
       return;
     }
+    final generation = _bindingGeneration;
     final seq = ++_sendSeq;
     for (final dp in dps.keys) {
       _awaitingEcho[dp] = seq;
     }
     _queue = _queue
         .then((_) async {
-          if (_deviceId != id) return;
+          if (!_isCurrent(id, generation)) return;
+          // 排队期间可能收到 DP113；SDK 的 Wi-Fi 缓存仍在线也不能继续下发。
+          if (state.isMowerShutdown(id)) {
+            for (final dp in dps.keys) {
+              if (_awaitingEcho[dp] == seq) _awaitingEcho.remove(dp);
+            }
+            state.logMowerInteraction('下发被拦 ✗ 割草机 $label：设备已关机');
+            _failures.add('割草机已关机，请开机后再操作');
+            await _revertToDevice(state, id, dps.keys, generation);
+            return;
+          }
           final result = await state.publishMowerDps(id, dps);
-          if (_deviceId != id) return;
+          if (!_isCurrent(id, generation)) return;
           if (!result.success) {
             for (final dp in dps.keys) {
               if (_awaitingEcho[dp] == seq) _awaitingEcho.remove(dp);
@@ -745,22 +834,35 @@ class MowerDevice extends ChangeNotifier {
                     : '指令没有发出去：${result.message}',
               );
             }
-            await _revertToDevice(state, id, dps.keys);
+            await _revertToDevice(state, id, dps.keys, generation);
             return;
           }
-          _armEchoCheck(state, id, dps.keys.toList(growable: false), seq);
+          _armEchoCheck(
+            state,
+            id,
+            dps.keys.toList(growable: false),
+            seq,
+            generation,
+          );
         })
         .catchError((Object error) {
+          if (!_isCurrent(id, generation)) return;
           state.logMowerInteraction('下发失败 ✗ 割草机 $label：$error');
         });
   }
 
   /// 下发成功后 [echoTimeout] 内这几条 DP 还没有上报，就按设备快照画回去（V2.2 §1 超时回弹）。
-  void _armEchoCheck(FlowerpotState state, String id, List<int> dps, int seq) {
+  void _armEchoCheck(
+    FlowerpotState state,
+    String id,
+    List<int> dps,
+    int seq,
+    int generation,
+  ) {
     late final Timer timer;
     timer = Timer(echoTimeout, () {
       _echoTimers.remove(timer);
-      if (_deviceId != id) return;
+      if (!_isCurrent(id, generation)) return;
       final missing = <int>[
         for (final dp in dps)
           if (_awaitingEcho[dp] == seq) dp,
@@ -773,7 +875,7 @@ class MowerDevice extends ChangeNotifier {
         '回弹 ⚠ 割草机 DP${missing.join('/')} 下发 ${echoTimeout.inSeconds} 秒没有上报，'
         '按设备当前值显示（设备可能拒绝了这条指令）',
       );
-      unawaited(_revertToDevice(state, id, missing));
+      unawaited(_revertToDevice(state, id, missing, generation));
     });
     _echoTimers.add(timer);
   }
@@ -783,10 +885,16 @@ class MowerDevice extends ChangeNotifier {
     FlowerpotState state,
     String id,
     Iterable<int> dps,
+    int generation,
   ) async {
-    final snapshot = await state.mowerDps(id);
-    if (snapshot == null || _deviceId != id) return;
-    _applyReported(snapshot, only: dps);
-    notifyListeners();
+    try {
+      final snapshot = await state.mowerDps(id);
+      if (snapshot == null || !_isCurrent(id, generation)) return;
+      _applyReported(snapshot, only: dps);
+      notifyListeners();
+    } catch (error) {
+      if (!_isCurrent(id, generation)) return;
+      state.logMowerInteraction('回弹读取失败 ✗ 割草机：$error');
+    }
   }
 }
