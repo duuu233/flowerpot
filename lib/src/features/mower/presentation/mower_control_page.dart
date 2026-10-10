@@ -7,6 +7,7 @@ import '../../../design_system/design_system.dart';
 import '../mower_ui.dart';
 import '../mower_device.dart';
 import '../mower_dp.dart';
+import '../mower_command_result.dart';
 import 'widgets/mower_card.dart';
 import 'widgets/mower_status_card.dart';
 import 'widgets/mower_start_dialog.dart';
@@ -76,10 +77,15 @@ class _MowerControlPageState extends State<MowerControlPage> {
   final Set<int> _faultShown = <int>{};
   bool _faultDialogOpen = false;
   bool _faultCheckScheduled = false;
+  StreamSubscription<({MowerCommandResult result, int generation})>?
+  _commandSub;
+  final List<({MowerCommandResult result, int generation})> _commandNotices =
+      [];
 
   @override
   void dispose() {
     _linkTimer?.cancel();
+    unawaited(_commandSub?.cancel());
     _device.removeListener(_scheduleFaultCheck);
     super.dispose();
   }
@@ -104,8 +110,21 @@ class _MowerControlPageState extends State<MowerControlPage> {
   }
 
   void _checkFault() {
-    if (!mounted || !widget.active || _faultDialogOpen) return;
+    if (!mounted ||
+        !widget.active ||
+        _faultDialogOpen ||
+        _operationInProgress) {
+      return;
+    }
     if (ModalRoute.of(context)?.isCurrent == false) return;
+    _commandNotices.removeWhere(
+      (event) => event.generation != _device.bindingGeneration,
+    );
+    if (_commandNotices.isNotEmpty) {
+      final event = _commandNotices.removeAt(0);
+      unawaited(_showCommandNotice(event.result));
+      return;
+    }
     // 已关机（DP113）：关机前留下的故障位不弹，开机后按新上报再判。
     if (_device.shutdown) return;
     final bitmap = _device.faultBitmap;
@@ -114,6 +133,24 @@ class _MowerControlPageState extends State<MowerControlPage> {
     _faultShown.retainAll(active);
     if (active.difference(_faultShown).isEmpty) return;
     unawaited(_showFaultDialog(bitmap, active));
+  }
+
+  Future<void> _showCommandNotice(MowerCommandResult result) async {
+    _faultDialogOpen = true;
+    try {
+      await showAppNoticeDialog(
+        context,
+        title: '设备异常',
+        message: result.rejectionMessage,
+        confirmLabel: '我已处理',
+        icon: Icons.warning_amber_rounded,
+        tone: AppDialogTone.danger,
+        barrierDismissible: false,
+      );
+    } finally {
+      _faultDialogOpen = false;
+      if (mounted) _scheduleFaultCheck();
+    }
   }
 
   Future<void> _showFaultDialog(int bitmap, Set<int> active) async {
@@ -144,6 +181,16 @@ class _MowerControlPageState extends State<MowerControlPage> {
   void initState() {
     super.initState();
     _device.addListener(_scheduleFaultCheck);
+    _commandSub = _device.commandResults.listen((event) {
+      if (!mounted ||
+          !widget.active ||
+          event.generation != _device.bindingGeneration ||
+          event.result.rejectionMessage == null) {
+        return;
+      }
+      _commandNotices.add(event);
+      _scheduleFaultCheck();
+    });
     _linkTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
       unawaited(
@@ -207,7 +254,10 @@ class _MowerControlPageState extends State<MowerControlPage> {
       );
     } finally {
       _operationInProgress = false;
-      if (mounted && _checking != null) setState(() => _checking = null);
+      if (mounted) {
+        if (_checking != null) setState(() => _checking = null);
+        _scheduleFaultCheck();
+      }
     }
   }
 
@@ -637,27 +687,31 @@ class _ActionPanel extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: <Widget>[
           for (final entry in _modeButtons)
-            _ActionButton(
-              buttonKey: Key('mower-action-${entry.$1.name}'),
-              icon: entry.$2,
-              label: entry.$3,
-              active: device.isCurrentMode(entry.$1),
-              busy: checking == entry.$1.name,
-              enabled: running && !device.isCurrentMode(entry.$1),
-              onTap: () => onMode(entry.$1),
+            Flexible(
+              child: _ActionButton(
+                buttonKey: Key('mower-action-${entry.$1.name}'),
+                icon: entry.$2,
+                label: entry.$3,
+                active: device.isCurrentMode(entry.$1),
+                busy: checking == entry.$1.name,
+                enabled: running && !device.isCurrentMode(entry.$1),
+                onTap: () => onMode(entry.$1),
+              ),
             ),
-          _ActionButton(
-            buttonKey: const Key('mower-action-switch'),
-            // DP2=true ⇒ 正在跑，按钮是「停止」；false ⇒ 已停，按钮是「继续」。
-            icon: device.switchGo
-                ? MowerAssets.actionStopIcon
-                : MowerAssets.actionResumeIcon,
-            label: device.switchGo ? '停止' : '继续',
-            active: false,
-            busy: checking == 'switch',
-            // 已关机（DP113）时发不出去，置灰。
-            enabled: !device.shutdown,
-            onTap: onToggleSwitch,
+          Flexible(
+            child: _ActionButton(
+              buttonKey: const Key('mower-action-switch'),
+              // DP2=true ⇒ 正在跑，按钮是「停止」；false ⇒ 已停，按钮是「继续」。
+              icon: device.switchGo
+                  ? MowerAssets.actionStopIcon
+                  : MowerAssets.actionResumeIcon,
+              label: device.switchGo ? '停止' : '继续',
+              active: false,
+              busy: checking == 'switch',
+              // 已关机（DP113）时发不出去，置灰。
+              enabled: !device.shutdown,
+              onTap: onToggleSwitch,
+            ),
           ),
         ],
       ),

@@ -7,7 +7,7 @@
 
 本文件是 `docs/` 的统一导航。根目录保留执行规则 `AGENTS.md`、当前 AI 快照 `AI_CONTEXT.md` 和现有的结构入口 `PROJECT_STRUCTURE.md`；其余知识、平台手册、UI 规范和历史记录统一从这里查找。
 
-本轮检查记录：[2026-10-10 割草机启动安全确认与整小时设置](history/2026-10/2026-10-10-mower-start-safety-duration.md)。此前记录：[设备同类提示一致性](history/2026-10/2026-10-10-device-feedback-consistency.md)。
+本轮检查记录：[2026-10-10 割草机 DP115 异常弹窗](history/2026-10/2026-10-10-mower-command-results.md)。此前记录：[2026-10-10 割草机启动安全确认与整小时设置](history/2026-10/2026-10-10-mower-start-safety-duration.md)。此前记录：[设备同类提示一致性](history/2026-10/2026-10-10-device-feedback-consistency.md)。
 
 ## 推荐阅读顺序
 
@@ -27,7 +27,8 @@
 | [`PRD_IMPLEMENTATION.md`](PRD_IMPLEMENTATION.md) | Tracking | PRD 功能落地和平台待联调项。 |
 | [`RELEASE_READINESS_REVIEW.md`](RELEASE_READINESS_REVIEW.md) | Tracking | 安全、健壮性、性能与 Android/iOS 发布评审；含源码依据、整改顺序和验证边界。 |
 | `DP_GAP_REPORT.html`（本地生成） | Tracking | 功能点实现对照及缺口清单；由 [`../tool/build_dp_gap_report.py`](../tool/build_dp_gap_report.py) 生成。当前工作树没有此 HTML，使用前生成并核对脚本中的表是否跟随最新 DP 导出；改状态请改脚本后重跑。 |
-| [`MOWER_DP_GAP_REPORT.md`](MOWER_DP_GAP_REPORT.md) | Tracking | 割草机功能点落地差距（与上一行花盆那份同一口径）：协议 V2.5 的 23 个 DP 逐条状态、没接的原因、P0/P1/P2 缺口、待产品 / 固件答复的问题、稿子与协议的空档，以及整体模块流程（入口动线、模块与 DP 分布、下发 / 上报链路）。改了割草机 DP 相关代码后回来改附录 A。 |
+| [`Grass_Master_Automower_Tuya_DP协议_V2.6.md`](Grass_Master_Automower_Tuya_DP协议_V2.6.md) | Reference Contract | 当前割草机协议，DP115回执与拒绝码定义见§4.5/8；旧协议保留参考。 |
+| [`MOWER_DP_GAP_REPORT.md`](MOWER_DP_GAP_REPORT.md) | Tracking | 割草机功能点落地差距（与上一行花盆那份同一口径）：协议 V2.6 的 24 个 DP 逐条状态、没接的原因、P0/P1/P2 缺口、待产品 / 固件答复的问题、稿子与协议的空档，以及整体模块流程（入口动线、模块与 DP 分布、下发 / 上报链路）。改了割草机 DP 相关代码后回来改附录 A。 |
 | [`TUYA_SDK_SETUP.md`](TUYA_SDK_SETUP.md) | Active Runbook | 涂鸦平台、Android/iOS SDK 和秘密管理要求。 |
 | [`BACKEND_TUYA_HOME_ID.md`](BACKEND_TUYA_HOME_ID.md) | Active | 涂鸦家庭 ID 的来源与归属、后端接口需求、双端家庭选择规则、花盆 / 割草机注册共用范围，以及设备丢失时排除家庭问题的证据边界。 |
 | [`FLUTTER_PROJECT_ARCHITECTURE.md`](FLUTTER_PROJECT_ARCHITECTURE.md) | Design Reference | 目标架构；与当前源码冲突时不作为实现事实。 |

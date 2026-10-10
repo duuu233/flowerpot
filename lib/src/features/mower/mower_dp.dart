@@ -51,6 +51,9 @@ abstract final class MowerDp {
   /// 首报 false。App 侧的「已关机」判定在 `FlowerpotState.isMowerShutdown`。
   static const int shutdownReport = 113;
 
+  /// string JSON ro：V2.6 命令结果，code/seq/dp/val。
+  static const int commandResults = 115;
+
   // ── 计划与区域 ──────────────────────────────────────────
   /// raw rw：割草计划，88 字节，见 [MowerScheduleCodec]。
   static const int mowSchedule = 101;
@@ -125,6 +128,7 @@ abstract final class MowerDp {
     chargingStatus: 'charging_status',
     coverStatus: 'cover_status',
     shutdownReport: 'shutdown_report',
+    commandResults: 'command_results',
     operatingTime: 'opearting_time',
   };
 

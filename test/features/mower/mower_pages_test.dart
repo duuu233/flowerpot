@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flowerpot/src/app/flowerpot_app.dart';
@@ -34,6 +35,165 @@ void main() {
   // ⚠️ MowerDevice 是单例：上一条用例改过的开关会漏到下一条，每条前后都要复位。
   setUp(MowerDevice.instance.resetForTest);
   tearDown(MowerDevice.instance.resetForTest);
+
+  for (final action in <String>[
+    'smart',
+    'spot',
+    'gotoCharge',
+    'start',
+    'pause',
+  ]) {
+    testWidgets('DP115 $action 被拒：安全与时间窗之后显示设备异常，关闭不重发', (tester) async {
+      final repository = _ResultMowerRepository();
+      await _pumpMowerHome(tester, <int, Object?>{
+        MowerDp.switchGo: action == 'pause',
+        MowerDp.mode: 'standby',
+        MowerDp.commandResults: '{"code":26,"seq":255,"dp":3,"val":1}',
+      }, repositoryOverride: repository);
+      expect(find.text('设备异常'), findsNothing, reason: '快照旧回执不弹');
+      final starts = action == 'smart' || action == 'spot' || action == 'start';
+      final key = action == 'start' || action == 'pause' ? 'switch' : action;
+      await tester.tap(find.byKey(Key('mower-action-$key')));
+      if (starts) {
+        await tester.pumpAndSettle();
+        expect(find.text('启动安全提醒'), findsOneWidget);
+        expect(find.text('设备异常'), findsNothing);
+        await tester.tap(find.text('我已确认，周围安全'));
+        await tester.pumpAndSettle();
+        expect(find.text('割草时间设置'), findsOneWidget);
+        expect(find.text('设备异常'), findsNothing);
+        await tester.tap(find.text('确认启动'));
+      }
+      await tester.pumpAndSettle();
+      expect(find.text('设备异常'), findsOneWidget);
+      expect(find.text('请先排除机器故障'), findsOneWidget);
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(find.text('我已处理'), findsOneWidget);
+      final count = repository.publishedDps.length;
+      await tester.tap(find.text('我已处理'));
+      await tester.pumpAndSettle();
+      expect(find.text('设备异常'), findsNothing);
+      expect(repository.publishedDps.length, count);
+      repository.pushResult(26, repository.resultDp!, repository.resultVal!);
+      await tester.pumpAndSettle();
+      expect(find.text('设备异常'), findsNothing, reason: '相同seq重复回读不弹');
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final code in <int>[0, 3, 15, 16, 31, 32, 255]) {
+    testWidgets('DP115 门槛 $code：小于16不弹，其余异常有提示', (tester) async {
+      final repository = _ResultMowerRepository()..code = code;
+      await _pumpMowerHome(tester, {}, repositoryOverride: repository);
+      await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
+      await tester.pumpAndSettle();
+      expect(find.text('设备异常'), code < 16 ? findsNothing : findsOneWidget);
+      if (code >= 16) {
+        expect(
+          find.text(code == 16 ? '机器已关机' : '操作未生效（码 $code）'),
+          findsOneWidget,
+        );
+        await tester.tap(find.text('我已处理'));
+        await tester.pumpAndSettle();
+      }
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('DP115迟到回执不盖住安全与时间窗，时间窗退出后再弹', (tester) async {
+    final repository = _ResultMowerRepository()..autoResult = false;
+    await _pumpMowerHome(tester, {}, repositoryOverride: repository);
+    await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    await tester.pumpAndSettle();
+    repository.pushResult(24, MowerDp.mode, 3);
+    await tester.pumpAndSettle();
+    expect(find.text('启动安全提醒'), findsOneWidget);
+    expect(find.text('设备异常'), findsNothing);
+    await tester.tap(find.text('我已确认，周围安全'));
+    await tester.pumpAndSettle();
+    expect(find.text('割草时间设置'), findsOneWidget);
+    expect(find.text('设备异常'), findsNothing);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(find.text('设备异常'), findsOneWidget);
+    expect(find.text('机器正在找线，请稍候或放回线内'), findsOneWidget);
+    expect(repository.publishedDps, hasLength(1));
+    await tester.tap(find.text('我已处理'));
+    await tester.pumpAndSettle();
+    MowerDevice.instance.resetForTest();
+  });
+
+  testWidgets('DP115无关DP、旧序号、错误val和畸形帧不误弹，本次匹配回执可弹', (tester) async {
+    final repository = _ResultMowerRepository()..autoResult = false;
+    await _pumpMowerHome(tester, {
+      MowerDp.commandResults: '{"code":26,"seq":9,"dp":3,"val":3}',
+    }, repositoryOverride: repository);
+    await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
+    await tester.pumpAndSettle();
+    repository.pushResult(26, MowerDp.mode, 3, seq: 9);
+    await tester.pumpAndSettle();
+    repository.pushResult(26, MowerDp.operatingTime, 5, seq: 10);
+    await tester.pumpAndSettle();
+    repository.pushResult(26, MowerDp.mode, 1, seq: 11);
+    await tester.pumpAndSettle();
+    repository.pushRaw('broken');
+    await tester.pumpAndSettle();
+    expect(find.text('设备异常'), findsNothing);
+    repository.pushResult(26, MowerDp.mode, 3, seq: 12);
+    await tester.pumpAndSettle();
+    expect(find.text('设备异常'), findsOneWidget);
+    await tester.tap(find.text('我已处理'));
+    await tester.pumpAndSettle();
+    MowerDevice.instance.resetForTest();
+  });
+
+  testWidgets('DP115回执晚于5秒回弹仍显示，收到前不会另报异常', (tester) async {
+    final repository = _ResultMowerRepository()..autoResult = false;
+    await _pumpMowerHome(tester, {}, repositoryOverride: repository);
+    await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 6));
+    expect(find.text('设备异常'), findsNothing);
+    repository.pushResult(26, MowerDp.mode, 3);
+    await tester.pumpAndSettle();
+    expect(find.text('设备异常'), findsOneWidget);
+    await tester.tap(find.text('我已处理'));
+    await tester.pumpAndSettle();
+    MowerDevice.instance.resetForTest();
+  });
+
+  testWidgets('DP115长建议在320×568小屏可读，单按钮可点击且不溢出', (tester) async {
+    final repository = _ResultMowerRepository()..code = 24;
+    await _pumpMowerHome(tester, {}, repositoryOverride: repository);
+    await tester.binding.setSurfaceSize(const Size(320, 568));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
+    await tester.pumpAndSettle();
+    expect(find.text('机器正在找线，请稍候或放回线内'), findsOneWidget);
+    expect(find.text('我已处理'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('我已处理'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
+    MowerDevice.instance.resetForTest();
+  });
+
+  testWidgets('DP115页面退出后到达：不弹、不访问已销毁页面', (tester) async {
+    final repository = _ResultMowerRepository()..autoResult = false;
+    await _pumpMowerHome(tester, {}, repositoryOverride: repository);
+    await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    repository.pushResult(26, MowerDp.mode, 3);
+    await tester.pumpAndSettle();
+    expect(find.text('设备异常'), findsNothing);
+    expect(tester.takeException(), isNull);
+    MowerDevice.instance.resetForTest();
+  });
 
   testWidgets('Wi-Fi 与蓝牙均不可达：与花盆一样显示离线 toast，连点只保留一条并自动消失', (tester) async {
     final repository = await _pumpMowerHome(
@@ -1139,5 +1299,34 @@ class _DelayedOperatingTimeRepository extends _MowerRepository {
   Future<void> publishDps(String deviceId, Map<int, Object> dps) async {
     if (dps.containsKey(MowerDp.operatingTime)) await delay.future;
     await super.publishDps(deviceId, dps);
+  }
+}
+
+class _ResultMowerRepository extends _MowerRepository {
+  int code = 26;
+  bool autoResult = true;
+  int? resultDp;
+  int? resultVal;
+
+  void pushRaw(Object raw) {
+    rawDpsByDevice[_mowerId]![MowerDp.commandResults] = raw;
+    pushDeviceUpdate(
+      DeviceUpdate.changed(_mower(), changedDps: {MowerDp.commandResults}),
+    );
+  }
+
+  void pushResult(int code, int dp, int val, {int seq = 0}) =>
+      pushRaw(jsonEncode({'code': code, 'seq': seq, 'dp': dp, 'val': val}));
+
+  @override
+  Future<void> publishDps(String deviceId, Map<int, Object> dps) async {
+    await super.publishDps(deviceId, dps);
+    final dp = dps.keys.single;
+    if (dp != MowerDp.switchGo && dp != MowerDp.mode) return;
+    resultDp = dp;
+    resultVal = dp == MowerDp.switchGo
+        ? (dps[dp] == true ? 1 : 0)
+        : MowerMode.values.firstWhere((mode) => mode.code == dps[dp]).value;
+    if (autoResult) pushResult(code, dp, resultVal!);
   }
 }

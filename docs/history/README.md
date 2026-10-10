@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-10/2026-10-10-mower-command-results.md`](2026-10/2026-10-10-mower-command-results.md)：V2.6 DP115四颗按钮拒绝回执与低优先级设备异常框，旧值/错配/重复隔离；关闭不重发。
+
 - [`2026-10/2026-10-10-device-feedback-consistency.md`](2026-10/2026-10-10-device-feedback-consistency.md)：核对花盆/割草机列表与公共 toast，统一完全离线提示，保留蓝牙入口例外；65 项回归通过，未真机。
 
 - [`2026-10/2026-10-10-mower-stability-plan-confirmation.md`](2026-10/2026-10-10-mower-stability-plan-confirmation.md)：长按删除确认复核、上报变化保护、首页操作异常与会话隔离、Android 下发实例回收；76 项回归通过，原生闪退根因待真机日志。

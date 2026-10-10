@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../../state.dart';
 import '../../tuya/tuya_raw.dart';
 import 'mower_dp.dart';
+import 'mower_command_result.dart';
 
 /// 割草机这一台设备的当前 DP 值 + 下发/上报的唯一入口。
 ///
@@ -16,6 +17,8 @@ import 'mower_dp.dart';
 /// V2.2 §1「设备校验不通过时不回显，App 控件约 3~5 秒后超时回弹」：下发后
 /// [echoTimeout] 内这条 DP 没有上报，就按设备快照里的值画回去（[_armEchoCheck]）。
 /// 下发失败（离线、SDK 报错）同样画回去，并经 [failures] 交给页面弹提示。
+/// V2.6 的 DP115 新回执通过 [commandResults] 通知控制页；仅关联本会话
+/// 实际发送的 DP2/DP3，设备 seq 独立于发送队列序号。
 ///
 /// ⚠️ 2026-09-23 开始联调，**静态演示模式整个删掉**（写死的割草机入口、稿子上的初值、
 /// 长按电量环的模拟上报、端上「默认计划」模板）。没绑设备时下发一律不发、只记一条日志。
@@ -153,6 +156,15 @@ class MowerDevice extends ChangeNotifier {
   /// 下发失败时给页面看的一句话（外壳 `MowerHomePage` 订阅并弹提示）。
   Stream<String> get failures => _failures.stream;
 
+  MowerCommandResult? _lastCommandResult;
+  final Map<int, _PendingMowerCommand> _pendingCommands = {};
+  final StreamController<({MowerCommandResult result, int generation})>
+  _commandResults = StreamController.broadcast();
+
+  /// 仅本会话实际下发的 DP2/3 的新回执；快照旧值和无关 DP 不通知页面。
+  Stream<({MowerCommandResult result, int generation})> get commandResults =>
+      _commandResults.stream;
+
   /// 进割草机页面时绑定：先摆一套「设备还没报」的中性初值，再从设备快照把已上报的 DP
   /// 全部解一遍，之后订阅这台设备的上报。
   Future<void> bind(
@@ -230,6 +242,8 @@ class MowerDevice extends ChangeNotifier {
     }
     _echoTimers.clear();
     _awaitingEcho.clear();
+    _pendingCommands.clear();
+    _lastCommandResult = null;
     _deviceId = null;
   }
 
@@ -627,6 +641,13 @@ class MowerDevice extends ChangeNotifier {
         state.logMowerInteraction('上报 ← 割草机 DP$dp $identifier=${dps[dp]}$note');
       }
     }
+    if (changed == null) {
+      _lastCommandResult = MowerCommandResult.parse(
+        dps[MowerDp.commandResults],
+      );
+    } else if (changed.contains(MowerDp.commandResults)) {
+      _acceptCommandResult(dps[MowerDp.commandResults], generation);
+    }
     // DP116 ota_status（协议 V2.3 §7.2，只上报）：设备拒绝 / 升级失败时说一句。
     // 只看实时上报（changed 里有它），刚进页面读快照时那条旧值不弹。
     if (changed != null && changed.contains(MowerDp.otaStatus)) {
@@ -649,6 +670,42 @@ class MowerDevice extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  void _acceptCommandResult(Object? raw, int generation) {
+    final result = MowerCommandResult.parse(raw);
+    if (result == null || result.seq == _lastCommandResult?.seq) return;
+    _lastCommandResult = result;
+    final pending = _pendingCommands[result.dp];
+    if (pending == null ||
+        result.seq == pending.previousSeq ||
+        (result.value != null && result.value != pending.value)) {
+      return;
+    }
+    _pendingCommands.remove(result.dp);
+    _commandResults.add((result: result, generation: generation));
+  }
+
+  /// 在真正发送前登记，兼容设备回执早于 SDK 完成回调。
+  _PendingMowerCommand? _watchCommand(Map<int, Object> dps) {
+    final dp = dps.keys.single;
+    if (dp != MowerDp.switchGo && dp != MowerDp.mode) return null;
+    final raw = dps[dp];
+    final value = dp == MowerDp.switchGo
+        ? (raw == true ? 1 : 0)
+        : MowerDp.enumOf(MowerMode.values, (item) => item.code, raw)?.value;
+    if (value == null) return null;
+    // 一次只跟踪最后实际发送的控制命令；回显超时不是结果帧截止时间。
+    _pendingCommands.clear();
+    final pending = _PendingMowerCommand(value, _lastCommandResult?.seq);
+    _pendingCommands[dp] = pending;
+    return pending;
+  }
+
+  void _forgetCommand(Map<int, Object> dps, _PendingMowerCommand? pending) {
+    if (pending == null) return;
+    final dp = dps.keys.single;
+    if (identical(_pendingCommands[dp], pending)) _pendingCommands.remove(dp);
   }
 
   /// 按设备快照里的原始值刷新字段。[only] 给了就只刷这几条。
@@ -814,6 +871,7 @@ class MowerDevice extends ChangeNotifier {
     for (final dp in dps.keys) {
       _awaitingEcho[dp] = seq;
     }
+    _PendingMowerCommand? command;
     final pending = _queue
         .then<bool>((_) async {
           if (!_isCurrent(id, generation)) return false;
@@ -827,9 +885,11 @@ class MowerDevice extends ChangeNotifier {
             await _revertToDevice(state, id, dps.keys, generation);
             return false;
           }
+          command = _watchCommand(dps);
           final result = await state.publishMowerDps(id, dps);
           if (!_isCurrent(id, generation)) return false;
           if (!result.success) {
+            _forgetCommand(dps, command);
             for (final dp in dps.keys) {
               if (_awaitingEcho[dp] == seq) _awaitingEcho.remove(dp);
             }
@@ -857,6 +917,7 @@ class MowerDevice extends ChangeNotifier {
         })
         .catchError((Object error) {
           if (!_isCurrent(id, generation)) return false;
+          _forgetCommand(dps, command);
           state.logMowerInteraction('下发失败 ✗ 割草机 $label：$error');
           if (!_failures.isClosed) _failures.add('设备操作失败，请稍后重试');
           return false;
@@ -911,4 +972,11 @@ class MowerDevice extends ChangeNotifier {
       state.logMowerInteraction('回弹读取失败 ✗ 割草机：$error');
     }
   }
+}
+
+class _PendingMowerCommand {
+  _PendingMowerCommand(this.value, this.previousSeq);
+
+  final int value;
+  final int? previousSeq;
 }
