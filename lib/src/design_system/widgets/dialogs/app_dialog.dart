@@ -54,6 +54,7 @@ Future<bool?> showAppDialog(
   String cancelLabel = '取消',
   TextAlign messageTextAlign = TextAlign.start,
   bool showCancel = true,
+  bool stackActions = false,
   bool barrierDismissible = true,
   Widget? content,
   Widget? footer,
@@ -80,6 +81,7 @@ Future<bool?> showAppDialog(
         cancelLabel: cancelLabel,
         messageTextAlign: messageTextAlign,
         showCancel: showCancel,
+        stackActions: stackActions,
         content: content,
         footer: footer,
         onCancel: close,
@@ -161,6 +163,7 @@ class AppDialog extends StatelessWidget {
     this.cancelLabel = '取消',
     this.messageTextAlign = TextAlign.start,
     this.showCancel = true,
+    this.stackActions = false,
     this.content,
     this.footer,
     this.onCancel,
@@ -176,6 +179,9 @@ class AppDialog extends StatelessWidget {
   final String cancelLabel;
   final TextAlign messageTextAlign;
   final bool showCancel;
+
+  /// 长确认文案时纵向排列两颗全宽按钮，保持文案完整。
+  final bool stackActions;
 
   /// Custom content under the explanation — an input field, a picker — laid
   /// out full width.
@@ -276,8 +282,23 @@ class AppDialog extends StatelessWidget {
             Padding(
               // Lines the buttons up with the text column rather than the
               // icon box.
-              padding: const EdgeInsets.only(left: 60),
-              child: showCancel
+              padding: EdgeInsets.only(left: stackActions ? 0 : 60),
+              child: showCancel && stackActions
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        confirmButton,
+                        const SizedBox(height: 12),
+                        AppDialogButton(
+                          key: cancelKey,
+                          label: cancelLabel,
+                          textColor: AppColors.textPrimary,
+                          background: AppColors.brandSurface,
+                          onTap: onCancel,
+                        ),
+                      ],
+                    )
+                  : showCancel
                   ? Row(
                       children: <Widget>[
                         Expanded(

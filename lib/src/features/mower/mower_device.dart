@@ -7,19 +7,6 @@ import '../../state.dart';
 import '../../tuya/tuya_raw.dart';
 import 'mower_dp.dart';
 
-/// 首页四颗控制按钮下发前的**蓝牙检查**总闸（连蓝牙 → 查信号，不满足不下发，见 `MowerControlPage._guarded`）。
-///
-/// **2026-09-23 产品：「这个逻辑暂时注释」**——默认关，代码保留；翻回 `true` 整套回来。
-/// 关着时按钮直接走原来的规则（盖子检查 → 下发）。图标按通道亮、在线走 Wi-Fi / 离线降级蓝牙、
-/// 进页面自动连蓝牙都不受它影响。
-///
-/// ⚠️ 不是 `const`：用例要能两头都验，改过必须在 `tearDown` 里 [reset]。
-abstract final class MowerBleGate {
-  static bool enabled = _enabledDefault;
-  static const bool _enabledDefault = false;
-  static void reset() => enabled = _enabledDefault;
-}
-
 /// 割草机这一台设备的当前 DP 值 + 下发/上报的唯一入口。
 ///
 /// ## 只接真机（2026-09-23 起）
@@ -44,12 +31,6 @@ class MowerDevice extends ChangeNotifier {
 
   /// 下发后等设备回显的时长（V2.2 §1：App 控件约 3~5 秒后超时回弹）。
   static const Duration echoTimeout = Duration(seconds: 5);
-
-  /// 控制前的蓝牙信号下限（dBm）。**弱于它就拦下、不下发**（2026-09-23 产品：「因安全要求必须在
-  /// 10 米内控制设备」；阈值先说 -50，同日改 -80，再改为 **-90**）。RSSI 越大越近：-85 放行，-95 拦下。
-  ///
-  /// 不管 Wi-Fi 连没连，控制前都要蓝牙连着、信号达标（同日产品确认）。
-  static const int minBleRssi = -90;
 
   /// 蓝牙掉了之后后台自动重连的最短间隔（不弹框；点按钮时的连接不受它限制）。
   static const Duration autoReconnectEvery = Duration(seconds: 30);
@@ -77,6 +58,9 @@ class MowerDevice extends ChangeNotifier {
   // ── 控制类 ──────────────────────────────────────────────
   /// DP2：true=运行中（按钮显示「停止」），false=已暂停（按钮显示「继续」）。
   late bool switchGo;
+
+  /// DP119：设备最后上报的工作时长（整数小时），未上报为 null。
+  int? operatingTimeHours;
 
   /// DP3：当前工作模式。
   late MowerMode mode;
@@ -159,6 +143,9 @@ class MowerDevice extends ChangeNotifier {
 
   /// 当前绑的设备 ID；null = 还没绑（页面还没进来或已经退出）。
   String? get deviceId => _deviceId;
+
+  /// 区分退出后重进同一设备的会话，防止旧弹窗启动新会话。
+  int get bindingGeneration => _bindingGeneration;
 
   /// 是不是绑着设备（下发走 SDK、上报来自设备）。
   bool get isLive => _deviceId != null;
@@ -261,6 +248,7 @@ class MowerDevice extends ChangeNotifier {
   /// - 盖子按合盖（没报就不拦启动，设备自己会拒）；
   /// - 时区按手机当前时区（DP107 没报时时间同步页的默认选中项）。
   void _loadLiveDefaults() {
+    operatingTimeHours = null;
     switchGo = false;
     mode = MowerMode.standby;
     lastCommandedMode = null;
@@ -433,6 +421,18 @@ class MowerDevice extends ChangeNotifier {
   bool isCurrentMode(MowerMode target) => mode == target;
 
   // ── 下发 ────────────────────────────────────────────────
+
+  /// 工作时长（DP119）：下发成功后才允许页面继续启动，不改变每次弹窗的默认值。
+  Future<bool> setOperatingTime(FlowerpotState state, int hours) {
+    if (hours < 1 || hours > 24) {
+      throw RangeError.range(hours, 1, 24, 'hours');
+    }
+    final identifier = MowerDp.identifiers[MowerDp.operatingTime];
+    state.logMowerInteraction('下发 → 割草机 DP119 $identifier=$hours（割草时长）');
+    return _publish(state, <int, Object>{
+      MowerDp.operatingTime: hours,
+    }, label: 'DP119 $identifier=$hours');
+  }
 
   /// 工作开关（DP2）。[on]=true 启动/继续，false 停止/暂停。
   void setSwitch(FlowerpotState state, {required bool on}) {
@@ -662,6 +662,15 @@ class MowerDevice extends ChangeNotifier {
       if (!dps.containsKey(dp)) continue;
       final value = dps[dp];
       switch (dp) {
+        case MowerDp.operatingTime:
+          if (value is num &&
+              (!value.isFinite || value != value.truncateToDouble())) {
+            break;
+          }
+          final hours = _asInt(value);
+          if (hours != null && hours >= 1 && hours <= 24) {
+            operatingTimeHours = hours;
+          }
         case MowerDp.switchGo:
           switchGo = _asBool(value) ?? switchGo;
         case MowerDp.mode:
@@ -790,7 +799,7 @@ class MowerDevice extends ChangeNotifier {
   }
 
   /// 真机下发：排进队列按顺序发；失败就把界面画回设备快照并报给页面，成功就等回显。
-  void _publish(
+  Future<bool> _publish(
     FlowerpotState state,
     Map<int, Object> dps, {
     required String label,
@@ -798,16 +807,16 @@ class MowerDevice extends ChangeNotifier {
     final id = _deviceId;
     if (id == null) {
       state.logMowerInteraction('下发跳过 ⚠ 割草机 $label：还没绑定设备');
-      return;
+      return Future<bool>.value(false);
     }
     final generation = _bindingGeneration;
     final seq = ++_sendSeq;
     for (final dp in dps.keys) {
       _awaitingEcho[dp] = seq;
     }
-    _queue = _queue
-        .then((_) async {
-          if (!_isCurrent(id, generation)) return;
+    final pending = _queue
+        .then<bool>((_) async {
+          if (!_isCurrent(id, generation)) return false;
           // 排队期间可能收到 DP113；SDK 的 Wi-Fi 缓存仍在线也不能继续下发。
           if (state.isMowerShutdown(id)) {
             for (final dp in dps.keys) {
@@ -816,10 +825,10 @@ class MowerDevice extends ChangeNotifier {
             state.logMowerInteraction('下发被拦 ✗ 割草机 $label：设备已关机');
             _failures.add('割草机已关机，请开机后再操作');
             await _revertToDevice(state, id, dps.keys, generation);
-            return;
+            return false;
           }
           final result = await state.publishMowerDps(id, dps);
-          if (!_isCurrent(id, generation)) return;
+          if (!_isCurrent(id, generation)) return false;
           if (!result.success) {
             for (final dp in dps.keys) {
               if (_awaitingEcho[dp] == seq) _awaitingEcho.remove(dp);
@@ -835,7 +844,7 @@ class MowerDevice extends ChangeNotifier {
               );
             }
             await _revertToDevice(state, id, dps.keys, generation);
-            return;
+            return false;
           }
           _armEchoCheck(
             state,
@@ -844,11 +853,16 @@ class MowerDevice extends ChangeNotifier {
             seq,
             generation,
           );
+          return true;
         })
         .catchError((Object error) {
-          if (!_isCurrent(id, generation)) return;
+          if (!_isCurrent(id, generation)) return false;
           state.logMowerInteraction('下发失败 ✗ 割草机 $label：$error');
+          if (!_failures.isClosed) _failures.add('设备操作失败，请稍后重试');
+          return false;
         });
+    _queue = pending.then<void>((_) {});
+    return pending;
   }
 
   /// 下发成功后 [echoTimeout] 内这几条 DP 还没有上报，就按设备快照画回去（V2.2 §1 超时回弹）。

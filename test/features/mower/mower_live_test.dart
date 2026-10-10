@@ -48,6 +48,7 @@ void main() {
       MowerDp.dstEnable: true,
       MowerDp.deviceTime: '1790000000',
       MowerDp.language: 'german',
+      MowerDp.operatingTime: 18,
     };
     final state = await _state(repository);
     final device = MowerDevice.instance;
@@ -77,7 +78,37 @@ void main() {
     expect(device.dstEnable, isTrue);
     expect(device.deviceTimeUtcSeconds, '1790000000');
     expect(device.language, MowerLanguage.german);
+    expect(device.operatingTimeHours, 18);
     device.resetForTest();
+  });
+
+  testWidgets('DP119未上报不编值，范围校验不下发，整数小时成功并读取回报', (tester) async {
+    final repository = _MowerRepository()
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{};
+    final state = await _state(repository);
+    final device = MowerDevice.instance;
+    await device.bind(state, owner: _owner, deviceId: _mowerId);
+    expect(device.operatingTimeHours, isNull);
+    expect(() => device.setOperatingTime(state, 0), throwsRangeError);
+    expect(() => device.setOperatingTime(state, 25), throwsRangeError);
+    expect(repository.publishedDps, isEmpty);
+    bool? success;
+    device.setOperatingTime(state, 3).then((value) => success = value);
+    await tester.pump();
+    await tester.pump();
+    expect(success, isTrue);
+    expect(repository.publishedDps.single.$2, <int, Object>{
+      MowerDp.operatingTime: 3,
+    });
+    repository.rawDpsByDevice[_mowerId]![MowerDp.operatingTime] = 3;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.operatingTime}),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(device.operatingTimeHours, 3);
+    device.resetForTest();
+    expect(device.operatingTimeHours, isNull);
   });
 
   testWidgets('真机没报过计划时是空周，不再画稿子上的演示色块', (tester) async {

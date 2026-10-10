@@ -19,3 +19,8 @@
 - 相框 BLE、投屏、图库和 OTA 等产品专属模块不迁移。
 
 REST 服务接入时通过 `--dart-define=API_BASE_URL=https://...` 提供服务源站（不含 `/swagger-ui.html#/`），由 `FlowerpotApp` 创建 `HttpAppBackendRepository`。当前未配置时会回落到 `ApiConfig` 中的临时 HTTP 地址；显式传 `API_BASE_URL=none` 才使用 `DisabledAppBackendRepository`。仅注入 Mock 涂鸦仓库不会禁用 REST，测试还应显式注入禁用型或 Fake 后端。业务页面只通过 `FlowerpotState` 使用这些能力。明文回落、令牌存储、写请求重试及会话隔离的待整改项见 [`RELEASE_READINESS_REVIEW.md`](RELEASE_READINESS_REVIEW.md)。
+
+
+## 启动确认弹窗
+
+割草机安全提醒与时间设置复用 `showAppDialog`。长确认文案通过可选 `stackActions` 纵向显示全宽按钮；其余调用默认保持原有横排。时长选择限定当日18点前可用整小时，不缓存用户确认。

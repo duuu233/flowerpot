@@ -9,6 +9,7 @@ import '../mower_device.dart';
 import '../mower_dp.dart';
 import 'widgets/mower_card.dart';
 import 'widgets/mower_status_card.dart';
+import 'widgets/mower_start_dialog.dart';
 
 /// 割草机首页（`docs/UI/v2/割草机/割草机-控制.png` 及其三张状态图）。
 ///
@@ -22,6 +23,7 @@ import 'widgets/mower_status_card.dart';
 /// | 今日计划 | DP101 mow_schedule 解析出来的今天那一组（**不存数据库**） |
 /// | 停止 / 继续 | DP2 switch_go |
 /// | 自动 / 定点 / 回归 | DP3 mode = smart / spot / goto_charge |
+/// | 启动前割草时间 | DP119 opearting_time（整数小时） |
 ///
 /// ## 四颗按钮的规矩（2026-09-18 用户口径，逐条）
 ///
@@ -45,7 +47,13 @@ import 'widgets/mower_status_card.dart';
 /// - 只在用户看着这一页时弹：外壳是 IndexedStack，切到「计划 / 设置」这一页还活着（[active] 为 false），
 ///   上面压着二级页时也不弹；回到这一页后按当前故障补弹。
 class MowerControlPage extends StatefulWidget {
-  const MowerControlPage({super.key, this.active = true});
+  const MowerControlPage({
+    super.key,
+    this.active = true,
+    this.now = DateTime.now,
+  });
+
+  final DateTime Function() now;
 
   /// 这一栏此刻是不是用户正看着的那一栏（外壳切走了页面还活着）。
   final bool active;
@@ -60,9 +68,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
   /// 每 3 秒按涂鸦的分通道状态刷新两个图标；蓝牙掉了顺带后台重连（节流见 MowerDevice）。
   Timer? _linkTimer;
 
-  /// 控制前检查正在跑的那颗按钮（`MowerMode.name` 或 `switch`）；null = 没在检查。
-  /// 这颗按钮画成转圈（2026-09-23 产品：「连接蓝牙的 loading 做到按钮那个位置，把按钮替换为转圈」），
-  /// 检查期间再点任何一颗都不理（连蓝牙最长 15 秒）。
+  /// 设置割草时间期间，被点击的按钮显示公共居中 loading。
   String? _checking;
   bool _operationInProgress = false;
 
@@ -181,73 +187,13 @@ class _MowerControlPageState extends State<MowerControlPage> {
     return MowerPowerState.idle;
   }
 
-  /// 四颗按钮（自动 / 定点 / 回归 / 停止·继续）下发前的蓝牙检查（2026-09-23 产品）：
-  ///
-  /// 1. 蓝牙没连 → 先连；连不上 → 「无法连接设备蓝牙，请检查设备或靠近设备10米内」，不下发；
-  /// 2. 连着 → 读信号，弱于 [MowerDevice.minBleRssi]（-90 dBm）或读不到 →
-  ///    「因安全要求必须在10米内控制设备」，不下发；
-  /// 3. 都过了返回 null，否则返回要弹的那句话（弹框放在按钮恢复原样之后，见 [_guarded]）。
-  /// 每一步都记进联调日志。
-  Future<({String message, IconData icon})?> _bleProblem() async {
-    const cannotConnect = (
-      message: '无法连接设备蓝牙，请检查设备或靠近设备10米内',
-      icon: Icons.bluetooth_disabled_rounded,
-    );
-    final state = FlowerpotScope.of(context);
-    final id = _device.deviceId;
-    if (id == null) return cannotConnect;
-    final link = await state.deviceLinkState(id);
-    if (!mounted) return null;
-    if (link['ble'] != true) {
-      state.logMowerInteraction('控制前检查 ⚠ 蓝牙未连接，先连接');
-      final connected = await state.connectDeviceBle(id);
-      if (!mounted) return null;
-      unawaited(_device.refreshLink(state));
-      if (connected['connected'] != true) {
-        state.logMowerInteraction('控制前检查 ✗ 蓝牙连不上，指令不下发');
-        return cannotConnect;
-      }
-    }
-    final signal = await state.readDeviceBleRssi(id);
-    if (!mounted) return null;
-    final rawRssi = signal['rssi'];
-    final rssi = rawRssi is num && rawRssi.isFinite ? rawRssi.toInt() : null;
-    if (signal['ok'] != true || rssi == null || rssi < MowerDevice.minBleRssi) {
-      state.logMowerInteraction(
-        '控制前检查 ✗ 蓝牙信号 ${rssi == null ? '读不到' : '$rssi dBm'}'
-        '（要求不弱于 ${MowerDevice.minBleRssi} dBm），指令不下发',
-      );
-      return (message: '因安全要求必须在10米内控制设备', icon: Icons.social_distance_rounded);
-    }
-    state.logMowerInteraction('控制前检查 ✓ 蓝牙已连接，信号 $rssi dBm');
-    return null;
-  }
-
-  /// 按钮点击统一入口：检查中不重入；检查期间被点的那颗画成转圈；检查不过先把按钮恢复、
-  /// 再弹提示，不下发。[button] 是被点的那颗。
+  /// 按钮点击统一入口：操作期间不重入，异常时恢复按钮并提示。
+  /// [button] 是被点的那颗。
   Future<void> _guarded(String button, Future<void> Function() action) async {
     if (_operationInProgress) return;
     _operationInProgress = true;
     final state = FlowerpotScope.of(context);
     try {
-      // 蓝牙检查总闸关闭时保持原来的控制规则。
-      if (!MowerBleGate.enabled) {
-        await action();
-        return;
-      }
-      setState(() => _checking = button);
-      final problem = await _bleProblem();
-      if (!mounted) return;
-      setState(() => _checking = null);
-      if (problem != null) {
-        await showAppNoticeDialog(
-          context,
-          title: '提示',
-          message: problem.message,
-          icon: problem.icon,
-        );
-        return;
-      }
       await action();
     } catch (error) {
       if (!mounted) return;
@@ -267,12 +213,95 @@ class _MowerControlPageState extends State<MowerControlPage> {
 
   Future<void> _toggleSwitch() => _guarded('switch', () async {
     final state = FlowerpotScope.of(context);
-    _device.setSwitch(state, on: !_device.switchGo);
+    if (_device.switchGo) {
+      _device.setSwitch(state, on: false);
+    } else {
+      await _startWithTime('switch', () => _device.setSwitch(state, on: true));
+    }
   });
 
-  /// 左边三颗。先过蓝牙检查（[_bleReady]），再看 DP118 盖子。
-  Future<void> _sendMode(MowerMode target) =>
-      _guarded(target.name, () => _sendModeChecked(target));
+  Future<void> _sendMode(MowerMode target) => _guarded(target.name, () async {
+    if (target == MowerMode.gotoCharge) {
+      await _sendModeChecked(target);
+    } else {
+      await _startWithTime(
+        target.name,
+        () => _device.setMode(FlowerpotScope.of(context), target),
+        checkCover: true,
+      );
+    }
+  });
+
+  Future<void> _startWithTime(
+    String button,
+    VoidCallback start, {
+    bool checkCover = false,
+  }) async {
+    final state = FlowerpotScope.of(context);
+    final id = _device.deviceId;
+    final generation = _device.bindingGeneration;
+    bool current() =>
+        mounted &&
+        widget.active &&
+        _device.deviceId == id &&
+        _device.bindingGeneration == generation &&
+        ModalRoute.of(context)?.isCurrent != false;
+    if (id == null) return;
+    final confirmed = await showMowerSafetyDialog(context);
+    if (!mounted || !confirmed || !current()) return;
+    final maxHours = mowerStartMaxHours(widget.now());
+    if (maxHours == 0) {
+      await _showTimeUnavailable();
+      return;
+    }
+    final hours = await showMowerDurationDialog(context, maxHours);
+    if (!mounted || hours == null || !current()) return;
+    if (!await _validStartHours(hours) || !mounted || !current()) return;
+    if (checkCover && !_device.coverClosed) {
+      await _showCoverNotice();
+      return;
+    }
+    if ((checkCover && !_device.commandsEnabled) || _device.shutdown) return;
+    setState(() => _checking = button);
+    final sent = await _device.setOperatingTime(state, hours);
+    if (!sent || !current() || _device.shutdown) return;
+    if (!await _validStartHours(hours) || !mounted || !current()) return;
+    if (checkCover && (!_device.coverClosed || !_device.commandsEnabled)) {
+      if (!_device.coverClosed) await _showCoverNotice();
+      return;
+    }
+    start();
+  }
+
+  Future<void> _showTimeUnavailable() => showAppNoticeDialog(
+    context,
+    title: '暂时无法启动',
+    message: mowerStartUnavailableMessage(widget.now()),
+    icon: Icons.schedule_rounded,
+  );
+
+  Future<bool> _validStartHours(int hours) async {
+    final maxHours = mowerStartMaxHours(widget.now());
+    if (maxHours >= hours) return true;
+    if (maxHours == 0) {
+      await _showTimeUnavailable();
+    } else {
+      await showAppNoticeDialog(
+        context,
+        title: '请重新设置割草时间',
+        message: '当前距离今天18:00最多可割草 $maxHours 小时，请重新选择时长。',
+        icon: Icons.schedule_rounded,
+      );
+    }
+    return false;
+  }
+
+  Future<void> _showCoverNotice() => showAppNoticeDialog(
+    context,
+    title: '盖子未合上',
+    message: '请先合上盖子再启动割草机。\n（DP${MowerDp.coverStatus} cover_status = false）',
+    icon: Icons.info_outline_rounded,
+  );
 
   Future<void> _sendModeChecked(MowerMode target) async {
     final state = FlowerpotScope.of(context);
@@ -281,13 +310,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
         '下发被拦 ✗ 割草机 DP${MowerDp.mode}=${target.code}：'
         'DP${MowerDp.coverStatus} cover_status=false（盖子未合）',
       );
-      await showAppNoticeDialog(
-        context,
-        title: '盖子未合上',
-        message:
-            '请先合上盖子再启动割草机。\n（DP${MowerDp.coverStatus} cover_status = false）',
-        icon: Icons.info_outline_rounded,
-      );
+      await _showCoverNotice();
       return;
     }
     _device.setMode(state, target);

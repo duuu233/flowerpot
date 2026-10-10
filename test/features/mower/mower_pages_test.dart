@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flowerpot/src/app/flowerpot_app.dart';
@@ -14,6 +15,7 @@ import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_raw.dart';
+import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -36,14 +38,14 @@ void main() {
   testWidgets('Wi-Fi 与蓝牙均不可达：与花盆一样显示离线 toast，连点只保留一条并自动消失', (tester) async {
     final repository = await _pumpMowerHome(
       tester,
-      <int, Object?>{MowerDp.switchGo: false},
+      <int, Object?>{MowerDp.switchGo: false, MowerDp.mode: 'standby'},
       setup: (repository) {
         repository.wifiLinked = false;
         repository.bleLinked = false;
         repository.bleConnectSucceeds = false;
       },
     );
-    await tester.tap(find.text('继续'));
+    await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('设备已离线'), findsOneWidget);
@@ -51,7 +53,7 @@ void main() {
     expect(find.byType(SnackBar), findsNothing);
     expect(repository.publishedDps, isEmpty);
 
-    await tester.tap(find.text('继续'));
+    await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('设备已离线'), findsOneWidget);
@@ -70,27 +72,6 @@ void main() {
     expect(find.textContaining('静态演示数据'), findsNothing);
     expect(tester.takeException(), isNull);
   });
-
-  for (final button in <String>['自动', '定点', '回归', '继续']) {
-    testWidgets('首页$button读取蓝牙异常：恢复按钮并提示，不闪退或下发', (tester) async {
-      MowerBleGate.enabled = true;
-      addTearDown(MowerBleGate.reset);
-      final repository = _FailingMowerRepository();
-      await _pumpMowerHome(tester, <int, Object?>{
-        MowerDp.switchGo: false,
-        MowerDp.coverStatus: true,
-      }, repositoryOverride: repository);
-      await tester.tap(find.text(button));
-      await tester.pumpAndSettle();
-      expect(find.text('设备操作失败，请稍后重试'), findsOneWidget);
-      expect(repository.publishedDps, isEmpty);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-      await tester.tap(find.byKey(const Key('app-dialog-confirm')));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-      MowerDevice.instance.resetForTest();
-    });
-  }
 
   testWidgets('割草机首页：标题是设备名，电量来自 DP13', (tester) async {
     await _pumpMowerHome(tester, <int, Object?>{MowerDp.battery: 78});
@@ -124,71 +105,200 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('蓝牙检查关着（默认）：蓝牙连不上也照常下发，不弹提示', (tester) async {
-    final repository = await _pumpMowerHome(
-      tester,
-      <int, Object?>{MowerDp.switchGo: true, MowerDp.mode: 'standby'},
-      setup: (repository) => repository
-        ..bleLinked = false
-        ..bleConnectSucceeds = false,
-    );
-
-    await tester.tap(find.byKey(const Key('mower-action-smart')));
-    await tester.pump();
-
-    expect(find.text('无法连接设备蓝牙，请检查设备或靠近设备10米内'), findsNothing);
-    expect(_sentDps(repository), <int>[MowerDp.mode]);
-    MowerDevice.instance.resetForTest();
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('蓝牙没连、进来自动连也连不上：图标灭；点按钮再连不上就弹提示、不下发', (tester) async {
-    // 蓝牙检查默认关着（MowerBleGate，2026-09-23），这两条专门验它，自己打开。
-    MowerBleGate.enabled = true;
-    addTearDown(MowerBleGate.reset);
-    final repository = await _pumpMowerHome(
-      tester,
-      <int, Object?>{MowerDp.switchGo: true, MowerDp.mode: 'standby'},
-      setup: (repository) => repository
-        ..bleLinked = false
-        ..bleConnectSucceeds = false,
-    );
-    expect(find.byKey(const Key('mower-link-ble-off')), findsOneWidget);
-    expect(repository.bleConnectCalls, 1, reason: '进页面后台自动连了一次');
-
-    await tester.tap(find.byKey(const Key('mower-action-smart')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('无法连接设备蓝牙，请检查设备或靠近设备10米内'), findsOneWidget);
-    expect(repository.bleConnectCalls, 2, reason: '点按钮时再连一次');
-    expect(_sentDps(repository), isEmpty);
-    MowerDevice.instance.resetForTest();
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('蓝牙信号弱于 -90：提示必须在 10 米内、不下发；-85 就放行', (tester) async {
-    // 蓝牙检查默认关着（MowerBleGate，2026-09-23），这两条专门验它，自己打开。
-    MowerBleGate.enabled = true;
-    addTearDown(MowerBleGate.reset);
-    final repository = await _pumpMowerHome(
-      tester,
-      <int, Object?>{MowerDp.switchGo: true, MowerDp.mode: 'standby'},
-      setup: (repository) => repository.bleRssi = -95,
-    );
-
-    await tester.tap(find.byKey(const Key('mower-action-switch')));
-    await tester.pumpAndSettle();
-    expect(find.text('因安全要求必须在10米内控制设备'), findsOneWidget);
-    expect(_sentDps(repository), isEmpty);
-    await tester.tap(find.text('我知道了'));
-    await tester.pumpAndSettle();
-
-    repository.bleRssi = -85;
+  testWidgets('回归和暂停直接下发，不弹安全或时间窗，也不读取蓝牙信号', (tester) async {
+    final repository = _FailingMowerRepository();
+    await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.switchGo: true,
+      MowerDp.mode: 'standby',
+      MowerDp.coverStatus: true,
+    }, repositoryOverride: repository);
     await tester.tap(find.byKey(const Key('mower-action-switch')));
     await tester.pump();
-    expect(_sentDps(repository), <int>[MowerDp.switchGo]);
-    MowerDevice.instance.resetForTest();
+    expect(repository.publishedDps.last.$2, <int, Object>{
+      MowerDp.switchGo: false,
+    });
+    await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
+    await tester.pump();
+    expect(repository.publishedDps.last.$2, <int, Object>{
+      MowerDp.mode: 'goto_charge',
+    });
+    expect(repository.rssiReads, 0);
+    expect(find.byType(Dialog), findsNothing);
     expect(tester.takeException(), isNull);
+    MowerDevice.instance.resetForTest();
+  });
+
+  for (final action in <String>['smart', 'spot', 'switch']) {
+    testWidgets('$action 每次安全确认后选整小时，DP119先成功再启动', (tester) async {
+      final repository = _FailingMowerRepository();
+      await _pumpMowerHome(tester, <int, Object?>{
+        MowerDp.switchGo: false,
+        MowerDp.mode: 'standby',
+        MowerDp.coverStatus: true,
+      }, repositoryOverride: repository);
+      await tester.tap(find.byKey(Key('mower-action-$action')));
+      await tester.pumpAndSettle();
+      expect(find.text('启动安全提醒'), findsOneWidget);
+      expect(repository.publishedDps, isEmpty);
+      await tester.tap(find.text('我已确认，周围安全'));
+      await tester.pumpAndSettle();
+      expect(find.text('割草时间设置'), findsOneWidget);
+      expect(find.text('5 小时'), findsOneWidget);
+      expect(repository.publishedDps, isEmpty);
+      await tester.tap(find.byKey(const Key('mower-start-hours')));
+      await tester.pumpAndSettle();
+      expect(find.text('6 小时'), findsNothing);
+      await tester.tap(find.text('2 小时').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('确认启动'));
+      await tester.pumpAndSettle();
+      expect(
+        repository.publishedDps.map((entry) => entry.$2).toList(),
+        <Map<int, Object>>[
+          <int, Object>{MowerDp.operatingTime: 2},
+          action == 'switch'
+              ? <int, Object>{MowerDp.switchGo: true}
+              : <int, Object>{MowerDp.mode: action},
+        ],
+      );
+      expect(repository.rssiReads, 0);
+      expect(tester.takeException(), isNull);
+      MowerDevice.instance.resetForTest();
+    });
+
+    testWidgets('$action 任一弹窗取消都不下发，再点仍需安全确认', (tester) async {
+      final repository = await _pumpMowerHome(tester, <int, Object?>{
+        MowerDp.switchGo: false,
+        MowerDp.mode: 'standby',
+      });
+      for (final timeDialog in <bool>[false, true]) {
+        await tester.tap(find.byKey(Key('mower-action-$action')));
+        await tester.pumpAndSettle();
+        expect(find.text('启动安全提醒'), findsOneWidget);
+        if (timeDialog) {
+          await tester.tap(find.text('我已确认，周围安全'));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.text('取消'));
+        await tester.pumpAndSettle();
+        expect(repository.publishedDps, isEmpty);
+      }
+      await tester.tap(find.byKey(Key('mower-action-$action')));
+      await tester.pumpAndSettle();
+      expect(find.text('启动安全提醒'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(repository.publishedDps, isEmpty);
+      MowerDevice.instance.resetForTest();
+    });
+  }
+
+  for (final hour in <int>[17, 18, 22]) {
+    testWidgets('$hour:30 剩余不足整小时或已过18点不启动，给出友好提示', (tester) async {
+      final repository = await _pumpMowerHome(
+        tester,
+        <int, Object?>{},
+        now: () => DateTime(2026, 10, 10, hour, 30),
+      );
+      await tester.tap(find.text('继续'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('我已确认，周围安全'));
+      await tester.pumpAndSettle();
+      expect(find.text('暂时无法启动'), findsOneWidget);
+      expect(find.text('割草时间设置'), findsNothing);
+      expect(repository.publishedDps, isEmpty);
+      expect(tester.takeException(), isNull);
+      MowerDevice.instance.resetForTest();
+    });
+  }
+
+  testWidgets('时间弹窗跨过18点：确认后不设置时间或启动', (tester) async {
+    var now = DateTime(2026, 10, 10, 16, 30);
+    final repository = await _pumpMowerHome(
+      tester,
+      <int, Object?>{},
+      now: () => now,
+    );
+    await tester.tap(find.text('继续'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我已确认，周围安全'));
+    await tester.pumpAndSettle();
+    now = DateTime(2026, 10, 10, 18);
+    await tester.tap(find.text('确认启动'));
+    await tester.pumpAndSettle();
+    expect(find.text('暂时无法启动'), findsOneWidget);
+    expect(repository.publishedDps, isEmpty);
+    MowerDevice.instance.resetForTest();
+  });
+
+  testWidgets('每次默认时长重新计算，不缓存安全确认或上次选择', (tester) async {
+    var now = DateTime(2026, 10, 10, 12, 30);
+    await _pumpMowerHome(tester, <int, Object?>{}, now: () => now);
+    for (final hours in <int>[5, 4]) {
+      await tester.tap(find.text('继续'));
+      await tester.pumpAndSettle();
+      expect(find.text('启动安全提醒'), findsOneWidget);
+      await tester.tap(find.text('我已确认，周围安全'));
+      await tester.pumpAndSettle();
+      expect(find.text('$hours 小时'), findsOneWidget);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      now = DateTime(2026, 10, 10, 13, 30);
+    }
+    MowerDevice.instance.resetForTest();
+  });
+
+  testWidgets('DP119等待期间不启动，连点不重复下发；旧会话完成不启动重绑设备', (tester) async {
+    final repository = _DelayedOperatingTimeRepository();
+    await _pumpMowerHome(
+      tester,
+      <int, Object?>{},
+      repositoryOverride: repository,
+    );
+    await tester.tap(find.text('继续'));
+    await _confirmStart(tester);
+    expect(repository.publishedDps, isEmpty);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    await tester.tap(find.byKey(const Key('mower-action-switch')));
+    await tester.pump();
+    expect(find.text('启动安全提醒'), findsNothing);
+    final state = FlowerpotScope.of(tester.element(find.byType(MowerHomePage)));
+    await MowerDevice.instance.bind(state, owner: Object(), deviceId: _mowerId);
+    repository.delay.complete();
+    await tester.pumpAndSettle();
+    expect(_sentDps(repository), <int>[MowerDp.operatingTime]);
+    expect(MowerDevice.instance.switchGo, isFalse);
+    expect(tester.takeException(), isNull);
+    MowerDevice.instance.resetForTest();
+  });
+
+  testWidgets('安全弹窗期间同设备重绑，确认也不继续时间设置或启动', (tester) async {
+    final repository = await _pumpMowerHome(tester, <int, Object?>{});
+    await tester.tap(find.text('继续'));
+    await tester.pumpAndSettle();
+    final state = FlowerpotScope.of(tester.element(find.byType(MowerHomePage)));
+    await MowerDevice.instance.bind(state, owner: Object(), deviceId: _mowerId);
+    await tester.tap(find.text('我已确认，周围安全'));
+    await tester.pumpAndSettle();
+    expect(find.text('割草时间设置'), findsNothing);
+    expect(repository.publishedDps, isEmpty);
+    MowerDevice.instance.resetForTest();
+  });
+
+  testWidgets('DP119下发失败：不继续发启动DP', (tester) async {
+    final repository = await _pumpMowerHome(
+      tester,
+      <int, Object?>{},
+      setup: (repo) {
+        repo.publishError = const TuyaException('reject', '设置失败');
+      },
+    );
+    await tester.tap(find.text('继续'));
+    await _confirmStart(tester);
+    expect(_sentDps(repository), <int>[MowerDp.operatingTime]);
+    expect(find.text('指令没有发出去：设置失败'), findsOneWidget);
+    expect(MowerDevice.instance.switchGo, isFalse);
+    MowerDevice.instance.resetForTest();
   });
 
   testWidgets('DP18 按协议 V2.3 位图：0 = 正常黄条隐藏，1 = 第 0 位左轮异常', (tester) async {
@@ -549,9 +659,9 @@ void main() {
 
     expect(find.text('继续'), findsOneWidget);
     await tester.tap(find.byKey(const Key('mower-action-smart')));
-    await tester.pump();
+    await _confirmStart(tester);
 
-    expect(_sentDps(repository), <int>[MowerDp.mode]);
+    expect(_sentDps(repository), <int>[MowerDp.operatingTime, MowerDp.mode]);
     expect(repository.publishedDps.last.$2[MowerDp.mode], 'smart');
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
@@ -569,8 +679,11 @@ void main() {
     expect(_sentDps(repository), isEmpty, reason: '暂停中左三不下发');
 
     await tester.tap(find.byKey(const Key('mower-action-switch')));
-    await tester.pump();
-    expect(_sentDps(repository), <int>[MowerDp.switchGo]);
+    await _confirmStart(tester);
+    expect(_sentDps(repository), <int>[
+      MowerDp.operatingTime,
+      MowerDp.switchGo,
+    ]);
 
     // 设备收下「继续」，回到割草中
     repository.rawDpsByDevice[_mowerId]!
@@ -586,8 +699,13 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('mower-action-spot')));
-    await tester.pump();
-    expect(_sentDps(repository), <int>[MowerDp.switchGo, MowerDp.mode]);
+    await _confirmStart(tester);
+    expect(_sentDps(repository), <int>[
+      MowerDp.operatingTime,
+      MowerDp.switchGo,
+      MowerDp.operatingTime,
+      MowerDp.mode,
+    ]);
     expect(repository.publishedDps.last.$2[MowerDp.mode], 'spot');
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
@@ -599,7 +717,7 @@ void main() {
       MowerDp.mode: 'standby',
     });
     await tester.tap(find.byKey(const Key('mower-action-smart')));
-    await tester.pump();
+    await _confirmStart(tester);
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await tester.pump();
 
@@ -620,7 +738,7 @@ void main() {
     });
 
     await tester.tap(find.byKey(const Key('mower-action-smart')));
-    await tester.pumpAndSettle();
+    await _confirmStart(tester);
 
     expect(find.text('盖子未合上'), findsOneWidget);
     expect(_sentDps(repository), isNot(contains(MowerDp.mode)));
@@ -936,6 +1054,7 @@ Future<MockTuyaRepository> _pumpMowerHome(
   Map<int, Object?> snapshot, {
   void Function(MockTuyaRepository repository)? setup,
   MockTuyaRepository? repositoryOverride,
+  DateTime Function()? now,
 }) async {
   // 发送队列必须在 testWidgets 的假时钟区域内创建，setUp 的外层 Future 不会被 pump 推进。
   MowerDevice.instance.resetForTest();
@@ -956,7 +1075,10 @@ Future<MockTuyaRepository> _pumpMowerHome(
       state: state,
       child: MaterialApp(
         theme: buildAppTheme(),
-        home: const MowerHomePage(deviceId: _mowerId),
+        home: MowerHomePage(
+          deviceId: _mowerId,
+          now: now ?? () => DateTime(2026, 10, 10, 12, 30),
+        ),
         onGenerateRoute: (settings) =>
             AppRoutes.onGenerateRoute(settings, authenticated: true),
       ),
@@ -992,8 +1114,30 @@ Future<void> _pumpSearchPage(WidgetTester tester) async {
 }
 
 class _FailingMowerRepository extends _MowerRepository {
+  int rssiReads = 0;
   @override
   Future<Map<String, Object?>> readDeviceBleRssi(String deviceId) async {
+    rssiReads++;
     throw StateError('SDK RSSI failed');
+  }
+}
+
+Future<void> _confirmStart(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('我已确认，周围安全'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('确认启动'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 300));
+  await tester.pump();
+}
+
+class _DelayedOperatingTimeRepository extends _MowerRepository {
+  final delay = Completer<void>();
+
+  @override
+  Future<void> publishDps(String deviceId, Map<int, Object> dps) async {
+    if (dps.containsKey(MowerDp.operatingTime)) await delay.future;
+    await super.publishDps(deviceId, dps);
   }
 }

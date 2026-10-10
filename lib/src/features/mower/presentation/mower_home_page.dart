@@ -33,9 +33,12 @@ class MowerHomePage extends StatefulWidget {
     required this.deviceId,
     super.key,
     this.initialTab = MowerTab.home,
+    this.now = DateTime.now,
   });
 
   final MowerTab initialTab;
+
+  final DateTime Function() now;
 
   /// 涂鸦设备 ID。
   final String deviceId;
@@ -105,7 +108,7 @@ class _MowerHomePageState extends State<MowerHomePage> {
         index: MowerTab.values.indexOf(_tab),
         children: <Widget>[
           // 只在停在「首页」这一栏时弹 DP18 设备告警（见 MowerControlPage）
-          MowerControlPage(active: _tab == MowerTab.home),
+          MowerControlPage(active: _tab == MowerTab.home, now: widget.now),
           const MowerPlanPage(),
           MowerSettingsPage(onTabRequested: _select),
         ],
