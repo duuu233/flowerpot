@@ -8,10 +8,10 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_config.dart';
-import '../../messages/device_messages_view.dart';
 import '../../messages/message_monitor_console.dart';
 import '../mower_ui.dart';
 import '../mower_device.dart';
+import 'mower_machine_logs_view.dart';
 import 'widgets/mower_bottom_nav.dart';
 import 'widgets/mower_card.dart';
 
@@ -20,8 +20,8 @@ import 'widgets/mower_card.dart';
 /// 从设置页进来，底部导航照旧画着、停在「设置」那一栏；点「首页 / 割草计划」时
 /// 先退回外壳再切到那一栏（[onTabRequested]），而不是在这一页上面再叠一层。
 ///
-/// 列表本身（三栏按推送等级分、日期筛选、来推送自动重拉）是和花盆共用的 [DeviceMessagesView]，
-/// 分栏规则见那边；这一页只套标题栏、底部导航和调试板。
+/// 列表由本机 DP 订阅流重建，分为日志 / 提醒 / 告警，支持日期筛选与已读。
+/// 云端消息诊断收在可展开的调试区，与本机机器日志分开。
 ///
 /// ## 页面底部
 ///
@@ -53,11 +53,9 @@ class MowerMessagesPage extends StatelessWidget {
       backgroundColor: AppColors.canvas,
       body: AppPageScaffold(
         appBar: const AppPageHeader(title: '消息通知', leading: AppBackButton()),
-        body: DeviceMessagesView(
+        body: MowerMachineLogsView(
           deviceId: deviceId,
-          pageName: '割草机-消息通知',
-          keyPrefix: 'mower-messages',
-          footer: Column(
+          cloudFooter: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               MessageMonitorConsole(
@@ -65,7 +63,8 @@ class MowerMessagesPage extends StatelessWidget {
                 deviceIds: <String>[?deviceId],
                 windows: <MonitorWindow>[
                   (
-                    label: '最近 $_monitorDays 天（手机本地时间 ${_stamp(from)} ~ ${_stamp(now)}）',
+                    label:
+                        '最近 $_monitorDays 天（手机本地时间 ${_stamp(from)} ~ ${_stamp(now)}）',
                     start: from,
                     end: now,
                   ),
@@ -315,11 +314,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     final state = FlowerpotScope.of(context);
     final deviceId = _deviceId.text.trim();
     if (deviceId.isEmpty) {
-      showAppMessage(
-        context,
-        '先填设备 ID',
-        tone: AppMessageTone.info,
-      );
+      showAppMessage(context, '先填设备 ID', tone: AppMessageTone.info);
       return;
     }
     setState(() => _loadingLogs = true);
@@ -331,10 +326,9 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     // 2026-09-21 真机：查**不属于本账号**的设备时，四种取值全是 `PERMISSION_DENIED 没权限`
     // ——这条报错本身就是答案（参数格式过了校验，卡在权限）。所以这里自动换成账号里真绑着的
     // 那台再试一次，省一个来回；两次的诊断都留着。
-    final denied =
-        ((data['diagnostic'] as List<Object?>?) ?? const <Object?>[])
-            .join(' ')
-            .contains('PERMISSION_DENIED');
+    final denied = ((data['diagnostic'] as List<Object?>?) ?? const <Object?>[])
+        .join(' ')
+        .contains('PERMISSION_DENIED');
     final bound = state.devices.isEmpty ? '' : state.devices.first.id;
     if (data['ok'] != true && denied && bound.isNotEmpty && bound != deviceId) {
       final retry = await state.loadDeviceOperateLogs(
@@ -372,7 +366,8 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
         '上报 dps ${reports.length} 条 · 下发 dpc ${commands.length} 条 · '
             'total=${data['total']} · hasNext=${data['hasNext']}',
         for (final entry in reports.take(50))
-          if (entry is Map) '${entry['timeStr']}  DP${entry['dpId']} = ${entry['value']}',
+          if (entry is Map)
+            '${entry['timeStr']}  DP${entry['dpId']} = ${entry['value']}',
       ];
     } on FormatException {
       return const <String>['（不是合法 JSON，看下面原文）'];
@@ -413,7 +408,8 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
       buffer
         ..writeln('--- 实时推送 ---')
         ..writeln('ok=${listen['ok']}  已注册=${listen['registered']}');
-      for (final line in (listen['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
+      for (final line
+          in (listen['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
         buffer.writeln('· $line');
       }
       buffer.writeln('收到 ${_pushes.length} 条  $_pushTypeSummary');
@@ -444,7 +440,8 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
           buffer.writeln('$item');
         }
       }
-      for (final line in (result['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
+      for (final line
+          in (result['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
         buffer.writeln('· $line');
       }
     }
@@ -456,7 +453,8 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
           'ok=${window['ok']} 单位=${window['unit']} 共 ${window['count']} 条 '
           '本设备 ${window['matchedForDevice']} 条',
         );
-      for (final line in (window['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
+      for (final line
+          in (window['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
         buffer.writeln('· $line');
       }
     }
@@ -464,10 +462,13 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
     if (logs != null) {
       buffer
         ..writeln('--- 设备日志（DP 上报历史）---')
-        ..writeln('ok=${logs['ok']}  method=${logs['method']}  命中取值=${logs['accepted']}')
+        ..writeln(
+          'ok=${logs['ok']}  method=${logs['method']}  命中取值=${logs['accepted']}',
+        )
         ..writeAll(_logLines(logs['raw']).map((line) => '$line\n'))
         ..writeln('${logs['raw'] ?? logs['message'] ?? ''}');
-      for (final line in (logs['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
+      for (final line
+          in (logs['diagnostic'] as List<Object?>?) ?? const <Object?>[]) {
         buffer.writeln('· $line');
       }
     }
@@ -546,7 +547,9 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
               height: 40,
               child: FilledButton(
                 key: const Key('mower-messages-debug-listen'),
-                onPressed: _startingListen ? null : () => unawaited(_startListen()),
+                onPressed: _startingListen
+                    ? null
+                    : () => unawaited(_startListen()),
                 style: FilledButton.styleFrom(
                   backgroundColor: MowerColors.brand,
                   foregroundColor: Colors.white,
@@ -635,10 +638,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                   minimumSize: const Size(0, 28),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                child: const Text(
-                  '填账号里已绑定的那台',
-                  style: TextStyle(fontSize: 12),
-                ),
+                child: const Text('填账号里已绑定的那台', style: TextStyle(fontSize: 12)),
               ),
             ),
             // 把已绑定设备列出来：查不到消息时，先看这台设备到底在不在当前账号里。
@@ -721,9 +721,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                     borderRadius: BorderRadius.all(Radius.circular(10)),
                   ),
                 ),
-                child: Text(
-                  _loadingLogs ? '拉取中…' : '拉设备日志（DP 上报历史）',
-                ),
+                child: Text(_loadingLogs ? '拉取中…' : '拉设备日志（DP 上报历史）'),
               ),
             ),
             const SizedBox(height: 10),
@@ -777,16 +775,16 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
               height: 40,
               child: OutlinedButton(
                 key: const Key('mower-messages-debug-load-window'),
-                onPressed: _loadingWindow ? null : () => unawaited(_loadWindow()),
+                onPressed: _loadingWindow
+                    ? null
+                    : () => unawaited(_loadWindow()),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: MowerColors.brand,
                   shape: const RoundedRectangleBorder(
                     borderRadius: BorderRadius.all(Radius.circular(10)),
                   ),
                 ),
-                child: Text(
-                  _loadingWindow ? '拉取中…' : '按时间窗拉消息（聚合口径）',
-                ),
+                child: Text(_loadingWindow ? '拉取中…' : '按时间窗拉消息（聚合口径）'),
               ),
             ),
             if (_window != null) ...<Widget>[
@@ -843,7 +841,8 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                 ),
               ),
               for (final line
-                  in (_logs!['diagnostic'] as List<Object?>?) ?? const <Object?>[])
+                  in (_logs!['diagnostic'] as List<Object?>?) ??
+                      const <Object?>[])
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: SelectableText(
@@ -875,11 +874,7 @@ class _MessageDebugPanelState extends State<_MessageDebugPanel> {
                 ),
               ),
               for (var i = 0; i < items.length; i++)
-                _MessageDump(
-                  index: i,
-                  raw: items[i],
-                  deviceProducts: products,
-                ),
+                _MessageDump(index: i, raw: items[i], deviceProducts: products),
               if (diagnostic.isNotEmpty) ...<Widget>[
                 const SizedBox(height: 10),
                 const Text(
@@ -943,7 +938,7 @@ class _MessageDump extends StatelessWidget {
           Text(
             '第 ${index + 1} 条'
             '${product == null ? '' : '　msgSrcId 归属产品 $product'
-                '${product == TuyaConfig.broadcastId ? '（就是目标产品）' : ''}'}',
+                      '${product == TuyaConfig.broadcastId ? '（就是目标产品）' : ''}'}',
             style: const TextStyle(
               color: MowerColors.brand,
               fontSize: 12,

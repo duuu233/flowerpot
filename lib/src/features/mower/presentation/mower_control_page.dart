@@ -138,10 +138,18 @@ class _MowerControlPageState extends State<MowerControlPage> {
   Future<void> _showCommandNotice(MowerCommandResult result) async {
     _faultDialogOpen = true;
     try {
+      final generation = _device.bindingGeneration;
+      final message = await _device.commandFaultMessage(result);
+      if (!mounted ||
+          !widget.active ||
+          generation != _device.bindingGeneration ||
+          ModalRoute.of(context)?.isCurrent == false) {
+        return;
+      }
       await showAppNoticeDialog(
         context,
         title: '设备异常',
-        message: result.rejectionMessage,
+        message: message,
         confirmLabel: '我已处理',
         icon: Icons.warning_amber_rounded,
         tone: AppDialogTone.danger,
@@ -332,7 +340,16 @@ class _MowerControlPageState extends State<MowerControlPage> {
 
   Future<bool> _validStartHours(int hours) async {
     final maxHours = mowerStartMaxHours(widget.now());
-    if (maxHours >= hours) return true;
+    if (mowerStartHoursValid(widget.now(), hours)) return true;
+    if (hours <= 0) {
+      await showAppNoticeDialog(
+        context,
+        title: '请重新设置割草时间',
+        message: '割草时长必须大于0小时，请重新设置。',
+        icon: Icons.schedule_rounded,
+      );
+      return false;
+    }
     if (maxHours == 0) {
       await _showTimeUnavailable();
     } else {

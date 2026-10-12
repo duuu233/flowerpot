@@ -23,12 +23,24 @@ int mowerStartMaxHours(DateTime now) {
   return deadline.difference(now).inHours.clamp(0, 24);
 }
 
+bool mowerStartHoursValid(DateTime now, int hours) =>
+    hours >= 1 && hours <= mowerStartMaxHours(now);
+
 String mowerStartUnavailableMessage(DateTime now) => now.hour >= 18
     ? '今天的割草时间已结束（18:00），请明天再启动割草机。'
     : '距离今天18:00已不足1小时，无法设置完整的割草时长，请明天再启动。';
 
 Future<int?> showMowerDurationDialog(BuildContext context, int maxHours) async {
-  assert(maxHours >= 1 && maxHours <= 24);
+  if (maxHours <= 0) {
+    await showAppNoticeDialog(
+      context,
+      title: '暂时无法启动',
+      message: '可设置的割草时长必须大于0小时，请明天再启动。',
+      icon: Icons.schedule_rounded,
+    );
+    return null;
+  }
+  if (maxHours > 24) throw RangeError.range(maxHours, 1, 24, 'maxHours');
   var hours = maxHours;
   final confirmed = await showAppDialog(
     context,

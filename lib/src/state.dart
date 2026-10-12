@@ -13,6 +13,7 @@ import 'core/network/network_status.dart';
 import 'features/auth/domain/auth_validator.dart';
 import 'features/devices/pairing_gate.dart';
 import 'features/mower/mower_dp.dart';
+import 'features/mower/mower_machine_log.dart';
 import 'shared/l10n/app_language.dart';
 import 'tuya/tuya_config.dart';
 import 'tuya/tuya_gallery_codec.dart';
@@ -1418,6 +1419,110 @@ class FlowerpotState extends ChangeNotifier {
   Future<Map<int, Object?>?> mowerDps(String deviceId) =>
       _repository.rawDps(deviceId);
 
+  final Map<String, Future<MowerMachineLog>> _mowerLogLoads = {};
+  final Map<String, MowerMachineLog> _mowerLogEngines = {};
+  final Map<String, Future<void>> _mowerLogQueues = {};
+
+  String _mowerLogKey(String id) =>
+      'mowerMachineLog:${Uri.encodeComponent(_user?.id ?? '')}:${Uri.encodeComponent(id)}';
+
+  /// 本机记录按登录账号、设备隔离。无登录账号时仅保留内存，不落盘。
+  Future<MowerMachineLog> mowerMachineLog(
+    String id, {
+    bool seedSnapshot = true,
+  }) {
+    final key = _mowerLogKey(id);
+    return _mowerLogLoads.putIfAbsent(key, () async {
+      final epoch = _sessionEpoch;
+      final account = _user?.id;
+      final engine = MowerMachineLog();
+      if (account != null && account.isNotEmpty) {
+        try {
+          final preferences = await SharedPreferences.getInstance();
+          engine.restore(preferences.getString(key));
+        } catch (_) {
+          /* 本机存储不可用仍允许接收实时日志。 */
+        }
+      }
+      if (epoch != _sessionEpoch) {
+        engine.dispose();
+        throw StateError('登录会话已切换');
+      }
+      _mowerLogEngines[key] = engine;
+      if (seedSnapshot) {
+        try {
+          final snapshot = await _repository.rawDps(id);
+          if (epoch != _sessionEpoch) throw StateError('登录会话已切换');
+          if (snapshot != null) engine.apply(snapshot, snapshot: true);
+        } catch (error) {
+          if (epoch != _sessionEpoch) throw StateError('登录会话已切换');
+          _logInteraction('机器日志基线读取失败，仍可接收实时上报：$error');
+        }
+      }
+      return engine;
+    });
+  }
+
+  Future<void> saveMowerMachineLog(String id) async {
+    final key = _mowerLogKey(id);
+    final engine = _mowerLogEngines[key];
+    if (engine == null || (_user?.id ?? '').isEmpty) return;
+    final epoch = _sessionEpoch;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (epoch != _sessionEpoch) return;
+      await preferences.setString(key, engine.encode());
+    } catch (_) {
+      /* 存储失败不阻断控制或设备上报。 */
+    }
+  }
+
+  Future<void> _recordMowerMachineUpdate(DeviceUpdate update) {
+    final device = update.device;
+    if (device == null) return Future<void>.value();
+    final id = device.id;
+    final key = _mowerLogKey(id);
+    final epoch = _sessionEpoch;
+    final receivedAt = DateTime.now();
+    final payload = Map<int, Object?>.of(update.reportedDps);
+    final changed = Set<int>.of(update.changedDps);
+    final previous = _mowerLogQueues[key] ?? Future<void>.value();
+    final pending = previous
+        .then((_) async {
+          if (epoch != _sessionEpoch) return;
+          final engine = await mowerMachineLog(id, seedSnapshot: false);
+          if (epoch != _sessionEpoch) return;
+          final raw = payload.isNotEmpty
+              ? payload
+              : await _repository.rawDps(id);
+          if (raw == null || epoch != _sessionEpoch) return;
+          final isSnapshot = changed.isEmpty;
+          final dps = isSnapshot
+              ? raw
+              : <int, Object?>{
+                  for (final dp in changed)
+                    if (raw.containsKey(dp)) dp: raw[dp],
+                };
+          final before = engine.encode();
+          engine.apply(dps, snapshot: isSnapshot, receivedAt: receivedAt);
+          if (engine.encode() != before) await saveMowerMachineLog(id);
+        })
+        .catchError((Object error) {
+          if (epoch == _sessionEpoch) _logInteraction('机器日志处理失败：$error');
+        });
+    _mowerLogQueues[key] = pending;
+    return pending;
+  }
+
+  void _clearMowerMachineLogs() {
+    for (final engine in _mowerLogEngines.values) {
+      engine.dispose();
+    }
+    _mowerLogEngines.clear();
+    _mowerLogLoads.clear();
+    _mowerLogQueues.clear();
+  }
+
   /// 报过「非在桩关机」（DP113 shutdown_report=true）的割草机 → 从那以后有没有见过它离线。
   ///
   /// 协议 V2.5 §9.9：DP113=true 连发约 9 次后约 1 秒断电离线，这次离线是**预期的**；在桩关机不报；
@@ -1558,11 +1663,11 @@ class FlowerpotState extends ChangeNotifier {
   /// 割草机的 DP 上报：哪台设备、这条报文带了哪几个 DP（设备快照另由 [mowerDps] 取）。
   ///
   /// 割草机的上报**不进**花盆那条处理（植物、历史曲线、引导窗），只从这里分发出去。
-  Stream<({String deviceId, Set<int> changedDps})> get mowerReports =>
+  Stream<({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})> get mowerReports =>
       _mowerReports.stream;
-  final StreamController<({String deviceId, Set<int> changedDps})>
+  final StreamController<({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})>
   _mowerReports =
-      StreamController<({String deviceId, Set<int> changedDps})>.broadcast();
+      StreamController<({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})>.broadcast();
 
   /// 配网失败的完整原因（提示 + 失败码 + 各步耗时）记一条。
   ///
@@ -3652,7 +3757,9 @@ class FlowerpotState extends ChangeNotifier {
       // 不走下面花盆那套（植物、引导窗、历史曲线）。
       if (device != null && isMowerDevice(device)) {
         _applyDeviceUpdate(update);
-        _mowerReports.add((deviceId: device.id, changedDps: update.changedDps));
+        _mowerReports.add((deviceId: device.id, changedDps: update.changedDps,
+          reportedDps: update.reportedDps));
+        unawaited(_recordMowerMachineUpdate(update));
         if (update.changedDps.contains(MowerDp.shutdownReport)) {
           unawaited(_noteMowerShutdownReport(device));
         }
@@ -3979,6 +4086,7 @@ class FlowerpotState extends ChangeNotifier {
     _deviceUpdates?.cancel();
     _otaUpdates?.cancel();
     unawaited(_mowerReports.close());
+    _clearMowerMachineLogs();
     // BLE 扫描在原生侧握着 Activity、还在耗电，状态对象没了更没人去停它。
     //
     // ⚠️ **这里不能调 `stopBleDiscovery()`**：它 `await` 之后还要 `notifyListeners()`，
@@ -4614,6 +4722,7 @@ class FlowerpotState extends ChangeNotifier {
     _availableFirmware.clear();
     _unreachable.clear();
     _mowerShutdown.clear();
+    _clearMowerMachineLogs();
     _probeMisses.clear();
     _reachProbe?.cancel();
     _reachProbe = null;

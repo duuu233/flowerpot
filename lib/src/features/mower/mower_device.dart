@@ -7,6 +7,7 @@ import '../../state.dart';
 import '../../tuya/tuya_raw.dart';
 import 'mower_dp.dart';
 import 'mower_command_result.dart';
+import 'mower_fault_alarm.dart';
 
 /// 割草机这一台设备的当前 DP 值 + 下发/上报的唯一入口。
 ///
@@ -84,6 +85,10 @@ class MowerDevice extends ChangeNotifier {
   ///
   /// null = 设备还没报过（这时不显示任何故障文案，见 [faultMessage]）。
   int? faultBitmap;
+  MowerFaultAlarm? faultAlarm;
+  Completer<MowerFaultAlarm?>? _freshFaultWaiter;
+  Timer? _faultReadTimer;
+  Future<MowerFaultAlarm?>? _commandFaultRead;
 
   /// DP117：充电状态。
   late MowerChargingStatus charging;
@@ -130,7 +135,10 @@ class MowerDevice extends ChangeNotifier {
 
   bool _isCurrent(String id, int generation) =>
       _deviceId == id && _bindingGeneration == generation;
-  StreamSubscription<({String deviceId, Set<int> changedDps})>? _reportSub;
+  StreamSubscription<
+    ({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})
+  >?
+  _reportSub;
 
   /// 下发排队：每条按调用顺序等上一条发完再发。时间同步要求 DP106 → 107 → 108 → 114
   /// 的顺序（V2.2 §9.6），异步各发各的会乱序。
@@ -187,7 +195,13 @@ class MowerDevice extends ChangeNotifier {
     _reportSub = state.mowerReports
         .where((report) => _isCurrent(report.deviceId, generation))
         .listen(
-          (report) => unawaited(_syncFromDevice(state, report.changedDps)),
+          (report) => unawaited(
+            _syncFromDevice(
+              state,
+              report.changedDps,
+              reported: report.reportedDps,
+            ),
+          ),
           onError: (Object error) {
             if (!_isCurrent(deviceId, generation)) return;
             state.logMowerInteraction('设备上报监听失败 ✗ 割草机：$error');
@@ -244,6 +258,13 @@ class MowerDevice extends ChangeNotifier {
     _awaitingEcho.clear();
     _pendingCommands.clear();
     _lastCommandResult = null;
+    _faultReadTimer?.cancel();
+    _faultReadTimer = null;
+    if (_freshFaultWaiter != null && !_freshFaultWaiter!.isCompleted) {
+      _freshFaultWaiter!.complete(null);
+    }
+    _freshFaultWaiter = null;
+    _commandFaultRead = null;
     _deviceId = null;
   }
 
@@ -269,6 +290,7 @@ class MowerDevice extends ChangeNotifier {
     status = MowerStatus.standby;
     battery = 0;
     faultBitmap = null;
+    faultAlarm = null;
     charging = MowerChargingStatus.notCharging;
     coverClosed = true;
     rainDetectEnable = false;
@@ -589,12 +611,16 @@ class MowerDevice extends ChangeNotifier {
 
   /// 从设备快照同步。[changed] 为 null = 刚绑定时整份解一遍；否则只解这条报文带的 DP
   /// （并把它们从「等回显」里划掉）。
-  Future<void> _syncFromDevice(FlowerpotState state, Set<int>? changed) async {
+  Future<void> _syncFromDevice(
+    FlowerpotState state,
+    Set<int>? changed, {
+    Map<int, Object?>? reported,
+  }) async {
     final id = _deviceId;
     if (id == null) return;
     final generation = _bindingGeneration;
     try {
-      await _readSnapshot(state, changed, id, generation);
+      await _readSnapshot(state, changed, id, generation, reported: reported);
     } catch (error) {
       if (!_isCurrent(id, generation)) return;
       state.logMowerInteraction('读取设备信息失败 ✗ 割草机：$error');
@@ -606,10 +632,14 @@ class MowerDevice extends ChangeNotifier {
     FlowerpotState state,
     Set<int>? changed,
     String id,
-    int generation,
-  ) async {
-    final dps = await state.mowerDps(id);
-    if (dps == null || !_isCurrent(id, generation)) return;
+    int generation, {
+    Map<int, Object?>? reported,
+  }) async {
+    final snapshot = await state.mowerDps(id);
+    if ((snapshot == null && reported == null) || !_isCurrent(id, generation)) {
+      return;
+    }
+    final dps = <int, Object?>{...?snapshot, ...?reported};
     // 这一次有没有把 DP101 刷进来：有就逐字节解析打进日志（下面三个分支口径各不相同）。
     final scheduleTouched = changed == null
         ? dps.containsKey(MowerDp.mowSchedule)
@@ -646,7 +676,22 @@ class MowerDevice extends ChangeNotifier {
         dps[MowerDp.commandResults],
       );
     } else if (changed.contains(MowerDp.commandResults)) {
-      _acceptCommandResult(dps[MowerDp.commandResults], generation);
+      _acceptCommandResult(
+        dps[MowerDp.commandResults],
+        generation,
+        freshAlarm: changed.contains(MowerDp.faultAlarm)
+            ? MowerFaultAlarm.parse(reported?[MowerDp.faultAlarm])
+            : null,
+      );
+    }
+    if (changed != null && changed.contains(MowerDp.faultAlarm)) {
+      final fresh = MowerFaultAlarm.parse(reported?[MowerDp.faultAlarm]);
+      if (fresh != null &&
+          _freshFaultWaiter != null &&
+          !_freshFaultWaiter!.isCompleted) {
+        _freshFaultWaiter!.complete(fresh);
+        _faultReadTimer?.cancel();
+      }
     }
     // DP116 ota_status（协议 V2.3 §7.2，只上报）：设备拒绝 / 升级失败时说一句。
     // 只看实时上报（changed 里有它），刚进页面读快照时那条旧值不弹。
@@ -672,7 +717,11 @@ class MowerDevice extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _acceptCommandResult(Object? raw, int generation) {
+  void _acceptCommandResult(
+    Object? raw,
+    int generation, {
+    MowerFaultAlarm? freshAlarm,
+  }) {
     final result = MowerCommandResult.parse(raw);
     if (result == null || result.seq == _lastCommandResult?.seq) return;
     _lastCommandResult = result;
@@ -683,7 +732,30 @@ class MowerDevice extends ChangeNotifier {
       return;
     }
     _pendingCommands.remove(result.dp);
+    if (result.code == 26) {
+      _faultReadTimer?.cancel();
+      if (_freshFaultWaiter != null && !_freshFaultWaiter!.isCompleted) {
+        _freshFaultWaiter!.complete(null);
+      }
+      if (freshAlarm != null) {
+        _commandFaultRead = Future.value(freshAlarm);
+      } else {
+        // 协议允许等下一条变化即报，不拿快照旧值解释本次拒绝。
+        final waiter = Completer<MowerFaultAlarm?>();
+        _freshFaultWaiter = waiter;
+        _commandFaultRead = waiter.future;
+        _faultReadTimer = Timer(const Duration(seconds: 3), () {
+          if (!waiter.isCompleted) waiter.complete(null);
+        });
+      }
+    }
     _commandResults.add((result: result, generation: generation));
+  }
+
+  Future<String> commandFaultMessage(MowerCommandResult result) async {
+    if (result.code != 26) return result.rejectionMessage ?? '';
+    final fresh = await _commandFaultRead;
+    return fresh?.recoveryMessage ?? '故障尚未排除，暂未收到最新故障详情，请检查设备后重试。';
   }
 
   /// 在真正发送前登记，兼容设备回执早于 SDK 完成回调。
@@ -741,7 +813,9 @@ class MowerDevice extends ChangeNotifier {
         case MowerDp.battery:
           battery = (_asInt(value) ?? battery).clamp(0, 100);
         case MowerDp.fault:
-          faultBitmap = _asInt(value) ?? faultBitmap;
+          faultBitmap = MowerFault.parseBitmap(value) ?? faultBitmap;
+        case MowerDp.faultAlarm:
+          faultAlarm = MowerFaultAlarm.parse(value) ?? faultAlarm;
         case MowerDp.chargingStatus:
           charging =
               MowerDp.enumOf(

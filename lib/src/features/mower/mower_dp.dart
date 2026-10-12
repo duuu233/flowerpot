@@ -37,7 +37,7 @@ abstract final class MowerDp {
   /// bitmap ro：故障告警位图（13 位），文案见 [MowerFault.messages]。
   static const int fault = 18;
 
-  /// string ro：故障告警明细 JSON（四层位图）。本轮未接。
+  /// string ro：故障告警明细 JSON，用于 code 26 定位与机器日志。
   static const int faultAlarm = 111;
 
   /// enum ro：充电状态，见 [MowerChargingStatus]。
@@ -212,6 +212,21 @@ enum MowerChargingStatus {
 
 /// DP18 故障位图。
 abstract final class MowerFault {
+  /// 位图接受非负整数、十进制文本，以及明确带 0b / 0x 前缀的文本。
+  static int? parseBitmap(Object? raw) {
+    int? value;
+    if (raw is num) {
+      if (!raw.isFinite || raw != raw.truncateToDouble()) return null;
+      value = raw.toInt();
+    } else if (raw is String) {
+      final text = raw.trim();
+      value = text.startsWith('0b')
+          ? int.tryParse(text.substring(2), radix: 2)
+          : int.tryParse(text);
+    }
+    return value != null && value >= 0 && value <= 0xffffffff ? value : null;
+  }
+
   /// 位 → 首页那条黄色提醒的文案（2026-09-18 产品给的原文，一字未改）。
   static const Map<int, String> messages = <int, String>{
     0: '左轮异常，请清理异物并重启。',

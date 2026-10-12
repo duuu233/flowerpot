@@ -59,7 +59,19 @@ void main() {
         entry.value,
       );
     }
-    for (final code in <int>[20, 27, 31, 32, 65, 255]) {
+    expect(
+      const MowerCommandResult(code: 32, seq: 0, dp: 3).rejectionMessage,
+      '机器在充电桩上',
+    );
+    expect(
+      const MowerCommandResult(code: 65, seq: 0, dp: 3).rejectionMessage,
+      '设置数据长度不正确，请重新设置',
+    );
+    expect(
+      const MowerCommandResult(code: 255, seq: 0, dp: 3).rejectionMessage,
+      '操作未生效',
+    );
+    for (final code in <int>[20, 27, 31]) {
       expect(
         MowerCommandResult(code: code, seq: 0, dp: 3).rejectionMessage,
         '操作未生效（码 $code）',

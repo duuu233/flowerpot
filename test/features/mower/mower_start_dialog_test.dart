@@ -60,4 +60,37 @@ void main() {
     expect(find.text('启动'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  test('时长必须正整数且不超过当天18点前完整小时', () {
+    final now = DateTime(2026, 10, 12, 12, 30);
+    expect(mowerStartHoursValid(now, -1), isFalse);
+    expect(mowerStartHoursValid(now, 0), isFalse);
+    expect(mowerStartHoursValid(now, 5), isTrue);
+    expect(mowerStartHoursValid(now, 6), isFalse);
+  });
+  for (final maximum in [0, -1]) {
+    testWidgets('可设置时长$maximum时提示并返回null，不打开时间选择', (tester) async {
+      int? result = 99;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () async {
+                  result = await showMowerDurationDialog(context, maximum);
+                },
+                child: const Text('设置'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(find.text('可设置的割草时长必须大于0小时，请明天再启动。'), findsOneWidget);
+      expect(find.byKey(const Key('mower-start-hours')), findsNothing);
+      await tester.tap(find.text('我知道了'));
+      await tester.pumpAndSettle();
+      expect(result, isNull);
+    });
+  }
 }

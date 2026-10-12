@@ -158,11 +158,157 @@ void main() {
     state.reports.addError(StateError('report failed'));
     await tester.pump();
     state.snapshot = () async => {MowerDp.battery: 66};
-    state.reports.add((deviceId: _id, changedDps: {MowerDp.battery}));
+    state.reports.add((
+      deviceId: _id,
+      changedDps: {MowerDp.battery},
+      reportedDps: const <int, Object?>{},
+    ));
     await tester.pump();
     expect(device.battery, 66);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('DP18实际上报覆盖旧缓存，位图黄条文案正确且0清空', (tester) async {
+    final state = _state();
+    final device = MowerDevice.instance;
+    state.snapshot = () async => {MowerDp.fault: 1};
+    await device.bind(state, owner: Object(), deviceId: _id);
+    state.reports.add((
+      deviceId: _id,
+      changedDps: {MowerDp.fault},
+      reportedDps: {MowerDp.fault: '0x10'},
+    ));
+    await tester.pump();
+    expect(device.faultMessage, MowerFault.messages[4]);
+    state.reports.add((
+      deviceId: _id,
+      changedDps: {MowerDp.fault},
+      reportedDps: {MowerDp.fault: 0},
+    ));
+    await tester.pump();
+    expect(device.faultMessage, isNull);
+  });
+
+  testWidgets('code26同帧新鲜111定位，优先硬件，再安全和位置；不重发', (tester) async {
+    final state = _state();
+    final device = MowerDevice.instance;
+    state.snapshot = () async => {
+      MowerDp.faultAlarm: '{"device":0,"error":4,"function":0,"circularize":0}',
+    };
+    await device.bind(state, owner: Object(), deviceId: _id);
+    device.setMode(state, MowerMode.smart);
+    await tester.pump();
+    final event = device.commandResults.first;
+    state.reports.add((
+      deviceId: _id,
+      changedDps: {MowerDp.commandResults, MowerDp.faultAlarm},
+      reportedDps: {
+        MowerDp.commandResults: '{"code":26,"seq":1,"dp":3,"val":1}',
+        MowerDp.faultAlarm:
+            '{"device":1,"error":16386,"function":0,"circularize":0}',
+      },
+    ));
+    await tester.pump();
+    final message = await device.commandFaultMessage((await event).result);
+    expect(message, contains('电池异常'));
+    expect(message, contains('机器被抬起'));
+    expect(message, contains('割草区域外'));
+    expect(message.indexOf('电池异常'), lessThan(message.indexOf('机器被抬起')));
+    expect(message, isNot(contains('边界线供电')));
+    expect(state.sent, hasLength(1));
+    device.resetForTest();
+  });
+
+  testWidgets('code26等待下一条变化即报，不用缓存或无DP变化快照解释拒绝', (tester) async {
+    final state = _state();
+    final device = MowerDevice.instance;
+    state.snapshot = () async => {
+      MowerDp.faultAlarm: '{"device":1,"error":0,"function":0,"circularize":0}',
+    };
+    await device.bind(state, owner: Object(), deviceId: _id);
+    device.setMode(state, MowerMode.gotoCharge);
+    await tester.pump();
+    final event = device.commandResults.first;
+    state.reports.add((
+      deviceId: _id,
+      changedDps: {MowerDp.commandResults},
+      reportedDps: {
+        MowerDp.commandResults: '{"code":26,"seq":1,"dp":3,"val":3}',
+      },
+    ));
+    await tester.pump();
+    String? message;
+    unawaited(
+      device
+          .commandFaultMessage((await event).result)
+          .then((value) => message = value),
+    );
+    state.reports.add((
+      deviceId: _id,
+      changedDps: <int>{},
+      reportedDps: <int, Object?>{},
+    ));
+    await tester.pump();
+    expect(message, isNull);
+    // 只有DP编号、没有实际111载荷时，不能把缓存补出来的值当新鲜上报。
+    state.reports.add((
+      deviceId: _id,
+      changedDps: {MowerDp.faultAlarm},
+      reportedDps: <int, Object?>{},
+    ));
+    await tester.pump();
+    expect(message, isNull);
+    state.reports.add((
+      deviceId: _id,
+      changedDps: {MowerDp.faultAlarm},
+      reportedDps: {
+        MowerDp.faultAlarm:
+            '{"device":0,"error":4,"function":0,"circularize":0}',
+      },
+    ));
+    await tester.pump();
+    expect(message, contains('边界线供电'));
+    expect(message, isNot(contains('电池异常')));
+    expect(state.sent, hasLength(1));
+    device.resetForTest();
+  });
+
+  for (final exit in [false, true]) {
+    testWidgets('code26没有新鲜111：${exit ? '退出立即取消等待' : '3秒超时如实提示，不编造缓存故障'}', (
+      tester,
+    ) async {
+      final state = _state();
+      final device = MowerDevice.instance;
+      final owner = Object();
+      state.snapshot = () async => {
+        MowerDp.faultAlarm:
+            '{"device":1,"error":0,"function":0,"circularize":0}',
+      };
+      await device.bind(state, owner: owner, deviceId: _id);
+      device.setSwitch(state, on: false);
+      await tester.pump();
+      final event = device.commandResults.first;
+      state.reports.add((
+        deviceId: _id,
+        changedDps: {MowerDp.commandResults},
+        reportedDps: {
+          MowerDp.commandResults: '{"code":26,"seq":1,"dp":2,"val":0}',
+        },
+      ));
+      await tester.pump();
+      String? message;
+      unawaited(
+        device
+            .commandFaultMessage((await event).result)
+            .then((value) => message = value),
+      );
+      if (exit) device.release(owner);
+      await tester.pump(exit ? Duration.zero : const Duration(seconds: 3));
+      expect(message, contains('暂未收到最新故障详情'));
+      expect(message, isNot(contains('电池异常')));
+      device.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+  }
 }
 
 _ControlledState _state() {
@@ -190,7 +336,9 @@ class _ControlledState extends FlowerpotState {
   Future<ActionResult> Function(Map<int, Object>) send = (_) async =>
       const ActionResult(true, 'ok');
   final reports =
-      StreamController<({String deviceId, Set<int> changedDps})>.broadcast();
+      StreamController<
+        ({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})
+      >.broadcast();
   final sent = <Map<int, Object>>[];
   int connects = 0;
   bool disposed = false;
@@ -212,8 +360,10 @@ class _ControlledState extends FlowerpotState {
   }
 
   @override
-  Stream<({String deviceId, Set<int> changedDps})> get mowerReports =>
-      reports.stream;
+  Stream<
+    ({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})
+  >
+  get mowerReports => reports.stream;
   @override
   void dispose() {
     disposed = true;
