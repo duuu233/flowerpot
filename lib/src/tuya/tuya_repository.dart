@@ -587,7 +587,17 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     final online = event['online'];
     if (online is bool) merged['online'] = online;
 
-    return DeviceUpdate.changed(_device(merged), changedDps: changed);
+    return DeviceUpdate.changed(
+      _device(merged),
+      changedDps: changed,
+      reportedDps: dps is Map
+          ? Map<int, Object?>.unmodifiable(<int, Object?>{
+              for (final entry in dps.entries)
+                if (int.tryParse('${entry.key}') case final int id)
+                  id: entry.value,
+            })
+          : const <int, Object?>{},
+    );
   }
 
   Future<T?> _invoke<T>(

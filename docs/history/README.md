@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-10/2026-10-12-mower-ota-terminal-fixes.md`](2026-10/2026-10-12-mower-ota-terminal-fixes.md)：补齐 Android 超时/文本失败，DP112 提前上报到安装阶段重验，DP116 拒绝/失败共享收尾；111 项 Flutter 回归与 23 项实际 SDK 回调断言通过，Android Kotlin 编译通过，未真机。
+
 - [`2026-10/2026-10-12-mower-ota-audit.md`](2026-10/2026-10-12-mower-ota-audit.md)：Android SDK 7.5.1 OTA 链路、差分/进度报告职责及 60 秒超时解释核查；42 回归通过、2 项基线失败，未真机、仅文档。
 
 - [`2026-10/2026-10-10-mower-command-results.md`](2026-10/2026-10-10-mower-command-results.md)：V2.6 DP115四颗按钮拒绝回执与低优先级设备异常框，旧值/错配/重复隔离；关闭不重发。

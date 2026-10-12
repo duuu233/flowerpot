@@ -8,8 +8,8 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('OTA is not a function point; only the version reports are', () {
-    // 2026-09-03 的功能点表里和固件相关的只有两个只读版本号，升级本身没有 DP：
+  test('OTA starts via SDK; version and result DPs are report-only', () {
+    // 升级发起走 SDK；DP168 只上报结果，不是发起升级的可写 DP：
     // 走的是涂鸦 SDK 的 OTA 接口（Android newOTAInstance/getOtaInfo/startOta，
     // iOS getFirmwareUpgradeInfo/upgradeFirmware），由原生桥接封装。
     expect(TuyaConfig.dp['firmware_version'], 148);
@@ -18,8 +18,10 @@ void main() {
       TuyaConfig.dp.keys.where(
         (key) => key.contains('ota') || key.contains('upgrade'),
       ),
-      isEmpty,
+      <String>['ota_result'],
     );
+    expect(TuyaConfig.dp['ota_result'], 168);
+    expect(TuyaConfig.settingDps('ota_result', '2'), isNull);
     // 版本号是只上报的，写它没有意义，所以也不在可写设置表里。
     expect(TuyaConfig.settingDps('firmwareVersion', '1.1.0'), isNull);
   });
@@ -67,10 +69,7 @@ void main() {
     final repository = _OtaRepository();
     final state = await _state(repository);
     await state.upgradeFirmware('device-01', '1.1.0');
-    expect(
-      state.otaProgressFor('device-01')?.displayStage,
-      OtaStage.preparing,
-    );
+    expect(state.otaProgressFor('device-01')?.displayStage, OtaStage.preparing);
 
     repository.pushOtaProgress(
       const OtaProgress(
@@ -124,14 +123,20 @@ void main() {
     expect(stageOf(), OtaStage.preparing);
     // 涂鸦报了「升级中」但设备还没回进度：仍说准备中，不写 0%。
     expect(stageOf(percent: 0, stage: OtaStage.upgrading), OtaStage.preparing);
-    expect(stageOf(percent: 0, stage: OtaStage.waitingWake), OtaStage.waitingWake);
+    expect(
+      stageOf(percent: 0, stage: OtaStage.waitingWake),
+      OtaStage.waitingWake,
+    );
     expect(stageOf(percent: 1), OtaStage.upgrading);
     expect(stageOf(percent: 97), OtaStage.upgrading);
     // 2026-09-17 产品：98% 起就算安装中——涂鸦在 98 停一大段等设备写固件、重启。
     expect(stageOf(percent: 98), OtaStage.installing);
     expect(stageOf(percent: 99), OtaStage.installing);
     expect(stageOf(percent: 100), OtaStage.installing);
-    expect(stageOf(percent: 30, stage: OtaStage.installing), OtaStage.installing);
+    expect(
+      stageOf(percent: 30, stage: OtaStage.installing),
+      OtaStage.installing,
+    );
 
     expect(OtaStage.fromTuya(13), OtaStage.preparing);
     expect(OtaStage.fromTuya(14), OtaStage.preparing);
@@ -335,12 +340,9 @@ void main() {
       await state.upgradeFirmware('device-01', '1.1.0');
       await progress(repository, percent: 98);
 
-      await report(
-        repository,
-        '1.1.0',
-        <int>{MowerDp.fwVersion},
-        productId: MowerDp.productId,
-      );
+      await report(repository, '1.1.0', <int>{
+        MowerDp.fwVersion,
+      }, productId: MowerDp.productId);
 
       expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
       state.dispose();
@@ -366,12 +368,9 @@ void main() {
       await state.upgradeFirmware('device-01', '1.1.0');
       await progress(repository, percent: 98);
 
-      await report(
-        repository,
-        '1.1.0',
-        <int>{148},
-        productId: MowerDp.productId,
-      );
+      await report(repository, '1.1.0', <int>{
+        148,
+      }, productId: MowerDp.productId);
 
       expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
       state.dispose();
@@ -523,6 +522,334 @@ void main() {
     });
   });
 
+  group('OTA 本次上报与终态收尾', () {
+    Future<void> progress(
+      _OtaRepository repository, {
+      int? percent,
+      OtaStage? stage,
+    }) async {
+      repository.pushOtaProgress(
+        OtaProgress(
+          deviceId: 'device-01',
+          status: OtaStatus.running,
+          percent: percent,
+          stage: stage,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    Future<void> report(
+      _OtaRepository repository, {
+      String version = '1.1.0',
+      Set<int> changed = const <int>{112},
+      Map<int, Object?> dps = const <int, Object?>{},
+      String? productId,
+    }) async {
+      repository.pushDeviceUpdate(
+        DeviceUpdate.changed(
+          _deviceOf(
+            productId: productId ?? repository.productId,
+          ).copyWith(firmwareVersion: version),
+          changedDps: changed,
+          reportedDps: dps,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    for (final viaStage in <bool>[false, true]) {
+      test('DP112 先于${viaStage ? '阶段6' : '98%'}到达：安装中重验后完成', () async {
+        final repository = _OtaRepository(productId: MowerDp.productId);
+        final state = await _state(repository);
+        addTearDown(state.dispose);
+        await state.checkFirmware('device-01');
+        await state.upgradeFirmware('device-01', '1.1.0');
+        await progress(repository, percent: 42);
+        await report(repository, version: 'V1.1.0');
+        expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+        if (viaStage) {
+          await progress(repository, stage: OtaStage.installing);
+        } else {
+          await progress(repository, percent: 98);
+        }
+        expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
+        expect(state.hasFirmwareUpdate('device-01'), isFalse);
+        expect(state.deviceById('device-01')?.firmwareVersion, '1.1.0');
+      });
+    }
+
+    test('启动前的版本上报不能被新一轮安装重用', () async {
+      final repository = _OtaRepository(productId: MowerDp.productId);
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await report(repository);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    });
+
+    test('没有版本 DP 的快照不能进入待重验记录', () async {
+      final repository = _OtaRepository(productId: MowerDp.productId);
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await report(repository, changed: <int>{});
+      await progress(repository, percent: 98);
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    });
+
+    test('割草机 DP148 即使提前到达也不进入重验', () async {
+      final repository = _OtaRepository(productId: MowerDp.productId);
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await report(repository, changed: <int>{148});
+      await progress(repository, stage: OtaStage.installing);
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    });
+
+    test('最近一次新版本上报不匹配时不能沿用之前匹配值', () async {
+      final repository = _OtaRepository(productId: MowerDp.productId);
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await report(repository);
+      await report(repository, version: '1.0.0');
+      await progress(repository, percent: 98);
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    });
+
+    for (final rawVersion in <Object?>[null, '1.0.0']) {
+      test('DP112 原始值 $rawVersion 不能拿合并快照的匹配版本误判', () async {
+        final repository = _OtaRepository(productId: MowerDp.productId);
+        final state = await _state(repository);
+        addTearDown(state.dispose);
+        await state.upgradeFirmware('device-01', '1.1.0');
+        await report(repository);
+        await report(repository, dps: <int, Object?>{112: rawVersion});
+        await progress(repository, percent: 98);
+        expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+      });
+    }
+
+    test('清理并重试相同目标不能沿用上一轮上报', () async {
+      final repository = _OtaRepository(productId: MowerDp.productId);
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await report(repository);
+      state.clearOtaProgress('device-01');
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    });
+
+    test('花盆共用版本重验：DP148 先到、安装后完成', () async {
+      final repository = _OtaRepository();
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await report(repository, changed: <int>{148});
+      await progress(repository, stage: OtaStage.installing);
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
+    });
+
+    for (final code in <String>['7', '20']) {
+      test('割草机新 DP116=$code 结束进行中的升级并可重新发起', () async {
+        final repository = _OtaRepository(productId: MowerDp.productId);
+        final state = await _state(repository);
+        addTearDown(state.dispose);
+        await state.upgradeFirmware('device-01', '1.1.0');
+        await report(
+          repository,
+          changed: <int>{116},
+          dps: <int, Object?>{116: code},
+        );
+        expect(state.otaProgressFor('device-01')?.status, OtaStatus.failed);
+        expect(
+          state.otaProgressFor('device-01')?.message,
+          contains(code == '7' ? '待机' : '校验失败'),
+        );
+        await progress(repository, percent: 100);
+        repository.pushOtaProgress(
+          const OtaProgress(deviceId: 'device-01', status: OtaStatus.success),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(state.otaProgressFor('device-01')?.status, OtaStatus.failed);
+        await state.upgradeFirmware('device-01', '1.1.0');
+        await progress(repository, stage: OtaStage.installing);
+        expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+      });
+    }
+
+    test('拒绝与目标版本在同一报文时先认失败', () async {
+      final repository = _OtaRepository(productId: MowerDp.productId);
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
+      await report(
+        repository,
+        changed: <int>{112, 116},
+        dps: <int, Object?>{116: '7'},
+      );
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.failed);
+    });
+
+    test('DP116 快照旧值与未知值不结束升级', () async {
+      final repository = _OtaRepository(productId: MowerDp.productId);
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await report(
+        repository,
+        changed: <int>{},
+        dps: <int, Object?>{116: '20'},
+      );
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+      await report(
+        repository,
+        changed: <int>{116},
+        dps: <int, Object?>{116: '0'},
+      );
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    });
+
+    test('没发起升级的割草机 DP116 不制造 OTA 状态', () async {
+      final repository = _OtaRepository(productId: MowerDp.productId);
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await report(
+        repository,
+        changed: <int>{116},
+        dps: <int, Object?>{116: '20'},
+      );
+      expect(state.otaProgressFor('device-01'), isNull);
+    });
+
+    test('花盆 DP116 不按割草机失败处理', () async {
+      final repository = _OtaRepository();
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await report(
+        repository,
+        changed: <int>{116},
+        dps: <int, Object?>{116: '20'},
+      );
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    });
+
+    for (final first in <OtaStatus>[OtaStatus.success, OtaStatus.failed]) {
+      test('终态 $first 后相反 SDK 结论不能覆盖', () async {
+        final repository = _OtaRepository();
+        final state = await _state(repository);
+        addTearDown(state.dispose);
+        await state.upgradeFirmware('device-01', '1.1.0');
+        repository.pushOtaProgress(
+          OtaProgress(deviceId: 'device-01', status: first),
+        );
+        repository.pushOtaProgress(
+          OtaProgress(
+            deviceId: 'device-01',
+            status: first == OtaStatus.success
+                ? OtaStatus.failed
+                : OtaStatus.success,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(state.otaProgressFor('device-01')?.status, first);
+      });
+    }
+
+    test('SDK 返回前即时进度不会被重置成0', () async {
+      final repository = _OtaRepository();
+      repository.onStart = (_) async {
+        await progress(repository, percent: 42);
+      };
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      expect(
+        (await state.upgradeFirmware('device-01', '1.1.0')).success,
+        isTrue,
+      );
+      expect(state.otaProgressFor('device-01')?.percent, 42);
+    });
+
+    test('SDK 返回前即时失败不会被重置为升级中', () async {
+      final repository = _OtaRepository();
+      repository.onStart = (_) async {
+        repository.pushOtaProgress(
+          const OtaProgress(
+            deviceId: 'device-01',
+            status: OtaStatus.failed,
+            message: '升级超时',
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+      };
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      expect(
+        (await state.upgradeFirmware('device-01', '1.1.0')).success,
+        isFalse,
+      );
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.failed);
+    });
+
+    test('SDK 返回前即时成功保留目标版本和成功状态', () async {
+      final repository = _OtaRepository();
+      repository.onStart = (_) async {
+        repository.pushOtaProgress(
+          const OtaProgress(deviceId: 'device-01', status: OtaStatus.success),
+        );
+        await Future<void>.delayed(Duration.zero);
+      };
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      expect(
+        (await state.upgradeFirmware('device-01', '1.1.0')).success,
+        isTrue,
+      );
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
+      expect(state.deviceById('device-01')?.firmwareVersion, '1.1.0');
+    });
+
+    test('SDK 发起抛错收尾，重试不复用待重验版本', () async {
+      final repository = _OtaRepository(productId: MowerDp.productId);
+      repository.onStart = (_) async {
+        await report(repository);
+        throw const TuyaException('ota_failed', '无法开始升级');
+      };
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      expect(
+        (await state.upgradeFirmware('device-01', '1.1.0')).success,
+        isFalse,
+      );
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.failed);
+      repository.onStart = null;
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    });
+
+    test('退出登录清理本次 OTA 状态与版本证据', () async {
+      final repository = _OtaRepository(productId: MowerDp.productId);
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await report(repository);
+      await state.logout();
+      expect(state.otaProgressFor('device-01'), isNull);
+      await state.refreshDevices();
+      await state.upgradeFirmware('device-01', '1.1.0');
+      await progress(repository, percent: 98);
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+    });
+  });
+
   test('a device that never started an upgrade is never stalled', () async {
     final state = await _state();
 
@@ -541,8 +868,6 @@ Future<FlowerpotState> _state([_OtaRepository? repository]) async {
   await state.refreshDevices();
   return state;
 }
-
-SmartPlanterDevice get _device => _deviceOf();
 
 SmartPlanterDevice _deviceOf({String productId = 'product-01'}) =>
     SmartPlanterDevice(
@@ -578,6 +903,7 @@ class _OtaRepository extends MockTuyaRepository {
 
   /// 设备的产品 ID：传 [MowerDp.productId] 就是一台割草机。
   final String productId;
+  Future<void> Function(String deviceId)? onStart;
 
   /// 云端说可以装的版本，null 表示「没有新版本」。
   final String? firmware;
@@ -605,5 +931,7 @@ class _OtaRepository extends MockTuyaRepository {
   /// 真实桥接的 `startFirmwareUpgrade` 只是把升级发起出去就返回；Mock 的默认
   /// 实现要等一秒，测试里不需要那一秒。
   @override
-  Future<void> startFirmwareUpgrade(String deviceId) async {}
+  Future<void> startFirmwareUpgrade(String deviceId) async {
+    await onStart?.call(deviceId);
+  }
 }

@@ -186,12 +186,14 @@ class DeviceUpdate {
   const DeviceUpdate.changed(
     SmartPlanterDevice this.device, {
     this.changedDps = const <int>{},
+    this.reportedDps = const <int, Object?>{},
   }) : removedId = null;
 
   /// The device left the account — unbound from another phone, or reset.
   const DeviceUpdate.removed(String this.removedId)
     : device = null,
-      changedDps = const <int>{};
+      changedDps = const <int>{},
+      reportedDps = const <int, Object?>{};
 
   final SmartPlanterDevice? device;
   final String? removedId;
@@ -205,6 +207,9 @@ class DeviceUpdate {
   ///
   /// 桥接没给 `dps` 时（例如只有在线状态变化）是空集合。
   final Set<int> changedDps;
+
+  /// 本条 DP 报文的原始值，不含历史快照；供割草机 DP116 等产品专属状态判定。
+  final Map<int, Object?> reportedDps;
 }
 
 /// 固件升级的实时状态。

@@ -3647,20 +3647,25 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 和最终成败改从事件通道推给 Dart。
         val started = AtomicBoolean(false)
         val answerStarted = { if (started.compareAndSet(false, true)) success(result, null) }
+        val finished = AtomicBoolean(false)
         val onSuccess: (Any?) -> Unit = {
-            answerStarted()
-            emitOta(deviceId, "success")
-            // 升级已经结束，SDK 内部的注册可以放了；下次检查会重新建实例。
-            activity.runOnUiThread { releaseOta(deviceId) }
+            if (finished.compareAndSet(false, true)) {
+                answerStarted()
+                emitOta(deviceId, "success")
+                // 升级已经结束，SDK 内部的注册可以放了；下次检查会重新建实例。
+                activity.runOnUiThread { releaseOta(deviceId) }
+            }
         }
         val onError: (String, String) -> Unit = { code, message ->
-            // 还没回答过方法调用就失败，说明升级根本没起来，照常回错误；已经
-            // 回答过则只能通过事件通道报告。
-            if (started.compareAndSet(false, true)) {
-                error(result, code, message)
+            if (finished.compareAndSet(false, true)) {
+                // 还没回答过方法调用就失败，说明升级根本没起来，照常回错误；已经
+                // 回答过则只能通过事件通道报告。
+                if (started.compareAndSet(false, true)) {
+                    error(result, code, message)
+                }
+                emitOta(deviceId, "failed", message = message)
+                activity.runOnUiThread { releaseOta(deviceId) }
             }
-            emitOta(deviceId, "failed", message = message)
-            activity.runOnUiThread { releaseOta(deviceId) }
         }
         // 7.x reports progress through a listener and starts with a no-arg call;
         // older builds accept the callback directly on startOta.
@@ -3683,57 +3688,22 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         invokeWithCallback(ota, "startOta", onSuccess = onSuccess, onError = onError)
     }
 
-    /**
-     * `IThingOtaListener` 的动态代理。
-     *
-     * 和 [callbackProxy] 的区别只在于它还认 `onProgress(otaType, percent)`——
-     * 通用代理会把这个回调丢进默认分支，进度就没了，界面只能干等几分钟。
-     * 方法名之外不假设签名：百分比从参数里挑第一个数字，兼容不同的参数顺序。
-     */
+    /** Android IOtaListener 的回调映射与兼容性处理。 */
     private fun otaListenerProxy(
         listenerType: Class<*>,
         deviceId: String,
         onSuccess: (Any?) -> Unit,
         onError: (String, String) -> Unit,
-    ): Any {
-        val loader = listenerType.classLoader ?: activity.classLoader
-        return Proxy.newProxyInstance(loader, arrayOf(listenerType)) { proxy, method, args ->
-            when (method.name) {
-                "equals" -> proxy === args?.firstOrNull()
-                "hashCode" -> System.identityHashCode(proxy)
-                "toString" -> "TuyaOtaListener(${listenerType.simpleName})"
-                "onProgress" -> {
-                    val percent = args?.filterIsInstance<Number>()?.lastOrNull()?.toInt()
-                    emitOta(deviceId, "running", percent = percent)
-                    defaultValue(method.returnType)
-                }
-                // IOtaListener.onStatusChanged(otaStatus, otaType)：涂鸦的升级阶段码。只转进行中的
-                // 那几个（13/14/100 准备、2 升级中、5 等待唤醒、6 固件已下载到设备，7.5.1
-                // DevUpgradeStatusEnum 解包核对）；成功 / 失败 / 超时由 onSuccess / onFailure 报，
-                // 这里再转一遍会把结论改回「进行中」。Dart 侧据此换「准备中 / 安装中」文案。
-                "onStatusChanged" -> {
-                    val code = (args?.firstOrNull() as? Number)?.toInt()
-                    if (code != null && code in setOf(2, 5, 6, 13, 14, 100)) {
-                        emitOta(deviceId, "running", stage = code)
-                    }
-                    defaultValue(method.returnType)
-                }
-                "onSuccess" -> {
-                    onSuccess(args?.firstOrNull())
-                    defaultValue(method.returnType)
-                }
-                "onFailure", "onError" -> {
-                    val texts = args?.filterIsInstance<String>().orEmpty()
-                    onError(
-                        texts.firstOrNull() ?: "ota_failed",
-                        texts.lastOrNull() ?: "固件升级失败",
-                    )
-                    defaultValue(method.returnType)
-                }
-                else -> defaultValue(method.returnType)
-            }
-        }
-    }
+    ): Any = TuyaOtaListenerBridge.create(
+        listenerType,
+        listenerType.classLoader ?: activity.classLoader,
+        onRunning = { percent, stage ->
+            emitOta(deviceId, "running", percent = percent, stage = stage)
+        },
+        onSuccess = onSuccess,
+        onError = onError,
+        defaultValue = ::defaultValue,
+    )
 
     private fun emitOta(
         deviceId: String,

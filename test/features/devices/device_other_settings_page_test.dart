@@ -389,6 +389,13 @@ void main() {
     repository.pushOtaProgress(
       const OtaProgress(deviceId: 'device-01', status: OtaStatus.success),
     );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      tester.widget<Text>(find.byKey(const Key('ota-progress-title'))).data,
+      '升级完成',
+    );
+    await tester.tap(find.byKey(const Key('ota-progress-close')));
     await tester.pumpAndSettle();
 
     expect(state.deviceById('device-01')?.firmwareVersion, '1.1.2');
@@ -483,7 +490,8 @@ void main() {
         changedDps: <int>{TuyaConfig.dp['firmware_version']!},
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(
       tester.widget<Text>(find.byKey(const Key('ota-progress-title'))).data,
@@ -491,6 +499,9 @@ void main() {
     );
     expect(find.byKey(const Key('ota-progress-close')), findsOneWidget);
     expect(state.deviceById('device-01')?.firmwareVersion, '1.1.2');
+    await tester.tap(find.byKey(const Key('ota-progress-close')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('ota-progress-dialog')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -585,6 +596,7 @@ void main() {
 
     final otherSettings = find.text('其他设置');
     await tester.ensureVisible(otherSettings);
+    await tester.pumpAndSettle();
     await tester.tap(otherSettings);
     await tester.pumpAndSettle();
 
@@ -624,6 +636,7 @@ Future<FlowerpotState> _stateWithDevice([
   );
   await state.initialize();
   await state.refreshDevices();
+  state.pauseDeviceWatch();
   return state;
 }
 

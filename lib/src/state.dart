@@ -50,6 +50,9 @@ class FlowerpotState extends ChangeNotifier {
   /// 设备；版本号 DP 兜底也拿它比（`_confirmOtaByReportedVersion`）。
   final Map<String, String> _pendingOtaVersion = <String, String>{};
 
+  /// 仅保留本次升级开始后真正上报的版本。安装阶段到达后重验，不读取旧快照。
+  final Map<String, String> _reportedOtaVersion = <String, String>{};
+
   /// 云端说这台设备可以装、但还没装上的固件。
   ///
   /// 值由涂鸦 SDK 给出（App 不和设备直接说话），已经和当前版本比过，所以
@@ -3072,19 +3075,43 @@ class FlowerpotState extends ChangeNotifier {
   /// 只负责"发起"：涂鸦的 `startOta` 返回时设备才刚开始下载，之后的进度和最终
   /// 结果都从 [otaUpdates] 回来。版本号因此不在这里改写，而是等 success 事件
   /// ——否则设备还在烧录，界面就已经显示新版本了。
-  Future<ActionResult> upgradeFirmware(String id, String version) => _guard(
-    () async {
-      await _repository.startFirmwareUpgrade(id);
-      _pendingOtaVersion[id] = version;
-      _otaProgress[id] = OtaProgress(
-        deviceId: id,
-        status: OtaStatus.running,
-        percent: 0,
-      );
-      _otaUpdatedAt[id] = DateTime.now();
-      return const ActionResult(true, '升级已开始，请保持设备通电并留在网络中');
-    },
-  );
+  Future<ActionResult> upgradeFirmware(String id, String version) =>
+      _guard(() async {
+        final epoch = _sessionEpoch;
+        _reportedOtaVersion.remove(id);
+        _pendingOtaVersion[id] = version;
+        _otaProgress[id] = OtaProgress(
+          deviceId: id,
+          status: OtaStatus.running,
+          percent: 0,
+        );
+        _otaUpdatedAt[id] = DateTime.now();
+        // 在原生调用之前建好本次状态，避免即时进度/失败被 startOta 的返回覆盖。
+        try {
+          await _repository.startFirmwareUpgrade(id);
+        } catch (error) {
+          if (epoch == _sessionEpoch) {
+            _applyOtaProgress(
+              OtaProgress(
+                deviceId: id,
+                status: OtaStatus.failed,
+                message: error is TuyaException
+                    ? error.message
+                    : '固件升级未能开始，请稍后重试。',
+              ),
+            );
+          }
+          rethrow;
+        }
+        if (epoch != _sessionEpoch) {
+          return const ActionResult(false, '会话已变化，请重新检查设备升级');
+        }
+        final progress = _otaProgress[id];
+        if (progress?.status == OtaStatus.failed) {
+          return ActionResult(false, progress?.message ?? '固件升级未能开始');
+        }
+        return const ActionResult(true, '升级已开始，请保持设备通电并留在网络中');
+      });
 
   /// 某台设备最近一次的升级进度，没有发起过升级时为 null。
   OtaProgress? otaProgressFor(String deviceId) => _otaProgress[deviceId];
@@ -3112,6 +3139,7 @@ class FlowerpotState extends ChangeNotifier {
     if (_otaProgress.remove(deviceId) == null) return;
     _otaUpdatedAt.remove(deviceId);
     _pendingOtaVersion.remove(deviceId);
+    _reportedOtaVersion.remove(deviceId);
     notifyListeners();
   }
 
@@ -3288,6 +3316,8 @@ class FlowerpotState extends ChangeNotifier {
     }
     _backendDevices.remove(id);
     _devices.removeWhere((device) => device.id == id);
+    clearOtaProgress(id);
+    _availableFirmware.remove(id);
     _plantedDevices.remove(id);
     _backendAnimations.remove(id);
     _plantOverrides.remove(id);
@@ -3691,10 +3721,10 @@ class FlowerpotState extends ChangeNotifier {
   /// 更新——`startOta` 返回只代表升级发起成功。失败和进度都留在这里给界面读。
   void _applyOtaProgress(OtaProgress incoming) {
     final previous = _otaProgress[incoming.deviceId];
+    // SDK 与设备 DP 并存：本次终态只接受一次，迟到的进度或相反结论都不能覆盖。
+    if (previous != null && previous.status != OtaStatus.running) return;
     var progress = incoming;
     if (incoming.status == OtaStatus.running) {
-      // 升级已经有了结论，迟到的「进行中」事件不能把它改回去。
-      if (previous != null && previous.status != OtaStatus.running) return;
       // 只报阶段（涂鸦状态码）的事件不带百分比，只报百分比的不带阶段：两样各自沿用上一次的，
       // 别把进度条打回 0，也别丢了「固件已下载到设备」。
       progress = OtaProgress(
@@ -3706,6 +3736,9 @@ class FlowerpotState extends ChangeNotifier {
     }
     _otaProgress[progress.deviceId] = progress;
     _otaUpdatedAt[progress.deviceId] = DateTime.now();
+    if (progress.status != OtaStatus.running) {
+      _reportedOtaVersion.remove(progress.deviceId);
+    }
     if (progress.status == OtaStatus.success) {
       // 装上了就不再是「待装」，小红点跟着灭掉。
       _availableFirmware.remove(progress.deviceId);
@@ -3718,6 +3751,8 @@ class FlowerpotState extends ChangeNotifier {
       }
     } else if (progress.status == OtaStatus.failed) {
       _pendingOtaVersion.remove(progress.deviceId);
+    } else if (_confirmOtaByPendingReport(progress.deviceId)) {
+      return;
     }
     notifyListeners();
   }
@@ -3735,33 +3770,82 @@ class FlowerpotState extends ChangeNotifier {
   ///   固件安装中这个过程才去判断」）：仍在升级中，且 [OtaProgress.displayStage] 是
   ///   安装中（进度 ≥ [OtaProgress.installingPercent] 或涂鸦报了阶段 6）。已成功、已失败、
   ///   还在准备或下载的都不看；
-  /// - **这条报文里真的带了**版本号 DP（[DeviceUpdate.changedDps]），不看快照里的旧值；
+  /// - **本次升级开始后真正上报过**版本号 DP（[DeviceUpdate.changedDps]），不看快照里的旧值；
+  ///   版本先到时仅记录，安装阶段到达后重验；开始下一次升级或收尾后清除；
   /// - App 里发起过这次升级（有目标版本），且版本号相等（忽略前面的 `V`）。
   void _confirmOtaByReportedVersion(
     SmartPlanterDevice device,
-    Set<int> changedDps,
-  ) {
+    Set<int> changedDps, {
+    Map<int, Object?> reportedDps = const <int, Object?>{},
+  }) {
     final dpId = isMowerDevice(device)
         ? MowerDp.fwVersion
         : TuyaConfig.dp['firmware_version'];
     if (dpId == null || !changedDps.contains(dpId)) return;
-    final progress = _otaProgress[device.id];
-    if (progress == null ||
-        progress.status != OtaStatus.running ||
-        progress.displayStage != OtaStage.installing) {
+    if (_otaProgress[device.id]?.status != OtaStatus.running ||
+        !_pendingOtaVersion.containsKey(device.id)) {
       return;
     }
-    final target = _pendingOtaVersion[device.id];
-    if (target == null) return;
+    final raw = reportedDps[dpId];
+    if (reportedDps.containsKey(dpId) &&
+        (raw is! String || raw.trim().isEmpty)) {
+      _reportedOtaVersion.remove(device.id);
+      return;
+    }
+    _reportedOtaVersion[device.id] = raw is String
+        ? raw
+        : device.firmwareVersion;
+    _confirmOtaByPendingReport(device.id);
+  }
+
+  bool _confirmOtaByPendingReport(String deviceId) {
+    final progress = _otaProgress[deviceId];
+    if (progress?.status != OtaStatus.running ||
+        progress?.displayStage != OtaStage.installing) {
+      return false;
+    }
+    final reported = _reportedOtaVersion[deviceId];
+    final target = _pendingOtaVersion[deviceId];
+    if (reported == null || target == null) return false;
     String bare(String version) =>
         version.trim().replaceFirst(RegExp('^[Vv]'), '');
-    if (bare(device.firmwareVersion) != bare(target)) return;
-    _logInteraction(
-      'OTA 兜底 ← DP$dpId 上报版本 ${device.firmwareVersion} = 目标版本，按升级完成处理',
-    );
+    if (bare(reported) != bare(target)) return false;
+    _logInteraction('OTA 兜底 ← 本次上报版本 $reported = 目标版本，按升级完成处理');
     _applyOtaProgress(
-      OtaProgress(deviceId: device.id, status: OtaStatus.success),
+      OtaProgress(deviceId: deviceId, status: OtaStatus.success),
     );
+    return true;
+  }
+
+  void _confirmOtaFromDeviceReport(DeviceUpdate update) {
+    final device = update.device;
+    if (device == null) return;
+    // 同一报文含拒绝/失败和版本时，先收失败，不能用版本把设备错误盖成成功。
+    if (isMowerDevice(device) &&
+        update.changedDps.contains(MowerDp.otaStatus) &&
+        _otaProgress[device.id]?.status == OtaStatus.running &&
+        _pendingOtaVersion.containsKey(device.id)) {
+      final code = '${update.reportedDps[MowerDp.otaStatus] ?? ''}'.trim();
+      final message = switch (code) {
+        '7' => '割草机当前状态不允许升级，请让机器待机后重试。',
+        '20' => '割草机升级包校验失败，请重新发起升级。',
+        _ => null,
+      };
+      if (message != null) {
+        _logInteraction('OTA ✗ DP${MowerDp.otaStatus} 设备报 $code，结束本次升级');
+        _applyOtaProgress(
+          OtaProgress(
+            deviceId: device.id,
+            status: OtaStatus.failed,
+            message: message,
+          ),
+        );
+      }
+    }
+    _confirmOtaByReportedVersion(
+      device, update.changedDps, reportedDps: update.reportedDps,
+    );
+    _confirmOtaByResultDp(device, update.changedDps);
   }
 
   /// DP168 `ota_result`（花盆，2026-09-28 固件新增）：设备重启连云后自己比对「目标版本 == 当前版本」，
@@ -3830,6 +3914,8 @@ class FlowerpotState extends ChangeNotifier {
       _plantOverrides.remove(removedId);
       _settingsOverrides.remove(removedId);
       _liveSamples.remove(removedId);
+      clearOtaProgress(removedId);
+      _availableFirmware.remove(removedId);
       if (_selectedDeviceId == removedId) {
         _selectedDeviceId = _devices.firstOrNull?.id;
       }
@@ -3842,12 +3928,11 @@ class FlowerpotState extends ChangeNotifier {
     // A report for a device the session does not hold: the next list refresh
     // is what introduces it.
     if (index < 0) return;
-    _confirmOtaByReportedVersion(device, update.changedDps);
-    _confirmOtaByResultDp(device, update.changedDps);
     // 割草机：列表那一行换成最新快照（在线态、名字）就够了。下面是花盆专用的——
     // 割草机的 DP116 是升级状态，当成植物 id 去后端查只会白发请求。
     if (isMowerDevice(device)) {
       _devices[index] = device;
+      _confirmOtaFromDeviceReport(update);
       _syncMowerShutdownOnline();
       notifyListeners();
       return;
@@ -3861,6 +3946,7 @@ class FlowerpotState extends ChangeNotifier {
       _plantOverrides.remove(device.id);
       _plantedDevices.remove(device.id);
       _devices[index] = device;
+      _confirmOtaFromDeviceReport(update);
       notifyListeners();
       return;
     }
@@ -3872,6 +3958,7 @@ class FlowerpotState extends ChangeNotifier {
     _devices[index] = device.copyWith(
       plant: reportedPlant ?? _plantOverrides[device.id],
     );
+    _confirmOtaFromDeviceReport(update);
     notifyListeners();
     // 设备换到了一株 App 目录里还没有的植物——用户在引导窗里点「确认」、或者换了
     // NFC 芯片之后设备重新上报 116 就是这条路径。补拉一次目录再解析，成功了由
@@ -4520,6 +4607,11 @@ class FlowerpotState extends ChangeNotifier {
     _sessionEpoch++;
     _user = null;
     _devices = <SmartPlanterDevice>[];
+    _otaProgress.clear();
+    _otaUpdatedAt.clear();
+    _pendingOtaVersion.clear();
+    _reportedOtaVersion.clear();
+    _availableFirmware.clear();
     _unreachable.clear();
     _mowerShutdown.clear();
     _probeMisses.clear();

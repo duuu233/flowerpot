@@ -59,8 +59,14 @@ void main() {
   });
 
   tearDown(() {
-    messenger.setMockMethodCallHandler(const MethodChannel(_methodChannel), null);
-    messenger.setMockMethodCallHandler(const MethodChannel(_eventChannel), null);
+    messenger.setMockMethodCallHandler(
+      const MethodChannel(_methodChannel),
+      null,
+    );
+    messenger.setMockMethodCallHandler(
+      const MethodChannel(_eventChannel),
+      null,
+    );
   });
 
   group('MethodChannelTuyaRepository.deviceUpdates', () {
@@ -83,6 +89,47 @@ void main() {
       expect(device.sensors.airTemperature, 24.6);
       expect(device.battery, 64);
       expect(device.name, '客厅的绿意');
+    });
+
+    test(
+      'reportedDps contains only this packet, including mower OTA errors',
+      () async {
+        final updates = <DeviceUpdate>[];
+        final subscription = repository.deviceUpdates.listen(updates.add);
+        addTearDown(subscription.cancel);
+        await repository.getDevices();
+        await emit(<Object?, Object?>{
+          'deviceId': 'dev-1',
+          'dps': <Object?, Object?>{'116': '7', '112': '1.1.0'},
+        });
+        expect(updates.last.reportedDps, <int, Object?>{
+          116: '7',
+          112: '1.1.0',
+        });
+        expect(updates.last.changedDps, <int>{116, 112});
+        await emit(<Object?, Object?>{
+          'deviceId': 'dev-1',
+          'dps': <Object?, Object?>{'105': 88},
+        });
+        expect(updates.last.reportedDps, <int, Object?>{105: 88});
+        expect(updates.last.reportedDps, isNot(contains(116)));
+      },
+    );
+
+    test('device-info snapshot is not a fresh DP116 report', () async {
+      final updates = <DeviceUpdate>[];
+      final subscription = repository.deviceUpdates.listen(updates.add);
+      addTearDown(subscription.cancel);
+      await repository.getDevices();
+      await emit(<Object?, Object?>{
+        'deviceId': 'dev-1',
+        'device': <Object?, Object?>{
+          ..._deviceMap(),
+          'dps': <Object?, Object?>{'116': '20'},
+        },
+      });
+      expect(updates.last.changedDps, isEmpty);
+      expect(updates.last.reportedDps, isEmpty);
     });
 
     test('applies an online change without touching the readings', () async {
@@ -210,9 +257,7 @@ void main() {
 
       var notified = 0;
       state.addListener(() => notified++);
-      mock.pushDeviceUpdate(
-        DeviceUpdate.changed(device.copyWith(battery: 12)),
-      );
+      mock.pushDeviceUpdate(DeviceUpdate.changed(device.copyWith(battery: 12)));
       await Future<void>.delayed(Duration.zero);
 
       expect(state.deviceById(device.id)!.battery, 12);

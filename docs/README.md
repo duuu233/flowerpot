@@ -7,7 +7,7 @@
 
 本文件是 `docs/` 的统一导航。根目录保留执行规则 `AGENTS.md`、当前 AI 快照 `AI_CONTEXT.md` 和现有的结构入口 `PROJECT_STRUCTURE.md`；其余知识、平台手册、UI 规范和历史记录统一从这里查找。
 
-本轮检查记录：[2026-10-12 Android 割草机 OTA 与差分核查](history/2026-10/2026-10-12-mower-ota-audit.md)。此前记录：[2026-10-10 割草机 DP115 异常弹窗](history/2026-10/2026-10-10-mower-command-results.md)。此前记录：[2026-10-10 割草机启动安全确认与整小时设置](history/2026-10/2026-10-10-mower-start-safety-duration.md)。此前记录：[设备同类提示一致性](history/2026-10/2026-10-10-device-feedback-consistency.md)。
+本轮修复记录：[2026-10-12 割草机 OTA 终态与版本时序修复](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。此前检查记录：[2026-10-12 Android 割草机 OTA 与差分核查](history/2026-10/2026-10-12-mower-ota-audit.md)。此前记录：[2026-10-10 割草机 DP115 异常弹窗](history/2026-10/2026-10-10-mower-command-results.md)。此前记录：[2026-10-10 割草机启动安全确认与整小时设置](history/2026-10/2026-10-10-mower-start-safety-duration.md)。此前记录：[设备同类提示一致性](history/2026-10/2026-10-10-device-feedback-consistency.md)。
 
 ## 推荐阅读顺序
 
@@ -74,6 +74,6 @@ codegraph sync .
 
 记录路径为 `history/YYYY-MM/YYYY-MM-DD-topic.md`。一次集中修改对应一份记录，不维护无限增长的单文件日志。不得记录 Token、涂鸦密钥、安全组件、签名资料、Wi-Fi 密码、个人数据或完整本地配置。
 
-最近记录：[`history/2026-10/2026-10-10-mower-stability-plan-confirmation.md`](history/2026-10/2026-10-10-mower-stability-plan-confirmation.md)。此前记录：[`history/2026-10/2026-10-09-mower-home-loading-wifi.md`](history/2026-10/2026-10-09-mower-home-loading-wifi.md)。此前同日记录：[`history/2026-10/2026-10-09-mower-plan-delete-confirmation.md`](history/2026-10/2026-10-09-mower-plan-delete-confirmation.md)。
+最近记录：[割草机 OTA 终态与版本时序修复](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。此前记录：[`history/2026-10/2026-10-10-mower-stability-plan-confirmation.md`](history/2026-10/2026-10-10-mower-stability-plan-confirmation.md)。此前记录：[`history/2026-10/2026-10-09-mower-home-loading-wifi.md`](history/2026-10/2026-10-09-mower-home-loading-wifi.md)。此前同日记录：[`history/2026-10/2026-10-09-mower-plan-delete-confirmation.md`](history/2026-10/2026-10-09-mower-plan-delete-confirmation.md)。
 
 此前记录：[`history/2026-09/2026-09-21-我的页去掉设备设置-反馈邮箱读platformEmail-关于改智能设备.md`](history/2026-09/2026-09-21-我的页去掉设备设置-反馈邮箱读platformEmail-关于改智能设备.md)。
