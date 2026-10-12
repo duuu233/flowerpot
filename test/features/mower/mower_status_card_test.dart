@@ -12,6 +12,8 @@ void main() {
     WidgetTester tester,
     MowerPowerState tone, {
     bool disableAnimations = false,
+    bool wifiLinked = false,
+    bool bleLinked = false,
   }) async {
     // MediaQuery 要套在 MaterialApp 里面：外面那层会被 MaterialApp 自己按窗口建的盖掉。
     await tester.pumpWidget(
@@ -28,6 +30,8 @@ void main() {
               tone: tone,
               percent: 78,
               statusLabel: '待机',
+              wifiLinked: wifiLinked,
+              bleLinked: bleLinked,
             ),
           ),
         ),
@@ -65,6 +69,34 @@ void main() {
         reason: '1.4 s 一个周期，回到起点');
     expect(tester.takeException(), isNull);
   });
+
+  for (final bleLinked in <bool>[false, true]) {
+    testWidgets('Wi-Fi 离线、在线、再离线按原图淡显；蓝牙=$bleLinked独立显示', (tester) async {
+      for (final wifiLinked in <bool>[false, true, false]) {
+        await pumpCard(
+          tester,
+          MowerPowerState.batteryWarning,
+          wifiLinked: wifiLinked,
+          bleLinked: bleLinked,
+        );
+        final wifiKey = Key('mower-link-wifi-${wifiLinked ? 'on' : 'off'}');
+        final bleKey = Key('mower-link-ble-${bleLinked ? 'on' : 'off'}');
+        expect(
+          tester.widget<Opacity>(find.byKey(wifiKey)).opacity,
+          wifiLinked ? 1 : .3,
+        );
+        expect(
+          tester.widget<Opacity>(find.byKey(bleKey)).opacity,
+          bleLinked ? 1 : .3,
+        );
+        final wifi = tester.widget<Image>(assetImage(MowerAssets.wifiIcon));
+        expect(wifi.color, isNull, reason: '保留原图，不附加灰色滤镜');
+        expect(wifi.width, 26);
+        expect(wifi.height, 26);
+        expect(tester.takeException(), isNull);
+      }
+    });
+  }
 
   testWidgets('减弱动态效果：闪电停在最亮那一帧', (tester) async {
     await pumpCard(tester, MowerPowerState.charging, disableAnimations: true);

@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-10/2026-10-12-mower-wifi-original-style.md`](2026-10/2026-10-12-mower-wifi-original-style.md)：Wi-Fi 撤销灰色滤镜、恢复原图淡显；88 项相关回归通过，Android 分通道判断已核对，iOS 既有查询缺口保留。
+
 - [`2026-10/2026-10-12-mower-ota-terminal-fixes.md`](2026-10/2026-10-12-mower-ota-terminal-fixes.md)：补齐 Android 超时/文本失败，DP112 提前上报到安装阶段重验，DP116 拒绝/失败共享收尾；111 项 Flutter 回归与 23 项实际 SDK 回调断言通过，Android Kotlin 编译通过，未真机。
 
 - [`2026-10/2026-10-12-mower-ota-audit.md`](2026-10/2026-10-12-mower-ota-audit.md)：Android SDK 7.5.1 OTA 链路、差分/进度报告职责及 60 秒超时解释核查；42 回归通过、2 项基线失败，未真机、仅文档。
