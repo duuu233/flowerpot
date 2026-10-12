@@ -2,10 +2,11 @@
 
 > 文档类型：实现说明
 > 状态：Active
-> 最后核验：2026-09-24（按当前源码）
+> 最后核验：2026-10-12（当前源码、Android SDK 7.5.1 AAR 与涂鸦官方文档；未真机）
 
 | 日期 | 更新内容 | 落点 |
 | --- | --- | --- |
+| 2026-10-12 | 核实移动端与设备 TuyaOS 的接口边界、差分 OTA 条件及耗时排查；补齐 DP168 当前行为与回调缺口 | §2.2、§2.5、§4、§5、§6 |
 | 2026-09-24 | 兜底改为只在「固件安装中」（≥98% 或阶段 6）时判断；去掉「失败后改判成功」 | §2.3、§2.5、附录 A6/A8 |
 | 2026-09-24 | 新增成功判定兜底：版本号 DP（花盆 148 / 割草机 112）等于目标版本即升级完成，与涂鸦成功回调并存 | §2.3、§2.5、附录 A6/A8 |
 | 2026-09-24 | 新增附录：发起升级与进度的实现步骤（逐层调用的方法） | 附录 A |
@@ -57,12 +58,13 @@
 
 ### 2.2 回调 → 状态
 
-| Android（`IThingOtaListener`） | iOS（设备 delegate） | 转成 |
+| Android（`IOtaListener`，7.5.1） | iOS（设备 delegate） | 转成 |
 | --- | --- | --- |
 | `onProgress(type, percent)` | `firmwareUpgradeProgress` | `running` + 百分比 |
 | `onStatusChanged(code, type)` | 无 | `running` + 阶段码（只转下表中的码） |
 | `onSuccess` | `deviceFirmwareUpgradeSuccess` | `success` |
 | `onFailure` / `onError` | `deviceFirmwareUpgradeFailure` | `failed` + 失败原因 |
+| `onTimeout(type)` / `onFailureWithText(type, code, bean)` | 不适用 | 当前桥接未处理，不能据此宣称完整覆盖失败回调 |
 
 阶段码（涂鸦 SDK 7.5.1 `DevUpgradeStatusEnum`）：
 
@@ -92,7 +94,8 @@
   - 和涂鸦成功回调**并存**：任何一方先满足就跳到成功页，后到的一方不再改变结论。
   - 条件：这条上报里真的带了版本号 DP（`changedDps`），并且 App 里发起过这次升级（`_pendingOtaVersion` 有值）；比较时忽略版本号前面的 `V`。
   - 实现：`FlowerpotState._confirmOtaByReportedVersion`，在 `_applyDeviceUpdate` 里调用。
-- **卡住**：10 分钟没有任何事件就判定为已中断（`otaStallTimeout`），允许用户重新检查；同时提醒框也恢复弹出。
+- **花盆 DP168 `ota_result`**：进行中的升级收到本条报文中的 2 / success 时判成功，3 / failed 时判失败；0 / 1 只记录。不要求安装阶段，不适用于割草机。实现为 `_confirmOtaByResultDp`。
+- **卡住**：`otaStallTimeout` 是最后一次 OTA 事件后 10 分钟的停滞判定阈值，重新打开入口或提醒流程时允许清理、重新检查；没有设置“必须等 10 分钟”的成功延迟，也没有弹层内自动失败计时器。
 - **割草机 DP116 `ota_status`**：设备自己上报，`"7"` 表示不在待机、拒绝升级，`"20"` 表示升级失败，收到就弹提示（`mower_device.dart`）。它是涂鸦回调之外的补充，不参与进度。
 
 ## 3. 状态存在哪
@@ -118,7 +121,7 @@
 | --- | --- | --- |
 | 当前版本号 | DP 148 `firmware_version` | DP 112 `fw_version`（如 `"1.1.3"`） |
 | 版本 DP 都没报时 | 退回 SDK 的 `verSw` | 同左 |
-| 设备侧升级状态上报 | 无 | DP116 `ota_status` |
+| 设备侧升级状态上报 | DP168 `ota_result`（仅本条实时上报可收尾） | DP116 `ota_status`（当前只提示，不收尾） |
 | 进设置页静默查新版本 | 设置页、「其他设置」页各查一次 | 只靠提醒弹窗的检查（割草机各页都算设备页） |
 
 ## 5. 现状缺口
@@ -126,9 +129,47 @@
 - **发现新版本慢 1～2 分钟**：云端 OTA 记录本身有滞后，加上 App 自己 1 分钟的节流。
 - **设备重新上线、版本号 DP（花盆 148 / 割草机 112）变化，都不会触发重查新版本**。要缩短上面的延迟，App 侧可以从这里补。
 - **App 重启后进度丢失**：状态只在内存里。重启时如果设备还在升级，云端返回的是 `upgradeStatus = 2`（升级中），App 只认 1，会当作「没有新版本」，界面也看不到正在升级。
+- **Android 失败回调缺口**：实际 7.5.1 `IOtaListener` 有 `onTimeout` 和 `onFailureWithText`，当前 `otaListenerProxy` 均落入默认分支。设备已超时或失败时可能仍显示升级中；是否发生在本次 4–5 分钟现象中须用真机时间线证明。
+- **版本上报时序**：新 DP112 若在 App 仍处下载阶段时到达，版本兜底不接受；后来进入安装阶段不会重验这条上报。维持产品现有阶段限制，需先观测再调整，避免缓存或错误组件的版本误判。
+- **割草机 DP116**：`MowerDevice._readSnapshot` 对实时 7 / 20 仅发提示流，没有把共享 OTA 状态置为失败。
 - iOS 不转发阶段码，只有百分比和成败。
 - 涂鸦 App SDK 有没有「新版本可用」的推送接口，还没解包核对。
 - 固件方清单里的「订阅 DP112」：对**割草机**成立——DP112 `fw_version` 是它上报的当前版本，设备重新连上云端时会报一次，App 目前只拿它显示版本，还没用它触发重查新版本（即上面第二条）。花盆的 112 是空气温度，花盆对应的是 DP148。
+
+## 6. 差分 OTA 与升级耗时排查
+
+### 6.1 手机 App 与设备固件的职责
+
+Android 当前使用 Home SDK 7.5.1，Expansion SDK 7.8.0；实际 OTA 经 `newOTAInstance → getOtaInfo → setOtaListener → startOta`，由 SDK 负责发起和监听。App 没有自写升级包下载、Flash 擦写或传输分片逻辑，`onProgress(type, progress)` 取最后一个数字作为进度，符合当前 AAR 签名。
+
+`tuya_iot_dev_upgd_progress_rept`、`tuya_iot_upgrade_gw_notify`、`FW_UG_S.diff_ota`、`download_buf_size` 属于设备 TuyaOS/联网模块固件接口，不是 Android Home SDK 的配置。本仓库没有割草机固件源码；在 App 源码中找不到它们，不能证明设备未启用差分或未上报进度。
+
+设备侧 `notify=TRUE` 表示 SDK 自动上报进度，`FALSE` 表示应用层负责上报。“应用层”在这些文档里指设备上的应用程序。不能仅为提速关闭自动上报；切换后必须由设备代码完整、可靠地上报。详见[官方 Wi-Fi SDK 指南](https://developer.tuya.com/en/docs/iot-device-dev/tuya-common-wifi-sdk?id=K9glcmvw4u9ml)。
+
+差分升级要求固件具备能力、平台生成适用于起始和目标版本的差分包，并在部署中启用差分。`fw->diff_ota` 是升级信息中的标识，不能在手机端赋值 TRUE 就把全量包变成差分包。未找到“智能生活对所有设备默认差分，SDK App 默认全量”的通用依据，见[官方差分升级流程](https://developer.tuya.com/en/docs/iot/firmware-upgrade-operation-guide?id=K93ixsft1w3to)。
+
+### 6.2 60 秒与现有等待逻辑
+
+[官方网关联网 SDK 文档](https://developer.tuya.com/en/docs/iot-device-dev/tuya-gateway-link-sdk-development-manual?id=K9ducoah42rl2)的子设备升级章节描述了 App 收到进度会重置 60 秒计时器；[机器人设备 OTA 文档](https://developer.tuya.com/en/docs/iot-device-dev/robot_ota_upgrade?id=Kd93o3vid2fkk)也提到默认超时及平台配置。这些是特定方案的行为说明，不能代替本割草机的模组、SDK 与 PID 配置核实，也不能证明存在自动重试。
+
+本 App 源码没有 OTA 超时后自动重新 `startOta` 的循环。10 分钟停滞阈值与 98% 处 900ms 的显示停留不会强制让升级持续 4–5 分钟。安全完成判定、失败回调漏接与真实下载/烧录耗时必须分开核查。
+
+### 6.3 比较两款 App 的最小实测
+
+测试应对齐同一设备、起始/目标版本、固件组件、平台部署、包类型/大小及网络条件。重复对比需要有受控恢复起始版本的测试方式，不能拿连续两次不同升级任务直接作速度结论。
+
+| 时间点 | 需记录的证据 |
+| --- | --- |
+| 点击/发起 | App 构建、Home SDK 版本、起始和目标版本；发起次数 |
+| SDK 接受启动 | `startOta` 返回、错误回调、组件类型 |
+| 首次及后续进度 | 时间戳、`onProgress` 原始参数、`onStatusChanged` 原始参数 |
+| 下载/安装 | 设备日志中的包大小/差分标识、下载完成、校验和擦写耗时 |
+| 重启/重新连云 | SDK 在线变化、本条 DP112 内容/时间、DP116 错误值 |
+| 完成/失败 | SDK 成败/超时回调、Dart OTA 事件与界面终态时间 |
+
+优先补齐 Android 终态回调并记录时间线；若设备约 1 分钟已安装并上报目标版本，而弹层到 4–5 分钟才收尾，排查 App 桥接和 DP112 时序。若设备本身下载较慢，核对平台实际下发全量/差分包、模组传输路径及两款 App 的 SDK；若下载相同而安装慢，由固件团队核对校验/Flash/重启连云。升级 SDK 或增大设备下载缓存都应有兼容性和实测依据。
+
+2026-10-12 检查时没有 adb 真机连接，尚未取得上述时间线；不能认定 4–5 分钟根因，也不能宣称已经提速。本轮仅更新文档。检查与回归边界见[本轮记录](history/2026-10/2026-10-12-mower-ota-audit.md)。
 
 ## 附录 A：发起升级与进度——实现步骤
 

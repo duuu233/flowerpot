@@ -32,6 +32,8 @@
 
 ## 索引
 
+- [`2026-10/2026-10-12-mower-ota-audit.md`](2026-10/2026-10-12-mower-ota-audit.md)：Android SDK 7.5.1 OTA 链路、差分/进度报告职责及 60 秒超时解释核查；42 回归通过、2 项基线失败，未真机、仅文档。
+
 - [`2026-10/2026-10-10-mower-command-results.md`](2026-10/2026-10-10-mower-command-results.md)：V2.6 DP115四颗按钮拒绝回执与低优先级设备异常框，旧值/错配/重复隔离；关闭不重发。
 
 - [`2026-10/2026-10-10-device-feedback-consistency.md`](2026-10/2026-10-10-device-feedback-consistency.md)：核对花盆/割草机列表与公共 toast，统一完全离线提示，保留蓝牙入口例外；65 项回归通过，未真机。
