@@ -38,6 +38,8 @@
 
 ## 索引
 
+- [`2026-10/2026-10-13-mower-reference-materials-sync.md`](2026-10/2026-10-13-mower-reference-materials-sync.md)：同步已有 V2.6 协议、机器日志资料和功能点表，移除旧协议并更新入口；输入字节保留，未真机或固件联调。
+
 - [`2026-10/2026-10-13-backend-session-406-only.md`](2026-10/2026-10-13-backend-session-406-only.md)：仅业务 406 清会话，401 和其它错误保留 Token；61 项相关回归与核心静态分析通过，含定制动画重试。
 
 - [`2026-10/2026-10-12-mower-wifi-original-style.md`](2026-10/2026-10-12-mower-wifi-original-style.md)：Wi-Fi 撤销灰色滤镜、恢复原图淡显；88 项相关回归通过，Android 分通道判断已核对，iOS 既有查询缺口保留。

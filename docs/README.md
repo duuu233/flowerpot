@@ -27,8 +27,12 @@
 | [`PRD_IMPLEMENTATION.md`](PRD_IMPLEMENTATION.md) | Tracking | PRD 功能落地和平台待联调项。 |
 | [`RELEASE_READINESS_REVIEW.md`](RELEASE_READINESS_REVIEW.md) | Tracking | 安全、健壮性、性能与 Android/iOS 发布评审；含源码依据、整改顺序和验证边界。 |
 | `DP_GAP_REPORT.html`（本地生成） | Tracking | 功能点实现对照及缺口清单；由 [`../tool/build_dp_gap_report.py`](../tool/build_dp_gap_report.py) 生成。当前工作树没有此 HTML，使用前生成并核对脚本中的表是否跟随最新 DP 导出；改状态请改脚本后重跑。 |
-| [`Grass_Master_Automower_Tuya_DP协议_V2.6.md`](Grass_Master_Automower_Tuya_DP协议_V2.6.md) | Reference Contract | 当前割草机协议，DP115回执与拒绝码定义见§4.5/8；旧协议保留参考。 |
+| [`Grass_Master_Automower_Tuya_DP协议_V2.6.md`](Grass_Master_Automower_Tuya_DP协议_V2.6.md) | Reference Contract | 当前割草机协议，DP115回执与拒绝码定义见§4.5/8；已移除的 V2.3/V2.5 通过 Git 历史查阅。 |
 | [`MOWER_MACHINE_LOGS.md`](MOWER_MACHINE_LOGS.md) | Active | 控制反馈、code26新鲜DP111、DP事件机器日志初版及逐项真机验收边界。 |
+| [`APP机器日志对接表.md`](APP机器日志对接表.md) | Reference Contract | 产品提供的 DP120 事件编号、等级、中英文文案及 DP111 位对照；实现覆盖仍以 MOWER_MACHINE_LOGS.md 为准。 |
+| [`涂鸦推送_App机器日志对接说明.md`](涂鸦推送_App机器日志对接说明.md) | Design Reference | 基于 DP 上报流的 App 日志方案与去重规则；不代表全部已实现或真机验收。 |
+| [`涂鸦推送_App机器日志方案_分析稿.md`](涂鸦推送_App机器日志方案_分析稿.md) | Analysis Reference | 方案分析及待确认项；已被对接说明取代的部分按文首修订说明查阅。 |
+| [`YUSEN Robot Mower(mz7g3yzaufvoh4ls)_10_13.xlsx`](<YUSEN Robot Mower(mz7g3yzaufvoh4ls)_10_13.xlsx>) | Reference Input | 2026-10-13 产品提供的功能点表，作为协议对照输入；本轮未逐项核验固件或 App 实现。 |
 | [`MOWER_DP_GAP_REPORT.md`](MOWER_DP_GAP_REPORT.md) | Tracking | 割草机功能点落地差距（与上一行花盆那份同一口径）：协议 V2.6 的 24 个 DP 逐条状态、没接的原因、P0/P1/P2 缺口、待产品 / 固件答复的问题、稿子与协议的空档，以及整体模块流程（入口动线、模块与 DP 分布、下发 / 上报链路）。改了割草机 DP 相关代码后回来改附录 A。 |
 | [`TUYA_SDK_SETUP.md`](TUYA_SDK_SETUP.md) | Active Runbook | 涂鸦平台、Android/iOS SDK 和秘密管理要求。 |
 | [`BACKEND_TUYA_HOME_ID.md`](BACKEND_TUYA_HOME_ID.md) | Active | 涂鸦家庭 ID 的来源与归属、后端接口需求、双端家庭选择规则、花盆 / 割草机注册共用范围，以及设备丢失时排除家庭问题的证据边界。 |
@@ -72,6 +76,8 @@ codegraph sync .
 新增、移动或替代文档时同步更新本索引。若文档与代码冲突，先通过源码和 CodeGraph 确认当前行为，再修正负责该事实的 Active 文档，并为实质性调整建立历史记录。
 
 ## 历史记录
+
+本轮资料同步：[2026-10-13 割草机参考资料](history/2026-10/2026-10-13-mower-reference-materials-sync.md)。
 
 记录路径为 `history/YYYY-MM/YYYY-MM-DD-topic.md`。一次集中修改对应一份记录，不维护无限增长的单文件日志。不得记录 Token、涂鸦密钥、安全组件、签名资料、Wi-Fi 密码、个人数据或完整本地配置。
 
