@@ -7,7 +7,7 @@
 
 本文件是 `docs/` 的统一导航。根目录保留执行规则 `AGENTS.md`、当前 AI 快照 `AI_CONTEXT.md` 和现有的结构入口 `PROJECT_STRUCTURE.md`；其余知识、平台手册、UI 规范和历史记录统一从这里查找。
 
-本轮实现记录：[2026-10-12 控制反馈与机器日志初版](history/2026-10/2026-10-12-mower-feedback-machine-logs.md)。此前修复记录：[2026-10-12 割草机 Wi-Fi 恢复原样与状态核查](history/2026-10/2026-10-12-mower-wifi-original-style.md)。此前修复记录：[2026-10-12 割草机 OTA 终态与版本时序修复](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。此前检查记录：[2026-10-12 Android 割草机 OTA 与差分核查](history/2026-10/2026-10-12-mower-ota-audit.md)。此前记录：[2026-10-10 割草机 DP115 异常弹窗](history/2026-10/2026-10-10-mower-command-results.md)。此前记录：[2026-10-10 割草机启动安全确认与整小时设置](history/2026-10/2026-10-10-mower-start-safety-duration.md)。此前记录：[设备同类提示一致性](history/2026-10/2026-10-10-device-feedback-consistency.md)。
+本轮修复记录：[2026-10-13 固件升级弹框切换](history/2026-10/2026-10-13-ota-dialog-sequencing.md)。此前实现记录：[2026-10-12 控制反馈与机器日志初版](history/2026-10/2026-10-12-mower-feedback-machine-logs.md)。此前修复记录：[2026-10-12 割草机 Wi-Fi 恢复原样与状态核查](history/2026-10/2026-10-12-mower-wifi-original-style.md)。此前修复记录：[2026-10-12 割草机 OTA 终态与版本时序修复](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。此前检查记录：[2026-10-12 Android 割草机 OTA 与差分核查](history/2026-10/2026-10-12-mower-ota-audit.md)。此前记录：[2026-10-10 割草机 DP115 异常弹窗](history/2026-10/2026-10-10-mower-command-results.md)。此前记录：[2026-10-10 割草机启动安全确认与整小时设置](history/2026-10/2026-10-10-mower-start-safety-duration.md)。此前记录：[设备同类提示一致性](history/2026-10/2026-10-10-device-feedback-consistency.md)。
 
 ## 推荐阅读顺序
 

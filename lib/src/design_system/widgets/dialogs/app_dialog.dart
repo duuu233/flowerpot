@@ -44,6 +44,8 @@ extension AppDialogToneStyle on AppDialogTone {
 ///
 /// [showCancel] false renders a single full-width confirm button, for
 /// notice-only dialogs.
+/// [waitForDismissal] waits until the exit transition removes the overlay
+/// before returning, for flows that immediately open another dialog.
 Future<bool?> showAppDialog(
   BuildContext context, {
   required String title,
@@ -56,16 +58,19 @@ Future<bool?> showAppDialog(
   bool showCancel = true,
   bool stackActions = false,
   bool barrierDismissible = true,
+  bool waitForDismissal = false,
   Widget? content,
   Widget? footer,
-}) {
+}) async {
   // Double-tapping 确认 would pop twice and take the page underneath with it.
   var resolved = false;
-  return showDialog<bool>(
+  ModalRoute<bool>? route;
+  final result = await showDialog<bool>(
     context: context,
     barrierColor: Colors.black.withValues(alpha: .4),
     barrierDismissible: barrierDismissible,
     builder: (dialogContext) {
+      route = ModalRoute.of<bool>(dialogContext);
       void close([bool? result]) {
         if (resolved) return;
         resolved = true;
@@ -89,6 +94,8 @@ Future<bool?> showAppDialog(
       );
     },
   );
+  if (waitForDismissal) await route?.completed;
+  return result;
 }
 
 /// Notice dialog: one full-width button, default 「我知道了」.

@@ -295,6 +295,50 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('立即更新先完整关闭确认框，再发起升级和显示进度', (tester) async {
+    final repository = _OtherSettingsRepository();
+    final state = await _pumpOtherSettings(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.tap(find.text('固件版本更新'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('install-firmware-update')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(
+      find.byKey(const Key('firmware-update-dialog'), skipOffstage: false),
+      findsOneWidget,
+      reason: '确认框退场动画仍在进行',
+    );
+    expect(state.otaProgressFor('device-01'), isNull);
+    expect(find.byKey(const Key('ota-progress-dialog')), findsNothing);
+
+    for (var frame = 0; frame < 30; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (find.byKey(const Key('ota-progress-dialog')).evaluate().isNotEmpty) {
+        expect(
+          find.byKey(const Key('firmware-update-dialog'), skipOffstage: false),
+          findsNothing,
+          reason: '任一帧出现进度框时，确认框必须已经移出 overlay',
+        );
+      }
+    }
+    expect(find.byKey(const Key('ota-progress-dialog')), findsOneWidget);
+    repository.pushOtaProgress(
+      const OtaProgress(deviceId: 'device-01', status: OtaStatus.success),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.byKey(const Key('ota-progress-close')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('firmware-update-dialog')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('installing firmware waits for the device to report success', (
     tester,
   ) async {
@@ -310,6 +354,8 @@ void main() {
     await tester.tap(find.byKey(const Key('install-firmware-update')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
+    // 等确认框退场完成，下一帧才绘制进度框。
+    await tester.pump();
 
     // 点「立即更新」只是通知涂鸦给设备下发升级：设备还在下载烧录，版本号不能
     // 提前改。还没有进度时写「固件准备中」，不写「0%」（2026-09-15 产品：像卡住了）。
@@ -467,6 +513,8 @@ void main() {
     await tester.tap(find.byKey(const Key('install-firmware-update')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
+    // 等确认框退场完成，下一帧才绘制进度框。
+    await tester.pump();
     expect(find.byKey(const Key('ota-progress-dialog')), findsOneWidget);
 
     repository.pushOtaProgress(

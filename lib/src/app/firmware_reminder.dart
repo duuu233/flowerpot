@@ -219,6 +219,7 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
             cancelLabel: '取消',
             confirmLabel: '立刻更新',
             barrierDismissible: false,
+            waitForDismissal: true,
           ) ==
           true;
     }
@@ -237,10 +238,12 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
         (route) => route.settings.name == AppRoutes.mowerHome || route.isFirst,
       );
       MowerHomePage.tabRequests.value = MowerTab.settings;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final context = navigator?.overlay?.context;
-        if (context != null) unawaited(upgradeMowerFirmware(context, deviceId));
-      });
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final context = navigator?.overlay?.context;
+      if (context != null && context.mounted) {
+        await upgradeMowerFirmware(context, deviceId);
+      }
       return;
     }
     unawaited(
@@ -257,26 +260,33 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
   /// 强制升级：只有「立刻更新」，返回键、点遮罩都关不掉。
   static Future<bool> _showForceDialog(BuildContext context, String version) {
     var resolved = false;
+    ModalRoute<bool>? route;
     return showDialog<bool>(
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black.withValues(alpha: .4),
-      builder: (dialogContext) => PopScope(
-        canPop: false,
-        child: AppDialog(
-          key: const Key('firmware-force-upgrade-dialog'),
-          title: FirmwareReminderHost.forceMessage(version),
-          icon: Icons.system_update_alt_rounded,
-          confirmLabel: '立刻更新',
-          showCancel: false,
-          onConfirm: () {
-            if (resolved) return;
-            resolved = true;
-            Navigator.of(dialogContext).pop(true);
-          },
-        ),
-      ),
-    ).then((value) => value ?? false);
+      builder: (dialogContext) {
+        route = ModalRoute.of<bool>(dialogContext);
+        return PopScope(
+          canPop: false,
+          child: AppDialog(
+            key: const Key('firmware-force-upgrade-dialog'),
+            title: FirmwareReminderHost.forceMessage(version),
+            icon: Icons.system_update_alt_rounded,
+            confirmLabel: '立刻更新',
+            showCancel: false,
+            onConfirm: () {
+              if (resolved) return;
+              resolved = true;
+              Navigator.of(dialogContext).pop(true);
+            },
+          ),
+        );
+      },
+    ).then((value) async {
+      await route?.completed;
+      return value ?? false;
+    });
   }
 
   @override

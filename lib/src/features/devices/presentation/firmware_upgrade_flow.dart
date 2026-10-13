@@ -128,7 +128,17 @@ Future<bool> showFirmwareUpdateDialog(
   required String currentVersion,
   required String availableVersion,
 }) async {
-  return await showDialog<bool>(
+  ModalRoute<bool>? route;
+  var resolved = false;
+  void close(BuildContext dialogContext, bool accepted) {
+    if (resolved) return;
+    resolved = true;
+    route = ModalRoute.of<bool>(dialogContext);
+    Navigator.pop(dialogContext, accepted);
+  }
+
+  final accepted =
+      await showDialog<bool>(
         context: context,
         barrierColor: Colors.black.withValues(alpha: .42),
         builder: (dialogContext) => Dialog(
@@ -182,7 +192,7 @@ Future<bool> showFirmwareUpdateDialog(
                             foregroundColor: AppColors.textSecondary,
                             shape: const RoundedRectangleBorder(),
                           ),
-                          onPressed: () => Navigator.pop(dialogContext, false),
+                          onPressed: () => close(dialogContext, false),
                           child: Text(
                             '稍后',
                             style: AppTypography.status.copyWith(
@@ -200,7 +210,7 @@ Future<bool> showFirmwareUpdateDialog(
                             foregroundColor: AppColors.brandPrimary,
                             shape: const RoundedRectangleBorder(),
                           ),
-                          onPressed: () => Navigator.pop(dialogContext, true),
+                          onPressed: () => close(dialogContext, true),
                           child: Text(
                             '立即更新',
                             style: AppTypography.status.copyWith(
@@ -218,6 +228,9 @@ Future<bool> showFirmwareUpdateDialog(
         ),
       ) ??
       false;
+  // pop 先返回结果，等待退场动画和遮罩移除后再继续升级。
+  await route?.completed;
+  return accepted;
 }
 
 String _displayVersion(String version) =>
