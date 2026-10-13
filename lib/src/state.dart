@@ -1419,6 +1419,21 @@ class FlowerpotState extends ChangeNotifier {
   Future<Map<int, Object?>?> mowerDps(String deviceId) =>
       _repository.rawDps(deviceId);
 
+  /// 割草机 OTA 只允许 DP117 明确为 charging；满电、未知均不放行。
+  /// 从目标设备最新原始快照读取，不借用花盆同号 DP 或当前页面的单例状态。
+  Future<bool> canStartFirmwareUpgrade(String deviceId) async {
+    final device = deviceById(deviceId);
+    if (device == null) return false;
+    if (!isMowerDevice(device)) return true;
+    final dps = await mowerDps(deviceId);
+    return MowerDp.enumOf(
+          MowerChargingStatus.values,
+          (item) => item.code,
+          dps?[MowerDp.chargingStatus],
+        ) ==
+        MowerChargingStatus.charging;
+  }
+
   final Map<String, Future<MowerMachineLog>> _mowerLogLoads = {};
   final Map<String, MowerMachineLog> _mowerLogEngines = {};
   final Map<String, Future<void>> _mowerLogQueues = {};

@@ -91,6 +91,15 @@ Future<void> runFirmwareUpgrade(
       if (!accepted || !context.mounted) return;
       state.setCheckingFirmware(deviceId, true);
     }
+    // 检测仍可查看版本；用户确认且弹框完整退出后，按最新充电状态决定是否发起。
+    if (state.isMowerDevice(device)) {
+      final allowed = await state.canStartFirmwareUpgrade(deviceId);
+      if (!context.mounted) return;
+      if (!allowed) {
+        showAppMessage(context, '请回桩进行ota升级', tone: AppMessageTone.info);
+        return;
+      }
+    }
     final result = await state.upgradeFirmware(deviceId, update.version);
     log?.call(
       result.success

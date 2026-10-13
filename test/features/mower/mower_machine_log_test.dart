@@ -88,6 +88,68 @@ void main() {
       contains('未识别'),
     );
   });
+  test('code26 处理建议附带现场处理及手动重试间隔，保留位提示反馈固件', () {
+    final message = MowerFaultAlarm.parse(
+      _alarm(device: 1, error: 2),
+    )!.recoveryMessage;
+    expect(message, contains('电池异常'));
+    expect(message, contains('机器被抬起'));
+    expect(message, contains('现场处理'));
+    expect(message, contains('等待1～2秒'));
+    expect(message, contains('手动重试原操作'));
+    final reserved = MowerFaultAlarm.parse(
+      _alarm(device: 64, error: 8192),
+    )!.recoveryMessage;
+    expect(reserved, contains('反馈固件问题'));
+    expect(reserved, isNot(contains('电池异常')));
+  });
+  test('协议§8.6.1所有有效残留故障位都有具体处理建议', () {
+    const hardware = <int, String>{
+      1: '电池异常',
+      2: '姿态传感器异常',
+      4: '存储异常',
+      8: '左轮电机通信异常',
+      16: '右轮电机通信异常',
+      32: '刀盘电机通信异常',
+    };
+    const errors = <int, String>{
+      1: '扶正放平',
+      2: '放回地面',
+      4: '边界线供电',
+      8: '左轮异常',
+      16: '左轮异常',
+      32: '左轮异常',
+      64: '右轮异常',
+      128: '右轮异常',
+      256: '右轮异常',
+      512: '刀盘异常',
+      1024: '刀盘异常',
+      2048: '刀盘异常',
+      4096: '刀盘异常',
+      16384: '移回界内',
+      32768: '离开充电桩',
+    };
+    for (final item in hardware.entries) {
+      expect(
+        MowerFaultAlarm.parse(_alarm(device: item.key))!.recoveryMessage,
+        contains(item.value),
+        reason: 'device=${item.key}',
+      );
+    }
+    for (final item in errors.entries) {
+      expect(
+        MowerFaultAlarm.parse(_alarm(error: item.key))!.recoveryMessage,
+        contains(item.value),
+        reason: 'error=${item.key}',
+      );
+    }
+    final many = MowerFaultAlarm.parse(
+      _alarm(device: 7, error: 6),
+    )!.recoveryMessage;
+    expect(many, contains('另有故障未排除'));
+    expect(many, isNot(contains('机器被抬起')));
+    expect(many, contains('手动重试原操作'));
+  });
   test('DP115 32–70 定义码有具体文案，255 无内部码，小于16不弹', () {
     const expected = {
       32: '充电桩',

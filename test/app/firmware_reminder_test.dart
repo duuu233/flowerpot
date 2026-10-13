@@ -5,6 +5,7 @@ import 'package:flowerpot/src/app/firmware_reminder.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_other_settings_page.dart';
+import 'package:flowerpot/src/features/devices/presentation/firmware_upgrade_flow.dart';
 import 'package:flowerpot/src/features/mower/mower_device.dart';
 import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
@@ -21,6 +22,7 @@ void main() {
   Future<(FlowerpotState, List<RouteSettings>)> pumpHost(
     WidgetTester tester,
     FirmwareUpgradeType type, {
+    bool confirmed = false,
     bool realSettings = false,
     bool mower = false,
     _UpgradeRepository? repository,
@@ -77,7 +79,19 @@ void main() {
           }
           return MaterialPageRoute<void>(
             settings: settings,
-            builder: (_) => Scaffold(body: Text('${settings.name}')),
+            builder: (context) => Scaffold(
+              body: mower && realSettings
+                  ? TextButton(
+                      key: const Key('manual-firmware-check'),
+                      onPressed: () => runFirmwareUpgrade(
+                        context,
+                        state.devices.single.id,
+                        confirmed: confirmed,
+                      ),
+                      child: const Text('固件检测升级'),
+                    )
+                  : Text('${settings.name}'),
+            ),
           );
         },
       ),
@@ -299,6 +313,140 @@ void main() {
     expect(find.text(force), findsNothing);
   });
 
+  for (final type in [FirmwareUpgradeType.remind, FirmwareUpgradeType.force]) {
+    for (final charging in <Object?>[0, 2, null, 'unknown']) {
+      testWidgets('割草机 $type：DP117=$charging 不弹，充电上报后才弹', (tester) async {
+        final repository = _UpgradeRepository(
+          type,
+          mower: true,
+          chargingStatus: charging,
+        );
+        final (state, _) = await pumpHost(
+          tester,
+          type,
+          mower: true,
+          realSettings: true,
+          repository: repository,
+        );
+        final id = state.devices.single.id;
+        await open(tester, AppRoutes.mowerHome, id);
+        expect(state.hasFirmwareUpdate(id), isTrue);
+        expect(find.text(remind), findsNothing);
+        expect(find.text(force), findsNothing);
+        repository.rawDpsByDevice[id] = {MowerDp.chargingStatus: 'charging'};
+        repository.pushDeviceUpdate(
+          DeviceUpdate.changed(
+            state.deviceById(id)!,
+            changedDps: {MowerDp.chargingStatus},
+            reportedDps: {MowerDp.chargingStatus: 'charging'},
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.text(type == FirmwareUpgradeType.force ? force : remind),
+          findsOneWidget,
+        );
+        expect(repository.startCalls, 0);
+      });
+    }
+  }
+
+  for (final charging in <Object?>[0, 2, null, 'unknown', 1, 'charging']) {
+    testWidgets('割草机手动检测 DP117=$charging：确认后判断充电再升级', (tester) async {
+      final repository = _UpgradeRepository(
+        FirmwareUpgradeType.check,
+        mower: true,
+        chargingStatus: charging,
+      );
+      final (state, _) = await pumpHost(
+        tester,
+        FirmwareUpgradeType.check,
+        mower: true,
+        realSettings: true,
+        repository: repository,
+      );
+      final id = state.devices.single.id;
+      await open(tester, AppRoutes.mowerHome, id);
+      await tester.tap(find.byKey(const Key('manual-firmware-check')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('firmware-update-dialog')), findsOneWidget);
+      expect(find.text('请回桩进行ota升级'), findsNothing);
+      expect(repository.startCalls, 0);
+      await tester.tap(find.byKey(const Key('install-firmware-update')));
+      for (var frame = 0; frame < 40; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(
+        find.byKey(const Key('firmware-update-dialog'), skipOffstage: false),
+        findsNothing,
+      );
+      if (charging == 1 || charging == 'charging') {
+        expect(repository.startCalls, 1);
+        expect(find.byKey(const Key('ota-progress-dialog')), findsOneWidget);
+        repository.pushOtaProgress(
+          OtaProgress(deviceId: id, status: OtaStatus.success),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.tap(find.byKey(const Key('ota-progress-close')));
+        await tester.pumpAndSettle();
+      } else {
+        expect(find.text('请回桩进行ota升级'), findsOneWidget);
+        expect(repository.startCalls, 0);
+        expect(state.otaProgressFor(id), isNull);
+        expect(find.byKey(const Key('ota-progress-dialog')), findsNothing);
+      }
+      expect(state.isCheckingFirmware(id), isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('已确认入口不能绕过充电门禁', (tester) async {
+    final repository = _UpgradeRepository(
+      FirmwareUpgradeType.check,
+      mower: true,
+      chargingStatus: 0,
+    );
+    final (state, _) = await pumpHost(
+      tester,
+      FirmwareUpgradeType.check,
+      mower: true,
+      realSettings: true,
+      confirmed: true,
+      repository: repository,
+    );
+    await open(tester, AppRoutes.mowerHome, state.devices.single.id);
+    await tester.tap(find.byKey(const Key('manual-firmware-check')));
+    await tester.pumpAndSettle();
+    expect(find.text('请回桩进行ota升级'), findsOneWidget);
+    expect(find.byKey(const Key('firmware-update-dialog')), findsNothing);
+    expect(repository.startCalls, 0);
+  });
+
+  testWidgets('确认框停留期间离桩：点立即更新按最新DP117拦截', (tester) async {
+    final repository = _UpgradeRepository(
+      FirmwareUpgradeType.check,
+      mower: true,
+    );
+    final (state, _) = await pumpHost(
+      tester,
+      FirmwareUpgradeType.check,
+      mower: true,
+      realSettings: true,
+      repository: repository,
+    );
+    final id = state.devices.single.id;
+    await open(tester, AppRoutes.mowerHome, id);
+    await tester.tap(find.byKey(const Key('manual-firmware-check')));
+    await tester.pumpAndSettle();
+    repository.rawDpsByDevice[id] = {MowerDp.chargingStatus: 0};
+    await tester.tap(find.byKey(const Key('install-firmware-update')));
+    await tester.pumpAndSettle();
+    expect(find.text('请回桩进行ota升级'), findsOneWidget);
+    expect(repository.startCalls, 0);
+    expect(state.otaProgressFor(id), isNull);
+  });
+
   testWidgets('设备列表、「我的」不监控', (tester) async {
     final (state, _) = await pumpHost(tester, FirmwareUpgradeType.force);
 
@@ -319,16 +467,25 @@ void main() {
 }
 
 class _UpgradeRepository extends MockTuyaRepository {
-  _UpgradeRepository(this.type, {this.mower = false})
+  _UpgradeRepository(this.type, {this.mower = false, this.chargingStatus = 1})
     : super(latency: Duration.zero);
 
   final FirmwareUpgradeType type;
   final bool mower;
+  final Object? chargingStatus;
   int startCalls = 0;
 
   @override
   Future<List<SmartPlanterDevice>> getDevices() async {
     final devices = await super.getDevices();
+    if (mower) {
+      for (final device in devices) {
+        rawDpsByDevice.putIfAbsent(
+          device.id,
+          () => {MowerDp.chargingStatus: chargingStatus},
+        );
+      }
+    }
     return mower
         ? devices
               .map(

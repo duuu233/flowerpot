@@ -70,13 +70,17 @@ class MowerFaultAlarm {
 
   String get recoveryMessage {
     final messages = recoveryMessages;
+    final reserved = (device & 64) != 0 || (error & 8192) != 0
+        ? '\n设备上报了保留故障位，请反馈固件问题。'
+        : '';
     if (messages.isNotEmpty) {
       final more = messages.length > 3 ? '\n另有故障未排除，请逐项检查设备。' : '';
-      return '以下故障尚未排除：\n${messages.take(3).join('\n')}$more';
+      return '以下故障尚未排除：\n${messages.take(3).join('\n')}$more$reserved'
+          '\n请在现场处理后等待1～2秒，再手动重试原操作。';
     }
     if ((device & ~64) != 0 || (error & ~8192) != 0) {
-      return '设备报告了未识别的残留故障，请检查设备并联系售后。';
+      return '设备报告了未识别的残留故障，请检查设备并联系售后。$reserved';
     }
-    return '暂未检测到残留故障，请等待1～2秒后重新操作。';
+    return '暂未检测到残留故障，请等待1～2秒后重新操作。$reserved';
   }
 }

@@ -66,7 +66,10 @@ void main() {
       }
       await tester.pumpAndSettle();
       expect(find.text('设备异常'), findsOneWidget);
-      expect(find.text('以下故障尚未排除：\n机器被抬起，请放回地面并合上盖子'), findsOneWidget);
+      expect(
+        find.text('以下故障尚未排除：\n机器被抬起，请放回地面并合上盖子\n请在现场处理后等待1～2秒，再手动重试原操作。'),
+        findsOneWidget,
+      );
       expect(find.byType(Dialog), findsOneWidget);
       expect(find.text('我已处理'), findsOneWidget);
       final count = repository.publishedDps.length;

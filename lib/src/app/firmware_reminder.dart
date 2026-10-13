@@ -186,6 +186,16 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
 
     final update = state.availableFirmwareFor(deviceId);
     if (update == null) return;
+    if (!await state.canStartFirmwareUpgrade(deviceId)) return;
+    // 读取状态期间可能离开页面、弹出其他框或开始升级，不能继续弹旧提醒。
+    if (!mounted ||
+        !state.authenticated ||
+        widget.routes.currentPage != page ||
+        widget.routes.popupOnTop ||
+        (state.otaProgressFor(deviceId)?.status == OtaStatus.running &&
+            !state.otaStalled(deviceId))) {
+      return;
+    }
     switch (update.upgradeType) {
       case FirmwareUpgradeType.check:
         return;

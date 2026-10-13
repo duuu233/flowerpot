@@ -28,3 +28,5 @@ REST 服务接入时通过 `--dart-define=API_BASE_URL=https://...` 提供服务
 ## 连续弹框切换
 
 固件提醒复用 `showAppDialog` 的可选 `waitForDismissal: true`，等待对话框退出动画和 overlay 移除再继续。其余调用默认仍在关闭结果返回时继续。强制提醒和版本确认采用相同退场完成等待；升级状态、进度阶段与终态规则见 [OTA_实现说明.md](OTA_实现说明.md)。
+
+`FlowerpotState.canStartFirmwareUpgrade(deviceId)` 供主动提醒与手动确认后的发起入口共用：花盆保持原规则，割草机按目标设备最新原始 DP117 仅允许 charging（1），不借用页面单例或花盆同号字段；已运行升级的进度入口在检查前处理。

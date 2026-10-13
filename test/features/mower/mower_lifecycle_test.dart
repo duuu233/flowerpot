@@ -210,6 +210,8 @@ void main() {
     await tester.pump();
     final message = await device.commandFaultMessage((await event).result);
     expect(message, contains('电池异常'));
+    expect(message, contains('现场处理后等待1～2秒'));
+    expect(message, contains('手动重试原操作'));
     expect(message, contains('机器被抬起'));
     expect(message, contains('割草区域外'));
     expect(message.indexOf('电池异常'), lessThan(message.indexOf('机器被抬起')));
