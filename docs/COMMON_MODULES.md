@@ -18,8 +18,15 @@
 - 国内登录注册先由 `AppBackendRepository` 建立 APP Token，再用返回的 `userNo` / `tuYaPwd` 通过 `TuyaRepository` 建立设备会话；失败时清理 APP Token，避免双会话不一致。海外邮箱和未配置 REST 的开发模式保留原链路。
 - 相框 BLE、投屏、图库和 OTA 等产品专属模块不迁移。
 
-REST 服务接入时通过 `--dart-define=API_BASE_URL=https://...` 提供服务源站（不含 `/swagger-ui.html#/`），由 `FlowerpotApp` 创建 `HttpAppBackendRepository`。当前未配置时会回落到 `ApiConfig` 中的临时 HTTP 地址；显式传 `API_BASE_URL=none` 才使用 `DisabledAppBackendRepository`。仅注入 Mock 涂鸦仓库不会禁用 REST，测试还应显式注入禁用型或 Fake 后端。业务页面只通过 `FlowerpotState` 使用这些能力。明文回落、令牌存储、写请求重试及会话隔离的待整改项见 [`RELEASE_READINESS_REVIEW.md`](RELEASE_READINESS_REVIEW.md)。
+REST 服务接入时通过 `--dart-define=API_BASE_URL=https://...` 提供服务源站（不含 `/swagger-ui.html#/`），由 `FlowerpotApp` 创建 `HttpAppBackendRepository`。当前默认正式 HTTPS 源站为 `https://api.yikaltd.com`，配置校验只接受 HTTPS 源站；`none` 不属于合法地址。隔离测试需要显式注入 `DisabledAppBackendRepository` 或 Fake 后端。仅注入 Mock 涂鸦仓库不会禁用 REST，测试还应显式注入禁用型或 Fake 后端。业务页面只通过 `FlowerpotState` 使用这些能力。网络、令牌存储、写请求重试及会话隔离的发布核查见 [`RELEASE_READINESS_REVIEW.md`](RELEASE_READINESS_REVIEW.md)。
 
+
+## APP 后端会话失效协议
+
+按 `PRODUCT_RULES.md` §4.3.1，`ApiClient` 仅在响应业务字段 `retCode=406` 时清除 `ApiSession` 并通知失效回调。
+HTTP 401/406 及其它业务错误仍抛出原错误，不清除内存或持久化 Token。
+`ApiException.isAuthError` 仅允许业务 406；`authError: false` 用于把 HTTP 406 等传输错误排除，其它错误不能强制提升为会话失效。
+`FlowerpotState` 的统一异常处理使用同一分类，406 只清 APP 后端会话，保留涂鸦与设备列表；请求代次保护继续隔离旧会话的迟到响应。
 
 ## 启动确认弹窗
 

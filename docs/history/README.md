@@ -38,6 +38,8 @@
 
 ## 索引
 
+- [`2026-10/2026-10-13-backend-session-406-only.md`](2026-10/2026-10-13-backend-session-406-only.md)：仅业务 406 清会话，401 和其它错误保留 Token；61 项相关回归与核心静态分析通过，含定制动画重试。
+
 - [`2026-10/2026-10-12-mower-wifi-original-style.md`](2026-10/2026-10-12-mower-wifi-original-style.md)：Wi-Fi 撤销灰色滤镜、恢复原图淡显；88 项相关回归通过，Android 分通道判断已核对，iOS 既有查询缺口保留。
 
 - [`2026-10/2026-10-12-mower-ota-terminal-fixes.md`](2026-10/2026-10-12-mower-ota-terminal-fixes.md)：补齐 Android 超时/文本失败，DP112 提前上报到安装阶段重验，DP116 拒绝/失败共享收尾；111 项 Flutter 回归与 23 项实际 SDK 回调断言通过，Android Kotlin 编译通过，未真机。

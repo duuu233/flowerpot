@@ -18,7 +18,8 @@ class ApiException implements Exception {
   final String? body;
   final bool? _authError;
 
-  bool get isAuthError => _authError ?? (code == 401 || code == 406);
+  /// 仅业务码 406 是登录失效；传输错误可显式排除，其它码不能提升为鉴权失效。
+  bool get isAuthError => code == 406 && _authError != false;
 
   @override
   String toString() => 'ApiException($code, $message)';

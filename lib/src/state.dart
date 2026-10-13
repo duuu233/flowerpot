@@ -4201,12 +4201,12 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
-  /// APP 后端会话失效（401 / 406）时的处置。
+  /// APP 后端业务码 406（登录失效）时的处置。
   ///
   /// **只清后端会话，不动涂鸦会话和设备列表。** 设备清单、DP 上报、配网、固件
   /// 全部走涂鸦，和 APP 后端的 token 没有任何关系；以前这里直接 `_clearLocalSession()`，
-  /// 一次 406 就把用户整个踢回登录页——表现就是「用一会儿（后端 token 的有效期）
-  /// 就掉登录」，而后端查自己的表又说 token 还在。真正需要后端的功能（图库、
+  /// 一次 406 就把用户整个踢回登录页。现在只处理明确的 406，不按时间或 401
+  /// 推定 Token 过期。真正需要后端的功能（图库、
   /// 植物目录、意见反馈）会各自报「APP 后端登录状态已失效，请重新登录」。
   void _handleBackendSessionExpired(ApiException error) {
     _backend.clearSession();
