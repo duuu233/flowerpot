@@ -33,6 +33,10 @@ Future<void> runFirmwareUpgrade(
   if (state.isCheckingFirmware(deviceId)) return;
   final device = state.deviceById(deviceId);
   if (device == null) return;
+  if (!state.isDeviceOnline(deviceId)) {
+    showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.info);
+    return;
+  }
 
   var useKnownVersion = true;
   if (state.otaProgressFor(deviceId)?.status == OtaStatus.running) {
@@ -68,7 +72,7 @@ Future<void> runFirmwareUpgrade(
     // 进页面时静默查过一次，红点就是那次的结论；只有「重新检查」时才不能拿旧结论。
     final known = useKnownVersion ? state.availableFirmwareFor(deviceId) : null;
     final update = known ?? await state.checkFirmware(deviceId);
-    if (!context.mounted) return;
+    if (!context.mounted || !state.isDeviceOnline(deviceId)) return;
     // 「当前版本」优先用同一条 OTA 记录里的那个：设备可能有 MCU、Wi-Fi 模块几个可升级
     // 组件，拿设备上报的版本和另一个组件的新版本并排显示，两行就对不上。
     final currentVersion = update?.currentVersion ?? device.firmwareVersion;
@@ -91,12 +95,20 @@ Future<void> runFirmwareUpgrade(
       if (!accepted || !context.mounted) return;
       state.setCheckingFirmware(deviceId, true);
     }
+    if (!state.isDeviceOnline(deviceId)) {
+      showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.info);
+      return;
+    }
     // 检测仍可查看版本；用户确认且弹框完整退出后，按最新充电状态决定是否发起。
     if (state.isMowerDevice(device)) {
       final allowed = await state.canStartFirmwareUpgrade(deviceId);
       if (!context.mounted) return;
       if (!allowed) {
-        showAppMessage(context, '请回桩进行ota升级', tone: AppMessageTone.info);
+        showAppMessage(
+          context,
+          state.isDeviceOnline(deviceId) ? '请回桩进行ota升级' : deviceOfflineMessage,
+          tone: AppMessageTone.info,
+        );
         return;
       }
     }

@@ -139,52 +139,55 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '行为', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: SingleChildScrollView(
-        key: const Key('behavior-settings-scroll-view'),
-        child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageMargin,
-            27,
-            AppSpacing.pageMargin,
-            40,
-          ),
-          child: Column(
-            children: <Widget>[
-              BehaviorScheduleCard(
-                model: model.nap,
-                switchKey: const Key('nap-switch'),
-                startTimeKey: const Key('nap-start-time'),
-                endTimeKey: const Key('nap-end-time'),
-                updating: updating.contains(BehaviorScheduleKind.nap),
-                onEnabledChanged: (value) =>
-                    _setEnabled(BehaviorScheduleKind.nap, value),
-                onStartTimeTap: () => _editSlot(model.nap, start: true),
-                onEndTimeTap: () => _editSlot(model.nap, start: false),
-              ),
-              const SizedBox(height: 12),
-              BehaviorScheduleCard(
-                model: model.night,
-                switchKey: const Key('night-switch'),
-                startTimeKey: const Key('night-start-time'),
-                endTimeKey: const Key('night-end-time'),
-                updating: updating.contains(BehaviorScheduleKind.night),
-                onEnabledChanged: (value) =>
-                    _setEnabled(BehaviorScheduleKind.night, value),
-                onStartTimeTap: () => _editSlot(model.night, start: true),
-                onEndTimeTap: () => _editSlot(model.night, start: false),
-              ),
-              const SizedBox(height: 12),
-              // 休眠是「多久没人理就睡」，和午休 / 夜间这两个时段同属行为，所以
-              // 直接摊在这一页上，版式和交互跟着上面两张卡走（DP 151 / 152）。
-              StandbySettingsCard(
-                enabled: device.settings.standbyEnabled,
-                delayMinutes: device.settings.standbyDelayMinutes,
-                updating: _standbyUpdating,
-                onEnabledChanged: _setStandbyEnabled,
-                onDelayTap: () =>
-                    _editStandbyDelay(device.settings.standbyDelayMinutes),
-              ),
-            ],
+      body: DeviceOnlineBody(
+        deviceId: widget.deviceId,
+        child: SingleChildScrollView(
+          key: const Key('behavior-settings-scroll-view'),
+          child: ResponsiveContent(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageMargin,
+              27,
+              AppSpacing.pageMargin,
+              40,
+            ),
+            child: Column(
+              children: <Widget>[
+                BehaviorScheduleCard(
+                  model: model.nap,
+                  switchKey: const Key('nap-switch'),
+                  startTimeKey: const Key('nap-start-time'),
+                  endTimeKey: const Key('nap-end-time'),
+                  updating: updating.contains(BehaviorScheduleKind.nap),
+                  onEnabledChanged: (value) =>
+                      _setEnabled(BehaviorScheduleKind.nap, value),
+                  onStartTimeTap: () => _editSlot(model.nap, start: true),
+                  onEndTimeTap: () => _editSlot(model.nap, start: false),
+                ),
+                const SizedBox(height: 12),
+                BehaviorScheduleCard(
+                  model: model.night,
+                  switchKey: const Key('night-switch'),
+                  startTimeKey: const Key('night-start-time'),
+                  endTimeKey: const Key('night-end-time'),
+                  updating: updating.contains(BehaviorScheduleKind.night),
+                  onEnabledChanged: (value) =>
+                      _setEnabled(BehaviorScheduleKind.night, value),
+                  onStartTimeTap: () => _editSlot(model.night, start: true),
+                  onEndTimeTap: () => _editSlot(model.night, start: false),
+                ),
+                const SizedBox(height: 12),
+                // 休眠是「多久没人理就睡」，和午休 / 夜间这两个时段同属行为，所以
+                // 直接摊在这一页上，版式和交互跟着上面两张卡走（DP 151 / 152）。
+                StandbySettingsCard(
+                  enabled: device.settings.standbyEnabled,
+                  delayMinutes: device.settings.standbyDelayMinutes,
+                  updating: _standbyUpdating,
+                  onEnabledChanged: _setStandbyEnabled,
+                  onDelayTap: () =>
+                      _editStandbyDelay(device.settings.standbyDelayMinutes),
+                ),
+              ],
+            ),
           ),
         ),
       ),

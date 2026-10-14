@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../devices/presentation/device_online_guard.dart';
+
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../mower_ui.dart';
@@ -86,82 +88,85 @@ class _MowerTimeSyncPageState extends State<MowerTimeSyncPage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '时间同步', leading: AppBackButton()),
-      body: Column(
-        children: <Widget>[
-          Expanded(
-            child: SingleChildScrollView(
-              key: const Key('mower-time-sync-scroll-view'),
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-              child: MowerCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    MowerSwitchRow(
-                      title: '开启',
-                      subtitle: '同步设备时间与当前手机时间（DP${MowerDp.timeSyncEnable}）',
-                      value: _enabled,
-                      switchKey: const Key('mower-time-sync-switch'),
-                      onChanged: (value) => setState(() => _enabled = value),
-                    ),
-                    const MowerRowDivider(indent: 20),
-                    MowerSwitchRow(
-                      title: '自动设置',
-                      subtitle: '根据手机所在地区自动选择时区（端上本地，无对应 DPID）',
-                      value: _autoZone,
-                      switchKey: const Key('mower-time-sync-auto'),
-                      onChanged: (value) => setState(() {
-                        _autoZone = value;
-                        if (value) _timezoneIndex = _phoneTimezoneIndex;
-                        if (value) _menu.hide();
-                      }),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          Text(
-                            '时区（DP${MowerDp.timezone} ${MowerTimezone.codeOf(_timezoneIndex)}）',
-                            style: const TextStyle(
-                              color: MowerColors.inkTertiary,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          _TimeZoneField(
-                            link: _link,
-                            menu: _menu,
-                            index: _timezoneIndex,
-                            // 自动设置开着时不让选：那时时区跟手机走。
-                            enabled: !_autoZone,
-                            onSelected: (index) => setState(() {
-                              _timezoneIndex = index;
-                              _menu.hide();
-                            }),
-                          ),
-                        ],
+      body: DeviceOnlineBody(
+        deviceId: MowerDevice.instance.deviceId,
+        child: Column(
+          children: <Widget>[
+            Expanded(
+              child: SingleChildScrollView(
+                key: const Key('mower-time-sync-scroll-view'),
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                child: MowerCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      MowerSwitchRow(
+                        title: '开启',
+                        subtitle: '同步设备时间与当前手机时间（DP${MowerDp.timeSyncEnable}）',
+                        value: _enabled,
+                        switchKey: const Key('mower-time-sync-switch'),
+                        onChanged: (value) => setState(() => _enabled = value),
                       ),
-                    ),
-                    const MowerRowDivider(indent: 20),
-                    MowerSwitchRow(
-                      title: '启用夏令制',
-                      subtitle: '仅在当前时区支持时生效（DP${MowerDp.dstEnable}）',
-                      value: _dst,
-                      switchKey: const Key('mower-time-sync-dst'),
-                      onChanged: (value) => setState(() => _dst = value),
-                    ),
-                  ],
+                      const MowerRowDivider(indent: 20),
+                      MowerSwitchRow(
+                        title: '自动设置',
+                        subtitle: '根据手机所在地区自动选择时区（端上本地，无对应 DPID）',
+                        value: _autoZone,
+                        switchKey: const Key('mower-time-sync-auto'),
+                        onChanged: (value) => setState(() {
+                          _autoZone = value;
+                          if (value) _timezoneIndex = _phoneTimezoneIndex;
+                          if (value) _menu.hide();
+                        }),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            Text(
+                              '时区（DP${MowerDp.timezone} ${MowerTimezone.codeOf(_timezoneIndex)}）',
+                              style: const TextStyle(
+                                color: MowerColors.inkTertiary,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            _TimeZoneField(
+                              link: _link,
+                              menu: _menu,
+                              index: _timezoneIndex,
+                              // 自动设置开着时不让选：那时时区跟手机走。
+                              enabled: !_autoZone,
+                              onSelected: (index) => setState(() {
+                                _timezoneIndex = index;
+                                _menu.hide();
+                              }),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const MowerRowDivider(indent: 20),
+                      MowerSwitchRow(
+                        title: '启用夏令制',
+                        subtitle: '仅在当前时区支持时生效（DP${MowerDp.dstEnable}）',
+                        value: _dst,
+                        switchKey: const Key('mower-time-sync-dst'),
+                        onChanged: (value) => setState(() => _dst = value),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          MowerSaveBar(
-            child: MowerSaveButton(
-              buttonKey: const Key('mower-time-sync-save'),
-              onPressed: _save,
+            MowerSaveBar(
+              child: MowerSaveButton(
+                buttonKey: const Key('mower-time-sync-save'),
+                onPressed: _save,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

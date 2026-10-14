@@ -70,23 +70,26 @@ class _TouchSettingsPageState extends State<TouchSettingsPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '触觉感知', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: SingleChildScrollView(
-        key: const Key('touch-settings-scroll-view'),
-        child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageMargin,
-            27,
-            AppSpacing.pageMargin,
-            40,
-          ),
-          child: TouchSettingsCard(
-            model: model,
-            sensitivity: pendingSensitivity ?? model.sensitivity.toDouble(),
-            updatingInteraction: updatingInteraction,
-            updatingSensitivity: updatingSensitivity,
-            onTouchInteractionChanged: _setTouchInteraction,
-            onSensitivityChanged: _previewSensitivity,
-            onSensitivityChangeEnd: _setSensitivity,
+      body: DeviceOnlineBody(
+        deviceId: widget.deviceId,
+        child: SingleChildScrollView(
+          key: const Key('touch-settings-scroll-view'),
+          child: ResponsiveContent(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageMargin,
+              27,
+              AppSpacing.pageMargin,
+              40,
+            ),
+            child: TouchSettingsCard(
+              model: model,
+              sensitivity: pendingSensitivity ?? model.sensitivity.toDouble(),
+              updatingInteraction: updatingInteraction,
+              updatingSensitivity: updatingSensitivity,
+              onTouchInteractionChanged: _setTouchInteraction,
+              onSensitivityChanged: _previewSensitivity,
+              onSensitivityChangeEnd: _setSensitivity,
+            ),
           ),
         ),
       ),

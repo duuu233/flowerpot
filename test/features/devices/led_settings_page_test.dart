@@ -11,6 +11,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('花盆设置中离线：参数和SDK下发都不变，在线恢复可操作', (tester) async {
+    final result = await _pumpLedSettings(tester, const Size(375, 812));
+    await result.state.initialize();
+    result.repository.pushDeviceUpdate(
+      DeviceUpdate.changed(_device.copyWith(online: false)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('led-switch')), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(result.repository.lastDps, isNull);
+    expect(result.state.deviceById('device-01')!.settings.ledEnabled, isFalse);
+    result.repository.pushDeviceUpdate(DeviceUpdate.changed(_device));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('led-switch')));
+    await tester.pumpAndSettle();
+    expect(result.repository.lastDps, {166: true});
+  });
+
   testWidgets('LED page is one switch, laid out like 震动设置', (tester) async {
     await _pumpLedSettings(tester, const Size(375, 812));
 

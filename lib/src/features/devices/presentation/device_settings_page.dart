@@ -83,33 +83,36 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage>
             : null,
       ),
       background: AppPageBackground.standard,
-      body: CustomScrollView(
-        slivers: <Widget>[
-          SliverToBoxAdapter(
-            child: ResponsiveContent(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.pageMargin,
-                27,
-                AppSpacing.pageMargin,
-                40,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  DeviceSettingsSummaryCard(
-                    model: model,
-                    onMore: () => _showMore(context, device),
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  DeviceSettingsFunctionList(
-                    items: model.menuItems,
-                    onItemTap: (kind) => _openMenu(context, device, kind),
-                  ),
-                ],
+      body: DeviceOnlineBody(
+        deviceId: widget.deviceId,
+        child: CustomScrollView(
+          slivers: <Widget>[
+            SliverToBoxAdapter(
+              child: ResponsiveContent(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageMargin,
+                  27,
+                  AppSpacing.pageMargin,
+                  40,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    DeviceSettingsSummaryCard(
+                      model: model,
+                      onMore: () => _showMore(context, device),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    DeviceSettingsFunctionList(
+                      items: model.menuItems,
+                      onItemTap: (kind) => _openMenu(context, device, kind),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

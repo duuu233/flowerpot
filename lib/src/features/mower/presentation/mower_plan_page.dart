@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../../devices/presentation/device_online_guard.dart';
 import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -107,7 +109,8 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
     setState(() => _device.setSchedule(state, week));
   }
 
-  List<MowerScheduleDay> get _week => List<MowerScheduleDay>.of(_device.schedule);
+  List<MowerScheduleDay> get _week =>
+      List<MowerScheduleDay>.of(_device.schedule);
 
   Future<void> _edit(int day, int? slot) async {
     var draft = MowerPlanDraft.forDay(
@@ -222,79 +225,82 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
             _RestoreDefaultButton(onTap: () => unawaited(_restoreDefault())),
           ],
         ),
-        body: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-          key: const Key('mower-plan-scroll-view'),
-          padding: const EdgeInsets.fromLTRB(20, _topGap, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        body: DeviceOnlineBody(
+          deviceId: MowerDevice.instance.deviceId,
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              key: const Key('mower-plan-scroll-view'),
+              padding: const EdgeInsets.fromLTRB(20, _topGap, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  const Text(
-                    '本周计划',
-                    style: TextStyle(
-                      color: MowerColors.ink,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  Text(
-                    _totalLabel,
-                    key: const Key('mower-plan-total'),
-                    style: const TextStyle(
-                      color: MowerColors.brand,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              // 一周都没有会执行的时段（含设备还没报过 DP101）：说一句，图表只画空坐标，不填任何色块。
-              if (_chartSlots.isEmpty)
-                Padding(
-                  key: const Key('mower-plan-empty'),
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Row(
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: <Widget>[
-                      const Icon(
-                        Icons.event_busy_outlined,
-                        size: 18,
-                        color: MowerColors.inkTertiary,
+                      const Text(
+                        '本周计划',
+                        style: TextStyle(
+                          color: MowerColors.ink,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                      const SizedBox(width: 6),
                       Text(
-                        _device.scheduleRaw == null
-                            ? '暂无割草计划（设备还没有上报）'
-                            : '暂无割草计划，点某一天添加',
+                        _totalLabel,
+                        key: const Key('mower-plan-total'),
                         style: const TextStyle(
-                          color: MowerColors.inkSecondary,
+                          color: MowerColors.brand,
                           fontSize: 12,
                         ),
                       ),
                     ],
                   ),
-                ),
-              MowerCard(
-                padding: const EdgeInsets.only(bottom: 18),
-                child: SizedBox(
-                  height: _chartHeight(constraints),
-                  child: MowerPlanChart(
-                    enabledDays: _enabledDays,
-                    trimDays: _trimDays,
-                    slots: _chartSlots,
-                    onToggleTrim: _toggleTrim,
-                    onEditDay: (day, slot) => unawaited(_edit(day, slot)),
-                    onDeleteSlot: (slot) => unawaited(_deleteSlot(slot)),
+                  const SizedBox(height: 10),
+                  // 一周都没有会执行的时段（含设备还没报过 DP101）：说一句，图表只画空坐标，不填任何色块。
+                  if (_chartSlots.isEmpty)
+                    Padding(
+                      key: const Key('mower-plan-empty'),
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        children: <Widget>[
+                          const Icon(
+                            Icons.event_busy_outlined,
+                            size: 18,
+                            color: MowerColors.inkTertiary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _device.scheduleRaw == null
+                                ? '暂无割草计划（设备还没有上报）'
+                                : '暂无割草计划，点某一天添加',
+                            style: const TextStyle(
+                              color: MowerColors.inkSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  MowerCard(
+                    padding: const EdgeInsets.only(bottom: 18),
+                    child: SizedBox(
+                      height: _chartHeight(constraints),
+                      child: MowerPlanChart(
+                        enabledDays: _enabledDays,
+                        trimDays: _trimDays,
+                        slots: _chartSlots,
+                        onToggleTrim: _toggleTrim,
+                        onEditDay: (day, slot) => unawaited(_edit(day, slot)),
+                        onDeleteSlot: (slot) => unawaited(_deleteSlot(slot)),
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  _ScheduleDebugWindow(device: _device),
+                ],
               ),
-              const SizedBox(height: 16),
-              _ScheduleDebugWindow(device: _device),
-            ],
+            ),
           ),
-        ),
         ),
       ),
     );

@@ -63,30 +63,33 @@ class _PlantDetectionSettingsPageState
         leading: const AppBackButton(),
       ),
       background: AppPageBackground.standard,
-      body: SingleChildScrollView(
-        key: const Key('plant-detection-settings-scroll-view'),
-        child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageMargin,
-            27,
-            AppSpacing.pageMargin,
-            40,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              DeviceToggleSettingsCard(
-                symbol: DeviceSettingSymbol.plant,
-                title: l10n.plantDetectionSwitchTitle,
-                status: enabled ? l10n.on : l10n.off,
-                description: description,
-                descriptionLines: description.split('\n'),
-                value: enabled,
-                switchKey: const Key('plant-detection-switch'),
-                updating: updating,
-                onChanged: _setEnabled,
-              ),
-            ],
+      body: DeviceOnlineBody(
+        deviceId: widget.deviceId,
+        child: SingleChildScrollView(
+          key: const Key('plant-detection-settings-scroll-view'),
+          child: ResponsiveContent(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageMargin,
+              27,
+              AppSpacing.pageMargin,
+              40,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                DeviceToggleSettingsCard(
+                  symbol: DeviceSettingSymbol.plant,
+                  title: l10n.plantDetectionSwitchTitle,
+                  status: enabled ? l10n.on : l10n.off,
+                  description: description,
+                  descriptionLines: description.split('\n'),
+                  value: enabled,
+                  switchKey: const Key('plant-detection-switch'),
+                  updating: updating,
+                  onChanged: _setEnabled,
+                ),
+              ],
+            ),
           ),
         ),
       ),

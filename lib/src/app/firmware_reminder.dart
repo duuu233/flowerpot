@@ -165,7 +165,11 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
         : null;
     // 离开设备页就算这次看完了设备面板，下次进来重新提醒。
     _remindDismissed.removeWhere((id) => id != deviceId);
-    if (deviceId == null || !state.authenticated) return;
+    if (deviceId == null ||
+        !state.authenticated ||
+        !state.isDeviceOnline(deviceId)) {
+      return;
+    }
     if (name == AppRoutes.deviceOtherSettings) return;
     if (widget.routes.popupOnTop) return;
     final running =
@@ -190,6 +194,7 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
     // 读取状态期间可能离开页面、弹出其他框或开始升级，不能继续弹旧提醒。
     if (!mounted ||
         !state.authenticated ||
+        !state.isDeviceOnline(deviceId) ||
         widget.routes.currentPage != page ||
         widget.routes.popupOnTop ||
         (state.otaProgressFor(deviceId)?.status == OtaStatus.running &&
@@ -213,31 +218,23 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
     required bool force,
   }) async {
     final dialogContext = widget.routes.navigator?.overlay?.context;
-    if (dialogContext == null) return;
+    if (dialogContext == null || !widget.state.isDeviceOnline(deviceId)) return;
     debugPrint(
       '[ota] 升级提醒（${force ? '强制' : '提醒'}）$deviceId → ${update.version}',
     );
-    final bool upgrade;
-    if (force) {
-      upgrade = await _showForceDialog(dialogContext, update.version);
-    } else {
-      upgrade =
-          await showAppDialog(
-            dialogContext,
-            title: FirmwareReminderHost.remindMessage(update.version),
-            icon: Icons.system_update_alt_rounded,
-            cancelLabel: '取消',
-            confirmLabel: '立刻更新',
-            barrierDismissible: false,
-            waitForDismissal: true,
-          ) ==
-          true;
-    }
+    final upgrade = await _showUpgradeDialog(
+      dialogContext,
+      deviceId,
+      update.version,
+      force: force,
+    );
     if (!mounted) return;
     if (!upgrade) {
+      if (!widget.state.isDeviceOnline(deviceId)) return;
       _remindDismissed.add(deviceId);
       return;
     }
+    if (!widget.state.isDeviceOnline(deviceId)) return;
     // 割草机（2026-09-23 产品，与花盆同理）：关提醒弹窗 → 退回割草机外壳、切到「设置」栏（升级入口
     // 「设备升级」在那一页）→ 再弹固件升级框（当前版本 → 新版本），确认后才升级。
     if (FirmwareReminderHost._isMowerPage(
@@ -268,7 +265,12 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
   }
 
   /// 强制升级：只有「立刻更新」，返回键、点遮罩都关不掉。
-  static Future<bool> _showForceDialog(BuildContext context, String version) {
+  Future<bool> _showUpgradeDialog(
+    BuildContext context,
+    String deviceId,
+    String version, {
+    required bool force,
+  }) {
     var resolved = false;
     ModalRoute<bool>? route;
     return showDialog<bool>(
@@ -277,20 +279,36 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
       barrierColor: Colors.black.withValues(alpha: .4),
       builder: (dialogContext) {
         route = ModalRoute.of<bool>(dialogContext);
-        return PopScope(
-          canPop: false,
-          child: AppDialog(
-            key: const Key('firmware-force-upgrade-dialog'),
-            title: FirmwareReminderHost.forceMessage(version),
-            icon: Icons.system_update_alt_rounded,
-            confirmLabel: '立刻更新',
-            showCancel: false,
-            onConfirm: () {
-              if (resolved) return;
-              resolved = true;
-              Navigator.of(dialogContext).pop(true);
-            },
-          ),
+        void close(bool accepted) {
+          if (resolved) return;
+          resolved = true;
+          Navigator.of(dialogContext).pop(accepted);
+        }
+
+        return ListenableBuilder(
+          listenable: widget.state,
+          builder: (_, _) {
+            if (!widget.state.isDeviceOnline(deviceId) && !resolved) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (dialogContext.mounted) close(false);
+              });
+            }
+            return PopScope(
+              canPop: !force,
+              child: AppDialog(
+                key: force ? const Key('firmware-force-upgrade-dialog') : null,
+                title: force
+                    ? FirmwareReminderHost.forceMessage(version)
+                    : FirmwareReminderHost.remindMessage(version),
+                icon: Icons.system_update_alt_rounded,
+                confirmLabel: '立刻更新',
+                cancelLabel: '取消',
+                showCancel: !force,
+                onCancel: () => close(false),
+                onConfirm: () => close(widget.state.isDeviceOnline(deviceId)),
+              ),
+            );
+          },
         );
       },
     ).then((value) async {

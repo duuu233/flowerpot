@@ -113,6 +113,77 @@ void main() {
   const remind = '检测到V1.1.0新版本，确认是否升级';
   const force = '检测到V1.1.0新版本，请升级后使用';
 
+  for (final mower in [false, true]) {
+    for (final type in [
+      FirmwareUpgradeType.remind,
+      FirmwareUpgradeType.force,
+    ]) {
+      testWidgets('$mower $type 离线不查询/不提醒，已有弹窗离线自动关闭', (tester) async {
+        final repo = _UpgradeRepository(type, mower: mower);
+        final (state, _) = await pumpHost(
+          tester,
+          type,
+          mower: mower,
+          realSettings: true,
+          repository: repo,
+        );
+        final id = state.devices.single.id;
+        final snapshot = state.deviceById(id)!;
+        repo.pushDeviceUpdate(
+          DeviceUpdate.changed(snapshot.copyWith(online: false)),
+        );
+        await tester.pumpAndSettle();
+        await open(
+          tester,
+          mower ? AppRoutes.mowerHome : AppRoutes.deviceSettings,
+          id,
+        );
+        expect(repo.checkCalls, 0);
+        expect(find.text(remind), findsNothing);
+        expect(find.text(force), findsNothing);
+        final result = await state.upgradeFirmware(id, '1.1.0');
+        expect(result.code, 'device_offline');
+        expect(repo.startCalls, 0);
+        expect(state.otaProgressFor(id), isNull);
+        repo.pushDeviceUpdate(DeviceUpdate.changed(snapshot));
+        await tester.pumpAndSettle();
+        expect(
+          find.text(type == FirmwareUpgradeType.force ? force : remind),
+          findsOneWidget,
+        );
+        repo.pushDeviceUpdate(
+          DeviceUpdate.changed(snapshot.copyWith(online: false)),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(remind), findsNothing);
+        expect(find.text(force), findsNothing);
+        expect(repo.startCalls, 0);
+      });
+    }
+  }
+  testWidgets('手动确认期间离线，确认后不启动OTA', (tester) async {
+    final repo = _UpgradeRepository(FirmwareUpgradeType.check, mower: true);
+    final (state, _) = await pumpHost(
+      tester,
+      FirmwareUpgradeType.check,
+      mower: true,
+      realSettings: true,
+      repository: repo,
+    );
+    final id = state.devices.single.id;
+    await open(tester, AppRoutes.mowerHome, id);
+    await tester.tap(find.byKey(const Key('manual-firmware-check')));
+    await tester.pumpAndSettle();
+    repo.pushDeviceUpdate(
+      DeviceUpdate.changed(state.deviceById(id)!.copyWith(online: false)),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('install-firmware-update')));
+    await tester.pumpAndSettle();
+    expect(repo.startCalls, 0);
+    expect(state.otaProgressFor(id), isNull);
+    expect(find.byKey(const Key('ota-progress-close')), findsNothing);
+  });
   testWidgets('提醒升级：设备页弹框，取消后这次进设备面板不再弹', (tester) async {
     final (state, _) = await pumpHost(tester, FirmwareUpgradeType.remind);
     final id = state.devices.single.id;
@@ -474,6 +545,7 @@ class _UpgradeRepository extends MockTuyaRepository {
   final bool mower;
   final Object? chargingStatus;
   int startCalls = 0;
+  int checkCalls = 0;
 
   @override
   Future<List<SmartPlanterDevice>> getDevices() async {
@@ -515,10 +587,12 @@ class _UpgradeRepository extends MockTuyaRepository {
   }
 
   @override
-  Future<FirmwareUpdate?> checkFirmware(String deviceId) async =>
-      FirmwareUpdate(
-        version: '1.1.0',
-        currentVersion: '1.0.8',
-        upgradeType: type,
-      );
+  Future<FirmwareUpdate?> checkFirmware(String deviceId) async {
+    checkCalls++;
+    return FirmwareUpdate(
+      version: '1.1.0',
+      currentVersion: '1.0.8',
+      upgradeType: type,
+    );
+  }
 }

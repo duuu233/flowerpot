@@ -70,23 +70,26 @@ class _HearingSettingsPageState extends State<HearingSettingsPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '听觉感知', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: SingleChildScrollView(
-        key: const Key('hearing-settings-scroll-view'),
-        child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageMargin,
-            27,
-            AppSpacing.pageMargin,
-            40,
-          ),
-          child: HearingSettingsCard(
-            model: model,
-            sensitivity: pendingSensitivity ?? model.sensitivity.toDouble(),
-            updatingInteraction: updatingInteraction,
-            updatingSensitivity: updatingSensitivity,
-            onSoundInteractionChanged: _setSoundInteraction,
-            onSensitivityChanged: _previewSensitivity,
-            onSensitivityChangeEnd: _setSensitivity,
+      body: DeviceOnlineBody(
+        deviceId: widget.deviceId,
+        child: SingleChildScrollView(
+          key: const Key('hearing-settings-scroll-view'),
+          child: ResponsiveContent(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageMargin,
+              27,
+              AppSpacing.pageMargin,
+              40,
+            ),
+            child: HearingSettingsCard(
+              model: model,
+              sensitivity: pendingSensitivity ?? model.sensitivity.toDouble(),
+              updatingInteraction: updatingInteraction,
+              updatingSensitivity: updatingSensitivity,
+              onSoundInteractionChanged: _setSoundInteraction,
+              onSensitivityChanged: _previewSensitivity,
+              onSensitivityChangeEnd: _setSensitivity,
+            ),
           ),
         ),
       ),

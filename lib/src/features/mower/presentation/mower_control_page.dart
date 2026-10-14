@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../devices/presentation/device_online_guard.dart';
+
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../mower_ui.dart';
@@ -24,7 +26,7 @@ import 'widgets/mower_start_dialog.dart';
 /// | 今日计划 | DP101 mow_schedule 解析出来的今天那一组（**不存数据库**） |
 /// | 停止 / 继续 | DP2 switch_go |
 /// | 自动 / 定点 / 回归 | DP3 mode = smart / spot / goto_charge |
-/// | 启动前割草时间 | DP119 opearting_time（整数小时） |
+/// | 自动/定点新任务的割草时间 | DP119 opearting_time（整数小时）；继续不重写 |
 ///
 /// ## 四颗按钮的规矩（2026-09-18 用户口径，逐条）
 ///
@@ -32,8 +34,7 @@ import 'widgets/mower_start_dialog.dart';
 ///    其余时候（包括刚开机的待机，DP2=false）DP3 不等于这颗就能点（2026-09-23 更正）；
 /// 2. 按钮文案按 DP2 值：true 显示「停止」（点了下发 false），false 显示「继续」（点了下发 true）；
 /// 3. 左边三颗**不能重复点**：`DP3 == 这颗` 就置灰；
-/// 4. **记忆**：启动 → 点「定点」→ 停止 → 再启动，设备按最后一次 DP3 起，界面跟着回到「定点」
-///    （V2.2 §3.2：`true(待机态)` = 按 App 最后下发的 DP3 模式启动）；
+/// 4. 待机时「继续」置灰；停止/故障后恢复只发 DP2=true，不重写 DP119；
 /// 5. 点左边三颗前先看 **DP118 盖子**：没合盖就弹窗、**不下发**。
 ///
 /// 2026-09-23 起只接真机：只读 DP（盖子/故障/电量/充电）全部以设备上报为准，
@@ -245,7 +246,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
   /// 按钮点击统一入口：操作期间不重入，异常时恢复按钮并提示。
   /// [button] 是被点的那颗。
   Future<void> _guarded(String button, Future<void> Function() action) async {
-    if (_operationInProgress) return;
+    if (_operationInProgress || !_device.online || _device.shutdown) return;
     _operationInProgress = true;
     final state = FlowerpotScope.of(context);
     try {
@@ -274,7 +275,21 @@ class _MowerControlPageState extends State<MowerControlPage> {
     if (_device.switchGo) {
       _device.setSwitch(state, on: false);
     } else {
-      await _startWithTime('switch', () => _device.setSwitch(state, on: true));
+      if (!_device.switchEnabled) return;
+      final id = _device.deviceId;
+      final generation = _device.bindingGeneration;
+      final confirmed = await showMowerSafetyDialog(context);
+      if (!mounted ||
+          !confirmed ||
+          !widget.active ||
+          _device.deviceId != id ||
+          _device.bindingGeneration != generation ||
+          ModalRoute.of(context)?.isCurrent == false ||
+          !_device.switchEnabled) {
+        return;
+      }
+      // 恢复原任务，不覆盖设备已有的 DP119 时长。
+      _device.setSwitch(state, on: true);
     }
   });
 
@@ -303,8 +318,9 @@ class _MowerControlPageState extends State<MowerControlPage> {
         widget.active &&
         _device.deviceId == id &&
         _device.bindingGeneration == generation &&
+        _device.online &&
         ModalRoute.of(context)?.isCurrent != false;
-    if (id == null) return;
+    if (id == null || !_device.online) return;
     final confirmed = await showMowerSafetyDialog(context);
     if (!mounted || !confirmed || !current()) return;
     final maxHours = mowerStartMaxHours(widget.now());
@@ -404,77 +420,80 @@ class _MowerControlPageState extends State<MowerControlPage> {
         // **多出来的高度只给最上面的电量环**——环按剩余空间等比缩放撑满（宽屏放大、矮屏缩小）。
         // 之前是把余量平分到各块之间，结果中间拉出两段空白。
         // 太矮（连缩到 80% 都放不下）才退回可滚动的按稿子尺寸排。
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
-            // 已关机（DP113）时这一条换成关机提示，顶掉故障文案。
-            final notice = _device.shutdown
-                ? _shutdownNotice
-                : _device.faultMessage;
-            final lower = <Widget>[
-              if (notice != null) ...<Widget>[
-                _NoticeBar(fault: notice),
+        body: DeviceOnlineBody(
+          deviceId: MowerDevice.instance.deviceId,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
+              // 已关机（DP113）时这一条换成关机提示，顶掉故障文案。
+              final notice = _device.shutdown
+                  ? _shutdownNotice
+                  : _device.faultMessage;
+              final lower = <Widget>[
+                if (notice != null) ...<Widget>[
+                  _NoticeBar(fault: notice),
+                  const SizedBox(height: 8),
+                ],
+                _TodayPlanCard(schedule: _device.schedule),
                 const SizedBox(height: 8),
-              ],
-              _TodayPlanCard(schedule: _device.schedule),
-              const SizedBox(height: 8),
-              _ActionPanel(
-                device: _device,
-                checking: _checking,
-                onMode: (mode) => unawaited(_sendMode(mode)),
-                onToggleSwitch: () => unawaited(_toggleSwitch()),
-              ),
-            ];
-            final card = SizedBox(
-              width: _cardWidth,
-              child: MowerStatusCard(
-                tone: _tone,
-                percent: _device.battery,
-                statusLabel: _device.shutdown ? '已关机' : _device.status.label,
-                wifiLinked: _device.wifiLinked,
-                bleLinked: _device.bleLinked,
-              ),
-            );
-            final fits =
-                constraints.hasBoundedHeight &&
-                constraints.maxHeight >= _minFittedHeight;
-            if (!fits) {
-              return SingleChildScrollView(
+                _ActionPanel(
+                  device: _device,
+                  checking: _checking,
+                  onMode: (mode) => unawaited(_sendMode(mode)),
+                  onToggleSwitch: () => unawaited(_toggleSwitch()),
+                ),
+              ];
+              final card = SizedBox(
+                width: _cardWidth,
+                child: MowerStatusCard(
+                  tone: _tone,
+                  percent: _device.battery,
+                  statusLabel: _device.shutdown ? '已关机' : _device.status.label,
+                  wifiLinked: _device.wifiLinked,
+                  bleLinked: _device.bleLinked,
+                ),
+              );
+              final fits =
+                  constraints.hasBoundedHeight &&
+                  constraints.maxHeight >= _minFittedHeight;
+              if (!fits) {
+                return SingleChildScrollView(
+                  key: const Key('mower-control-scroll-view'),
+                  padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      FittedBox(fit: BoxFit.scaleDown, child: card),
+                      const SizedBox(height: 4),
+                      ...lower,
+                    ],
+                  ),
+                );
+              }
+              return Padding(
                 key: const Key('mower-control-scroll-view'),
                 padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    FittedBox(fit: BoxFit.scaleDown, child: card),
+                    // 电量环按剩余的宽、高**等比缩放撑满**（2026-09-23 产品：「圈的直径再大一点，结合 UI 看
+                    // 实际明显小一圈」）。原来是只缩不放（scaleDown）：宽屏上还是稿子的 263，比稿子占屏比例小；
+                    // 高度被下面几块吃掉时还会再缩。稿子 375 宽屏上环 263 ≈ 屏宽 70%，这里按宽撑满后比例一致。
+                    // 贴下对齐：多出来的高度留在标题下面，状态卡贴着黄条 / 今日计划
+                    // （居中时环比稿子 784:3844 高约 10，卡下还空一截）。
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: FittedBox(fit: BoxFit.contain, child: card),
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     ...lower,
                   ],
                 ),
               );
-            }
-            return Padding(
-              key: const Key('mower-control-scroll-view'),
-              padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  // 电量环按剩余的宽、高**等比缩放撑满**（2026-09-23 产品：「圈的直径再大一点，结合 UI 看
-                  // 实际明显小一圈」）。原来是只缩不放（scaleDown）：宽屏上还是稿子的 263，比稿子占屏比例小；
-                  // 高度被下面几块吃掉时还会再缩。稿子 375 宽屏上环 263 ≈ 屏宽 70%，这里按宽撑满后比例一致。
-                  // 贴下对齐：多出来的高度留在标题下面，状态卡贴着黄条 / 今日计划
-                  // （居中时环比稿子 784:3844 高约 10，卡下还空一截）。
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: FittedBox(fit: BoxFit.contain, child: card),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  ...lower,
-                ],
-              ),
-            );
-          },
+            },
+          ),
         ),
       ),
     );
@@ -726,7 +745,7 @@ class _ActionPanel extends StatelessWidget {
               active: false,
               busy: checking == 'switch',
               // 已关机（DP113）时发不出去，置灰。
-              enabled: !device.shutdown,
+              enabled: device.switchEnabled,
               onTap: onToggleSwitch,
             ),
           ),

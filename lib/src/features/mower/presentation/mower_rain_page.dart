@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../devices/presentation/device_online_guard.dart';
+
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../mower_ui.dart';
@@ -76,7 +78,8 @@ class _MowerRainPageState extends State<MowerRainPage> {
     _minutes = _maxDelay % 60;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (_hourController.hasClients && _hourController.selectedItem != _hours) {
+      if (_hourController.hasClients &&
+          _hourController.selectedItem != _hours) {
         _hourController.jumpToItem(_hours);
       }
       if (_minuteController.hasClients &&
@@ -104,119 +107,126 @@ class _MowerRainPageState extends State<MowerRainPage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '雨淋设置', leading: AppBackButton()),
-      body: Column(
-        children: <Widget>[
-          Expanded(
-            child: SingleChildScrollView(
-              key: const Key('mower-rain-scroll-view'),
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-              child: MowerCard(
-                child: Column(
-                  children: <Widget>[
-                    MowerSwitchRow(
-                      title: '开启',
-                      subtitle: '雨淋结束后延迟恢复割草（DP${MowerDp.rainDetectEnable}）',
-                      value: _enabled,
-                      switchKey: const Key('mower-rain-switch'),
-                      onChanged: (value) => setState(() => _enabled = value),
-                    ),
-                    const MowerRowDivider(indent: 20),
-                    MowerSwitchRow(
-                      title: '延迟时间',
-                      subtitle: '雨滴延时开关（DP${MowerDp.rainDelaySwitch}）',
-                      value: _delayEnabled,
-                      switchKey: const Key('mower-rain-delay-switch'),
-                      onChanged: (value) =>
-                          setState(() => _delayEnabled = value),
-                    ),
-                    IgnorePointer(
-                      ignoring: !_delayEnabled,
-                      child: Opacity(
-                        opacity: _delayEnabled ? 1 : .4,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                          child: SizedBox(
-                            height: _itemExtent * 3,
-                            child: Stack(
-                              children: <Widget>[
-                                // 稿子 561:3154：选中带 50 高、12 圆角、品牌色 8%。
-                                Center(
-                                  child: Container(
-                                    height: _itemExtent,
-                                    decoration: BoxDecoration(
-                                      color: MowerColors.brand.withValues(
-                                        alpha: .08,
-                                      ),
-                                      borderRadius: const BorderRadius.all(
-                                        Radius.circular(12),
+      body: DeviceOnlineBody(
+        deviceId: MowerDevice.instance.deviceId,
+        child: Column(
+          children: <Widget>[
+            Expanded(
+              child: SingleChildScrollView(
+                key: const Key('mower-rain-scroll-view'),
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                child: MowerCard(
+                  child: Column(
+                    children: <Widget>[
+                      MowerSwitchRow(
+                        title: '开启',
+                        subtitle: '雨淋结束后延迟恢复割草（DP${MowerDp.rainDetectEnable}）',
+                        value: _enabled,
+                        switchKey: const Key('mower-rain-switch'),
+                        onChanged: (value) => setState(() => _enabled = value),
+                      ),
+                      const MowerRowDivider(indent: 20),
+                      MowerSwitchRow(
+                        title: '延迟时间',
+                        subtitle: '雨滴延时开关（DP${MowerDp.rainDelaySwitch}）',
+                        value: _delayEnabled,
+                        switchKey: const Key('mower-rain-delay-switch'),
+                        onChanged: (value) =>
+                            setState(() => _delayEnabled = value),
+                      ),
+                      IgnorePointer(
+                        ignoring: !_delayEnabled,
+                        child: Opacity(
+                          opacity: _delayEnabled ? 1 : .4,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                            child: SizedBox(
+                              height: _itemExtent * 3,
+                              child: Stack(
+                                children: <Widget>[
+                                  // 稿子 561:3154：选中带 50 高、12 圆角、品牌色 8%。
+                                  Center(
+                                    child: Container(
+                                      height: _itemExtent,
+                                      decoration: BoxDecoration(
+                                        color: MowerColors.brand.withValues(
+                                          alpha: .08,
+                                        ),
+                                        borderRadius: const BorderRadius.all(
+                                          Radius.circular(12),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                Row(
-                                  children: <Widget>[
-                                    Expanded(
-                                      child: MowerWheel(
-                                        wheelKey: const Key('mower-rain-hour'),
-                                        controller: _hourController,
-                                        // 0 / 1 / 2 —— DP105 上限 120 分钟
-                                        count: _maxDelay ~/ 60 + 1,
-                                        selected: _hours,
-                                        itemExtent: _itemExtent,
-                                        activeFontSize: 24,
-                                        unit: '时',
-                                        onSelected: (value) => setState(() {
-                                          _hours = value;
-                                          _clampToRange();
-                                        }),
+                                  Row(
+                                    children: <Widget>[
+                                      Expanded(
+                                        child: MowerWheel(
+                                          wheelKey: const Key(
+                                            'mower-rain-hour',
+                                          ),
+                                          controller: _hourController,
+                                          // 0 / 1 / 2 —— DP105 上限 120 分钟
+                                          count: _maxDelay ~/ 60 + 1,
+                                          selected: _hours,
+                                          itemExtent: _itemExtent,
+                                          activeFontSize: 24,
+                                          unit: '时',
+                                          onSelected: (value) => setState(() {
+                                            _hours = value;
+                                            _clampToRange();
+                                          }),
+                                        ),
                                       ),
-                                    ),
-                                    Expanded(
-                                      child: MowerWheel(
-                                        wheelKey: const Key('mower-rain-minute'),
-                                        controller: _minuteController,
-                                        count: 60,
-                                        selected: _minutes,
-                                        itemExtent: _itemExtent,
-                                        activeFontSize: 24,
-                                        unit: '分',
-                                        onSelected: (value) => setState(() {
-                                          _minutes = value;
-                                          _clampToRange();
-                                        }),
+                                      Expanded(
+                                        child: MowerWheel(
+                                          wheelKey: const Key(
+                                            'mower-rain-minute',
+                                          ),
+                                          controller: _minuteController,
+                                          count: 60,
+                                          selected: _minutes,
+                                          itemExtent: _itemExtent,
+                                          activeFontSize: 24,
+                                          unit: '分',
+                                          onSelected: (value) => setState(() {
+                                            _minutes = value;
+                                            _clampToRange();
+                                          }),
+                                        ),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                      child: Text(
-                        '延迟 $_totalMinutes 分钟（DP${MowerDp.rainDelay} 取值 0-$_maxDelay）',
-                        key: const Key('mower-rain-summary'),
-                        style: const TextStyle(
-                          color: MowerColors.inkSecondary,
-                          fontSize: 12,
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                        child: Text(
+                          '延迟 $_totalMinutes 分钟（DP${MowerDp.rainDelay} 取值 0-$_maxDelay）',
+                          key: const Key('mower-rain-summary'),
+                          style: const TextStyle(
+                            color: MowerColors.inkSecondary,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          MowerSaveBar(
-            child: MowerSaveButton(
-              buttonKey: const Key('mower-rain-save'),
-              onPressed: _save,
+            MowerSaveBar(
+              child: MowerSaveButton(
+                buttonKey: const Key('mower-rain-save'),
+                onPressed: _save,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

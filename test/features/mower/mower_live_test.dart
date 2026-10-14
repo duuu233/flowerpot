@@ -16,6 +16,56 @@ import '../../support/plant_catalog.dart';
 /// ⚠️ 单例：每条用例开头、结尾都 `resetForTest`，结尾那次顺带取消还没到点的回弹计时器
 /// （测试框架在用例体结束时就检查有没有挂着的 Timer，比 tearDown 早）。
 void main() {
+  testWidgets('SDK离线即使通道缓存在线，控制和参数都不下发且不乐观更新', (tester) async {
+    final repo = _MowerRepository(online: false)
+      ..wifiLinked = true
+      ..bleLinked = true;
+    final state = await _state(repo);
+    await MowerDevice.instance.bind(state, owner: _owner, deviceId: _mowerId);
+    final device = MowerDevice.instance;
+    final rain = device.rainDetectEnable;
+    final language = device.language;
+    device.setRain(
+      state,
+      detectEnable: !rain,
+      delayMinutes: 60,
+      delaySwitch: true,
+    );
+    device.setLanguage(state, MowerLanguage.values.last);
+    device.setSchedule(
+      state,
+      List.filled(7, const MowerScheduleDay(edge: true)),
+    );
+    await tester.pump();
+    expect(device.rainDetectEnable, rain);
+    expect(device.language, language);
+    expect(device.schedule.every((day) => !day.edge), isTrue);
+    for (final dps in [
+      {MowerDp.switchGo: true},
+      {MowerDp.rainDelay: 60},
+    ]) {
+      final result = await state.publishMowerDps(_mowerId, dps);
+      expect(result.code, 'device_offline');
+    }
+    expect(repo.publishedDps, isEmpty);
+    device.resetForTest();
+  });
+  testWidgets('异步通道查询期间SDK离线，查询返回在线也不放行下发', (tester) async {
+    final repo = _DelayedLinkRepository();
+    final state = await _state(repo);
+    repo.hold = true;
+    final pending = state.publishMowerDps(_mowerId, {MowerDp.mode: 'smart'});
+    await tester.pump();
+    repo.pushDeviceUpdate(DeviceUpdate.changed(_mower(online: false)));
+    await tester.pump();
+    expect(state.isDeviceOnline(_mowerId), isFalse);
+    repo.reply.complete({'wifi': true, 'ble': true});
+    await tester.pump();
+    final result = await pending;
+    expect(result.code, 'device_offline');
+    expect(repo.publishedDps, isEmpty);
+  });
+
   setUp(MowerDevice.instance.resetForTest);
 
   testWidgets('绑真机：设备快照里已上报的 DP 全部按原始值解出来', (tester) async {
@@ -112,21 +162,26 @@ void main() {
   });
 
   testWidgets('真机没报过计划时是空周，不再画稿子上的演示色块', (tester) async {
-    final repository = _MowerRepository()..rawDpsByDevice[_mowerId] = <int, Object?>{};
+    final repository = _MowerRepository()
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{};
     final state = await _state(repository);
 
     await MowerDevice.instance.bind(state, owner: _owner, deviceId: _mowerId);
 
-    expect(
-      MowerDevice.instance.schedule.every((day) => day.isEmpty),
-      isTrue,
-    );
-    expect(MowerDevice.instance.zones.map((zone) => zone.percent), <int>[0, 0, 0, 0, 0]);
+    expect(MowerDevice.instance.schedule.every((day) => day.isEmpty), isTrue);
+    expect(MowerDevice.instance.zones.map((zone) => zone.percent), <int>[
+      0,
+      0,
+      0,
+      0,
+      0,
+    ]);
     MowerDevice.instance.resetForTest();
   });
 
   testWidgets('真机下发：经 SDK 发给这台设备；raw 型发十六进制串；多条按调用顺序发', (tester) async {
-    final repository = _MowerRepository()..rawDpsByDevice[_mowerId] = <int, Object?>{};
+    final repository = _MowerRepository()
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{};
     final state = await _state(repository);
     final device = MowerDevice.instance;
     await device.bind(state, owner: _owner, deviceId: _mowerId);
@@ -161,12 +216,19 @@ void main() {
 
   testWidgets('下发后 5 秒没有回显：按设备当前值画回去（V2.2 §1 超时回弹）', (tester) async {
     final repository = _MowerRepository()
-      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.rainDetectEnable: false};
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{
+        MowerDp.rainDetectEnable: false,
+      };
     final state = await _state(repository);
     final device = MowerDevice.instance;
     await device.bind(state, owner: _owner, deviceId: _mowerId);
 
-    device.setRain(state, detectEnable: true, delaySwitch: false, delayMinutes: 0);
+    device.setRain(
+      state,
+      detectEnable: true,
+      delaySwitch: false,
+      delayMinutes: 0,
+    );
     await tester.pump();
     expect(device.rainDetectEnable, isTrue, reason: '先本地回显');
 
@@ -178,17 +240,27 @@ void main() {
 
   testWidgets('回显到了就以回显为准，到点也不回弹', (tester) async {
     final repository = _MowerRepository()
-      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.rainDetectEnable: false};
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{
+        MowerDp.rainDetectEnable: false,
+      };
     final state = await _state(repository);
     final device = MowerDevice.instance;
     await device.bind(state, owner: _owner, deviceId: _mowerId);
 
-    device.setRain(state, detectEnable: true, delaySwitch: false, delayMinutes: 0);
+    device.setRain(
+      state,
+      detectEnable: true,
+      delaySwitch: false,
+      delayMinutes: 0,
+    );
     await tester.pump();
     // 设备收下了，报上来 104=true。
     repository.rawDpsByDevice[_mowerId]![MowerDp.rainDetectEnable] = true;
     repository.pushDeviceUpdate(
-      DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.rainDetectEnable}),
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: <int>{MowerDp.rainDetectEnable},
+      ),
     );
     await tester.pump();
     await tester.pump(MowerDevice.echoTimeout);
@@ -203,7 +275,10 @@ void main() {
       ..wifiLinked = false
       ..bleLinked = false
       ..bleConnectSucceeds = false
-      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.switchGo: false};
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{
+        MowerDp.switchGo: false,
+        MowerDp.status: 'stop',
+      };
     final state = await _state(repository);
     final device = MowerDevice.instance;
     final failures = <String>[];
@@ -225,7 +300,10 @@ void main() {
     final repository = _MowerRepository()
       ..wifiLinked = true
       ..bleLinked = true
-      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.switchGo: false};
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{
+        MowerDp.switchGo: false,
+        MowerDp.status: 'stop',
+      };
     final state = await _state(repository);
     final device = MowerDevice.instance;
     await device.bind(state, owner: _owner, deviceId: _mowerId);
@@ -234,15 +312,20 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(repository.publishedModes, <String>['ThingDevicePublishModeInternet']);
+    expect(repository.publishedModes, <String>[
+      'ThingDevicePublishModeInternet',
+    ]);
     device.resetForTest();
   });
 
-  testWidgets('Wi-Fi 离线但蓝牙连着：降级走蓝牙（Auto 模式，SDK 只剩蓝牙可选）', (tester) async {
-    final repository = _MowerRepository(online: false)
+  testWidgets('SDK仍在线且仅蓝牙连着：走Auto，不改共享在线值', (tester) async {
+    final repository = _MowerRepository(online: true)
       ..wifiLinked = false
       ..bleLinked = true
-      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.switchGo: false};
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{
+        MowerDp.switchGo: false,
+        MowerDp.status: 'stop',
+      };
     final state = await _state(repository);
     final device = MowerDevice.instance;
     await device.bind(state, owner: _owner, deviceId: _mowerId);
@@ -261,7 +344,8 @@ void main() {
   });
 
   testWidgets('割草机的上报不走花盆那套：列表那一行照样更新', (tester) async {
-    final repository = _MowerRepository()..rawDpsByDevice[_mowerId] = <int, Object?>{};
+    final repository = _MowerRepository()
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{};
     final state = await _state(repository);
     expect(state.isMowerDevice(state.deviceById(_mowerId)!), isTrue);
 
@@ -298,7 +382,9 @@ void main() {
     expect(device.commandsEnabled, isFalse);
     expect(
       state.interactionLog.where(
-        (line) => line.contains('关机 ←') && line.contains('DP113 shutdown_report=true'),
+        (line) =>
+            line.contains('关机 ←') &&
+            line.contains('DP113 shutdown_report=true'),
       ),
       hasLength(1),
     );
@@ -326,10 +412,7 @@ void main() {
     // 下次开机：连云上线 + 首报 DP113=false
     repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = false;
     repository.pushDeviceUpdate(
-      DeviceUpdate.changed(
-        _mower(),
-        changedDps: <int>{MowerDp.shutdownReport},
-      ),
+      DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.shutdownReport}),
     );
     await tester.pump();
     await tester.pump();
@@ -340,15 +423,14 @@ void main() {
 
   testWidgets('DP113 首报 false 丢了：离线过又上线也算开机，清掉「已关机」', (tester) async {
     final repository = _MowerRepository()
-      ..rawDpsByDevice[_mowerId] = <int, Object?>{MowerDp.shutdownReport: false};
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{
+        MowerDp.shutdownReport: false,
+      };
     final state = await _state(repository);
 
     repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = true;
     repository.pushDeviceUpdate(
-      DeviceUpdate.changed(
-        _mower(),
-        changedDps: <int>{MowerDp.shutdownReport},
-      ),
+      DeviceUpdate.changed(_mower(), changedDps: <int>{MowerDp.shutdownReport}),
     );
     await tester.pump();
     expect(state.isMowerShutdown(_mowerId), isTrue);
@@ -461,4 +543,12 @@ Future<FlowerpotState> _state(MockTuyaRepository repository) async {
   await state.refreshDevices();
   state.pauseDeviceWatch();
   return state;
+}
+
+class _DelayedLinkRepository extends _MowerRepository {
+  bool hold = false;
+  final reply = Completer<Map<String, Object?>>();
+  @override
+  Future<Map<String, Object?>> deviceLinkState(String id) =>
+      hold ? reply.future : super.deviceLinkState(id);
 }

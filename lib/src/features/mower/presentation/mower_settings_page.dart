@@ -54,7 +54,9 @@ class MowerSettingsPage extends StatelessWidget {
       // 与花盆「更多设备信息」同一页（2026-09-23 产品：完全按那边的 UI 和页面名称）。
       final id = MowerDevice.instance.deviceId;
       if (id != null) {
-        await Navigator.of(context).pushNamed(AppRoutes.deviceInfo, arguments: id);
+        await Navigator.of(
+          context,
+        ).pushNamed(AppRoutes.deviceInfo, arguments: id);
       }
       return;
     }
@@ -148,44 +150,47 @@ class MowerSettingsPage extends StatelessWidget {
         leading: const AppBackButton(),
         // 右上角问号（进帮助中心）2026-09-23 产品要求去掉；帮助中心仍在设置列表里。
       ),
-      body: SingleChildScrollView(
-        key: const Key('mower-settings-scroll-view'),
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            MowerCard(
-              child: Column(
-                children: <Widget>[
-                  for (var i = 0; i < _entries.length; i++) ...<Widget>[
-                    MowerSettingsRow(
-                      label: _entries[i],
-                      // 有新固件就在「设备升级」亮红点（与花盆「固件版本更新」同口径：
-                      // 升级进行中不亮）。
-                      badge: _entries[i] == '设备升级' && _firmwareBadge(context),
-                      // 问云端 / 发起升级期间转圈，和花盆那一行同一个状态。
-                      loading:
-                          _entries[i] == '设备升级' && _firmwareChecking(context),
-                      onTap: () => unawaited(_open(context, _entries[i])),
-                    ),
-                    if (i != _entries.length - 1) const MowerRowDivider(),
+      body: DeviceOnlineBody(
+        deviceId: MowerDevice.instance.deviceId,
+        child: SingleChildScrollView(
+          key: const Key('mower-settings-scroll-view'),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              MowerCard(
+                child: Column(
+                  children: <Widget>[
+                    for (var i = 0; i < _entries.length; i++) ...<Widget>[
+                      MowerSettingsRow(
+                        label: _entries[i],
+                        // 有新固件就在「设备升级」亮红点（与花盆「固件版本更新」同口径：
+                        // 升级进行中不亮）。
+                        badge: _entries[i] == '设备升级' && _firmwareBadge(context),
+                        // 问云端 / 发起升级期间转圈，和花盆那一行同一个状态。
+                        loading:
+                            _entries[i] == '设备升级' && _firmwareChecking(context),
+                        onTap: () => unawaited(_open(context, _entries[i])),
+                      ),
+                      if (i != _entries.length - 1) const MowerRowDivider(),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            MowerCard(
-              child: MowerSettingsRow(
-                label: '消息通知',
-                height: 48,
-                onTap: () => unawaited(_openMessages(context)),
+              const SizedBox(height: 10),
+              MowerCard(
+                child: MowerSettingsRow(
+                  label: '消息通知',
+                  height: 48,
+                  onTap: () => unawaited(_openMessages(context)),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            _DeleteDeviceButton(
-              onTap: () => unawaited(_removeDevice(context)),
-            ),
-          ],
+              const SizedBox(height: 12),
+              _DeleteDeviceButton(
+                onTap: () => unawaited(_removeDevice(context)),
+              ),
+            ],
+          ),
         ),
       ),
     );

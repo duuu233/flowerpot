@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../devices/presentation/device_online_guard.dart';
+
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../mower_ui.dart';
@@ -31,8 +33,10 @@ class _MowerZonesPageState extends State<MowerZonesPage> {
 
   late List<MowerZoneConfig> _zones = List<MowerZoneConfig>.of(_device.zones);
 
-  int get _total =>
-      _zones.fold(0, (sum, zone) => sum + (zone.percent > 0 ? zone.percent : 0));
+  int get _total => _zones.fold(
+    0,
+    (sum, zone) => sum + (zone.percent > 0 ? zone.percent : 0),
+  );
 
   @override
   void initState() {
@@ -63,7 +67,8 @@ class _MowerZonesPageState extends State<MowerZonesPage> {
     final value = await showAppInputDialog(
       context,
       title: '区域 ${zone.index} 出发点距离',
-      message: '单位米，最大 ${MowerZoneCodec.maxMeters}（DP${MowerDp.zoneConfig} 第 3-4 字节）',
+      message:
+          '单位米，最大 ${MowerZoneCodec.maxMeters}（DP${MowerDp.zoneConfig} 第 3-4 字节）',
       initialValue: '${zone.meters}',
       keyboardType: TextInputType.number,
     );
@@ -101,53 +106,56 @@ class _MowerZonesPageState extends State<MowerZonesPage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '区域设置', leading: AppBackButton()),
-      body: SingleChildScrollView(
-        key: const Key('mower-zones-scroll-view'),
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            MowerCard(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  const Row(
-                    children: <Widget>[
-                      Expanded(child: _ColumnHeader(text: '区域占比')),
-                      SizedBox(
-                        width: 91,
-                        child: _ColumnHeader(
-                          text: '距离',
-                          align: TextAlign.center,
+      body: DeviceOnlineBody(
+        deviceId: MowerDevice.instance.deviceId,
+        child: SingleChildScrollView(
+          key: const Key('mower-zones-scroll-view'),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              MowerCard(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const Row(
+                      children: <Widget>[
+                        Expanded(child: _ColumnHeader(text: '区域占比')),
+                        SizedBox(
+                          width: 91,
+                          child: _ColumnHeader(
+                            text: '距离',
+                            align: TextAlign.center,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  for (var i = 0; i < _zones.length; i++)
-                    _ZoneRow(
-                      zone: _zones[i],
-                      last: i == _zones.length - 1,
-                      onChanged: (value) => _setPercent(i, value),
-                      onEditMeters: () => _editMeters(i),
+                      ],
                     ),
+                    for (var i = 0; i < _zones.length; i++)
+                      _ZoneRow(
+                        zone: _zones[i],
+                        last: i == _zones.length - 1,
+                        onChanged: (value) => _setPercent(i, value),
+                        onEditMeters: () => _editMeters(i),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              MowerNoteList(
+                notes: <String>[
+                  '1. 区域设置总和不能大于 100%（当前 $_total%）',
+                  '2. 距离最大可设置 ${MowerZoneCodec.maxMeters} 米',
+                  '3. 百分比为 0 表示删除该区域（DP${MowerDp.zoneConfig} 口径）',
                 ],
               ),
-            ),
-            const SizedBox(height: 10),
-            MowerNoteList(
-              notes: <String>[
-                '1. 区域设置总和不能大于 100%（当前 $_total%）',
-                '2. 距离最大可设置 ${MowerZoneCodec.maxMeters} 米',
-                '3. 百分比为 0 表示删除该区域（DP${MowerDp.zoneConfig} 口径）',
-              ],
-            ),
-            const SizedBox(height: 33),
-            MowerSaveButton(
-              buttonKey: const Key('mower-zones-save'),
-              onPressed: _save,
-            ),
-          ],
+              const SizedBox(height: 33),
+              MowerSaveButton(
+                buttonKey: const Key('mower-zones-save'),
+                onPressed: _save,
+              ),
+            ],
+          ),
         ),
       ),
     );

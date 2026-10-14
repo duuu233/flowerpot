@@ -73,33 +73,36 @@ class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '震动设置', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: SingleChildScrollView(
-        key: const Key('vibration-settings-scroll-view'),
-        child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageMargin,
-            27,
-            AppSpacing.pageMargin,
-            40,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              VibrationSettingsCard(
-                model: model,
-                updating: updating,
-                onVibrationChanged: _setVibration,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              VibrationSceneSwitchesCard(
-                keyVibration: model.keyVibrationEnabled,
-                plantVibration: model.plantVibrationEnabled,
-                updatingKeyVibration: updatingKeyVibration,
-                updatingPlantVibration: updatingPlantVibration,
-                onKeyVibrationChanged: _setKeyVibration,
-                onPlantVibrationChanged: _setPlantVibration,
-              ),
-            ],
+      body: DeviceOnlineBody(
+        deviceId: widget.deviceId,
+        child: SingleChildScrollView(
+          key: const Key('vibration-settings-scroll-view'),
+          child: ResponsiveContent(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageMargin,
+              27,
+              AppSpacing.pageMargin,
+              40,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                VibrationSettingsCard(
+                  model: model,
+                  updating: updating,
+                  onVibrationChanged: _setVibration,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                VibrationSceneSwitchesCard(
+                  keyVibration: model.keyVibrationEnabled,
+                  plantVibration: model.plantVibrationEnabled,
+                  updatingKeyVibration: updatingKeyVibration,
+                  updatingPlantVibration: updatingPlantVibration,
+                  onKeyVibrationChanged: _setKeyVibration,
+                  onPlantVibrationChanged: _setPlantVibration,
+                ),
+              ],
+            ),
           ),
         ),
       ),

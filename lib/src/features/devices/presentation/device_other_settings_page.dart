@@ -87,44 +87,48 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '其他设置', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: CustomScrollView(
-        key: const Key('device-other-settings-scroll-view'),
-        slivers: <Widget>[
-          SliverToBoxAdapter(
-            child: ResponsiveContent(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.pageMargin,
-                11,
-                AppSpacing.pageMargin,
-                40,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  _GeneralSettingsCard(
-                    device: device,
-                    updatingFirmware: state.isCheckingFirmware(
-                      widget.deviceId,
+      body: DeviceOnlineBody(
+        deviceId: widget.deviceId,
+        child: CustomScrollView(
+          key: const Key('device-other-settings-scroll-view'),
+          slivers: <Widget>[
+            SliverToBoxAdapter(
+              child: ResponsiveContent(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageMargin,
+                  11,
+                  AppSpacing.pageMargin,
+                  40,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _GeneralSettingsCard(
+                      device: device,
+                      updatingFirmware: state.isCheckingFirmware(
+                        widget.deviceId,
+                      ),
+                      ota: ota,
+                      firmwareUpdate: state.hasFirmwareUpdate(widget.deviceId),
+                      onTemperatureUnit: () => _chooseTemperatureUnit(device),
+                      onClockFormat: () => _chooseClockFormat(device),
+                      onCalibration: _calibrateWaterLevel,
+                      onFirmware: _checkFirmware,
                     ),
-                    ota: ota,
-                    firmwareUpdate: state.hasFirmwareUpdate(widget.deviceId),
-                    onTemperatureUnit: () => _chooseTemperatureUnit(device),
-                    onClockFormat: () => _chooseClockFormat(device),
-                    onCalibration: _calibrateWaterLevel,
-                    onFirmware: _checkFirmware,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _DeviceActionsCard(
-                    onPairing: () => _repairNetwork(device),
-                    onFactoryReset: () =>
-                        _removeDevice(device, resetFactory: true),
-                    onRemove: () => _removeDevice(device, resetFactory: false),
-                  ),
-                ],
+                    const SizedBox(height: AppSpacing.md),
+                    _DeviceActionsCard(
+                      onPairing: () => _repairNetwork(device),
+                      onFactoryReset: () =>
+                          _removeDevice(device, resetFactory: true),
+                      onRemove: () =>
+                          _removeDevice(device, resetFactory: false),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

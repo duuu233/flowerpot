@@ -2,6 +2,8 @@ import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 
+import '../../devices/presentation/device_online_guard.dart';
+
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../mower_ui.dart';
@@ -70,60 +72,67 @@ class _MowerLanguagePageState extends State<MowerLanguagePage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '语言切换', leading: AppBackButton()),
-      body: Column(
-        children: <Widget>[
-          Expanded(
-            child: SingleChildScrollView(
-              key: const Key('mower-language-scroll-view'),
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  const Text(
-                    '选择机器面板显示语言',
-                    style: TextStyle(color: Color(0xFF73787A), fontSize: 12),
-                  ),
-                  const SizedBox(height: 8),
-                  MowerCard(
-                    child: Column(
-                      children: <Widget>[
-                        for (var i = 0; i < MowerLanguage.values.length; i++) ...<Widget>[
-                          _LanguageRow(
-                            language: MowerLanguage.values[i],
-                            selected: MowerLanguage.values[i] == _selected,
-                            onTap: () => setState(
-                              () => _selected = MowerLanguage.values[i],
+      body: DeviceOnlineBody(
+        deviceId: MowerDevice.instance.deviceId,
+        child: Column(
+          children: <Widget>[
+            Expanded(
+              child: SingleChildScrollView(
+                key: const Key('mower-language-scroll-view'),
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const Text(
+                      '选择机器面板显示语言',
+                      style: TextStyle(color: Color(0xFF73787A), fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    MowerCard(
+                      child: Column(
+                        children: <Widget>[
+                          for (
+                            var i = 0;
+                            i < MowerLanguage.values.length;
+                            i++
+                          ) ...<Widget>[
+                            _LanguageRow(
+                              language: MowerLanguage.values[i],
+                              selected: MowerLanguage.values[i] == _selected,
+                              onTap: () => setState(
+                                () => _selected = MowerLanguage.values[i],
+                              ),
                             ),
-                          ),
-                          if (i != MowerLanguage.values.length - 1)
-                            const MowerRowDivider(),
+                            if (i != MowerLanguage.values.length - 1)
+                              const MowerRowDivider(),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    _fromPhone
-                        ? '当前语言：${_selected.label}（DP${MowerDp.language} 无内容，按手机语言 $_phoneLanguageCode 取的默认值）'
-                        : '当前语言：${_selected.label}',
-                    key: const Key('mower-language-current'),
-                    style: const TextStyle(
-                      color: MowerColors.brand,
-                      fontSize: 12,
-                      height: 1.5,
+                    const SizedBox(height: 14),
+                    Text(
+                      _fromPhone
+                          ? '当前语言：${_selected.label}（DP${MowerDp.language} 无内容，按手机语言 $_phoneLanguageCode 取的默认值）'
+                          : '当前语言：${_selected.label}',
+                      key: const Key('mower-language-current'),
+                      style: const TextStyle(
+                        color: MowerColors.brand,
+                        fontSize: 12,
+                        height: 1.5,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-          MowerSaveBar(
-            child: MowerSaveButton(
-              buttonKey: const Key('mower-language-save'),
-              onPressed: _save,
+            MowerSaveBar(
+              child: MowerSaveButton(
+                buttonKey: const Key('mower-language-save'),
+                onPressed: _save,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

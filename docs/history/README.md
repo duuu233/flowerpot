@@ -187,3 +187,5 @@
 - [`2026-09/2026-09-07-device-entry-plant-confirm.md`](2026-09/2026-09-07-device-entry-plant-confirm.md)：并入 09-07 功能点表的 161/162 与占位的 163，落地设备详情页入口的「离线拦截 → 无植物直接添加 → DP 162 植物确认握手」，以及 116+161 同批下发和设置页的自动检测植物开关。
 
 - [`2026-10/2026-10-10-mower-start-safety-duration.md`](2026-10/2026-10-10-mower-start-safety-duration.md)：启动每次安全确认与DP119整小时设置，18点截止及移除蓝牙预检；88项回归通过。
+
+- [2026-10-14 离线控制与割草机继续](2026-10/2026-10-14-offline-controls-mower-resume.md)

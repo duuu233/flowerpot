@@ -59,3 +59,40 @@ void showDeviceActionResult(
   showAppMessage(context, result.message, tone: AppMessageTone.error);
   if (result.code == deviceOfflineCode) backToDeviceList(context);
 }
+
+/// 缓存信息仍可看；离线期间正文中的控制、编辑和保存都不可交互。
+/// 标题栏和返回导航保留，恢复在线后自动放行。
+class DeviceOnlineBody extends StatelessWidget {
+  const DeviceOnlineBody({
+    required this.deviceId,
+    required this.child,
+    super.key,
+  });
+  final String? deviceId;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = FlowerpotScope.of(context);
+    final online = deviceId != null && state.isDeviceOnline(deviceId!);
+    if (online) return child;
+    return Column(
+      children: [
+        if (!online)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text('设备已离线，暂时无法操作', key: Key('device-offline-read-only')),
+          ),
+        Expanded(
+          child: AbsorbPointer(
+            absorbing: !online,
+            child: ExcludeFocus(
+              excluding: !online,
+              child: Opacity(opacity: online ? 1 : .45, child: child),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}

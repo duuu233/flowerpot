@@ -172,61 +172,64 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '更多设备信息', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: CustomScrollView(
-        key: const Key('device-info-scroll-view'),
-        slivers: <Widget>[
-          SliverToBoxAdapter(
-            child: ResponsiveContent(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.pageMargin,
-                27,
-                AppSpacing.pageMargin,
-                28,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  _DeviceInfoHero(
-                    device: device,
-                    mower: mower,
-                    onRename: () => _rename(context, device),
-                  ),
-                  if (widget.info != null)
-                    ..._sections(widget.info!)
-                  else
-                    FutureBuilder<String?>(
-                      future: _productName,
-                      builder: (context, snapshot) => Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: _sections(
-                          DeviceInfoData.fromDevice(
-                            device,
-                            mower: mower,
-                            model: snapshot.data ?? '',
+      body: DeviceOnlineBody(
+        deviceId: widget.deviceId,
+        child: CustomScrollView(
+          key: const Key('device-info-scroll-view'),
+          slivers: <Widget>[
+            SliverToBoxAdapter(
+              child: ResponsiveContent(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageMargin,
+                  27,
+                  AppSpacing.pageMargin,
+                  28,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    _DeviceInfoHero(
+                      device: device,
+                      mower: mower,
+                      onRename: () => _rename(context, device),
+                    ),
+                    if (widget.info != null)
+                      ..._sections(widget.info!)
+                    else
+                      FutureBuilder<String?>(
+                        future: _productName,
+                        builder: (context, snapshot) => Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: _sections(
+                            DeviceInfoData.fromDevice(
+                              device,
+                              mower: mower,
+                              model: snapshot.data ?? '',
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  // 联调用：把 DP 162 当前上报的值原样弹出来核对（花盆 DP，割草机没有）。
-                  if (!mower) ...<Widget>[
-                    const SizedBox(height: 20),
-                    OutlinedButton(
-                      key: const Key('device-info-dp162-probe'),
-                      onPressed: () => _showPlantConfirmDp(context, device),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(44),
-                        foregroundColor: AppColors.brandPrimary,
-                        side: const BorderSide(color: AppColors.brandPrimary),
-                        shape: const StadiumBorder(),
+                    // 联调用：把 DP 162 当前上报的值原样弹出来核对（花盆 DP，割草机没有）。
+                    if (!mower) ...<Widget>[
+                      const SizedBox(height: 20),
+                      OutlinedButton(
+                        key: const Key('device-info-dp162-probe'),
+                        onPressed: () => _showPlantConfirmDp(context, device),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(44),
+                          foregroundColor: AppColors.brandPrimary,
+                          side: const BorderSide(color: AppColors.brandPrimary),
+                          shape: const StadiumBorder(),
+                        ),
+                        child: const Text('查看 DP 162（plant_confirm）'),
                       ),
-                      child: const Text('查看 DP 162（plant_confirm）'),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

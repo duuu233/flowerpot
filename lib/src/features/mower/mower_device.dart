@@ -227,7 +227,7 @@ class MowerDevice extends ChangeNotifier {
     final was = _lastOnline;
     _lastOnline = online;
     final off = state.isMowerShutdown(id);
-    if (off != _lastShutdown) {
+    if (online != was || off != _lastShutdown) {
       _lastShutdown = off;
       notifyListeners();
     }
@@ -444,7 +444,22 @@ class MowerDevice extends ChangeNotifier {
   ///   DP5 = paused（协议 §9.3：停止发 DP2=false → 设备报 DP5=paused）。
   ///
   /// 已关机（[shutdown]）时也不可点。
-  bool get commandsEnabled => status != MowerStatus.paused && !shutdown;
+  bool get online =>
+      _deviceId != null && (_watchedState?.isDeviceOnline(_deviceId!) ?? false);
+
+  bool get commandsEnabled =>
+      online && status != MowerStatus.paused && !shutdown;
+
+  /// 待机没有可恢复的工作点，不能通过 DP2 启动新任务。
+  bool get switchEnabled =>
+      online && !shutdown && (switchGo || status != MowerStatus.standby);
+
+  bool _canWrite(FlowerpotState state) {
+    final id = _deviceId;
+    if (id != null && state.isDeviceOnline(id) && !shutdown) return true;
+    _failures.add(shutdown ? '割草机已关机，请开机后再操作' : '设备已离线');
+    return false;
+  }
 
   /// 已关机：DP113 报过 true（非在桩关机）、还没再开机。判定只有一份，在状态层
   /// （`FlowerpotState.isMowerShutdown`，设备列表也用它）；这里只是转一下，没绑设备时为 false。
@@ -460,6 +475,7 @@ class MowerDevice extends ChangeNotifier {
 
   /// 工作时长（DP119）：下发成功后才允许页面继续启动，不改变每次弹窗的默认值。
   Future<bool> setOperatingTime(FlowerpotState state, int hours) {
+    if (!_canWrite(state)) return Future<bool>.value(false);
     if (hours < 1 || hours > 24) {
       throw RangeError.range(hours, 1, 24, 'hours');
     }
@@ -472,6 +488,7 @@ class MowerDevice extends ChangeNotifier {
 
   /// 工作开关（DP2）。[on]=true 启动/继续，false 停止/暂停。
   void setSwitch(FlowerpotState state, {required bool on}) {
+    if (!_canWrite(state) || (on && status == MowerStatus.standby)) return;
     _deliver(state, MowerDp.switchGo, on, action: on ? '继续/启动' : '停止');
     switchGo = on;
     // DP3 / DP5 以设备上报为准（启动后设备按最后一次 DP3 跑，会自己报上来）。
@@ -480,6 +497,7 @@ class MowerDevice extends ChangeNotifier {
 
   /// 工作模式（DP3）。只允许 [MowerMode.sendable] 的四个。
   void setMode(FlowerpotState state, MowerMode target) {
+    if (!_canWrite(state)) return;
     if (!target.sendable) {
       state.logMowerInteraction(
         '下发被拦 ✗ 割草机 DP${MowerDp.mode} mode=${target.code} 是设备自有状态，App 不可下发',
@@ -496,6 +514,7 @@ class MowerDevice extends ChangeNotifier {
 
   /// 割草计划（DP101，raw 88 字节）。**全量替换**，7 天一起发。
   void setSchedule(FlowerpotState state, List<MowerScheduleDay> week) {
+    if (!_canWrite(state)) return;
     final data = MowerScheduleCodec.encodeByDay(week);
     _deliverRaw(
       state,
@@ -512,6 +531,7 @@ class MowerDevice extends ChangeNotifier {
   /// 恢复默认割草计划（DP110 = true，V2.3）。**本地不改计划**：设备写入默认计划后会自己上报 DP101，
   /// 界面等那条上报再刷（执行成功的依据就是它）；设备随后把 DP110 回写 false，这条回写正好消掉回显等待。
   void resetSchedule(FlowerpotState state) {
+    if (!_canWrite(state)) return;
     _deliver(
       state,
       MowerDp.scheduleReset,
@@ -522,6 +542,7 @@ class MowerDevice extends ChangeNotifier {
 
   /// 区域配置（DP103，raw 25 字节）。**全量替换**，5 个区一起发。
   void setZones(FlowerpotState state, List<MowerZoneConfig> next) {
+    if (!_canWrite(state)) return;
     final data = MowerZoneCodec.encode(next);
     _deliverRaw(
       state,
@@ -541,6 +562,7 @@ class MowerDevice extends ChangeNotifier {
     required bool delaySwitch,
     required int delayMinutes,
   }) {
+    if (!_canWrite(state)) return;
     _deliver(state, MowerDp.rainDetectEnable, detectEnable, action: '雨淋检测');
     _deliver(state, MowerDp.rainDelaySwitch, delaySwitch, action: '雨滴延时开关');
     final clamped = delayMinutes.clamp(0, 120);
@@ -565,6 +587,7 @@ class MowerDevice extends ChangeNotifier {
     required int timezoneIndex,
     required bool dst,
   }) {
+    if (!_canWrite(state)) return;
     _deliver(state, MowerDp.timeSyncEnable, enable, action: '时间自动同步');
     final index = timezoneIndex.clamp(0, MowerTimezone.count - 1);
     _deliver(
@@ -592,6 +615,7 @@ class MowerDevice extends ChangeNotifier {
 
   /// 机器语言（DP109）。
   void setLanguage(FlowerpotState state, MowerLanguage target) {
+    if (!_canWrite(state)) return;
     _deliver(
       state,
       MowerDp.language,

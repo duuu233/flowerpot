@@ -44,19 +44,22 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '显示', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: SingleChildScrollView(
-        key: const Key('display-settings-scroll-view'),
-        child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageMargin,
-            27,
-            AppSpacing.pageMargin,
-            40,
-          ),
-          child: DisplaySettingsCard(
-            model: model,
-            updating: updating,
-            onAutoBrightnessChanged: _setAutoBrightness,
+      body: DeviceOnlineBody(
+        deviceId: widget.deviceId,
+        child: SingleChildScrollView(
+          key: const Key('display-settings-scroll-view'),
+          child: ResponsiveContent(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageMargin,
+              27,
+              AppSpacing.pageMargin,
+              40,
+            ),
+            child: DisplaySettingsCard(
+              model: model,
+              updating: updating,
+              onAutoBrightnessChanged: _setAutoBrightness,
+            ),
           ),
         ),
       ),

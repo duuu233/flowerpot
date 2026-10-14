@@ -61,7 +61,7 @@
   → 点「连接」→ 输路由器密码 → IMultiModeActivator 双模配网（和花盆同一条动线）
   → 设备列表：FlowerpotState.isMowerDevice（设备 productId == mz7g3yzaufvoh4ls）分流
        · 胶囊：在线 / 离线（涂鸦 SDK online；DP113 不覆盖列表）
-       · 割草机离线也能点进去（进去才会尝试连蓝牙）；花盆离线照旧拦
+       · 割草机离线能进入看缓存/后台连蓝牙，但控制与参数只读，SDK在线后才可操作；花盆离线照旧拦
   → AppRoutes.mowerHome + MowerHomeArguments(deviceId)
   → 外壳 MowerHomePage：进来 MowerDevice.instance.bind(deviceId)，退出 release；
        订阅 MowerDevice.failures 统一弹下发失败；底部导航 首页 / 割草计划 / 设置
@@ -71,7 +71,7 @@
 
 | 模块 | 页面 / 代码 | 读（上报） | 写（下发） | 备注 |
 | --- | --- | --- | --- | --- |
-| 首页（控制） | `mower_control_page.dart`、`widgets/mower_status_card.dart` | 2、3、5、13、18、101、111、113、115、117、118、119 | 2、3、119 | 启动类每次安全确认 → 整小时选择 → 119成功 → 启动；左三预检118 |
+| 首页（控制） | `mower_control_page.dart`、`widgets/mower_status_card.dart` | 2、3、5、13、18、101、111、113、115、117、118、119 | 2、3、119 | 新任务安全确认 → 整小时选择 → 119成功 → DP3；继续安全确认 → DP2=true，不重写119；待机继续置灰；左三预检118 |
 | 割草计划 | `mower_plan_page.dart`、`widgets/mower_plan_edit_sheet.dart` | 101 | 101、110 | 101 全量替换 7 天；恢复默认等设备回报 101 |
 | 设置 · 设备参数 | `devices/presentation/device_info_page.dart`（与花盆「更多设备信息」同页） | 112 | — | 型号 = 涂鸦产品名；硬件版本无 DP 空着 |
 | 设置 · 区域设置 | `mower_zones_page.dart` | 103 | 103 | 5 区一起发；Σ>100 保存前拦 |
@@ -131,7 +131,7 @@ OTA 普通/强制提醒在弹出前经 `FlowerpotState.canStartFirmwareUpgrade` 
   每 3 秒刷新，掉了后台重连（≥30 秒一次，不弹框）。两者断开均用原图 30% 透明度，在线完整显示；Wi-Fi 不再着灰（2026-10-12）。
   Android 已核对 MQTT / LAN / Cloud 与 BLE 独立判断；仅蓝牙在线不会点亮 Wi-Fi。iOS 尚未实现 `deviceLinkState`，本条实时通道切换不能视为双端已完成，见 M01。
 - **Wi-Fi 掉线 → 主动降级蓝牙**：涂鸦 `onStatusChanged` + 每 3 秒 SDK 通道刷新；信号超时本地判离线与探测调度已取消（2026-10-14）。**已关机（DP113）的离线是预期的**：不降级、不报掉线。
-- **控制前安全确认**：自动、定点、启动/继续每次提示周围10米安全并设置整小时，DP119下发成功才启动；回归和暂停跳过。旧蓝牙连接/RSSI预检已移除。
+- **控制前安全确认**：自动/定点新任务每次提示周围10米安全并设置整小时，DP119成功才启动；继续保留安全确认，只发DP2=true恢复原任务，不选择时长；待机继续置灰。回归和暂停跳过。旧蓝牙连接/RSSI预检已移除。
 
 ### 1.6 固件升级
 
@@ -151,7 +151,7 @@ OTA 普通/强制提醒在弹出前经 `FlowerpotState.canStartFirmwareUpgrade` 
 
 ## 2. 已经关闭的能力
 
-- **DP119 已接入（原 M09 完成）**：启动安全确认 → 时间选择 → 119成功后启动；取消不下发，默认时长不缓存，当日18点后禁止启动。手机本地时间和整小时边界见 `PRODUCT_RULES.md` §4.10。
+- **DP119 已接入（原 M09 完成）**：自动/定点新任务安全确认 → 时间选择 → 119成功后启动；继续不重新选择或下发时长；取消不下发，默认时长不缓存，当日18点后禁止启动。手机本地时间和整小时边界见 `PRODUCT_RULES.md` §4.10。
 
 「关闭」指 App 侧契约与代码按协议对齐；真机与跨平台验证单列在 §3 的 P0。
 

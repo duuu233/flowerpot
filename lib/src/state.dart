@@ -1422,10 +1422,10 @@ class FlowerpotState extends ChangeNotifier {
   /// 从目标设备最新原始快照读取，不借用花盆同号 DP 或当前页面的单例状态。
   Future<bool> canStartFirmwareUpgrade(String deviceId) async {
     final device = deviceById(deviceId);
-    if (device == null) return false;
+    if (device == null || !device.online) return false;
     if (!isMowerDevice(device)) return true;
     final dps = await mowerDps(deviceId);
-    return MowerDp.enumOf(
+    return isDeviceOnline(deviceId) && MowerDp.enumOf(
           MowerChargingStatus.values,
           (item) => item.code,
           dps?[MowerDp.chargingStatus],
@@ -1629,9 +1629,11 @@ class FlowerpotState extends ChangeNotifier {
   /// 2. Wi-Fi 离线 → **降级蓝牙**：蓝牙连着就用 `ThingDevicePublishModeAuto`（这时 SDK 只剩蓝牙
   ///    可选）；没连先连一次（涂鸦 `connectBleDevice`），还连不上才按离线拦下。SDK 没有「只走蓝牙」
   ///    的模式（7.5.1 解包：Local = 只走局域网，不在局域网回 10201）。
+  /// SDK 共享在线值为 false 时先拦截，不能借通道缓存绕过。
   /// 没接这套桥接的平台（`unsupported`）照旧走 [_publishDps]。
   Future<ActionResult> publishMowerDps(String deviceId, Map<int, Object> dps) =>
       _run(() async {
+        _requireDeviceOnline(deviceId);
         final link = await _repository.deviceLinkState(deviceId);
         if (link['unsupported'] == true) {
           await _publishDps(deviceId, dps);
@@ -1664,6 +1666,7 @@ class FlowerpotState extends ChangeNotifier {
           // 设备要在 0x01 里置 abv bit0 才会报这个状态（涂鸦答复，固件侧）。
           via = '蓝牙（Wi-Fi 离线降级，bleNodeFirst=${link['bleNodeFirst']}）';
         }
+        _requireDeviceOnline(deviceId);
         _logInteraction('下发 → $dps（走 $via，$mode）');
         try {
           await _repository.publishDpsWithMode(deviceId, dps, mode: mode);
@@ -1767,6 +1770,12 @@ class FlowerpotState extends ChangeNotifier {
   /// 统一的 DP 下发入口：**所有写 DP 的地方都走它**，这样日志不会漏。
   ///
   /// 直接调 `_repository.publishDps` 的话，新增一处下发就少记一条，日志就不可信了。
+  void _requireDeviceOnline(String id) {
+    if (!isDeviceOnline(id)) {
+      throw const TuyaException('device_offline', '设备已离线');
+    }
+  }
+
   Future<void> _publishDps(String deviceId, Map<int, Object> dps) async {
     // 离线设备不下发：指令到不了设备，还会让页面以为改成功了。只拦「认识而且
     // 确实离线」的设备——刚配网完还没进列表的设备 [deviceById] 查不到，那种情况
@@ -2333,6 +2342,7 @@ class FlowerpotState extends ChangeNotifier {
   }
 
   Future<ActionResult> renameDevice(String id, String name) => _guard(() async {
+    _requireDeviceOnline(id);
     final trimmed = name.trim();
     if (trimmed.isEmpty) throw const TuyaException('name', '设备名称不能为空');
     await _repository.renameDevice(id, trimmed);
@@ -3131,7 +3141,9 @@ class FlowerpotState extends ChangeNotifier {
   /// `getFirmwareUpgradeInfo`/`upgradeFirmware`），由原生桥接封装。App 自始至
   /// 终不和设备直接说话：问版本、发起升级、收进度，三步都是对着 SDK。
   Future<FirmwareUpdate?> checkFirmware(String id) async {
+    _requireDeviceOnline(id);
     final update = await _repository.checkFirmware(id);
+    _requireDeviceOnline(id);
     _rememberFirmwareUpdate(id, update);
     return update;
   }
@@ -3164,7 +3176,7 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 这台设备有没有待装的新固件（小红点）。
   bool hasFirmwareUpdate(String deviceId) =>
-      _availableFirmware.containsKey(deviceId);
+      isDeviceOnline(deviceId) && _availableFirmware.containsKey(deviceId);
 
   /// 待装的新固件，没有新版本时为 null。
   FirmwareUpdate? availableFirmwareFor(String deviceId) =>
@@ -3196,6 +3208,7 @@ class FlowerpotState extends ChangeNotifier {
   /// ——否则设备还在烧录，界面就已经显示新版本了。
   Future<ActionResult> upgradeFirmware(String id, String version) =>
       _guard(() async {
+        _requireDeviceOnline(id);
         final epoch = _sessionEpoch;
         _reportedOtaVersion.remove(id);
         _pendingOtaVersion[id] = version;

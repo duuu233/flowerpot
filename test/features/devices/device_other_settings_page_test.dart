@@ -114,7 +114,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('app-dialog-confirm')), findsNothing);
-    expect(find.text('设备已离线'), findsOneWidget);
+    expect(find.text('设备已离线，暂时无法操作'), findsOneWidget);
     expect(repository.calls, isEmpty);
     expect(state.deviceById('device-01'), isNotNull);
     expect(tester.takeException(), isNull);
@@ -464,7 +464,7 @@ void main() {
     await tester.tap(find.text('固件版本更新'));
     await tester.pumpAndSettle();
 
-    expect(find.text('花盆已离线，无法检查固件'), findsOneWidget);
+    expect(find.text('设备已离线，暂时无法操作'), findsOneWidget);
     expect(find.byKey(const Key('firmware-update-dialog')), findsNothing);
     expect(state.otaProgressFor('device-01'), isNull);
     expect(find.byType(DeviceOtherSettingsPage), findsOneWidget, reason: '不跳页');

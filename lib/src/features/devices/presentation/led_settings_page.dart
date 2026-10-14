@@ -48,31 +48,34 @@ class _LedSettingsPageState extends State<LedSettingsPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: 'LED设置', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: SingleChildScrollView(
-        key: const Key('led-settings-scroll-view'),
-        child: ResponsiveContent(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.pageMargin,
-            27,
-            AppSpacing.pageMargin,
-            40,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              DeviceToggleSettingsCard(
-                // 原来和「显示」共用 brightness_symbol，两页并排是同一张图。
-                symbol: DeviceSettingSymbol.led,
-                title: '启用LED',
-                status: model.status,
-                description: model.description,
-                descriptionLines: model.descriptionLines,
-                value: model.ledEnabled,
-                switchKey: const Key('led-switch'),
-                updating: updating,
-                onChanged: _setLed,
-              ),
-            ],
+      body: DeviceOnlineBody(
+        deviceId: widget.deviceId,
+        child: SingleChildScrollView(
+          key: const Key('led-settings-scroll-view'),
+          child: ResponsiveContent(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageMargin,
+              27,
+              AppSpacing.pageMargin,
+              40,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                DeviceToggleSettingsCard(
+                  // 原来和「显示」共用 brightness_symbol，两页并排是同一张图。
+                  symbol: DeviceSettingSymbol.led,
+                  title: '启用LED',
+                  status: model.status,
+                  description: model.description,
+                  descriptionLines: model.descriptionLines,
+                  value: model.ledEnabled,
+                  switchKey: const Key('led-switch'),
+                  updating: updating,
+                  onChanged: _setLed,
+                ),
+              ],
+            ),
           ),
         ),
       ),
