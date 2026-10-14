@@ -94,9 +94,12 @@ class TimeEditSheet extends StatelessWidget {
               child: SizedBox(height: 1, width: double.infinity),
             ),
             Flexible(
-              child: AppDialogScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                child: child,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: AppDialogScrollView(
+                  padding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
+                  child: child,
+                ),
               ),
             ),
             Padding(

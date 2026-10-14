@@ -468,10 +468,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('switch-wifi-button')));
     await tester.pumpAndSettle();
-    final bar = tester.widget<Scrollbar>(
+    final bar = tester.widget<RawScrollbar>(
       find.descendant(
         of: find.byKey(const Key('pairing-wifi-sheet')),
-        matching: find.byType(Scrollbar),
+        matching: find.byType(RawScrollbar),
       ),
     );
     expect(bar.controller!.position.maxScrollExtent, greaterThan(0));

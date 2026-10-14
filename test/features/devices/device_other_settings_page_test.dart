@@ -696,10 +696,10 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    final bar = tester.widget<Scrollbar>(
+    final bar = tester.widget<RawScrollbar>(
       find.descendant(
         of: find.byKey(const Key('ota-progress-dialog')),
-        matching: find.byType(Scrollbar),
+        matching: find.byType(RawScrollbar),
       ),
     );
     expect(bar.controller!.position.maxScrollExtent, greaterThan(0));

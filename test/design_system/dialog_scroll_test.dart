@@ -48,9 +48,9 @@ Future<void> openModal(
   await tester.pumpAndSettle();
 }
 
-Scrollbar overflowingBar(WidgetTester tester) {
+RawScrollbar overflowingBar(WidgetTester tester) {
   return tester
-      .widgetList<Scrollbar>(find.byType(Scrollbar))
+      .widgetList<RawScrollbar>(find.byType(RawScrollbar))
       .firstWhere((bar) => bar.controller!.position.maxScrollExtent > 0);
 }
 
@@ -102,10 +102,7 @@ void main() {
             .map((paint) => paint.foregroundPainter)
             .whereType<ScrollbarPainter>()
             .single;
-        final thumbPoint = Offset(
-          rect.width - (platform == TargetPlatform.iOS ? 5 : 2),
-          10,
-        );
+        final thumbPoint = Offset(rect.width - 2, 10);
         expect(
           painter.hitTestOnlyThumbInteractive(
             thumbPoint,
@@ -144,7 +141,7 @@ void main() {
       tester,
       (context) => showAppDialog(context, title: '提示', message: '已完成'),
     );
-    final bar = tester.widget<Scrollbar>(find.byType(Scrollbar));
+    final bar = tester.widget<RawScrollbar>(find.byType(RawScrollbar));
     expect(bar.controller!.position.maxScrollExtent, 0);
     expect(
       tester.getSize(find.byType(AppDialogScrollView)).height,
@@ -153,7 +150,7 @@ void main() {
     final painter = tester
         .widgetList<CustomPaint>(
           find.descendant(
-            of: find.byType(Scrollbar),
+            of: find.byType(RawScrollbar),
             matching: find.byType(CustomPaint),
           ),
         )
@@ -186,7 +183,10 @@ void main() {
         size: const Size(375, 812),
         keyboard: 300,
       );
-      expect(tester.widgetList<Scrollbar>(find.byType(Scrollbar)).length, 2);
+      expect(
+        tester.widgetList<RawScrollbar>(find.byType(RawScrollbar)).length,
+        2,
+      );
       expectActionsVisible(tester, [
         const Key('app-dialog-confirm'),
         const Key('app-dialog-cancel'),

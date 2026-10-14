@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../tokens/app_colors.dart';
+
 /// Owns a separate controller for each modal, including nested wheel pickers.
 class AppDialogScrollbar extends StatefulWidget {
   const AppDialogScrollbar({required this.builder, super.key});
@@ -22,12 +24,17 @@ class _AppDialogScrollbarState extends State<AppDialogScrollbar> {
   @override
   Widget build(BuildContext context) => ScrollConfiguration(
     behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-    child: Scrollbar(
+    child: RawScrollbar(
       controller: _controller,
       thumbVisibility: true,
       trackVisibility: true,
       interactive: true,
       thickness: 4,
+      thumbColor: AppColors.brandDark,
+      trackColor: AppColors.brandSurface,
+      trackBorderColor: Colors.transparent,
+      mainAxisMargin: 8,
+      minThumbLength: 32,
       radius: const Radius.circular(4),
       notificationPredicate: (notification) => notification.depth == 0,
       child: widget.builder(_controller),
