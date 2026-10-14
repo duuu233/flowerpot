@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../design_system/design_system.dart';
+
 import '../../mower_ui.dart';
 import 'mower_form.dart';
 
@@ -48,7 +50,10 @@ class TimeEditSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * .88,
+        maxHeight:
+            (MediaQuery.sizeOf(context).height -
+                MediaQuery.viewInsetsOf(context).bottom) *
+            .88,
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -89,7 +94,7 @@ class TimeEditSheet extends StatelessWidget {
               child: SizedBox(height: 1, width: double.infinity),
             ),
             Flexible(
-              child: SingleChildScrollView(
+              child: AppDialogScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                 child: child,
               ),

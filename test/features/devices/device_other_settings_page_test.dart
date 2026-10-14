@@ -8,6 +8,7 @@ import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_config.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
+import 'package:flowerpot/src/features/devices/presentation/widgets/ota_progress_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -650,6 +651,67 @@ void main() {
 
     expect(find.text('other-settings-target'), findsOneWidget);
     expect(routeArguments, 'device-01');
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('long OTA failure scrolls while close remains visible', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 568));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = _OtherSettingsRepository();
+    final state = await _stateWithDevice(repository);
+    addTearDown(state.dispose);
+    await state.upgradeFirmware('device-01', '1.1.2');
+    repository.pushOtaProgress(
+      OtaProgress(
+        deviceId: 'device-01',
+        status: OtaStatus.failed,
+        message: List.filled(80, '固件校验失败，请检查设备后重试。').join('\n'),
+      ),
+    );
+    await tester.pump();
+    expect(state.otaProgressFor('device-01')?.status, OtaStatus.failed);
+    await tester.pumpWidget(
+      FlowerpotScope(
+        state: state,
+        child: MaterialApp(
+          theme: buildAppTheme(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(1.8)),
+            child: child!,
+          ),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () =>
+                    showOtaProgressDialog(context, deviceId: 'device-01'),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    final bar = tester.widget<Scrollbar>(
+      find.descendant(
+        of: find.byKey(const Key('ota-progress-dialog')),
+        matching: find.byType(Scrollbar),
+      ),
+    );
+    expect(bar.controller!.position.maxScrollExtent, greaterThan(0));
+    final close = find.byKey(const Key('ota-progress-close'));
+    expect(close.hitTestable(), findsOneWidget);
+    final rect = tester.getRect(close);
+    await tester.drag(find.byWidget(bar), const Offset(0, -200));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(close), rect);
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('ota-progress-dialog')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

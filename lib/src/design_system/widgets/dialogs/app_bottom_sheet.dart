@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../tokens/app_colors.dart';
 import '../../tokens/app_radius.dart';
 import '../../tokens/app_spacing.dart';
+import 'app_dialog_scroll_view.dart';
 
 Future<T?> showAppBottomSheet<T>(
   BuildContext context, {
@@ -49,7 +50,7 @@ Future<T?> showAppBottomSheet<T>(
               ),
             ],
             const SizedBox(height: AppSpacing.lg),
-            Flexible(child: builder(context)),
+            Flexible(child: AppDialogScrollView(child: builder(context))),
           ],
         ),
       ),

@@ -413,16 +413,32 @@ class _SettingsChoiceSheetState extends State<_SettingsChoiceSheet> {
               ),
             ),
             const SizedBox(height: 20),
-            for (var index = 0; index < widget.options.length; index++) ...[
-              _SettingsChoiceOption(
-                key: Key('${widget.options[index].value}-${widget.keyPrefix}'),
-                label: widget.options[index].label,
-                selected: _selectedValue == widget.options[index].value,
-                onTap: () => setState(
-                  () => _selectedValue = widget.options[index].value,
+            Flexible(
+              child: AppDialogScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    for (
+                      var index = 0;
+                      index < widget.options.length;
+                      index++
+                    ) ...[
+                      _SettingsChoiceOption(
+                        key: Key(
+                          '${widget.options[index].value}-${widget.keyPrefix}',
+                        ),
+                        label: widget.options[index].label,
+                        selected: _selectedValue == widget.options[index].value,
+                        onTap: () => setState(
+                          () => _selectedValue = widget.options[index].value,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-            ],
+            ),
           ],
         ),
       ),
@@ -450,18 +466,23 @@ class _SettingsChoiceOption extends StatelessWidget {
       child: InkWell(
         borderRadius: AppRadius.card,
         onTap: onTap,
-        child: SizedBox(
-          height: 48,
-          width: double.infinity,
-          child: Center(
-            child: Text(
-              label,
-              style: AppTypography.status.copyWith(
-                fontSize: selected ? 19 : 16,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                color: selected
-                    ? AppColors.textPrimary
-                    : AppColors.textSecondary,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: 48,
+            minWidth: double.infinity,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Center(
+              child: Text(
+                label,
+                style: AppTypography.status.copyWith(
+                  fontSize: selected ? 19 : 16,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: selected
+                      ? AppColors.textPrimary
+                      : AppColors.textSecondary,
+                ),
               ),
             ),
           ),

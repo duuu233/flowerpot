@@ -101,7 +101,10 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
   /// 3. 「电池数据为空，DP 有没有正常上来」——看电池那一组的原值。
   ///
   /// 用 `SelectableText`：这一段是要复制出去发给后端/固件的。
-  static String _dpDiagnostics(BuildContext context, SmartPlanterDevice device) {
+  static String _dpDiagnostics(
+    BuildContext context,
+    SmartPlanterDevice device,
+  ) {
     final state = FlowerpotScope.of(context);
     final reported = device.plantVariety;
     final matched = state.reportedPlantName(device.id);
@@ -139,8 +142,11 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
       builder: (_) => AlertDialog(
         key: const Key('device-info-dp162-dialog'),
         title: const Text('DP 诊断'),
-        content: SingleChildScrollView(
-          child: SelectableText(_dpDiagnostics(context, device)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: AppDialogScrollView(
+            child: SelectableText(_dpDiagnostics(context, device)),
+          ),
         ),
         actions: <Widget>[
           TextButton(

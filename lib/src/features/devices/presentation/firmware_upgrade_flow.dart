@@ -166,27 +166,31 @@ Future<bool> showFirmwareUpdateDialog(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 // 稿子 214:5981：左右 38，标题到版本 20、两行间 11、到分隔线 30。
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(38, 28, 38, 30),
-                  child: Column(
-                    children: <Widget>[
-                      Text(
-                        '检查更新',
-                        style: AppTypography.deviceTitle.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                Flexible(
+                  child: AppDialogScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(38, 28, 38, 30),
+                      child: Column(
+                        children: <Widget>[
+                          Text(
+                            '检查更新',
+                            style: AppTypography.deviceTitle.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          _FirmwareVersionRow(
+                            label: '当前版本',
+                            version: _displayVersion(currentVersion),
+                          ),
+                          const SizedBox(height: 11),
+                          _FirmwareVersionRow(
+                            label: '发现新版本',
+                            version: _displayVersion(availableVersion),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 20),
-                      _FirmwareVersionRow(
-                        label: '当前版本',
-                        version: _displayVersion(currentVersion),
-                      ),
-                      const SizedBox(height: 11),
-                      _FirmwareVersionRow(
-                        label: '发现新版本',
-                        version: _displayVersion(availableVersion),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
                 const Divider(height: 1),
@@ -256,7 +260,14 @@ class _FirmwareVersionRow extends StatelessWidget {
     return Row(
       children: <Widget>[
         Expanded(child: Text(label, style: AppTypography.status)),
-        Text(version, style: AppTypography.status),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            version,
+            textAlign: TextAlign.end,
+            style: AppTypography.status,
+          ),
+        ),
       ],
     );
   }

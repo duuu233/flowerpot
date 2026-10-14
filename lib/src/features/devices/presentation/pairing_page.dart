@@ -938,12 +938,14 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
                         ),
                       ),
                     ),
-                    const Text(
-                      '选择Wi-Fi',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
+                    const Flexible(
+                      child: Text(
+                        '选择Wi-Fi',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                     Expanded(
@@ -970,11 +972,13 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
-                  const Text(
-                    '仅显示可用的2.4GHzWi-Fi网络',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
+                  const Flexible(
+                    child: Text(
+                      '仅显示可用的2.4GHzWi-Fi网络',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -998,7 +1002,7 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
               const SizedBox(height: 6),
               Expanded(
                 child: networks.isEmpty
-                    ? const Padding(
+                    ? const AppDialogScrollView(
                         padding: EdgeInsets.symmetric(horizontal: 36),
                         child: Center(
                           child: Text(
@@ -1014,57 +1018,63 @@ class _WifiSelectionSheetState extends State<_WifiSelectionSheet> {
                           ),
                         ),
                       )
-                    : ListView.separated(
-                        padding: const EdgeInsets.symmetric(horizontal: 36),
-                        itemCount: networks.length,
-                        separatorBuilder: (_, _) =>
-                            const Divider(height: 1, color: AppColors.divider),
-                        itemBuilder: (context, index) {
-                          final network = networks[index];
-                          final active = selected == network.ssid;
-                          return InkWell(
-                            key: Key('wifi-option-${network.ssid}'),
-                            onTap: () =>
-                                setState(() => selected = network.ssid),
-                            child: SizedBox(
-                              height: 64,
-                              child: Row(
-                                children: <Widget>[
-                                  Image.asset(
-                                    AppAssets.wifiSignalIcon,
-                                    width: 27,
-                                    height: 27,
-                                    fit: BoxFit.contain,
-                                    filterQuality: FilterQuality.high,
-                                    semanticLabel: 'Wi-Fi 网络',
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: Text(
-                                      network.ssid,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: AppColors.textPrimary,
-                                        fontSize: 17,
-                                      ),
-                                    ),
-                                  ),
-                                  if (active)
+                    : AppDialogScrollbar(
+                        builder: (controller) => ListView.separated(
+                          controller: controller,
+                          primary: false,
+                          padding: const EdgeInsets.symmetric(horizontal: 36),
+                          itemCount: networks.length,
+                          separatorBuilder: (_, _) => const Divider(
+                            height: 1,
+                            color: AppColors.divider,
+                          ),
+                          itemBuilder: (context, index) {
+                            final network = networks[index];
+                            final active = selected == network.ssid;
+                            return InkWell(
+                              key: Key('wifi-option-${network.ssid}'),
+                              onTap: () =>
+                                  setState(() => selected = network.ssid),
+                              child: SizedBox(
+                                height: 64,
+                                child: Row(
+                                  children: <Widget>[
                                     Image.asset(
-                                      AppAssets.checkmarkIcon,
-                                      key: const Key('wifi-selected-check'),
-                                      width: 28,
-                                      height: 28,
+                                      AppAssets.wifiSignalIcon,
+                                      width: 27,
+                                      height: 27,
                                       fit: BoxFit.contain,
                                       filterQuality: FilterQuality.high,
-                                      semanticLabel: '已选择',
+                                      semanticLabel: 'Wi-Fi 网络',
                                     ),
-                                ],
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Text(
+                                        network.ssid,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: AppColors.textPrimary,
+                                          fontSize: 17,
+                                        ),
+                                      ),
+                                    ),
+                                    if (active)
+                                      Image.asset(
+                                        AppAssets.checkmarkIcon,
+                                        key: const Key('wifi-selected-check'),
+                                        width: 28,
+                                        height: 28,
+                                        fit: BoxFit.contain,
+                                        filterQuality: FilterQuality.high,
+                                        semanticLabel: '已选择',
+                                      ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
               ),
             ],

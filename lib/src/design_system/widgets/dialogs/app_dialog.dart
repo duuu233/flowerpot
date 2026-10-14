@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_dialog_scroll_view.dart';
+
 import '../../tokens/app_colors.dart';
 import '../../tokens/app_radius.dart';
 
@@ -233,58 +235,68 @@ class AppDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: .1),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: SizedBox.square(
-                    dimension: 46,
-                    child: Icon(
-                      icon ?? tone.fallbackIcon,
-                      color: accent,
-                      size: 24,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          height: 1.2,
+            Flexible(
+              child: AppDialogScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: .1),
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: SizedBox.square(
+                            dimension: 46,
+                            child: Icon(
+                              icon ?? tone.fallbackIcon,
+                              color: accent,
+                              size: 24,
+                            ),
+                          ),
                         ),
-                      ),
-                      if (text.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 7),
-                        Text(
-                          text,
-                          textAlign: messageTextAlign,
-                          style: const TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 13,
-                            height: 1.5,
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.2,
+                                ),
+                              ),
+                              if (text.isNotEmpty) ...<Widget>[
+                                const SizedBox(height: 7),
+                                Text(
+                                  text,
+                                  textAlign: messageTextAlign,
+                                  style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 13,
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ],
+                    ),
+                    if (content case final Widget body) ...<Widget>[
+                      const SizedBox(height: 16),
+                      body,
                     ],
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
-            if (content case final Widget body) ...<Widget>[
-              const SizedBox(height: 16),
-              body,
-            ],
             const SizedBox(height: 20),
             Padding(
               // Lines the buttons up with the text column rather than the
@@ -325,10 +337,12 @@ class AppDialog extends StatelessWidget {
             ),
             if (footer case final Widget note) ...<Widget>[
               const SizedBox(height: 12),
-              Padding(
-                // 和按钮对齐，同样避开左边的图标框。
-                padding: const EdgeInsets.only(left: 60),
-                child: note,
+              Flexible(
+                child: Padding(
+                  // 和按钮对齐，同样避开左边的图标框。
+                  padding: const EdgeInsets.only(left: 60),
+                  child: AppDialogScrollView(child: note),
+                ),
               ),
             ],
           ],

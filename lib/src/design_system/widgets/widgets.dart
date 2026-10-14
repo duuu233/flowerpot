@@ -21,6 +21,7 @@ export 'data_display/metric_value.dart';
 export 'data_display/time_range_selector.dart';
 export 'dialogs/app_bottom_sheet.dart';
 export 'dialogs/app_dialog.dart';
+export 'dialogs/app_dialog_scroll_view.dart';
 export 'dialogs/app_option_dialog.dart';
 export 'feedback/app_confirm_dialog.dart';
 export 'feedback/app_empty_state.dart';

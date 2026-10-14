@@ -105,40 +105,54 @@ class _WaterLevelCalibrationDialogState
           child: Column(
             children: <Widget>[
               Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
-                  child: Column(
-                    children: <Widget>[
-                      Text(
-                        WaterLevelCalibrationModel.title,
-                        style: AppTypography.deviceTitle.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => AppDialogScrollView(
+                    child: SizedBox(
+                      height: math.max(
+                        constraints.maxHeight,
+                        _minimumBodyHeight(context, constraints.maxWidth),
                       ),
-                      const SizedBox(height: AppSpacing.lg),
-                      SizedBox(
-                        key: const Key('water-level-calibration-stepper'),
-                        width: 195,
-                        child: AppStepIndicator(
-                          stepCount: WaterLevelCalibrationModel.steps.length,
-                          currentStep: _currentStep,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xxl),
-                      Expanded(
-                        child: AnimatedSwitcher(
-                          duration: AppDurations.normal,
-                          transitionBuilder: (child, animation) =>
-                              FadeTransition(opacity: animation, child: child),
-                          child: _CalibrationStepContent(
-                            key: Key(
-                              'water-level-calibration-step-${_currentStep + 1}',
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+                        child: Column(
+                          children: <Widget>[
+                            Text(
+                              WaterLevelCalibrationModel.title,
+                              style: AppTypography.deviceTitle.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                            step: _step,
-                          ),
+                            const SizedBox(height: AppSpacing.lg),
+                            SizedBox(
+                              key: const Key('water-level-calibration-stepper'),
+                              width: 195,
+                              child: AppStepIndicator(
+                                stepCount:
+                                    WaterLevelCalibrationModel.steps.length,
+                                currentStep: _currentStep,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.xxl),
+                            Expanded(
+                              child: AnimatedSwitcher(
+                                duration: AppDurations.normal,
+                                transitionBuilder: (child, animation) =>
+                                    FadeTransition(
+                                      opacity: animation,
+                                      child: child,
+                                    ),
+                                child: _CalibrationStepContent(
+                                  key: Key(
+                                    'water-level-calibration-step-${_currentStep + 1}',
+                                  ),
+                                  step: _step,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -194,6 +208,43 @@ class _WaterLevelCalibrationDialogState
     );
   }
 
+  // Preserve the normal illustration layout, but keep text and a usable
+  // illustration height scrollable when the viewport or text scale is tight.
+  double _minimumBodyHeight(BuildContext context, double width) {
+    final contentWidth = math.max(1.0, width - 32);
+    double textHeight(String text, TextStyle style) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout(maxWidth: contentWidth);
+      final height = painter.height;
+      painter.dispose();
+      return height;
+    }
+
+    final instructionSize = contentWidth < 280 ? 18.0 : 20.0;
+    final instructionStyle = AppTypography.deviceTitle.copyWith(
+      fontSize: instructionSize,
+      fontWeight: FontWeight.w500,
+      height: 1.47,
+    );
+    final instructionHeight = WaterLevelCalibrationModel.steps
+        .map((step) => textHeight(step.instruction, instructionStyle))
+        .reduce(math.max);
+    return 24 +
+        textHeight(
+          WaterLevelCalibrationModel.title,
+          AppTypography.deviceTitle.copyWith(fontWeight: FontWeight.w600),
+        ) +
+        AppSpacing.lg +
+        24 +
+        AppSpacing.xxl +
+        math.max(instructionSize * 1.47 * 2, instructionHeight) +
+        AppSpacing.xs +
+        80;
+  }
+
   ButtonStyle _actionStyle(Color foregroundColor) {
     return TextButton.styleFrom(
       foregroundColor: foregroundColor,
@@ -212,8 +263,7 @@ class _WaterLevelCalibrationDialogState
     }
     setState(() => _submitting = true);
     // 开场那次 step0 没成功就先补上，再发下一张卡片的 step。
-    final entered =
-        _stepDelivered || await widget.onCalibrate(_currentStep);
+    final entered = _stepDelivered || await widget.onCalibrate(_currentStep);
     final advanced = entered && await widget.onCalibrate(_currentStep + 1);
     if (!mounted) return;
     setState(() {

@@ -31,26 +31,33 @@ Future<void> showAppUpdateDialog(
           '发现新版本 V${version.versionNo}',
           style: AppTypography.sectionTitle.copyWith(fontSize: 17),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            if (version.releaseNotes.isEmpty)
-              Text('建议更新到最新版本以获得更稳定的体验。', style: AppTypography.body)
-            else
-              for (final note in version.releaseNotes)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-                  child: Text('• $note', style: AppTypography.body),
-                ),
-            if (force) ...<Widget>[
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                '这是一次必须完成的更新，升级后才能继续使用。',
-                style: AppTypography.smallBody.copyWith(color: AppColors.danger),
-              ),
-            ],
-          ],
+        content: SizedBox(
+          width: double.maxFinite,
+          child: AppDialogScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                if (version.releaseNotes.isEmpty)
+                  Text('建议更新到最新版本以获得更稳定的体验。', style: AppTypography.body)
+                else
+                  for (final note in version.releaseNotes)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                      child: Text('• $note', style: AppTypography.body),
+                    ),
+                if (force) ...<Widget>[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    '这是一次必须完成的更新，升级后才能继续使用。',
+                    style: AppTypography.smallBody.copyWith(
+                      color: AppColors.danger,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
         actions: <Widget>[
           if (!force)

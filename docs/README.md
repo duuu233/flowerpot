@@ -7,7 +7,7 @@
 
 本文件是 `docs/` 的统一导航。根目录保留执行规则 `AGENTS.md`、当前 AI 快照 `AI_CONTEXT.md` 和现有的结构入口 `PROJECT_STRUCTURE.md`；其余知识、平台手册、UI 规范和历史记录统一从这里查找。
 
-本轮修复记录：[2026-10-13 仅业务码 406 清除 APP 后端会话](history/2026-10/2026-10-13-backend-session-406-only.md)。此前修复记录：[2026-10-13 OTA 充电条件与故障提示](history/2026-10/2026-10-13-ota-charging-fault-guidance.md)。此前修复记录：[2026-10-13 固件升级弹框切换](history/2026-10/2026-10-13-ota-dialog-sequencing.md)。此前实现记录：[2026-10-12 控制反馈与机器日志初版](history/2026-10/2026-10-12-mower-feedback-machine-logs.md)。此前修复记录：[2026-10-12 割草机 Wi-Fi 恢复原样与状态核查](history/2026-10/2026-10-12-mower-wifi-original-style.md)。此前修复记录：[2026-10-12 割草机 OTA 终态与版本时序修复](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。此前检查记录：[2026-10-12 Android 割草机 OTA 与差分核查](history/2026-10/2026-10-12-mower-ota-audit.md)。此前记录：[2026-10-10 割草机 DP115 异常弹窗](history/2026-10/2026-10-10-mower-command-results.md)。此前记录：[2026-10-10 割草机启动安全确认与整小时设置](history/2026-10/2026-10-10-mower-start-safety-duration.md)。此前记录：[设备同类提示一致性](history/2026-10/2026-10-10-device-feedback-consistency.md)。
+本轮修复记录：[2026-10-14 弹框长内容与滚动](history/2026-10/2026-10-14-dialog-scroll-audit.md)。此前修复记录：[2026-10-13 仅业务码 406 清除 APP 后端会话](history/2026-10/2026-10-13-backend-session-406-only.md)。此前修复记录：[2026-10-13 OTA 充电条件与故障提示](history/2026-10/2026-10-13-ota-charging-fault-guidance.md)。此前修复记录：[2026-10-13 固件升级弹框切换](history/2026-10/2026-10-13-ota-dialog-sequencing.md)。此前实现记录：[2026-10-12 控制反馈与机器日志初版](history/2026-10/2026-10-12-mower-feedback-machine-logs.md)。此前修复记录：[2026-10-12 割草机 Wi-Fi 恢复原样与状态核查](history/2026-10/2026-10-12-mower-wifi-original-style.md)。此前修复记录：[2026-10-12 割草机 OTA 终态与版本时序修复](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。此前检查记录：[2026-10-12 Android 割草机 OTA 与差分核查](history/2026-10/2026-10-12-mower-ota-audit.md)。此前记录：[2026-10-10 割草机 DP115 异常弹窗](history/2026-10/2026-10-10-mower-command-results.md)。此前记录：[2026-10-10 割草机启动安全确认与整小时设置](history/2026-10/2026-10-10-mower-start-safety-duration.md)。此前记录：[设备同类提示一致性](history/2026-10/2026-10-10-device-feedback-consistency.md)。
 
 ## 推荐阅读顺序
 
@@ -49,6 +49,8 @@
 | [`history/README.md`](history/README.md) | Active | 本地操作更新记录规则、模板与索引。 |
 
 `FIGMA_DESIGN_ANALYSIS.md` 和 `UI/*_IMPLEMENTATION.md` 是设计分析或页面级说明；使用前核对其日期和当前源码。[`TEMP_STATIC_PAGE_PREVIEW.md`](TEMP_STATIC_PAGE_PREVIEW.md) 描述当前静态演示构建的动线与开关，不承担生产配置说明。原始 DOCX 和 PNG 是输入资料，不是当前代码事实。
+
+当前弹框滚动契约：[UI/DIALOG_SCROLLING.md](UI/DIALOG_SCROLLING.md)。
 
 ## CodeGraph 与文档的边界
 

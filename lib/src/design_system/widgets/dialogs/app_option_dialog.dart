@@ -5,6 +5,7 @@ import '../../tokens/app_radius.dart';
 import '../../tokens/app_spacing.dart';
 import '../data_display/app_option_tile.dart';
 import 'app_dialog.dart';
+import 'app_dialog_scroll_view.dart';
 
 class AppOption<T> {
   const AppOption({required this.value, required this.label, this.subtitle});
@@ -54,7 +55,7 @@ Future<T?> showAppOptionDialog<T>(
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Flexible(
-                  child: SingleChildScrollView(
+                  child: AppDialogScrollView(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[

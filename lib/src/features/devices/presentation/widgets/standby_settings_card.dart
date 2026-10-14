@@ -222,75 +222,85 @@ class _StandbyDelayDialogState extends State<_StandbyDelayDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            Text(
-              l10n.standbyDelay,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                height: 1.2,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              l10n.standbyDescription,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 18),
-            SizedBox(
-              height: _itemExtent * 3,
-              child: Stack(
-                children: <Widget>[
-                  // 选中态的高亮带：滚轮本身只负责数字，居中那一格由它衬底。
-                  Center(
-                    child: Container(
-                      height: _itemExtent,
-                      decoration: BoxDecoration(
-                        color: AppColors.canvas,
-                        borderRadius: AppRadius.small,
+            Flexible(
+              child: AppDialogScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Text(
+                      l10n.standbyDelay,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        height: 1.2,
                       ),
                     ),
-                  ),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: _DelayWheel(
-                          wheelKey: const Key('standby-hour-wheel'),
-                          controller: _hourController,
-                          itemExtent: _itemExtent,
-                          count: TuyaConfig.standbyDelayMax ~/ 60 + 1,
-                          selected: _hours,
-                          unit: l10n.hourUnit,
-                          onSelected: (value) {
-                            setState(() {
-                              _hours = value;
-                              _clampToRange();
-                            });
-                          },
-                        ),
+                    const SizedBox(height: 6),
+                    Text(
+                      l10n.standbyDescription,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
                       ),
-                      Expanded(
-                        child: _DelayWheel(
-                          wheelKey: const Key('standby-minute-wheel'),
-                          controller: _minuteController,
-                          itemExtent: _itemExtent,
-                          count: 60,
-                          selected: _minutes,
-                          unit: l10n.minuteUnit,
-                          onSelected: (value) {
-                            setState(() {
-                              _minutes = value;
-                              _clampToRange();
-                            });
-                          },
-                        ),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      height: _itemExtent * 3,
+                      child: Stack(
+                        children: <Widget>[
+                          // 选中态的高亮带：滚轮本身只负责数字，居中那一格由它衬底。
+                          Center(
+                            child: Container(
+                              height: _itemExtent,
+                              decoration: BoxDecoration(
+                                color: AppColors.canvas,
+                                borderRadius: AppRadius.small,
+                              ),
+                            ),
+                          ),
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: _DelayWheel(
+                                  wheelKey: const Key('standby-hour-wheel'),
+                                  controller: _hourController,
+                                  itemExtent: _itemExtent,
+                                  count: TuyaConfig.standbyDelayMax ~/ 60 + 1,
+                                  selected: _hours,
+                                  unit: l10n.hourUnit,
+                                  onSelected: (value) {
+                                    setState(() {
+                                      _hours = value;
+                                      _clampToRange();
+                                    });
+                                  },
+                                ),
+                              ),
+                              Expanded(
+                                child: _DelayWheel(
+                                  wheelKey: const Key('standby-minute-wheel'),
+                                  controller: _minuteController,
+                                  itemExtent: _itemExtent,
+                                  count: 60,
+                                  selected: _minutes,
+                                  unit: l10n.minuteUnit,
+                                  onSelected: (value) {
+                                    setState(() {
+                                      _minutes = value;
+                                      _clampToRange();
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 18),

@@ -14,7 +14,6 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../support/asset_finder.dart';
 
 void main() {
-
   testWidgets('pairing page exposes the Figma content', (tester) async {
     await _pumpPairingPage(tester, const Size(375, 812));
 
@@ -449,7 +448,49 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-
+  testWidgets('long Wi-Fi list has a scrollbar and returns last selection', (
+    tester,
+  ) async {
+    await _pumpPairingPage(
+      tester,
+      const Size(320, 568),
+      arguments: PairingArguments(
+        deviceNetworks: List.generate(
+          50,
+          (i) => DeviceWifiNetwork(ssid: 'Network-$i', rssi: -45, sec: 3),
+        ),
+      ),
+    );
+    await Scrollable.ensureVisible(
+      tester.element(find.byKey(const Key('switch-wifi-button'))),
+      alignment: .2,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('switch-wifi-button')));
+    await tester.pumpAndSettle();
+    final bar = tester.widget<Scrollbar>(
+      find.descendant(
+        of: find.byKey(const Key('pairing-wifi-sheet')),
+        matching: find.byType(Scrollbar),
+      ),
+    );
+    expect(bar.controller!.position.maxScrollExtent, greaterThan(0));
+    expect(
+      find.byKey(const Key('wifi-selection-confirm')).hitTestable(),
+      findsOneWidget,
+    );
+    bar.controller!.jumpTo(bar.controller!.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('wifi-option-Network-49')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('wifi-selection-confirm')));
+    await tester.pumpAndSettle();
+    final field = tester.widget<TextField>(
+      find.byKey(const Key('pairing-ssid-field')),
+    );
+    expect(field.controller!.text, 'Network-49');
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<void> _enterPassword(WidgetTester tester) async {
@@ -616,9 +657,7 @@ class _HangingRepository extends _TokenRepository {
     final pending = _pending;
     _pending = null;
     if (pending != null && !pending.isCompleted) {
-      pending.completeError(
-        const TuyaException('pair_cancelled', '配网已被中止'),
-      );
+      pending.completeError(const TuyaException('pair_cancelled', '配网已被中止'));
     }
   }
 }

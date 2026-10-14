@@ -44,9 +44,8 @@ String otaRunningLabel(
   final stage = stageOverride ?? ota?.displayStage ?? OtaStage.preparing;
   return switch (stage) {
     OtaStage.preparing => '固件准备中',
-    OtaStage.upgrading => withPercent
-        ? '固件升级中 ${(ota?.percent ?? 0).clamp(0, 100)}%'
-        : '固件升级中',
+    OtaStage.upgrading =>
+      withPercent ? '固件升级中 ${(ota?.percent ?? 0).clamp(0, 100)}%' : '固件升级中',
     OtaStage.installing => '固件安装中',
     OtaStage.waitingWake => '等待设备唤醒',
   };
@@ -163,62 +162,74 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text(
-                  switch (status) {
-                    OtaStatus.running => otaRunningLabel(
-                      ota,
-                      stageOverride: stage,
+                Flexible(
+                  child: AppDialogScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        Text(
+                          switch (status) {
+                            OtaStatus.running => otaRunningLabel(
+                              ota,
+                              stageOverride: stage,
+                            ),
+                            OtaStatus.success => '升级完成',
+                            OtaStatus.failed => '升级失败',
+                          },
+                          key: const Key('ota-progress-title'),
+                          textAlign: TextAlign.center,
+                          style: AppTypography.sectionTitle.copyWith(
+                            fontSize: 17,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.lg),
+                        ClipRRect(
+                          borderRadius: AppRadius.full,
+                          child: LinearProgressIndicator(
+                            key: const Key('ota-progress-bar'),
+                            minHeight: 8,
+                            // 失败时把进度条停在最后一次收到的百分比上，别归零——那看着
+                            // 像从头再来。
+                            value: indeterminate
+                                ? null
+                                : status == OtaStatus.success
+                                ? 1
+                                : percent / 100,
+                            backgroundColor: AppColors.canvas,
+                            color: status == OtaStatus.failed
+                                ? AppColors.danger
+                                : AppColors.brandPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(
+                          // 不写数字时留一行空白，弹层高度不跟着跳。
+                          indeterminate
+                              ? ''
+                              : status == OtaStatus.success
+                              ? '100%'
+                              : '$percent%',
+                          key: const Key('ota-progress-percent'),
+                          textAlign: TextAlign.center,
+                          style: AppTypography.sectionTitle.copyWith(
+                            color: AppColors.brandPrimary,
+                            fontSize: 20,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(
+                          switch (status) {
+                            OtaStatus.running => _runningHint(stage),
+                            OtaStatus.success => '设备已升级到新版本。',
+                            OtaStatus.failed => ota?.message ?? '请稍后重试。',
+                          },
+                          textAlign: TextAlign.center,
+                          style: AppTypography.smallBody,
+                        ),
+                      ],
                     ),
-                    OtaStatus.success => '升级完成',
-                    OtaStatus.failed => '升级失败',
-                  },
-                  key: const Key('ota-progress-title'),
-                  textAlign: TextAlign.center,
-                  style: AppTypography.sectionTitle.copyWith(fontSize: 17),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                ClipRRect(
-                  borderRadius: AppRadius.full,
-                  child: LinearProgressIndicator(
-                    key: const Key('ota-progress-bar'),
-                    minHeight: 8,
-                    // 失败时把进度条停在最后一次收到的百分比上，别归零——那看着
-                    // 像从头再来。
-                    value: indeterminate
-                        ? null
-                        : status == OtaStatus.success
-                        ? 1
-                        : percent / 100,
-                    backgroundColor: AppColors.canvas,
-                    color: status == OtaStatus.failed
-                        ? AppColors.danger
-                        : AppColors.brandPrimary,
                   ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  // 不写数字时留一行空白，弹层高度不跟着跳。
-                  indeterminate
-                      ? ''
-                      : status == OtaStatus.success
-                      ? '100%'
-                      : '$percent%',
-                  key: const Key('ota-progress-percent'),
-                  textAlign: TextAlign.center,
-                  style: AppTypography.sectionTitle.copyWith(
-                    color: AppColors.brandPrimary,
-                    fontSize: 20,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  switch (status) {
-                    OtaStatus.running => _runningHint(stage),
-                    OtaStatus.success => '设备已升级到新版本。',
-                    OtaStatus.failed => ota?.message ?? '请稍后重试。',
-                  },
-                  textAlign: TextAlign.center,
-                  style: AppTypography.smallBody,
                 ),
                 // 跑完（成功或失败）才给关闭按钮；升级中不给，避免用户以为能中断。
                 if (!running) ...<Widget>[
