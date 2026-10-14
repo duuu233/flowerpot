@@ -91,6 +91,16 @@ final class FlowerpotTuyaBridge: NSObject {
     case "logout": logout(result)
     case "cancelAccount": cancelAccount(result)
     case "getDevices": withHome(result) { [weak self] home in self?.loadDevices(home, result) }
+    case "deviceOnlineStates":
+      let ids = args["deviceIds"] as? [String] ?? []
+      var states: [String: Bool] = [:]
+      for id in ids {
+        if let device = watched[id] ?? ThingSmartDevice(deviceId: id),
+           let model = device.deviceModel {
+          states[id] = model.isOnline
+        }
+      }
+      result(states)
     case "scanWifi": scanWifi(result)
     case "currentHomeId": withHome(result) { home in result(String(home.homeModel.homeId)) }
     // Dart 侧按账号记住上次用过的家庭，会话一开始钉回来：家庭属于涂鸦账号，不该
@@ -762,6 +772,11 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
       return
     }
     emit(["deviceId": id, "device": snapshot])
+  }
+
+  func deviceOnlineUpdate(_ device: ThingSmartDevice) {
+    guard let model = device.deviceModel, let id = model.devId else { return }
+    emit(["deviceId": id, "online": model.isOnline])
   }
 
   func deviceRemoved(_ device: ThingSmartDevice) {

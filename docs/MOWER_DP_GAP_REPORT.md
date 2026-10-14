@@ -60,7 +60,7 @@
 搜索设备（涂鸦 BLE 扫描；认花盆两个 ID + mz7g3yzaufvoh4ls + 后台 getBasicData.deviceIdList）
   → 点「连接」→ 输路由器密码 → IMultiModeActivator 双模配网（和花盆同一条动线）
   → 设备列表：FlowerpotState.isMowerDevice（设备 productId == mz7g3yzaufvoh4ls）分流
-       · 胶囊：在线 / 离线 / 已关机（DP113，FlowerpotState.isMowerShutdown）
+       · 胶囊：在线 / 离线（涂鸦 SDK online；DP113 不覆盖列表）
        · 割草机离线也能点进去（进去才会尝试连蓝牙）；花盆离线照旧拦
   → AppRoutes.mowerHome + MowerHomeArguments(deviceId)
   → 外壳 MowerHomePage：进来 MowerDevice.instance.bind(deviceId)，退出 release；
@@ -83,7 +83,7 @@
 | 设置 · 消息通知 | `mower_messages_page.dart` + `mower_machine_logs_view.dart` | 5、111、117、118、113、13、115 | — | 本机DP事件三栏；折叠区保留云端诊断 |
 | 设置 · 删除设备 | `mower_settings_page.dart` | — | —（涂鸦解绑 + 删后台记录） | 不发 DP（花盆的 141 割草机没有） |
 | 改名 | `RenameDeviceDialog` + `FlowerpotState.renameDevice` | — | —（涂鸦设备名 + 后端 `editUserProduct`） | 同花盆，不走 DP |
-| 设备列表 | `devices/presentation/device_list_page.dart` | 113（配合在线态） | — | 「已关机」胶囊 |
+| 设备列表 | `devices/presentation/device_list_page.dart` | — | — | 涂鸦 SDK online 的在线/离线胶囊 |
 
 ### 1.3 下发链路
 
@@ -94,7 +94,7 @@
        ├─ _deliver / _deliverRaw：写联调日志（raw 同时打 hex 与 base64）
        └─ _publish：排队串行（保证时间同步 106 → 107 → 108 → 114 的顺序）
             └─ FlowerpotState.publishMowerDps（和花盆同一道离线门禁，不占忙锁）
-                 ├─ Wi-Fi 在线（且主动探测没判不可达）→ ThingDevicePublishModeInternet（只有局域网通 → Local）
+                 ├─ SDK Wi-Fi 在线→ ThingDevicePublishModeInternet（只有局域网通 → Local）
                  ├─ Wi-Fi 离线 → 蓝牙连着 / 先连一次连上 → ThingDevicePublishModeAuto（此时只剩蓝牙）
                  ├─ 都不通 → device_offline，不发
                  └─ 平台不支持通道查询（iOS）→ 普通 publishDps
@@ -130,8 +130,7 @@ OTA 普通/强制提醒在弹出前经 `FlowerpotState.canStartFirmwareUpgrade` 
 - **两个图标**：蓝牙 = 手机与设备蓝牙连着（`isBleLocalOnline`），Wi-Fi = MQTT / 局域网 / 云端任一在线；进页面自动连蓝牙，
   每 3 秒刷新，掉了后台重连（≥30 秒一次，不弹框）。两者断开均用原图 30% 透明度，在线完整显示；Wi-Fi 不再着灰（2026-10-12）。
   Android 已核对 MQTT / LAN / Cloud 与 BLE 独立判断；仅蓝牙在线不会点亮 Wi-Fi。iOS 尚未实现 `deviceLinkState`，本条实时通道切换不能视为双端已完成，见 M01。
-- **Wi-Fi 掉线 → 主动降级蓝牙**：涂鸦 `onStatusChanged` + 每 3 秒通道刷新 + 前台每 20 秒 `requestWifiSignal` 主动探测
-  （连续 2 次没回应按离线）。**已关机（DP113）的离线是预期的**：不降级、不报掉线。
+- **Wi-Fi 掉线 → 主动降级蓝牙**：涂鸦 `onStatusChanged` + 每 3 秒 SDK 通道刷新；信号超时本地判离线与探测调度已取消（2026-10-14）。**已关机（DP113）的离线是预期的**：不降级、不报掉线。
 - **控制前安全确认**：自动、定点、启动/继续每次提示周围10米安全并设置整小时，DP119下发成功才启动；回归和暂停跳过。旧蓝牙连接/RSSI预检已移除。
 
 ### 1.6 固件升级
@@ -161,7 +160,7 @@ OTA 普通/强制提醒在弹出前经 `FlowerpotState.canStartFirmwareUpgrade` 
 - **DP101 / DP103 编解码**：88 字节计划（组 0 = 每天、组 1–7 = 周一到周日，小端分钟数）与 25 字节区域双向编解码；
   界面「日一…六」与 DP「周一…周日」的换算集中在 `MowerScheduleCodec`。
 - **DP110 恢复默认计划**：确认后下发 true，App 不本地改，等设备上报的 DP101 刷新（协议 V2.3）。
-- **DP113 关机上报**：已关机只在状态层判一次，列表、控制页共用；关机后的离线不当异常（协议 V2.5 §9.9）。
+- **DP113 关机上报**：已关机只在状态层判一次，控制页使用；列表在线胶囊只读 SDK online；关机后的离线不当异常（协议 V2.5 §9.9）。
 - **DP112 固件版本**：设备信息页的当前版本、OTA 成功兜底都读它；按产品 ID 区分，不与花盆 DP148 / 花盆 112（空气温度）混用。
 - **DP18 故障**：首页黄条取位序最低的文案（0 = 正常隐藏）；出现新故障位弹「设备告警」，同一组故障只弹一次。
 - **去掉全部假数据**：静态演示入口、稿子初值、模拟上报面板、写死消息都已删除，没报过的值不编数。
@@ -347,7 +346,7 @@ P0 是挡住发布或真机闭环的事；P1 是链路还差一段的能力；P2
 | 110 | 恢复默认割草计划 | `schedule_reset` | bool（动作型） | 可下发可上报 | ✅ 已接入 | 计划页「恢复默认」确认后发 true；不本地改，等 DP101 上报刷新 |
 | 111 | 故障告警明细 | `fault_alarm` | string (JSON) | 只上报 | ✅ 初版已接 | 27类本机日志、code26新鲜定位；真机待核验（M06） |
 | 112 | 固件版本 | `fw_version` | string | 只上报 | ✅ 已接入 | 更多设备信息「固件版本」（没报退回 SDK `verSw`）；OTA 安装中阶段 = 目标版本判成功（M08） |
-| 113 | 关机上报 | `shutdown_report` | bool | 只上报 | ✅ 已接入 | 已关机：列表与控制页胶囊「已关机」、黄条换关机文案、按钮全灰、不弹告警、不降级蓝牙；发送队列再次拦截已关机设备，忽略 SDK 的旧在线缓存；DP113=false 或离线后重新上线清除 |
+| 113 | 关机上报 | `shutdown_report` | bool | 只上报 | ✅ 已接入 | 已关机：控制页胶囊「已关机」（列表只读 SDK online）、黄条换关机文案、按钮全灰、不弹告警、不降级蓝牙；发送队列再次拦截已关机设备，忽略 SDK 的旧在线缓存；DP113=false 或离线后重新上线清除 |
 | 114 | 时间设置 | `device_time` | string（UTC 秒） | 可下发可上报 | 🟡 有条件 | 只在时间同步页保存（DP106 开）时发；连接后 / 升级后不自动对时（M05） |
 | 115 | 命令结果 | `command_results` | string (JSON) | 只上报 | 🟡 有条件 | 当前实际下发DP2/DP3的回执，匹配dp/可选val，seq去重回绕；安全/时间窗后code≥16弹设备异常，16–70定义码具体提示、255通用，26新鲜111定位及现场处理/1～2秒间隔/保留位反馈建议，按钮仅关闭；其他DP拒绝可入本机日志、未接控制UI |
 | 116 | 升级状态 | `ota_status` | string | 只上报 | ✅ 已接入 | 本次 OTA 的实时 `"7"`（非待机拒绝）/ `"20"`（包校验失败）由共享状态收尾失败，不依赖页面；页面提示保留。不认旧快照、不参与百分比 |

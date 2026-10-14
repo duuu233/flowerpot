@@ -217,35 +217,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('割草机报过 DP113 非在桩关机（离线、快照 true）：胶囊写「已关机」，不写「离线」', (tester) async {
-    await _pumpDeviceList(
-      tester,
-      const Size(375, 812),
-      devices: <SmartPlanterDevice>[
-        _device(id: 'device-01', name: 'YSplanter-01', online: false),
-        _device(
-          id: 'mower-01',
-          name: '割草机',
-          online: false,
-          productId: MowerDp.productId,
+  for (final online in [false, true]) {
+    testWidgets('列表在线值只认涂鸦：DP113 true，SDK online=$online', (tester) async {
+      final state = await _pumpDeviceList(
+        tester,
+        const Size(375, 812),
+        devices: [
+          _device(id: 'device-01', name: 'YSplanter-01', online: online),
+          _device(
+            id: 'mower-01',
+            name: '割草机',
+            online: online,
+            productId: MowerDp.productId,
+          ),
+        ],
+        rawDps: {
+          'mower-01': {MowerDp.shutdownReport: true},
+        },
+      );
+      await tester.pump();
+      if (!online) {
+        expect(state.isMowerShutdown('mower-01'), isTrue, reason: '控制页仍保留关机门禁');
+      }
+      expect(find.text('已关机'), findsNothing);
+      expect(find.text(online ? '在线' : '离线'), findsNWidgets(2));
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('device-list-item-mower-01')),
+          matching: find.text(online ? '在线' : '离线'),
         ),
-      ],
-      rawDps: <String, Map<int, Object?>>{
-        'mower-01': <int, Object?>{MowerDp.shutdownReport: true},
-      },
-    );
-    await tester.pump();
-
-    expect(find.text('已关机'), findsOneWidget);
-    expect(find.text('离线'), findsOneWidget, reason: '花盆照旧写离线');
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('device-list-item-mower-01')),
-        matching: find.text('已关机'),
-      ),
-      findsOneWidget,
-    );
-  });
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('设备列表读不出来时给错误和重试，而不是「暂无设备」', (tester) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
@@ -262,7 +267,10 @@ void main() {
     await tester.pumpWidget(
       FlowerpotScope(
         state: state,
-        child: MaterialApp(theme: buildAppTheme(), home: const DeviceListPage()),
+        child: MaterialApp(
+          theme: buildAppTheme(),
+          home: const DeviceListPage(),
+        ),
       ),
     );
     await tester.pump();
@@ -293,7 +301,6 @@ void main() {
     state.pauseDeviceWatch();
     expect(tester.takeException(), isNull);
   });
-
 }
 
 Future<FlowerpotState> _pumpDeviceList(

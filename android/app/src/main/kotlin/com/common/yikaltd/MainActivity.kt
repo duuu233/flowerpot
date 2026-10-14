@@ -3848,7 +3848,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * ```text
      * deviceId : String        always present
      * dps      : Map?          the DPs that just changed, ids as strings
-     * online   : Boolean?      online/offline or phone-network change
+     * online   : Boolean?      SDK device online/offline status
      * removed  : Boolean?      the device left the account
      * device   : Map?          full snapshot after a device-info change
      * ```
@@ -3866,14 +3866,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     if (dps.isNotEmpty()) emit(mapOf("deviceId" to id, "dps" to dps))
                     defaultValue(method.returnType)
                 }
-                // onStatusChanged is the device going on/offline;
-                // onNetworkStatusChanged is the phone losing the cloud. Either
-                // way the device can no longer be trusted to be reachable.
-                "onStatusChanged", "onNetworkStatusChanged" -> {
+                // Only the device-status callback owns its online field.
+                "onStatusChanged" -> {
                     val online = args?.getOrNull(1) as? Boolean
                     if (online != null) emit(mapOf("deviceId" to id, "online" to online))
                     defaultValue(method.returnType)
                 }
+                // Network availability is not a device online/offline report.
+                "onNetworkStatusChanged" -> defaultValue(method.returnType)
                 "onRemoved" -> {
                     emit(mapOf("deviceId" to id, "removed" to true))
                     // Deferred: unregistering from inside the callback would

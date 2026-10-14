@@ -766,14 +766,27 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<Map<String, bool>> deviceOnlineStates(List<String> deviceIds) async {
     if (deviceIds.isEmpty) return const <String, bool>{};
+    final queried = {for (final id in deviceIds) id: _snapshots[id]};
     final raw = await _invoke<Map<Object?, Object?>>('deviceOnlineStates', {
       'deviceIds': deviceIds,
     });
     if (raw == null) return const <String, bool>{};
-    return <String, bool>{
+    final states = <String, bool>{
       for (final entry in raw.entries)
         if (entry.value is bool) '${entry.key}': entry.value! as bool,
     };
+    // The SDK cache query is authoritative too. Keep the DP merge snapshot in
+    // sync so a later DP-only report cannot restore an older online flag.
+    for (final entry in states.entries) {
+      final snapshot = _snapshots[entry.key];
+      if (snapshot != null && identical(snapshot, queried[entry.key])) {
+        _snapshots[entry.key] = <Object?, Object?>{
+          ...snapshot,
+          'online': entry.value,
+        };
+      }
+    }
+    return states;
   }
 
   @override

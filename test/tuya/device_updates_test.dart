@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -45,7 +46,8 @@ void main() {
   setUp(() {
     messenger.setMockMethodCallHandler(
       const MethodChannel(_methodChannel),
-      (call) async => call.method == 'getDevices' ? <Object?>[_deviceMap()] : null,
+      (call) async =>
+          call.method == 'getDevices' ? <Object?>[_deviceMap()] : null,
     );
     // The event channel answers its own listen/cancel calls.
     messenger.setMockMethodCallHandler(
@@ -131,6 +133,76 @@ void main() {
       expect(updates.last.changedDps, isEmpty);
       expect(updates.last.reportedDps, isEmpty);
     });
+
+    test(
+      'SDK online query updates DP merge cache without changing readings',
+      () async {
+        final updates = <DeviceUpdate>[];
+        final subscription = repository.deviceUpdates.listen(updates.add);
+        addTearDown(subscription.cancel);
+        await repository.getDevices();
+        messenger.setMockMethodCallHandler(
+          const MethodChannel(_methodChannel),
+          (call) async =>
+              call.method == 'deviceOnlineStates' ? {'dev-1': false} : null,
+        );
+        expect(await repository.deviceOnlineStates(['dev-1']), {
+          'dev-1': false,
+        });
+        await emit({
+          'deviceId': 'dev-1',
+          'dps': {'105': 88},
+        });
+        expect(updates.last.device!.online, isFalse);
+        expect(updates.last.device!.sensors.waterLevel, 88);
+        await emit({'deviceId': 'dev-1', 'online': true});
+        expect(updates.last.device!.online, isTrue);
+      },
+    );
+
+    test(
+      'a newer online event protects the DP snapshot from an older query',
+      () async {
+        final updates = <DeviceUpdate>[];
+        final subscription = repository.deviceUpdates.listen(updates.add);
+        addTearDown(subscription.cancel);
+        await repository.getDevices();
+        final pending = Completer<Object?>();
+        messenger.setMockMethodCallHandler(
+          const MethodChannel(_methodChannel),
+          (call) async =>
+              call.method == 'deviceOnlineStates' ? pending.future : null,
+        );
+        final query = repository.deviceOnlineStates(['dev-1']);
+        await Future<void>.delayed(Duration.zero);
+        await emit({'deviceId': 'dev-1', 'online': false});
+        pending.complete({'dev-1': true});
+        await query;
+        await emit({
+          'deviceId': 'dev-1',
+          'dps': {'105': 88},
+        });
+        expect(updates.last.device!.online, isFalse);
+      },
+    );
+
+    test(
+      'DP-only and network events do not promote an offline device',
+      () async {
+        final updates = <DeviceUpdate>[];
+        final subscription = repository.deviceUpdates.listen(updates.add);
+        addTearDown(subscription.cancel);
+        await repository.getDevices();
+        await emit({'deviceId': 'dev-1', 'online': false});
+        await emit({
+          'deviceId': 'dev-1',
+          'networkAvailable': true,
+          'dps': {'105': 88},
+        });
+        expect(updates.last.device!.online, isFalse);
+        expect(updates.last.device!.sensors.waterLevel, 88);
+      },
+    );
 
     test('applies an online change without touching the readings', () async {
       final updates = <DeviceUpdate>[];
