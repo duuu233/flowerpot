@@ -223,7 +223,9 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
           leading: const AppBackButton(),
           actions: <Widget>[
             _RestoreDefaultButton(
-              onTap: _device.online ? () => unawaited(_restoreDefault()) : null,
+              onTap: _device.online && !_device.schedulePending
+                  ? () => unawaited(_restoreDefault())
+                  : null,
             ),
           ],
         ),
@@ -283,17 +285,28 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
                         ],
                       ),
                     ),
-                  MowerCard(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: SizedBox(
-                      height: _chartHeight(constraints),
-                      child: MowerPlanChart(
-                        enabledDays: _enabledDays,
-                        trimDays: _trimDays,
-                        slots: _chartSlots,
-                        onToggleTrim: _toggleTrim,
-                        onEditDay: (day, slot) => unawaited(_edit(day, slot)),
-                        onDeleteSlot: (slot) => unawaited(_deleteSlot(slot)),
+                  if (_device.schedulePending)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        '正在等待设备返回割草计划',
+                        key: Key('mower-plan-pending'),
+                      ),
+                    ),
+                  AbsorbPointer(
+                    absorbing: _device.schedulePending,
+                    child: MowerCard(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: SizedBox(
+                        height: _chartHeight(constraints),
+                        child: MowerPlanChart(
+                          enabledDays: _enabledDays,
+                          trimDays: _trimDays,
+                          slots: _chartSlots,
+                          onToggleTrim: _toggleTrim,
+                          onEditDay: (day, slot) => unawaited(_edit(day, slot)),
+                          onDeleteSlot: (slot) => unawaited(_deleteSlot(slot)),
+                        ),
                       ),
                     ),
                   ),
@@ -389,21 +402,35 @@ class _ScheduleDebugWindow extends StatelessWidget {
   final MowerDevice device;
 
   String get _text {
-    final raw = device.scheduleRaw;
-    if (raw == null) {
-      return 'DP${MowerDp.mowSchedule} 还没有数据：设备没报过、本机也没下发过';
+    final lines = <String>[
+      'DP101 V2.6：组0~6=周一~周日，组7备用；+8沿边，+9/+10时段有效',
+      '显示来源：${device.hasScheduleReport ? '涂鸦返回DP101' : '尚未收到有效DP101'}',
+      if (device.schedulePending) '下发状态：等待设备回读，页面尚未确认新计划',
+      if (device.scheduleCommandResult case final result?)
+        '本次DP115：dp=${result.dp}，code=${result.code}，seq=${result.seq}；${result.rejectionMessage ?? '已受理，显示仍以DP101为准'}',
+    ];
+    void append(Uint8List? raw, String source, DateTime? at) {
+      lines.add('\n$source · ${at?.toIso8601String() ?? '无时间'}');
+      if (raw == null) {
+        lines.add('未收到数据');
+        return;
+      }
+      lines.add('长度：${raw.length}字节（应为88）');
+      lines.add('hex  ${MowerScheduleCodec.toHexGroups(raw)}');
+      lines.add('base64  ${MowerScheduleCodec.toBase64(raw)}');
+      if (raw.length != 88) {
+        lines.add('异常长度：不更新页面计划，保留上一有效DP');
+      }
+      lines.addAll(MowerScheduleCodec.describe(raw));
     }
-    final at = device.scheduleRawAt;
-    String two(int v) => v.toString().padLeft(2, '0');
-    final time = at == null
-        ? ''
-        : ' ${two(at.hour)}:${two(at.minute)}:${two(at.second)}';
-    return <String>[
-      'DP${MowerDp.mowSchedule} mow_schedule · ${device.scheduleRawSource}$time · ${raw.length} 字节',
-      'hex  ${MowerScheduleCodec.toHexGroups(raw)}',
-      'base64  ${MowerScheduleCodec.toBase64(raw)}',
-      ...MowerScheduleCodec.describe(raw),
-    ].join('\n');
+
+    append(
+      device.scheduleRaw,
+      device.scheduleRawSource.isEmpty ? '设备返回' : device.scheduleRawSource,
+      device.scheduleRawAt,
+    );
+    append(device.scheduleSentRaw, '本机下发草稿（不是设备已确认）', device.scheduleSentAt);
+    return lines.join('\n');
   }
 
   @override

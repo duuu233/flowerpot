@@ -14,6 +14,8 @@ class MowerPlanDraft {
     this.activeSlot = 1,
     this.edge = false,
     this.copyWeek = false,
+    this.oneFromDevice = false,
+    this.twoFromDevice = false,
   });
 
   /// 从 DP 解析出来的那一天开编辑器。
@@ -34,6 +36,8 @@ class MowerPlanDraft {
       one: source.slotOne ?? defaultOne,
       two: source.slotTwo ?? defaultTwo,
       edge: source.edge,
+      oneFromDevice: source.slotOne != null,
+      twoFromDevice: source.slotTwo != null,
     );
   }
 
@@ -63,14 +67,17 @@ class MowerPlanDraft {
   /// 「复制整周」：保存时把这一天铺到七天。
   final bool copyWeek;
 
+  /// 设备已报过的停用时段不能因为恰好等于编辑器默认时间而被清空。
+  final bool oneFromDevice;
+  final bool twoFromDevice;
+
   MowerScheduleSlot get active => activeSlot == 1 ? one : two;
 
-  /// 保存出去的那一天。**关着、时间还是默认值的时段按「没排」处理**（写成 null）：
-  /// 停用的时段会带着起止写进 DP101（有效位 0，见 `MowerScheduleCodec`），不这么收一下，
-  /// 用户碰都没碰的空时段也会被当成「停用的时段」写给设备。不丢信息——再打开还是这组默认时间。
+  /// 保存时仅去除从未存在且未改动的停用占位时间。
+  /// 设备已报的停用起止即使与默认时间相同，也必须保留，不能凭值猜为空。
   MowerScheduleDay get day0 => MowerScheduleDay(
-    slotOne: _untouched(one, defaultOne) ? null : one,
-    slotTwo: _untouched(two, defaultTwo) ? null : two,
+    slotOne: !oneFromDevice && _untouched(one, defaultOne) ? null : one,
+    slotTwo: !twoFromDevice && _untouched(two, defaultTwo) ? null : two,
     edge: edge,
   );
 
@@ -95,6 +102,8 @@ class MowerPlanDraft {
     activeSlot: activeSlot ?? this.activeSlot,
     edge: edge ?? this.edge,
     copyWeek: copyWeek ?? this.copyWeek,
+    oneFromDevice: oneFromDevice,
+    twoFromDevice: twoFromDevice,
   );
 }
 
@@ -248,9 +257,8 @@ class _MowerPlanEditSheetState extends State<_MowerPlanEditSheet> {
             subtitle: '将当前时段与修边设置应用到整周',
             value: _draft.copyWeek,
             switchKey: const Key('mower-plan-edit-copy-week'),
-            onChanged: (value) => setState(
-              () => _draft = _draft.copyWith(copyWeek: value),
-            ),
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(copyWeek: value)),
           ),
         ],
       ),

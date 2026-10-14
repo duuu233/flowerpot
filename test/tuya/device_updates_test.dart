@@ -71,6 +71,28 @@ void main() {
     );
   });
 
+  test('割草DP101给原生桥：单一字符串键、176位hex，无base64二次编码', () async {
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(const MethodChannel(_methodChannel), (
+      call,
+    ) async {
+      calls.add(call);
+      return null;
+    });
+    const group = '1C02D00248033804010100';
+    final hex = '${List.filled(7, group).join()}0000000000000000000000';
+    await repository.publishDpsWithMode('dev-1', {
+      101: hex,
+    }, mode: 'ThingDevicePublishModeInternet');
+    expect(calls, hasLength(1));
+    expect(calls.single.method, 'publishDpsWithMode');
+    expect(calls.single.arguments, {
+      'deviceId': 'dev-1',
+      'dps': {'101': hex},
+      'mode': 'ThingDevicePublishModeInternet',
+    });
+    expect(hex.length, 176);
+  });
   group('MethodChannelTuyaRepository.deviceUpdates', () {
     test('merges a reported DP into the last known device', () async {
       final updates = <DeviceUpdate>[];

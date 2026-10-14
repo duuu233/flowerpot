@@ -112,16 +112,24 @@ class MowerDevice extends ChangeNotifier {
   MowerLanguage? language;
 
   /// DP101：一周计划（界面序，0=周日）。**不存数据库，显示依赖 DP 解析**
-  /// （2026-09-18 用户明确）——这里存的就是最后一次下发/上报解析出来的那份。
+  /// （2026-09-18 用户明确）——这里只保存最后有效设备返回，下发草稿不改变显示。
   ///
   /// 按设备上报；没报过就是空周。
   late List<MowerScheduleDay> schedule;
 
-  /// DP101 最近一次的**原始 88 字节**与来源（「设备上报」/「本机下发」）、时间。
-  /// 计划页底部的临时窗口和联调日志拿它逐字节解析（[MowerScheduleCodec.describe]）。
+  /// DP101 最近一次返回的**原始字节**与来源（「设备快照」/「设备上报」）、时间。
+  /// 计划页底部的临时窗口和联调日志拿它逐字节解析（[MowerScheduleCodec.describe]）；下发另存。
   Uint8List? scheduleRaw;
   String scheduleRawSource = '';
   DateTime? scheduleRawAt;
+
+  /// 最近一次下发的草稿，不能替代设备快照或上报。
+  Uint8List? scheduleSentRaw;
+  DateTime? scheduleSentAt;
+  bool hasScheduleReport = false;
+  MowerCommandResult? scheduleCommandResult;
+  int _scheduleReadSequence = 0;
+  bool get schedulePending => _awaitingEcho.containsKey(MowerDp.mowSchedule);
 
   /// DP103：五个区域的百分比与距离。
   late List<MowerZoneConfig> zones;
@@ -307,6 +315,11 @@ class MowerDevice extends ChangeNotifier {
     scheduleRaw = null;
     scheduleRawSource = '';
     scheduleRawAt = null;
+    scheduleSentRaw = null;
+    scheduleSentAt = null;
+    hasScheduleReport = false;
+    scheduleCommandResult = null;
+    _scheduleReadSequence = 0;
     bleLinked = false;
     wifiLinked = false;
     _lastAutoConnect = null;
@@ -515,6 +528,31 @@ class MowerDevice extends ChangeNotifier {
   /// 割草计划（DP101，raw 88 字节）。**全量替换**，7 天一起发。
   void setSchedule(FlowerpotState state, List<MowerScheduleDay> week) {
     if (!_canWrite(state)) return;
+    if (schedulePending) {
+      _failures.add('正在等待设备返回割草计划，请稍后再操作');
+      return;
+    }
+    if (week.length != 7) {
+      _failures.add('割草计划需要包含完整七天，未下发');
+      return;
+    }
+    for (final day in week) {
+      if (day.overlapMessage != null) {
+        _failures.add('割草时段不能重叠，未下发');
+        return;
+      }
+      for (final slot in [day.slotOne, day.slotTwo]) {
+        if (slot == null) continue;
+        if (slot.startMinutes < 0 ||
+            slot.startMinutes > 1440 ||
+            slot.endMinutes < 0 ||
+            slot.endMinutes > 1440 ||
+            (slot.enabled && !slot.validForDevice)) {
+          _failures.add('割草时段需在当天范围内且超过10分钟，未下发');
+          return;
+        }
+      }
+    }
     final data = MowerScheduleCodec.encodeByDay(week);
     _deliverRaw(
       state,
@@ -523,8 +561,9 @@ class MowerDevice extends ChangeNotifier {
       hex: MowerScheduleCodec.toHexGroups(data),
       action: '割草计划（全量替换，8 组 × 11 字节）',
     );
-    _rememberSchedule(state, data, '本机下发');
-    schedule = List<MowerScheduleDay>.of(week);
+    scheduleSentRaw = Uint8List.fromList(data);
+    scheduleSentAt = DateTime.now();
+    state.logMowerInteraction('待确认 · 割草计划只在收到有效DP101后更新显示');
     notifyListeners();
   }
 
@@ -659,17 +698,25 @@ class MowerDevice extends ChangeNotifier {
     int generation, {
     Map<int, Object?>? reported,
   }) async {
+    final readsSchedule =
+        changed == null ||
+        changed.isEmpty ||
+        changed.contains(MowerDp.mowSchedule);
+    final scheduleRead = readsSchedule ? ++_scheduleReadSequence : null;
     final snapshot = await state.mowerDps(id);
     if ((snapshot == null && reported == null) || !_isCurrent(id, generation)) {
       return;
     }
     final dps = <int, Object?>{...?snapshot, ...?reported};
+    if (readsSchedule && scheduleRead != _scheduleReadSequence) {
+      dps.remove(MowerDp.mowSchedule);
+    }
     // 这一次有没有把 DP101 刷进来：有就逐字节解析打进日志（下面三个分支口径各不相同）。
     final scheduleTouched = changed == null
         ? dps.containsKey(MowerDp.mowSchedule)
         : changed.isEmpty
         ? dps.containsKey(MowerDp.mowSchedule) &&
-              !_awaitingEcho.containsKey(MowerDp.mowSchedule)
+              scheduleRead == _scheduleReadSequence
         : changed.contains(MowerDp.mowSchedule);
     if (changed == null) {
       _applyReported(dps);
@@ -679,15 +726,20 @@ class MowerDevice extends ChangeNotifier {
       );
     } else if (changed.isEmpty) {
       // 整包快照（`onDevInfoUpdate`，报文里没有逐条 DP）：全部刷一遍，但**跳过还在等回显的**——
-      // 快照里还是下发前的旧值，这时刷回去界面会先闪回旧值、再被回显拉回来。
+      // DP101不乐观显示，始终读取设备返回；其它参数仍跳过等待中的旧快照。
       _applyReported(
         dps,
-        only: dps.keys.where((dp) => !_awaitingEcho.containsKey(dp)),
+        only: dps.keys.where(
+          (dp) => dp == MowerDp.mowSchedule || !_awaitingEcho.containsKey(dp),
+        ),
       );
     } else {
       _applyReported(dps, only: changed);
       for (final dp in changed) {
-        _awaitingEcho.remove(dp);
+        if (dp != MowerDp.mowSchedule ||
+            TuyaRaw.bytes(dps[dp])?.length == MowerScheduleCodec.bytes) {
+          _awaitingEcho.remove(dp);
+        }
         final identifier = MowerDp.identifiers[dp] ?? 'dp$dp';
         final note = dp == MowerDp.fault
             ? ' → 黄条「${faultMessage ?? '无对应文案'}」'
@@ -728,10 +780,16 @@ class MowerDevice extends ChangeNotifier {
       };
       if (message != null && !_failures.isClosed) _failures.add(message);
     }
-    if (scheduleTouched) {
+    if (scheduleTouched && dps.containsKey(MowerDp.mowSchedule)) {
       final bytes = TuyaRaw.bytes(dps[MowerDp.mowSchedule]);
       if (bytes != null) {
-        _rememberSchedule(state, Uint8List.fromList(bytes), '设备上报');
+        _rememberSchedule(
+          state,
+          Uint8List.fromList(bytes),
+          changed != null && changed.contains(MowerDp.mowSchedule)
+              ? '设备上报'
+              : '设备快照',
+        );
       } else {
         state.logMowerInteraction(
           '解析 ✗ 割草机 DP${MowerDp.mowSchedule} 认不出的值：${dps[MowerDp.mowSchedule]}',
@@ -752,10 +810,20 @@ class MowerDevice extends ChangeNotifier {
     final pending = _pendingCommands[result.dp];
     if (pending == null ||
         result.seq == pending.previousSeq ||
-        (result.value != null && result.value != pending.value)) {
+        (result.dp != MowerDp.mowSchedule &&
+            result.value != null &&
+            result.value != pending.value)) {
       return;
     }
     _pendingCommands.remove(result.dp);
+    if (result.dp == MowerDp.mowSchedule) {
+      scheduleCommandResult = result;
+      if (result.code >= 16) {
+        _awaitingEcho.remove(MowerDp.mowSchedule);
+        _failures.add('割草计划未生效：${result.rejectionMessage}');
+      }
+      return;
+    }
     if (result.code == 26) {
       _faultReadTimer?.cancel();
       if (_freshFaultWaiter != null && !_freshFaultWaiter!.isCompleted) {
@@ -785,16 +853,23 @@ class MowerDevice extends ChangeNotifier {
   /// 在真正发送前登记，兼容设备回执早于 SDK 完成回调。
   _PendingMowerCommand? _watchCommand(Map<int, Object> dps) {
     final dp = dps.keys.single;
-    if (dp != MowerDp.switchGo && dp != MowerDp.mode) return null;
+    if (dp != MowerDp.switchGo &&
+        dp != MowerDp.mode &&
+        dp != MowerDp.mowSchedule) {
+      return null;
+    }
     final raw = dps[dp];
-    final value = dp == MowerDp.switchGo
+    final value = dp == MowerDp.mowSchedule
+        ? 0
+        : dp == MowerDp.switchGo
         ? (raw == true ? 1 : 0)
         : MowerDp.enumOf(MowerMode.values, (item) => item.code, raw)?.value;
     if (value == null) return null;
-    // 一次只跟踪最后实际发送的控制命令；回显超时不是结果帧截止时间。
+    // 一次只跟踪最后实际发送的控制/计划命令；DP101 raw不使用val匹配。
     _pendingCommands.clear();
     final pending = _PendingMowerCommand(value, _lastCommandResult?.seq);
     _pendingCommands[dp] = pending;
+    if (dp == MowerDp.mowSchedule) scheduleCommandResult = null;
     return pending;
   }
 
@@ -853,10 +928,11 @@ class MowerDevice extends ChangeNotifier {
         case MowerDp.mowSchedule:
           final scheduleBytes = TuyaRaw.bytes(value);
           if (scheduleBytes != null &&
-              scheduleBytes.length >= MowerScheduleCodec.bytes) {
+              scheduleBytes.length == MowerScheduleCodec.bytes) {
             schedule = MowerScheduleCodec.decode(
               Uint8List.fromList(scheduleBytes),
             );
+            hasScheduleReport = true;
           }
         case MowerDp.zoneConfig:
           final zoneBytes = TuyaRaw.bytes(value);
@@ -1021,7 +1097,11 @@ class MowerDevice extends ChangeNotifier {
           return false;
         });
     _queue = pending.then<void>((_) {});
-    return pending;
+    return pending.whenComplete(() {
+      if (_isCurrent(id, generation) && dps.containsKey(MowerDp.mowSchedule)) {
+        notifyListeners();
+      }
+    });
   }
 
   /// 下发成功后 [echoTimeout] 内这几条 DP 还没有上报，就按设备快照画回去（V2.2 §1 超时回弹）。
@@ -1048,6 +1128,7 @@ class MowerDevice extends ChangeNotifier {
         '回弹 ⚠ 割草机 DP${missing.join('/')} 下发 ${echoTimeout.inSeconds} 秒没有上报，'
         '按设备当前值显示（设备可能拒绝了这条指令）',
       );
+      notifyListeners();
       unawaited(_revertToDevice(state, id, missing, generation));
     });
     _echoTimers.add(timer);
@@ -1061,9 +1142,20 @@ class MowerDevice extends ChangeNotifier {
     int generation,
   ) async {
     try {
+      final readsSchedule = dps.contains(MowerDp.mowSchedule);
+      final sequence = readsSchedule ? ++_scheduleReadSequence : null;
       final snapshot = await state.mowerDps(id);
       if (snapshot == null || !_isCurrent(id, generation)) return;
-      _applyReported(snapshot, only: dps);
+      final targets = dps.where(
+        (dp) => dp != MowerDp.mowSchedule || sequence == _scheduleReadSequence,
+      );
+      _applyReported(snapshot, only: targets);
+      if (targets.contains(MowerDp.mowSchedule)) {
+        final bytes = TuyaRaw.bytes(snapshot[MowerDp.mowSchedule]);
+        if (bytes != null) {
+          _rememberSchedule(state, Uint8List.fromList(bytes), '设备快照');
+        }
+      }
       notifyListeners();
     } catch (error) {
       if (!_isCurrent(id, generation)) return;

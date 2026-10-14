@@ -191,3 +191,5 @@
 - [2026-10-14 离线控制与割草机继续](2026-10/2026-10-14-offline-controls-mower-resume.md)
 
 - [2026-10-14 割草计划复制整周与修边](2026-10/2026-10-14-mower-copy-week-edge.md)
+
+- [2026-10-14 割草计划DP来源与下发核查](2026-10/2026-10-14-mower-schedule-dp-source-audit.md)

@@ -11,6 +11,7 @@ import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/features/mower/presentation/mower_home_page.dart';
 import 'package:flowerpot/src/features/mower/presentation/mower_zones_page.dart';
 import 'package:flowerpot/src/features/mower/presentation/widgets/mower_plan_edit_sheet.dart';
+import 'package:flowerpot/src/features/mower/presentation/widgets/mower_plan_chart.dart';
 import 'package:flowerpot/src/features/mower/presentation/widgets/time_edit_sheet.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
@@ -32,6 +33,84 @@ import '../../support/plant_catalog.dart';
 /// ⚠️ 下发后有 5 秒的回显计时器；测试框架在用例体结束时就检查挂着的 Timer（比 tearDown 早），
 /// 所以每条下发过的用例结尾都手动 `resetForTest` 一次把它们取消。
 void main() {
+  testWidgets('计划图只显示设备DP，点击修边等实际回读，复制诊断含收发两份', (tester) async {
+    final repo = _MowerRepository()..echoSchedules = false;
+    final incoming = Uint8List(88);
+    for (var group = 0; group < 7; group++) {
+      incoming.setRange(group * 11, group * 11 + 11, [
+        0x1c,
+        2,
+        0xd0,
+        2,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        0,
+      ]);
+    }
+    await _pumpMowerHome(tester, {
+      101: TuyaRaw.hex(incoming),
+    }, repositoryOverride: repo);
+    await tester.tap(find.byKey(const Key('mower-nav-plan')));
+    await tester.pumpAndSettle();
+    final chart = find.byType(MowerPlanChart);
+    expect(
+      tester.widget<MowerPlanChart>(chart).enabledDays,
+      everyElement(true),
+    );
+    expect(
+      tester.widget<MowerPlanChart>(chart).trimDays,
+      everyElement(true),
+      reason: 'DP包含周一二四六沿边时，APP不能取消',
+    );
+    await tester.tap(find.byKey(const Key('mower-plan-trim-2')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('mower-plan-pending')), findsOneWidget);
+    expect(
+      tester.widget<MowerPlanChart>(chart).trimDays[2],
+      isTrue,
+      reason: 'SDK下发完成不代表已回显，仍显示设备值',
+    );
+    final reply = Uint8List.fromList(incoming)..[19] = 0;
+    repo.rawDpsByDevice[_mowerId]![101] = TuyaRaw.hex(reply);
+    repo.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: {101},
+        reportedDps: {101: TuyaRaw.hex(reply)},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<MowerPlanChart>(chart).trimDays[2], isFalse);
+    expect(find.byKey(const Key('mower-plan-pending')), findsNothing);
+    expect(find.textContaining('本机下发草稿（不是设备已确认）'), findsOneWidget);
+    expect(find.textContaining('设备上报'), findsWidgets);
+    MowerDevice.instance.resetForTest();
+  });
+  testWidgets('编辑修边后保存，不清掉设备已报且等于默认时间的停用时段', (tester) async {
+    final raw = Uint8List(88);
+    raw.setRange(33, 44, [0xfe, 1, 0xd0, 2, 0x48, 3, 0x38, 4, 0, 0, 0]);
+    final repo = await _pumpMowerHome(tester, {101: TuyaRaw.hex(raw)});
+    await tester.tap(find.byKey(const Key('mower-nav-plan')));
+    await tester.pumpAndSettle();
+    final chart = tester.widget<MowerPlanChart>(find.byType(MowerPlanChart));
+    chart.onEditDay(4, 1);
+    await tester.pumpAndSettle();
+    final trim = find.byKey(const Key('mower-plan-edit-trim'));
+    await Scrollable.ensureVisible(tester.element(trim), alignment: .5);
+    await tester.pumpAndSettle();
+    await tester.tap(trim);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mower-plan-edit-save')));
+    await tester.pumpAndSettle();
+    final sent = TuyaRaw.bytes(repo.publishedDps.single.$2[101])!;
+    expect(sent.sublist(33, 44), [0xfe, 1, 0xd0, 2, 0x48, 3, 0x38, 4, 1, 0, 0]);
+    MowerDevice.instance.resetForTest();
+  });
+
   for (final edge in [true, false]) {
     for (final changeEdge in [false, true]) {
       testWidgets('V2.6固定设备帧：复制整周修边=$edge、现场修改=$changeEdge下发并回读7天', (
@@ -1487,6 +1566,23 @@ SmartPlanterDevice _mower() => SmartPlanterDevice(
 
 /// 设备列表里只有一台割草机；其余照 Mock。
 class _MowerRepository extends MockTuyaRepository {
+  bool echoSchedules = true;
+  @override
+  Future<void> publishDps(String deviceId, Map<int, Object> dps) async {
+    await super.publishDps(deviceId, dps);
+    if (echoSchedules && dps.containsKey(MowerDp.mowSchedule)) {
+      rawDpsByDevice.putIfAbsent(deviceId, () => {})[MowerDp.mowSchedule] =
+          dps[MowerDp.mowSchedule];
+      pushDeviceUpdate(
+        DeviceUpdate.changed(
+          _mower(),
+          changedDps: {MowerDp.mowSchedule},
+          reportedDps: {MowerDp.mowSchedule: dps[MowerDp.mowSchedule]},
+        ),
+      );
+    }
+  }
+
   _MowerRepository() : super(latency: Duration.zero, seedDevice: false);
 
   @override
