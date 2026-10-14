@@ -189,3 +189,5 @@
 - [`2026-10/2026-10-10-mower-start-safety-duration.md`](2026-10/2026-10-10-mower-start-safety-duration.md)：启动每次安全确认与DP119整小时设置，18点截止及移除蓝牙预检；88项回归通过。
 
 - [2026-10-14 离线控制与割草机继续](2026-10/2026-10-14-offline-controls-mower-resume.md)
+
+- [2026-10-14 割草计划复制整周与修边](2026-10/2026-10-14-mower-copy-week-edge.md)

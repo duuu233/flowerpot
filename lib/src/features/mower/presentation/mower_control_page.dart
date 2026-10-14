@@ -644,16 +644,23 @@ class _TodayPlanCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
-                Text(
-                  '${_hhmm(one.startMinutes)}  →  ${_hhmm(one.endMinutes)}',
-                  key: const Key('mower-today-range'),
-                  style: const TextStyle(
-                    color: MowerColors.ink,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    height: 1.56,
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${_hhmm(one.startMinutes)}  →  ${_hhmm(one.endMinutes)}',
+                      key: const Key('mower-today-range'),
+                      style: const TextStyle(
+                        color: MowerColors.ink,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                        height: 1.56,
+                      ),
+                    ),
                   ),
                 ),
+                if (day.edge) const SizedBox(width: 8),
                 if (day.edge)
                   Container(
                     width: 54,

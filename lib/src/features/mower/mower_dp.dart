@@ -421,14 +421,20 @@ class MowerScheduleSlot {
 
   /// 设备只认 >10 分钟的时段，短的会被丢弃（V2.2 §5.1）。
   bool get validForDevice =>
-      enabled && startMinutes < endMinutes && endMinutes <= 1440 && durationMinutes > 10;
+      enabled &&
+      startMinutes < endMinutes &&
+      endMinutes <= 1440 &&
+      durationMinutes > 10;
 
-  MowerScheduleSlot copyWith({int? startMinutes, int? endMinutes, bool? enabled}) =>
-      MowerScheduleSlot(
-        startMinutes: startMinutes ?? this.startMinutes,
-        endMinutes: endMinutes ?? this.endMinutes,
-        enabled: enabled ?? this.enabled,
-      );
+  MowerScheduleSlot copyWith({
+    int? startMinutes,
+    int? endMinutes,
+    bool? enabled,
+  }) => MowerScheduleSlot(
+    startMinutes: startMinutes ?? this.startMinutes,
+    endMinutes: endMinutes ?? this.endMinutes,
+    enabled: enabled ?? this.enabled,
+  );
 }
 
 /// 一天的计划：两个时段 + 沿边（修边）开关。
@@ -442,14 +448,16 @@ class MowerScheduleDay {
   final bool edge;
 
   bool get isEmpty =>
-      !(slotOne?.validForDevice ?? false) && !(slotTwo?.validForDevice ?? false);
+      !(slotOne?.validForDevice ?? false) &&
+      !(slotTwo?.validForDevice ?? false);
 
   /// 两个时段重叠了就返回那句提示（端点相接不算重叠）。
   String? get overlapMessage {
     final one = slotOne;
     final two = slotTwo;
     if (one == null || two == null || !one.enabled || !two.enabled) return null;
-    if (one.startMinutes < two.endMinutes && two.startMinutes < one.endMinutes) {
+    if (one.startMinutes < two.endMinutes &&
+        two.startMinutes < one.endMinutes) {
       return '时段 2 与时段 1（${_hhmm(one.startMinutes)}–${_hhmm(one.endMinutes)}）重叠';
     }
     return null;
@@ -474,20 +482,20 @@ String _hhmm(int minutes) {
 
 /// DP101 割草计划的 88 字节编解码（8 组 × 11 字节）。
 ///
-/// 组 0 = 全部设置（每天），组 1~7 = 周一~周日。
+/// V2.6：组 0~6 = 周一~周日，组 7 备用，发送时留零。
 /// ⚠️ **界面用的是「日一二三四五六」（周日在前），DP 用的是「周一~周日」**，
-/// 两者差一位，换算集中在 [groupOfWeekday] / [weekdayOfGroup]，别在页面里各算各的。
+/// 两者星期起点不同，换算集中在 [groupOfWeekday] / [weekdayOfGroup]，别在页面里各算各的。
 abstract final class MowerScheduleCodec {
   static const int bytes = 88;
   static const int groupSize = 11;
 
-  /// 界面星期序（0=周日 … 6=周六）→ DP 组号（1=周一 … 7=周日）。
-  static int groupOfWeekday(int weekday) => weekday == 0 ? 7 : weekday;
+  /// 界面星期序（0=周日 … 6=周六）→ DP 组号（0=周一 … 6=周日）。
+  static int groupOfWeekday(int weekday) => weekday == 0 ? 6 : weekday - 1;
 
   /// DP 组号 → 界面星期序。
-  static int weekdayOfGroup(int group) => group == 7 ? 0 : group;
+  static int weekdayOfGroup(int group) => group == 6 ? 0 : group + 1;
 
-  /// 按天编码：7 天各自的计划写进组 1~7，组 0 留空。
+  /// 按天编码：7 天各自的时段和沿边位写进组 0~6，组 7 留空。
   ///
   /// ⚠️ **全量替换**：设备每次收到都会清空重建，所以这里必须把 7 天一起发，
   /// 不能只发改动的那一天（V2.2 §5.1）。
@@ -501,12 +509,9 @@ abstract final class MowerScheduleCodec {
     return data;
   }
 
-  /// 「全部设置」形态：只填组 0，组 1~7 全 0，设备按每天执行。
-  static Uint8List encodeAll(MowerScheduleDay day) {
-    final data = Uint8List(bytes);
-    _writeGroup(data, 0, day);
-    return data;
-  }
+  /// 整周相同：明确写七个星期组，不借备用组或把周一当作全部设置。
+  static Uint8List encodeAll(MowerScheduleDay day) =>
+      encodeByDay(List<MowerScheduleDay>.filled(7, day));
 
   static void _writeGroup(Uint8List data, int offset, MowerScheduleDay day) {
     _writeSlot(data, offset, offset + 9, day.slotOne);
@@ -549,16 +554,11 @@ abstract final class MowerScheduleCodec {
 
   /// 解 88 字节回 7 天（界面序，0=周日）。
   ///
-  /// **组 0 有效时按「每天」展开到 7 天**——设备就是这么执行的，界面照着画才不会
-  /// 出现「下发了每天、界面却一天都不亮」。长度不对返回空周。
+  /// 只读组0~6对应星期；周一有计划不代表整周相同，备用组不覆盖星期。
   static List<MowerScheduleDay> decode(Uint8List data) {
     final week = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());
     if (data.length < bytes) return week;
-    final all = _readGroup(data, 0);
-    if (!all.isEmpty) {
-      return List<MowerScheduleDay>.filled(7, all);
-    }
-    for (var group = 1; group <= 7; group++) {
+    for (var group = 0; group < 7; group++) {
       week[weekdayOfGroup(group)] = _readGroup(data, group * groupSize);
     }
     return week;
@@ -606,26 +606,19 @@ abstract final class MowerScheduleCodec {
     String time(int minutes) =>
         '${(minutes ~/ 60).toString().padLeft(2, '0')}:${(minutes % 60).toString().padLeft(2, '0')}';
     int read(int offset) => data[offset] | (data[offset + 1] << 8);
-    bool zero(int group) =>
-        data.sublist(group * groupSize, (group + 1) * groupSize).every((b) => b == 0);
-    bool anyValid(int group) =>
-        data[group * groupSize + 9] != 0 || data[group * groupSize + 10] != 0;
-
+    bool zero(int group) => data
+        .sublist(group * groupSize, (group + 1) * groupSize)
+        .every((b) => b == 0);
     final daysSet = <int>[
-      for (var group = 1; group <= 7; group++)
+      for (var group = 0; group < 7; group++)
         if (!zero(group)) group,
     ];
     final lines = <String>[
-      if (anyValid(0) && daysSet.isEmpty)
-        '形态：全部设置（组0 有效、组1~7 全 00 → 每天按组0 执行）'
-      else if (anyValid(0))
-        '形态：⚠ 组0 与组1~7 混发 → 设备以组0 为准，组1~7 被忽略并清空'
-      else if (daysSet.isEmpty && zero(0))
-        '形态：全 00 → 清空所有计划'
-      else
-        '形态：按天设置（组0 无有效时段，组${daysSet.join('/')} 有内容）',
+      daysSet.isEmpty
+          ? '形态：组0~6 全 00 → 清空星期计划'
+          : '形态：V2.6 按天设置（组0~6=周一~周日，组${daysSet.join('/')}有内容）',
     ];
-    const names = <String>['全部', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    const names = <String>['周一', '周二', '周三', '周四', '周五', '周六', '周日', '备用'];
     for (var group = 0; group < 8; group++) {
       final o = group * groupSize;
       final hex = data
@@ -638,8 +631,10 @@ abstract final class MowerScheduleCodec {
       }
       String slot(int index, int start, int end, int valid) {
         final notes = <String>[
-          if (valid == 0 && start < end && end <= 1440) '无效，App 停用的时段，设备不执行'
-          else if (valid == 0) '无效',
+          if (valid == 0 && start < end && end <= 1440)
+            '无效，App 停用的时段，设备不执行'
+          else if (valid == 0)
+            '无效',
           if (valid != 0 && !(start < end && end <= 1440)) '⚠ 起止不合法，设备会丢弃',
           if (valid != 0 && start < end && end - start <= 10) '⚠ ≤10 分钟，设备会丢弃',
         ];

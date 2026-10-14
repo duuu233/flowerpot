@@ -222,7 +222,9 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
           title: '割草计划',
           leading: const AppBackButton(),
           actions: <Widget>[
-            _RestoreDefaultButton(onTap: () => unawaited(_restoreDefault())),
+            _RestoreDefaultButton(
+              onTap: _device.online ? () => unawaited(_restoreDefault()) : null,
+            ),
           ],
         ),
         body: DeviceOnlineBody(
@@ -333,7 +335,7 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
 class _RestoreDefaultButton extends StatelessWidget {
   const _RestoreDefaultButton({required this.onTap});
 
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -344,23 +346,30 @@ class _RestoreDefaultButton extends StatelessWidget {
         child: GestureDetector(
           key: const Key('mower-plan-restore'),
           onTap: onTap,
-          child: Container(
-            height: 30,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            decoration: BoxDecoration(
-              color: MowerColors.softFill,
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(Icons.history_rounded, size: 16, color: MowerColors.brand),
-                SizedBox(width: 5),
-                Text(
-                  '恢复默认',
-                  style: TextStyle(color: MowerColors.brand, fontSize: 13),
-                ),
-              ],
+          child: Opacity(
+            opacity: onTap == null ? .45 : 1,
+            child: Container(
+              height: 30,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: MowerColors.softFill,
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(
+                    Icons.history_rounded,
+                    size: 16,
+                    color: MowerColors.brand,
+                  ),
+                  SizedBox(width: 5),
+                  Text(
+                    '恢复默认',
+                    style: TextStyle(color: MowerColors.brand, fontSize: 13),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
