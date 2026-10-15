@@ -296,6 +296,11 @@ void main() {
       String code(MowerMode mode) => mode.code;
       expect(MowerDp.enumOf(MowerMode.values, code, 'spot'), MowerMode.spot);
       expect(MowerDp.enumOf(MowerMode.values, code, 3), MowerMode.gotoCharge);
+      expect(MowerDp.enumOf(MowerMode.values, code, '3'), MowerMode.gotoCharge);
+      expect(MowerDp.enumOf(MowerMode.values, code, ' 1 '), MowerMode.smart);
+      for (final invalid in [null, true, -1, '99', 1.5, '1.5']) {
+        expect(MowerDp.enumOf(MowerMode.values, code, invalid), isNull);
+      }
       expect(MowerDp.enumOf(MowerMode.values, code, 'random'), isNull);
       expect(MowerDp.enumOf(MowerMode.values, code, 99), isNull);
     });

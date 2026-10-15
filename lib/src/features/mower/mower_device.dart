@@ -92,6 +92,10 @@ class MowerDevice extends ChangeNotifier {
 
   /// DP117：充电状态。
   late MowerChargingStatus charging;
+  bool _chargingReported = false;
+
+  /// 只展示有效DP117返回的含义，未上报时不把默认枚举当成设备状态。
+  String? get chargingLabel => _chargingReported ? charging.label : null;
 
   /// DP118：盖子。true=合盖（可启动）。
   late bool coverClosed;
@@ -300,6 +304,7 @@ class MowerDevice extends ChangeNotifier {
     faultBitmap = null;
     faultAlarm = null;
     charging = MowerChargingStatus.notCharging;
+    _chargingReported = false;
     coverClosed = true;
     rainDetectEnable = false;
     rainDelayMinutes = 0;
@@ -916,13 +921,15 @@ class MowerDevice extends ChangeNotifier {
         case MowerDp.faultAlarm:
           faultAlarm = MowerFaultAlarm.parse(value) ?? faultAlarm;
         case MowerDp.chargingStatus:
-          charging =
-              MowerDp.enumOf(
-                MowerChargingStatus.values,
-                (item) => item.code,
-                value,
-              ) ??
-              charging;
+          final reported = MowerDp.enumOf(
+            MowerChargingStatus.values,
+            (item) => item.code,
+            value,
+          );
+          if (reported != null) {
+            charging = reported;
+            _chargingReported = true;
+          }
         case MowerDp.coverStatus:
           coverClosed = _asBool(value) ?? coverClosed;
         case MowerDp.mowSchedule:

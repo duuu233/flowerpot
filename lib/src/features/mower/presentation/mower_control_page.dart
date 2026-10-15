@@ -229,7 +229,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
     });
   }
 
-  /// 电量环的视觉态：充电中看 DP117，其余按 DP13 的阈值分档。
+  /// 电量环的视觉态：充电动效看DP117及电量，其余按DP13分档；文字单独读取DP117。
   MowerPowerState get _tone {
     if (_device.battery < 100 &&
         _device.charging == MowerChargingStatus.charging) {
@@ -449,6 +449,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
                 child: MowerStatusCard(
                   tone: _tone,
                   percent: _device.battery,
+                  chargingLabel: _device.chargingLabel,
                   statusLabel: _device.shutdown ? '已关机' : _device.status.label,
                   wifiLinked: _device.wifiLinked,
                   bleLinked: _device.bleLinked,

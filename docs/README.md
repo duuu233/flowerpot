@@ -7,7 +7,9 @@
 
 本文件是 `docs/` 的统一导航。根目录保留执行规则 `AGENTS.md`、当前 AI 快照 `AI_CONTEXT.md` 和现有的结构入口 `PROJECT_STRUCTURE.md`；其余知识、平台手册、UI 规范和历史记录统一从这里查找。
 
-本轮修复：[2026-10-15 割草机消息按标题分类](history/2026-10/2026-10-15-mower-message-title-categories.md)。
+本轮修复：[2026-10-15 DP117状态含义文案](history/2026-10/2026-10-15-mower-dp117-status-labels.md)。
+
+此前修复：[2026-10-15 割草机消息按标题分类](history/2026-10/2026-10-15-mower-message-title-categories.md)。
 
 此前修复：[2026-10-15 恢复割草机涂鸦历史消息](history/2026-10/2026-10-15-mower-cloud-message-history.md)。
 

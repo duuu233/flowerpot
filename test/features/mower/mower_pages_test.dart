@@ -114,7 +114,7 @@ void main() {
           findsOneWidget,
         );
       }
-      expect(find.text('电量 100%'), findsOneWidget);
+      expect(find.text('在充电 100%', findRichText: true), findsOneWidget);
       expect(tester.takeException(), isNull);
       MowerDevice.instance.resetForTest();
     });
@@ -170,24 +170,66 @@ void main() {
   }
 
   for (final percent in [99, 100]) {
-    for (final charging in ['charging', 'full']) {
-      testWidgets('电量$percent%，DP117=$charging，满电/充满不再显示充电中', (tester) async {
+    for (final (charging, expected) in <(Object, String)>[
+      (0, '未在充电'),
+      (1, '在充电'),
+      (2, '已充满'),
+      ('0', '未在充电'),
+      ('1', '在充电'),
+      ('2', '已充满'),
+      ('not_charging', '未在充电'),
+      ('charging', '在充电'),
+      ('full', '已充满'),
+    ]) {
+      testWidgets('电量$percent%，DP117=$charging按含义显示$expected', (tester) async {
         await _pumpMowerHome(tester, {13: percent, 117: charging});
         await tester.pump(const Duration(milliseconds: 200));
-        final shouldCharge = percent < 100 && charging == 'charging';
+        expect(
+          find.text('$expected $percent%', findRichText: true),
+          findsOneWidget,
+        );
+        final shouldAnimate = percent < 100 && expected == '在充电';
         expect(
           find.byKey(const Key('mower-charging-bolt')),
-          shouldCharge ? findsOneWidget : findsNothing,
+          shouldAnimate ? findsOneWidget : findsNothing,
         );
-        expect(
-          find.textContaining('充电中', findRichText: true),
-          shouldCharge ? findsOneWidget : findsNothing,
-        );
-        if (!shouldCharge) expect(find.text('电量 $percent%'), findsOneWidget);
         MowerDevice.instance.resetForTest();
+        expect(tester.takeException(), isNull);
       });
     }
   }
+
+  testWidgets('DP117未上报或非法时不编造文案，异常回报保留最后有效充电状态', (tester) async {
+    final repository = await _pumpMowerHome(tester, {13: 100});
+    await tester.pumpAndSettle();
+    expect(find.text('电量 100%'), findsOneWidget);
+    for (final raw in <Object?>['unknown', '2', 3, '3', -1, null, true, 1.5]) {
+      repository.pushDeviceUpdate(
+        DeviceUpdate.changed(
+          _mower(),
+          changedDps: {117},
+          reportedDps: {117: raw},
+        ),
+      );
+      await tester.pumpAndSettle();
+      if (raw == 'unknown') {
+        expect(find.text('电量 100%'), findsOneWidget);
+      } else {
+        expect(find.text('已充满 100%', findRichText: true), findsOneWidget);
+      }
+    }
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('等待雨停挂桩且DP117=charging时文案仍为在充电', (tester) async {
+    await _pumpMowerHome(tester, {13: 100, 5: 'wait_rain', 117: 'charging'});
+    await tester.pumpAndSettle();
+    expect(find.text('在充电 100%', findRichText: true), findsOneWidget);
+    expect(find.text('等待雨停'), findsOneWidget);
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('计划图只显示设备DP，点击修边等实际回读，复制诊断含收发两份', (tester) async {
     final repo = _MowerRepository()..echoSchedules = false;

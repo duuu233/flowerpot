@@ -8,7 +8,7 @@ import '../../mower_ui.dart';
 ///
 /// 稿子上这一块没有卡片底（`设备状态卡片` 的 fills 是空的，只留了一层投影），所以
 /// 这里也不画底，直接落在页面渐变上。四种电量态（[MowerPowerState]）换的只是环的
-/// 两个颜色和环下面那行字。
+/// 颜色及告警样式；有效DP117文案独立提供，不由视觉档位覆盖。
 class MowerStatusCard extends StatelessWidget {
   const MowerStatusCard({
     required this.tone,
@@ -16,6 +16,7 @@ class MowerStatusCard extends StatelessWidget {
     required this.statusLabel,
     super.key,
     this.onTapRing,
+    this.chargingLabel,
     this.wifiLinked = false,
     this.bleLinked = false,
   });
@@ -32,6 +33,9 @@ class MowerStatusCard extends StatelessWidget {
 
   /// DP5 工作状态，画在状态胶囊里。
   final String statusLabel;
+
+  /// 有效DP117的状态文案，独立于电量环的视觉档位。
+  final String? chargingLabel;
 
   final VoidCallback? onTapRing;
 
@@ -84,7 +88,14 @@ class MowerStatusCard extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(top: 222, child: _BatteryLine(tone: tone, percent: percent)),
+          Positioned(
+            top: 222,
+            child: _BatteryLine(
+              tone: tone,
+              percent: percent,
+              chargingLabel: chargingLabel,
+            ),
+          ),
           Positioned(
             top: 256,
             child: _StatusChips(
@@ -99,16 +110,21 @@ class MowerStatusCard extends StatelessWidget {
   }
 }
 
-/// 环下面那行：默认态只有「电量 78%」，其余三态是「图标 + 状态词 + 百分比」。
+/// 环下面那行优先显示有效DP117的含义及百分比；未上报时沿用电量提示。
 class _BatteryLine extends StatelessWidget {
-  const _BatteryLine({required this.tone, required this.percent});
+  const _BatteryLine({
+    required this.tone,
+    required this.percent,
+    this.chargingLabel,
+  });
 
   final MowerPowerState tone;
   final int percent;
+  final String? chargingLabel;
 
   @override
   Widget build(BuildContext context) {
-    final label = tone.statusLabel;
+    final label = chargingLabel ?? tone.statusLabel;
     if (label == null) {
       return Text(
         '电量 $percent%',
@@ -126,8 +142,9 @@ class _BatteryLine extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         // 充电态图标背后原有一圈光晕（稿子 `充电动效 / 光晕`），2026-09-23 产品要求去掉。
-        // 2026-09-24 新稿 746:2657：充电中这一行只剩「充电中 78%」，闪电挪进环里（[_ChargingBolt]）。
-        if (tone != MowerPowerState.charging) ...<Widget>[
+        // DP117状态与百分比共用一行，闪电单独画在环里（[_ChargingBolt]）。
+        if (tone != MowerPowerState.charging &&
+            tone.statusIcon != null) ...<Widget>[
           SizedBox(
             width: 28,
             height: 28,
@@ -186,24 +203,23 @@ class _ChargingBoltState extends State<_ChargingBolt>
     duration: const Duration(milliseconds: 1400),
   );
 
-  late final Animation<double> _pulse = TweenSequence<double>(
-    <TweenSequenceItem<double>>[
-      TweenSequenceItem<double>(
-        tween: Tween<double>(
-          begin: 0,
-          end: 1,
-        ).chain(CurveTween(curve: Curves.easeInOut)),
-        weight: 1,
-      ),
-      TweenSequenceItem<double>(
-        tween: Tween<double>(
-          begin: 1,
-          end: 0,
-        ).chain(CurveTween(curve: Curves.easeInOut)),
-        weight: 1,
-      ),
-    ],
-  ).animate(_controller);
+  late final Animation<double> _pulse =
+      TweenSequence<double>(<TweenSequenceItem<double>>[
+        TweenSequenceItem<double>(
+          tween: Tween<double>(
+            begin: 0,
+            end: 1,
+          ).chain(CurveTween(curve: Curves.easeInOut)),
+          weight: 1,
+        ),
+        TweenSequenceItem<double>(
+          tween: Tween<double>(
+            begin: 1,
+            end: 0,
+          ).chain(CurveTween(curve: Curves.easeInOut)),
+          weight: 1,
+        ),
+      ]).animate(_controller);
 
   @override
   void didChangeDependencies() {
@@ -281,21 +297,18 @@ class _StatusChips extends StatelessWidget {
   final bool bleLinked;
 
   /// 未连接时按原来的 30% 透明度淡显，连接后显示原图。
-  static Widget _linkIcon(
-    String asset, {
-    required bool on,
-    required Key key,
-  }) => Opacity(
-    key: key,
-    opacity: on ? 1 : .3,
-    child: Image.asset(
-      asset,
-      width: 26,
-      height: 26,
-      filterQuality: FilterQuality.high,
-      excludeFromSemantics: true,
-    ),
-  );
+  static Widget _linkIcon(String asset, {required bool on, required Key key}) =>
+      Opacity(
+        key: key,
+        opacity: on ? 1 : .3,
+        child: Image.asset(
+          asset,
+          width: 26,
+          height: 26,
+          filterQuality: FilterQuality.high,
+          excludeFromSemantics: true,
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -372,20 +385,15 @@ class _MowerRingPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = Offset(_strokeWidth / 2, _strokeWidth / 2) &
+    final rect =
+        Offset(_strokeWidth / 2, _strokeWidth / 2) &
         Size(size.width - _strokeWidth, size.height - _strokeWidth);
     final base = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = _strokeWidth
       ..strokeCap = StrokeCap.round;
     canvas
-      ..drawArc(
-        rect,
-        _startAngle,
-        _sweepAngle,
-        false,
-        base..color = trackColor,
-      )
+      ..drawArc(rect, _startAngle, _sweepAngle, false, base..color = trackColor)
       ..drawArc(
         rect,
         _startAngle,

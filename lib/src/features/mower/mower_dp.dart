@@ -135,7 +135,7 @@ abstract final class MowerDp {
   /// 设备上报的枚举值 → 枚举项；认不出返回 null。
   ///
   /// 涂鸦上报枚举型 DP 给的是**字符串**（`smart`、`charging`），个别桥接会直接报枚举序号，
-  /// 两种都认。序号即传输值（见各枚举的注释），所以按 `values[序号]` 取。
+  /// 名称、整数和数字字符串都认。序号即传输值，按 `values[序号]` 取；越界或非法值返回null。
   static T? enumOf<T extends Enum>(
     List<T> values,
     String Function(T item) codeOf,
@@ -148,7 +148,10 @@ abstract final class MowerDp {
     for (final item in values) {
       if (codeOf(item) == text) return item;
     }
-    return null;
+    final index = int.tryParse(text);
+    return index != null && index >= 0 && index < values.length
+        ? values[index]
+        : null;
   }
 }
 
@@ -200,8 +203,8 @@ enum MowerStatus {
 
 /// DP117 充电状态。
 enum MowerChargingStatus {
-  notCharging('not_charging', '未在桩'),
-  charging('charging', '充电中'),
+  notCharging('not_charging', '未在充电'),
+  charging('charging', '在充电'),
   full('full', '已充满');
 
   const MowerChargingStatus(this.code, this.label);
