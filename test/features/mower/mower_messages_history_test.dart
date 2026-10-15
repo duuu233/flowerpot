@@ -20,7 +20,7 @@ void main() {
         _message('历史割草日志', DateTime(2026, 10, 15, 9), '通知'),
         _message('历史割草提醒', DateTime(2026, 10, 15, 10), '轻微'),
         _message('历史割草告警', DateTime(2026, 10, 15, 11), '严重'),
-        {'msgTitle': '未识别等级的历史告警', 'time': 1792036800},
+        {'msgTitle': '其他历史标题', 'time': 1792036800},
       ]);
       final state = await _state(repository);
       addTearDown(state.dispose);
@@ -30,13 +30,16 @@ void main() {
       for (var category = 0; category < 3; category++) {
         await tester.tap(find.byKey(Key('mower-messages-tab-$category')));
         await tester.pumpAndSettle();
-        final titles = ['历史割草日志', '历史割草提醒', '历史割草告警'];
+        final titles = ['历史割草日志说明', '历史割草提醒说明', '历史割草告警说明'];
         expect(find.text(titles[category]), findsOneWidget);
         for (var other = 0; other < 3; other++) {
           if (other != category) expect(find.text(titles[other]), findsNothing);
         }
+        expect(
+          find.text('其他历史标题'),
+          category == 1 ? findsOneWidget : findsNothing,
+        );
       }
-      expect(find.text('未识别等级的历史告警'), findsOneWidget);
       expect(find.text('全部日期'), findsOneWidget);
       expect(find.textContaining('当前等级'), findsNothing);
       expect(find.text('云端推送调试'), findsNothing);
@@ -63,8 +66,8 @@ void main() {
     final state = await _state(repository);
     addTearDown(state.dispose);
     await _pumpPage(tester, state);
-    expect(find.text('今天的日志'), findsOneWidget);
-    expect(find.text('昨天的日志'), findsOneWidget);
+    expect(find.text('今天的日志说明'), findsOneWidget);
+    expect(find.text('昨天的日志说明'), findsOneWidget);
     await tester.tap(find.byKey(const Key('mower-messages-date')));
     await tester.pumpAndSettle();
     expect(find.byType(DatePickerDialog), findsOneWidget);
@@ -81,12 +84,12 @@ void main() {
     );
     await tester.tap(find.text('确定'));
     await tester.pumpAndSettle();
-    expect(find.text('今天的日志'), findsOneWidget);
-    expect(find.text('昨天的日志'), findsNothing);
+    expect(find.text('今天的日志说明'), findsOneWidget);
+    expect(find.text('昨天的日志说明'), findsNothing);
     await tester.tap(find.byKey(const Key('mower-messages-tab-2')));
     await tester.pumpAndSettle();
-    expect(find.text('今天的告警'), findsOneWidget);
-    expect(find.text('昨天的告警'), findsOneWidget);
+    expect(find.text('今天的告警说明'), findsOneWidget);
+    expect(find.text('昨天的告警说明'), findsOneWidget);
     expect(find.text('全部日期'), findsOneWidget);
     repository.items.add(_message('推送后云端新告警', today, '严重'));
     repository.emitPushMessage({'source': '802'});
@@ -96,14 +99,60 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
     expect(repository.requests, hasLength(2));
-    expect(find.text('推送后云端新告警'), findsOneWidget);
+    expect(find.text('推送后云端新告警说明'), findsOneWidget);
     await tester.tap(find.byKey(const Key('mower-messages-tab-0')));
     await tester.pumpAndSettle();
-    expect(find.text('今天的日志'), findsOneWidget);
-    expect(find.text('昨天的日志'), findsNothing);
+    expect(find.text('今天的日志说明'), findsOneWidget);
+    expect(find.text('昨天的日志说明'), findsNothing);
     await tester.tap(find.byKey(const Key('mower-messages-date-all')));
     await tester.pumpAndSettle();
-    expect(find.text('昨天的日志'), findsOneWidget);
+    expect(find.text('昨天的日志说明'), findsOneWidget);
+    expect(repository.windowRequests, 0);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('割草机按标题分类，等级冲突不覆盖，未知和空标题归提醒', (tester) async {
+    final repository = _CloudMessagesRepository(
+      [
+        {
+          'msgTitle': '设备通知',
+          'msgContent': '普通通知内容',
+          'extendParams': {'level': '严重'},
+        },
+        {
+          'msgTitle': ' 设备异常 ',
+          'msgContent': '设备异常内容',
+          'extendParams': {'level': '通知'},
+        },
+        {'msgTitle': '设备提醒', 'msgContent': '其他标题内容'},
+        {'msgTitle': ' ', 'msgTypeContent': ' 设备通知 ', 'msgContent': '回退通知内容'},
+        {'msgTypeContent': '设备异常', 'msgContent': '回退异常内容'},
+        {'msgContent': '空标题内容'},
+      ].map((item) => {...item, 'time': 1792036800, 'alarmType': 1}).toList(),
+    );
+    final state = await _state(repository);
+    addTearDown(state.dispose);
+    await _pumpPage(tester, state);
+    final categories = [
+      ['普通通知内容', '回退通知内容'],
+      ['其他标题内容', '空标题内容'],
+      ['设备异常内容', '回退异常内容'],
+    ];
+    for (var category = 0; category < 3; category++) {
+      await tester.tap(find.byKey(Key('mower-messages-tab-$category')));
+      await tester.pumpAndSettle();
+      for (var source = 0; source < categories.length; source++) {
+        for (final content in categories[source]) {
+          expect(
+            find.text(content),
+            source == category ? findsOneWidget : findsNothing,
+          );
+        }
+      }
+    }
+    expect(state.interactionLog.any((line) => line.contains('按标题分类')), isTrue);
+    expect(repository.requests, [(_deviceId, 'MSG_REPORT', 0, 50)]);
     expect(repository.windowRequests, 0);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
@@ -111,7 +160,11 @@ void main() {
 }
 
 Map<String, Object?> _message(String title, DateTime at, String level) => {
-  'msgTitle': title,
+  'msgTitle': switch (level) {
+    '通知' => '设备通知',
+    '严重' => '设备异常',
+    _ => title,
+  },
   'msgContent': '$title说明',
   'time': at.millisecondsSinceEpoch ~/ 1000,
   'extendParams': {'level': level},

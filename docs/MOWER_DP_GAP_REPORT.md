@@ -4,6 +4,7 @@
 
 | 日期 | 主题 | 落点 |
 | --- | --- | --- |
+| 2026-10-15 | 割草机消息按标题：设备通知进日志、设备异常进告警、其它进提醒 | §1.7、M11、附录A |
 | 2026-10-15 | 按用户要求恢复涂鸦历史消息三栏，继续隐藏调试/当前等级及底部导航 | §1.7、M11、附录A，MOWER_MACHINE_LOGS |
 | 2026-10-15 | 按DP101备注更正星期组、编辑字段独立合并、满电显示及消息分类UI | §1.4、M12、附录A，MOWER_SCHEDULE_DP与MOWER_MACHINE_LOGS |
 | 2026-10-13 | OTA 提醒/发起限充电中、code26现场处理与重试间隔/保留位附加提示 | §1.4、M07、附录A |
@@ -82,7 +83,7 @@
 | 设置 · 设备升级 | `mower_firmware.dart` → `devices/presentation/firmware_upgrade_flow.dart` | 112、116 | —（涂鸦 OTA） | 与花盆同一个 `runFirmwareUpgrade` |
 | 设置 · 语言切换 | `mower_language_page.dart` | 109 | 109 | 18 个枚举，没有中文 |
 | 设置 · 帮助中心 | `profile/presentation/help_page.dart` | — | — | 按割草机产品 ID 拉常见问题（同花盆） |
-| 设置 · 消息通知 | `mower_messages_page.dart` + `device_messages_view.dart` | — | — | 当前设备涂鸦MSG_REPORT历史按等级分三栏，无调试区 |
+| 设置 · 消息通知 | `mower_messages_page.dart` + `device_messages_view.dart` | — | — | 当前设备涂鸦MSG_REPORT历史按标题分三栏，无调试区 |
 | 设置 · 删除设备 | `mower_settings_page.dart` | — | —（涂鸦解绑 + 删后台记录） | 不发 DP（花盆的 141 割草机没有） |
 | 改名 | `RenameDeviceDialog` + `FlowerpotState.renameDevice` | — | —（涂鸦设备名 + 后端 `editUserProduct`） | 同花盆，不走 DP |
 | 设备列表 | `devices/presentation/device_list_page.dart` | — | — | 涂鸦 SDK online 的在线/离线胶囊 |
@@ -144,10 +145,10 @@ OTA 普通/强制提醒在弹出前经 `FlowerpotState.canStartFirmwareUpgrade` 
 
 ### 1.7 涂鸦历史消息与独立本机日志
 
-- 消息主列表恢复DeviceMessagesView，按当前账号/设备的MSG_REPORT分页查询历史；通知/轻微/严重进入日志/提醒/告警，未知归告警。
+- 消息主列表恢复DeviceMessagesView，按当前账号/设备的MSG_REPORT分页查询历史；设备通知标题进入日志，设备异常进入告警，其它及空标题进入提醒，等级字段不覆盖。
 - 默认全部日期，三栏独立筛选某天、可回全部；收到推送后2秒重拉，支持下拉刷新。继续隐藏云端调试、当前等级及底部导航，中文日期不回退。
 - 本机MowerMachineLog继续采集5/111/117/118/113/13及可选115并按账号/设备保存200条，但不再充当消息主列表；DP18仍用于控制提示。
-- 云端历史取消息时间，平台等级编码仍需真机核对；本机离线补齐、系统后台通知、设备本地日志与iOS云端桥接边界见MOWER_MACHINE_LOGS.md。
+- 云端历史取消息时间，割草机按用户确认的标题分类；平台数字等级仅花盆默认模式仍需核对；本机离线补齐、系统后台通知、设备本地日志与iOS云端桥接边界见MOWER_MACHINE_LOGS.md。
 
 ---
 
@@ -249,8 +250,8 @@ P0 是挡住发布或真机闭环的事；P1 是链路还差一段的能力；P2
 - **影响**：暂停后的机器会一直停在「已暂停」，直到用户点继续或回归。
 - **证据**：协议 V2.5 §3.1、§9.4；`lib/src/features/mower/presentation/mower_control_page.dart`（四颗按钮）。
 
-#### M11 云端推送等级编码仍待真机确认
-- **现状**：花盆与割草机当前消息页共用涂鸦历史消息等级解析，明文优先，数字编码仍沿用旧版推测，未知归告警；云端调试不显示。本机DP111引擎的位表/掩码分级与云端消息分开。
+#### M11 花盆默认云端推送等级编码仍待真机确认
+- **现状**：割草机消息按显示标题设备通知/设备异常/其它分为日志/告警/提醒，不再依赖推测等级。共用视图的花盆默认模式仍明文等级优先，数字编码沿用旧版推测，未知归告警；割草机云端调试不显示。本机DP111引擎的位表/掩码分级与云端消息分开。
 - **剩余**：真机触发通知/轻微/严重平台推送，核对warnLevel/alarmType；未改平台规则和原生系统推送。
 - **证据**：TUYA_CAPABILITY_AUDIT.md §5.6；features/messages/device_messages_view.dart。
 
@@ -293,7 +294,7 @@ P0 是挡住发布或真机闭环的事；P1 是链路还差一段的能力；P2
 | 「重新配网」 | 设置 | 没有对应 DP | 产品暂时隐藏（2026-09-23） |
 | 无故障时的安全提示 | 首页黄条 | — | 产品口径 DP18=0 时整条隐藏 |
 | 蓝牙 / Wi-Fi 图标 | 首页 | 不是 DP | 读涂鸦分通道状态 |
-| 消息通知三栏 | 消息通知 | 非DP，涂鸦MSG_REPORT历史 | 共用DeviceMessagesView按等级分栏，无云端调试 |
+| 消息通知三栏 | 消息通知 | 非DP，涂鸦MSG_REPORT历史 | 共用DeviceMessagesView，割草机按标题分栏，无云端调试 |
 | 故障明细 | 机器日志、26异常框 | DP111 | 已接，真机及离线补齐边界见M06 |
 | （稿子没有）工作时间 | 启动时间弹窗 | DP119 | 已接入整小时，见 PRODUCT_RULES §4.10 |
 | （稿子没有）结束任务 / 回待机 | — | DP3 = standby | 没做，见 M10 |

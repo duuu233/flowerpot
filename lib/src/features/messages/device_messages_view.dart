@@ -10,29 +10,12 @@ import 'message_category_tabs.dart';
 
 /// 花盆和割草机共用的涂鸦云端历史消息通知列表。
 ///
-/// 版式按割草机那张稿子（`割草机-消息通知.png`，分类条 651:2573）：上面「日志 / 提醒 / 告警」三栏，
-/// 下面日期筛选，再下面一条一张卡。外壳由各自消息页面提供。
-/// 云端分栏规则集中在这里；等级数字仍待真机确认，未知等级归告警。
+/// 三栏都按当前设备取MSG_REPORT，由loadAllDeviceMessages分页加载。
+/// 默认按推送等级分栏：通知进日志、轻微进提醒、严重及未知等级进告警。
+/// 割草机开启[groupByTitle]：设备通知进日志、设备异常进告警、其它标题进提醒。
+/// 分类依据只影响分栏，消息标题、内容、时间与云端来源不变。
 ///
-/// ## 数据从哪来（2026-09-23 联调起，稿子上那四条假消息已删）
-///
-/// 三栏**都来自涂鸦消息中心**：按这台设备取告警档（`MSG_REPORT`，`loadAllDeviceMessages` 翻页取全），
-/// 按平台推送规则的**等级**分栏（2026-09-28 产品，推送规则见 `docs/涂鸦消息推送对接方案.md`）：
-///
-/// | 分类 | 推送等级 |
-/// | --- | --- |
-/// | 日志 | 通知 |
-/// | 提醒 | 轻微 |
-/// | 告警 | 严重（以及认不出等级的） |
-///
-/// 涂鸦消息中心只分告警 / 家庭 / 通知三档，平台上配的设备推送（不管哪个等级）都进告警档，所以只能按等级分
-/// （见 `docs/TUYA_CAPABILITY_AUDIT.md` 5.6）。等级字段 / 编码涂鸦文档没写，判定顺序见
-/// `_DeviceMessagesViewState._gradeOf`，数字编码是推测（[_levelCodes]），每次加载把判定依据写进联调日志，
-/// 真机跑一次就能定。设备 DP 上报历史不放在这里（割草机页的调试板上「拉设备日志」照样能看）。
-///
-/// 日期筛选：三栏默认「全部日期」，以前的推送都能看到（按设备取没有时间参数，只能全取回来再按天筛）；
-/// 选某一天后可以点「全部」回到全部日期。没有记录就如实写，不编。
-/// 页面开着时挂上涂鸦实时推送监听，来一条推送就重拉一次（消息中心落库比推送晚一点，所以等 2 秒）。
+/// 日期筛选默认全部日期，各栏独立按天筛选；收到推送后2秒重新拉取。
 class DeviceMessagesView extends StatefulWidget {
   const DeviceMessagesView({
     required this.deviceId,
@@ -40,6 +23,7 @@ class DeviceMessagesView extends StatefulWidget {
     required this.keyPrefix,
     this.footer,
     this.logsEntry = true,
+    this.groupByTitle = false,
     super.key,
   });
 
@@ -59,6 +43,9 @@ class DeviceMessagesView extends StatefulWidget {
   /// （`interaction_log_overlay.dart`）已经记过了，传 false 免得记两行。
   final bool logsEntry;
 
+  /// 按显示标题匹配设备通知/设备异常，其余归提醒；默认保留推送等级分类。
+  final bool groupByTitle;
+
   @override
   State<DeviceMessagesView> createState() => _DeviceMessagesViewState();
 }
@@ -66,7 +53,7 @@ class DeviceMessagesView extends StatefulWidget {
 /// 三个分类（界面文案）。
 const List<String> _tabs = <String>['日志', '提醒', '告警'];
 
-/// 调试台用：一条消息按**列表同一套规则**分到哪一栏，写成一句话，
+/// 等级模式调试台用：一条消息按等级规则分到哪一栏，写成一句话，
 /// 如「告警(严重)，依据 alarmType=3（推测编码）」「告警(严重)，没认出等级，按告警」。
 /// 规则只在 `_DeviceMessagesViewState._gradeOf` 一处，这里只是转一下。
 String describeMessageGrade(Map<Object?, Object?> item) {
@@ -139,7 +126,7 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
       // 设备告警（warn56）的监听随设备 DP 监听一起挂在原生侧（MainActivity.registerWarnListener）。
       unawaited(state.startPushListen());
       _pushSub = state.pushMessages.listen((event) {
-        _rememberWarn(event);
+        if (!widget.groupByTitle) _rememberWarn(event);
         _pushReload?.cancel();
         _pushReload = Timer(const Duration(seconds: 2), () {
           if (mounted) unawaited(_reload());
@@ -195,23 +182,33 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
         in (messages['items'] as List<Object?>?) ?? const <Object?>[]) {
       if (item is! Map) continue;
       final entry = _alarmEntry(item);
-      final grade = _gradeOf(item, entry.at, _warns);
+      final grade = widget.groupByTitle
+          ? _gradeByTitle(entry.title)
+          : _gradeOf(item, entry.at, _warns);
       buckets[grade.level.tab].add(entry);
       if (grade.basis == null) {
         unknown++;
       } else if (grade.guessed) {
         guessed++;
       }
-      if (notes.length < 5) notes.add(_gradeFields(item, grade));
+      if (notes.length < 5) {
+        notes.add(
+          widget.groupByTitle
+              ? '${entry.title} → ${_tabs[grade.level.tab]}（按标题分类）'
+              : _gradeFields(item, grade),
+        );
+      }
     }
     for (final list in buckets) {
       list.sort((a, b) => b.at.compareTo(a.at));
     }
     if (messages['ok'] == true) {
+      final rule = widget.groupByTitle
+          ? '（按标题分类，其余标题归提醒）'
+          : '（按推测编码 $guessed 条，认不出等级 $unknown 条按告警）';
       state.logNote(
         '${widget.pageName} 分档：共 ${buckets.fold<int>(0, (sum, list) => sum + list.length)} 条 → '
-        '日志(通知) ${buckets[0].length}、提醒(轻微) ${buckets[1].length}、告警(严重) ${buckets[2].length}'
-        '（按推测编码 $guessed 条，认不出等级 $unknown 条按告警）',
+        '日志 ${buckets[0].length}、提醒 ${buckets[1].length}、告警 ${buckets[2].length}$rule',
       );
       for (final note in notes) {
         state.logNote('${widget.pageName} 等级字段：$note');
@@ -240,6 +237,18 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
         : text(item['msgTypeContent']);
     return _Entry(at: at, title: title, detail: text(item['msgContent']));
   }
+
+  static ({_PushLevel level, String? basis, bool guessed}) _gradeByTitle(
+    String title,
+  ) => (
+    level: switch (title) {
+      '设备通知' => _PushLevel.notice,
+      '设备异常' => _PushLevel.severe,
+      _ => _PushLevel.minor,
+    },
+    basis: '标题=$title',
+    guessed: false,
+  );
 
   /// 一条消息属于哪个等级（→ 哪一栏）。依次看：
   ///
