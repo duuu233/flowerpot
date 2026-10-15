@@ -1725,6 +1725,14 @@ class _MowerRepository extends MockTuyaRepository {
   bool echoSchedules = true;
 
   @override
+  Future<Map<String, Object?>> deviceMessages({
+    required String deviceId,
+    String msgType = 'MSG_REPORT',
+    int offset = 0,
+    int limit = 50,
+  }) async => {'ok': true, 'items': <Object?>[], 'totalCount': 0};
+
+  @override
   Future<void> publishDps(String deviceId, Map<int, Object> dps) async {
     await super.publishDps(deviceId, dps);
     if (echoSchedules && dps.containsKey(MowerDp.mowSchedule)) {

@@ -7,7 +7,9 @@
 
 本文件是 `docs/` 的统一导航。根目录保留执行规则 `AGENTS.md`、当前 AI 快照 `AI_CONTEXT.md` 和现有的结构入口 `PROJECT_STRUCTURE.md`；其余知识、平台手册、UI 规范和历史记录统一从这里查找。
 
-本轮修复：[2026-10-15 首页居中与消息独立页面](history/2026-10/2026-10-15-mower-home-messages-layout.md)。
+本轮修复：[2026-10-15 恢复割草机涂鸦历史消息](history/2026-10/2026-10-15-mower-cloud-message-history.md)。
+
+此前修复：[2026-10-15 首页居中与消息独立页面](history/2026-10/2026-10-15-mower-home-messages-layout.md)。
 
 此前修复：[2026-10-15 割草机计划星期与消息首页交互](history/2026-10/2026-10-15-mower-schedule-messages-home.md)。DP101星期布局以产品确认的功能点备注为准，详见[MOWER_SCHEDULE_DP.md](MOWER_SCHEDULE_DP.md)。
 

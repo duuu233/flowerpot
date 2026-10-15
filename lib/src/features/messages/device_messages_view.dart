@@ -8,10 +8,10 @@ import '../mower/mower_ui.dart';
 import '../mower/presentation/widgets/mower_card.dart';
 import 'message_category_tabs.dart';
 
-/// 花盆的涂鸦云端消息通知列表；割草机机器日志使用 MowerMachineLogsView。
+/// 花盆和割草机共用的涂鸦云端历史消息通知列表。
 ///
 /// 版式按割草机那张稿子（`割草机-消息通知.png`，分类条 651:2573）：上面「日志 / 提醒 / 告警」三栏，
-/// 下面日期筛选，再下面一条一张卡。外壳由 DeviceMessagesPage 提供。
+/// 下面日期筛选，再下面一条一张卡。外壳由各自消息页面提供。
 /// 云端分栏规则集中在这里；等级数字仍待真机确认，未知等级归告警。
 ///
 /// ## 数据从哪来（2026-09-23 联调起，稿子上那四条假消息已删）
@@ -52,7 +52,7 @@ class DeviceMessagesView extends StatefulWidget {
   /// 控件 key 的前缀：割草机沿用原来的 `mower-messages`，花盆用 `device-messages`。
   final String keyPrefix;
 
-  /// 列表下面再接的东西（割草机页的调试板）。
+  /// 列表下方可选的附加内容；割草机消息页不传入调试组件。
   final Widget? footer;
 
   /// 进页面时按 [pageName] 记一行「进入 ← [页面名]」。花盆的页面走 `/devices/` 路由，路由监听
@@ -529,13 +529,16 @@ class _DateFilterCard extends StatelessWidget {
                 day == null
                     ? '全部日期'
                     : '${day!.year}年${day!.month}月${day!.day}日',
-                style: const TextStyle(color: MowerColors.brand, fontSize: 15),
+                style: const TextStyle(
+                  color: MowerColors.inkSecondary,
+                  fontSize: 15,
+                ),
               ),
               const SizedBox(width: 8),
               Icon(
                 Icons.arrow_drop_down_rounded,
                 size: 22,
-                color: MowerColors.brand.withValues(alpha: .9),
+                color: MowerColors.inkSecondary,
               ),
             ],
           ),
