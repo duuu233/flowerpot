@@ -8,12 +8,11 @@ import '../mower/mower_ui.dart';
 import '../mower/presentation/widgets/mower_card.dart';
 import 'message_category_tabs.dart';
 
-/// 设备的消息通知列表（花盆、割草机共用，2026-09-28 花盆照割草机加上）。
+/// 花盆的涂鸦云端消息通知列表；割草机机器日志使用 MowerMachineLogsView。
 ///
 /// 版式按割草机那张稿子（`割草机-消息通知.png`，分类条 651:2573）：上面「日志 / 提醒 / 告警」三栏，
-/// 下面日期筛选，再下面一条一张卡。外壳（标题栏、底部导航、调试板）由各自的页面套：
-/// 割草机 `MowerMessagesPage`、花盆 `DeviceMessagesPage`。**分栏规则只在这里写一份**，
-/// 真机定下等级编码后只改 [_levelCodes]，两边一起生效。
+/// 下面日期筛选，再下面一条一张卡。外壳由 DeviceMessagesPage 提供。
+/// 云端分栏规则集中在这里；等级数字仍待真机确认，未知等级归告警。
 ///
 /// ## 数据从哪来（2026-09-23 联调起，稿子上那四条假消息已删）
 ///
@@ -111,7 +110,11 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
   bool _loading = false;
 
   /// 三栏的条目（按 [_PushLevel.tab] 放），都来自消息中心告警档。
-  List<List<_Entry>> _entries = const <List<_Entry>>[<_Entry>[], <_Entry>[], <_Entry>[]];
+  List<List<_Entry>> _entries = const <List<_Entry>>[
+    <_Entry>[],
+    <_Entry>[],
+    <_Entry>[],
+  ];
 
   /// 取数失败时的一句话（原样来自接口 / 原生诊断）。三栏同一个来源，共用一个。
   String? _error;
@@ -284,35 +287,59 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
     const words = <_PushLevel, List<String>>{
       _PushLevel.notice: <String>['通知', '提示', 'notice', 'notification', 'info'],
       _PushLevel.minor: <String>['轻微', 'minor', 'slight', 'mild'],
-      _PushLevel.severe: <String>['严重', 'severe', 'serious', 'critical', 'major'],
+      _PushLevel.severe: <String>[
+        '严重',
+        'severe',
+        'serious',
+        'critical',
+        'major',
+      ],
     };
     for (final entry in candidates.entries) {
       final value = '${entry.value ?? ''}'.trim().toLowerCase();
       if (value.isEmpty) continue;
       for (final level in words.keys) {
         if (words[level]!.any(value.contains)) {
-          return (level: level, basis: '${entry.key}=${entry.value}', guessed: false);
+          return (
+            level: level,
+            basis: '${entry.key}=${entry.value}',
+            guessed: false,
+          );
         }
       }
       final code = int.tryParse(value);
       if (code != null && _levelCodes[code] != null) {
-        return (level: _levelCodes[code]!, basis: '${entry.key}=$code', guessed: true);
+        return (
+          level: _levelCodes[code]!,
+          basis: '${entry.key}=$code',
+          guessed: true,
+        );
       }
     }
 
     final devId = '${item['msgSrcId'] ?? ''}';
     for (final warn in warns.reversed) {
-      if (warn.devId.isNotEmpty && devId.isNotEmpty && warn.devId != devId) continue;
+      if (warn.devId.isNotEmpty && devId.isNotEmpty && warn.devId != devId) {
+        continue;
+      }
       if (warn.at.difference(at).inSeconds.abs() > 60) continue;
       final level = _levelCodes[warn.level];
       if (level != null) {
-        return (level: level, basis: 'warn56.warnLevel=${warn.level}', guessed: true);
+        return (
+          level: level,
+          basis: 'warn56.warnLevel=${warn.level}',
+          guessed: true,
+        );
       }
     }
 
     final alarmType = int.tryParse('${item['alarmType'] ?? ''}');
     if (alarmType != null && alarmType != 0 && _levelCodes[alarmType] != null) {
-      return (level: _levelCodes[alarmType]!, basis: 'alarmType=$alarmType', guessed: true);
+      return (
+        level: _levelCodes[alarmType]!,
+        basis: 'alarmType=$alarmType',
+        guessed: true,
+      );
     }
     return (level: _PushLevel.severe, basis: null, guessed: false);
   }
@@ -333,12 +360,17 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
     // 消息是全取回来的，往前一年够用
     final first = today.subtract(const Duration(days: 365));
     final current = _day;
+    final language = FlowerpotScope.of(context).language;
+    final english = language.locale.languageCode == 'en';
     final picked = await showDatePicker(
       context: context,
       initialDate: current == null || current.isBefore(first) ? today : current,
       firstDate: first,
       lastDate: today,
-      helpText: '选择日期',
+      locale: language.locale,
+      helpText: english ? 'Select date' : '选择日期',
+      cancelText: english ? 'Cancel' : '取消',
+      confirmText: english ? 'Confirm' : '确定',
     );
     if (picked == null || !mounted) return;
     setState(() => _days[_tab] = DateUtils.dateOnly(picked));

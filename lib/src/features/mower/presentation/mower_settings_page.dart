@@ -13,7 +13,6 @@ import '../mower_device.dart';
 import '../mower_dp.dart';
 import 'mower_firmware.dart';
 import 'mower_messages_page.dart';
-import 'widgets/mower_bottom_nav.dart';
 import 'widgets/mower_card.dart';
 
 /// 割草机设置页（`割草机-设置.png`）。
@@ -28,10 +27,9 @@ import 'widgets/mower_card.dart';
 /// | 删除设备 | 和花盆「移除设备」同一套：涂鸦解绑 + 删后台记录（2026-09-23） |
 /// | 重新配网 | **暂时隐藏**（2026-09-23 产品） |
 class MowerSettingsPage extends StatelessWidget {
-  const MowerSettingsPage({required this.onTabRequested, super.key});
+  const MowerSettingsPage({required this.deviceId, super.key});
 
-  /// 消息通知页底部那条导航点了「首页 / 割草计划」时，退回来并切到那一栏。
-  final ValueChanged<MowerTab> onTabRequested;
+  final String deviceId;
 
   static const List<String> _entries = <String>[
     '设备参数',
@@ -131,12 +129,11 @@ class MowerSettingsPage extends StatelessWidget {
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
-  /// 消息通知要把「退回来切到哪一栏」带进去，所以这一页直接 push，不走
-  /// [AppRoutes]：命名路由那边统一生成 `MaterialPageRoute<dynamic>`，塞不进回调。
+  /// 消息通知作为独立二级页，返回时继续停留在原设置栏。
   Future<void> _openMessages(BuildContext context) {
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => MowerMessagesPage(onTabRequested: onTabRequested),
+        builder: (_) => MowerMessagesPage(deviceId: deviceId),
         settings: const RouteSettings(name: '/mower/messages'),
       ),
     );
@@ -151,7 +148,7 @@ class MowerSettingsPage extends StatelessWidget {
         // 右上角问号（进帮助中心）2026-09-23 产品要求去掉；帮助中心仍在设置列表里。
       ),
       body: DeviceOnlineBody(
-        deviceId: MowerDevice.instance.deviceId,
+        deviceId: deviceId,
         child: SingleChildScrollView(
           key: const Key('mower-settings-scroll-view'),
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),

@@ -19,6 +19,9 @@ import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_raw.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flowerpot/src/features/mower/presentation/widgets/mower_status_card.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/mock_tuya_repository.dart';
@@ -78,18 +81,39 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  for (final size in [const Size(375, 812), const Size(320, 568)]) {
-    testWidgets('首页${size.width}宽电量环紧随标题，不把多余高度堆到图片上方', (tester) async {
+  for (final size in [
+    const Size(375, 812),
+    const Size(390, 844),
+    const Size(430, 932),
+    const Size(320, 568),
+  ]) {
+    testWidgets('首页电量设备区域在剩余空间居中，紧凑屏可滚动 $size', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(top: 44, bottom: 34);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPadding);
       await _pumpMowerHome(tester, {13: 100, 117: 'charging'});
+      tester.view.physicalSize = size;
       await tester.binding.setSurfaceSize(size);
       await tester.pumpAndSettle();
-      final ringTop = tester
-          .getTopLeft(find.byKey(const Key('mower-battery-ring')))
-          .dy;
-      final headerBottom = tester
-          .getBottomLeft(find.byType(AppPageHeader).first)
-          .dy;
-      expect(ringTop - headerBottom, inInclusiveRange(0, 24));
+      final viewport = find.byKey(const Key('mower-status-viewport'));
+      if (size.height >= 812) {
+        final area = tester.getRect(viewport);
+        final cardCenter = tester.getCenter(find.byType(MowerStatusCard));
+        expect(cardCenter.dx, closeTo(area.center.dx, .5));
+        expect(cardCenter.dy, closeTo(area.center.dy, .5));
+        final plan = tester.getRect(find.byKey(const Key('mower-today-plan')));
+        expect(area.bottom, lessThanOrEqualTo(plan.top));
+      } else {
+        expect(viewport, findsNothing);
+        expect(find.byType(SingleChildScrollView), findsWidgets);
+        await tester.ensureVisible(find.byKey(const Key('mower-action-panel')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('mower-action-panel')).hitTestable(),
+          findsOneWidget,
+        );
+      }
       expect(find.text('电量 100%'), findsOneWidget);
       expect(tester.takeException(), isNull);
       MowerDevice.instance.resetForTest();
@@ -1551,11 +1575,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
 
+    await tester.pumpAndSettle();
     for (var i = 0; i < 3; i++) {
       expect(find.byKey(Key('mower-messages-tab-$i')), findsOneWidget);
     }
     expect(find.byKey(const Key('mower-messages-date')), findsOneWidget);
     expect(find.text('全部日期'), findsOneWidget);
+    expect(find.byKey(const Key('mower-nav-home')), findsNothing);
+    expect(find.byKey(const Key('mower-nav-plan')), findsNothing);
+    expect(find.byKey(const Key('mower-nav-settings')), findsNothing);
     expect(find.text('暂无日志'), findsOneWidget);
     expect(find.textContaining('根据本机接收的 DP 上报生成'), findsNothing);
     expect(find.byKey(const Key('message-monitor-console')), findsNothing);
@@ -1567,6 +1595,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(['暂无日志', '暂无提醒', '暂无告警'][category]), findsOneWidget);
     }
+    await tester.tap(find.byType(AppBackButton).first);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('mower-nav-settings')), findsOneWidget);
+    expect(find.byKey(const Key('mower-settings-消息通知')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1691,6 +1723,7 @@ SmartPlanterDevice _mower() => SmartPlanterDevice(
 /// 设备列表里只有一台割草机；其余照 Mock。
 class _MowerRepository extends MockTuyaRepository {
   bool echoSchedules = true;
+
   @override
   Future<void> publishDps(String deviceId, Map<int, Object> dps) async {
     await super.publishDps(deviceId, dps);
@@ -1724,6 +1757,10 @@ Future<MockTuyaRepository> _pumpMowerHome(
 }) async {
   // 发送队列必须在 testWidgets 的假时钟区域内创建，setUp 的外层 Future 不会被 pump 推进。
   MowerDevice.instance.resetForTest();
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = const Size(375, 812);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(tester.view.resetPhysicalSize);
   await tester.binding.setSurfaceSize(const Size(375, 812));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final repository = repositoryOverride ?? _MowerRepository();
@@ -1740,6 +1777,9 @@ Future<MockTuyaRepository> _pumpMowerHome(
     FlowerpotScope(
       state: state,
       child: MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        supportedLocales: const [Locale('zh'), Locale('en')],
         theme: buildAppTheme(),
         home: MowerHomePage(
           deviceId: _mowerId,
@@ -1770,6 +1810,9 @@ Future<void> _pumpSearchPage(WidgetTester tester) async {
     FlowerpotScope(
       state: state,
       child: MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        supportedLocales: const [Locale('zh'), Locale('en')],
         theme: buildAppTheme(),
         navigatorObservers: <NavigatorObserver>[AppRoutes.routeObserver],
         home: const DeviceSearchPage(),

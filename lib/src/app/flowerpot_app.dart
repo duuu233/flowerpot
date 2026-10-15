@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../core/backend/backend.dart';
 import '../design_system/design_system.dart';
@@ -9,6 +10,7 @@ import '../features/shell/presentation/shell_page.dart';
 import '../features/splash/presentation/splash_page.dart';
 import '../routes/app_routes.dart';
 import '../shared/l10n/app_l10n.dart';
+import '../shared/l10n/app_language.dart';
 import '../state.dart';
 import '../tuya/tuya_repository.dart';
 import 'app_route_tracker.dart';
@@ -112,12 +114,9 @@ class FlowerpotApp extends StatefulWidget {
 class _FlowerpotAppState extends State<FlowerpotApp>
     with WidgetsBindingObserver {
   late final FlowerpotState state = FlowerpotState(
-    repository:
-        widget.repository ??
-        TuyaRepository.create(),
+    repository: widget.repository ?? TuyaRepository.create(),
     backendRepository:
-        widget.backendRepository ??
-        HttpAppBackendRepository.fromEnvironment(),
+        widget.backendRepository ?? HttpAppBackendRepository.fromEnvironment(),
   );
 
   /// 联调日志用的路由观察者：进设备相关页面时把那一页的 DP 和当前值记一条。
@@ -202,6 +201,10 @@ class _FlowerpotAppState extends State<FlowerpotApp>
             debugShowCheckedModeBanner: false,
             theme: buildAppTheme(),
             locale: state.language.locale,
+            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+            supportedLocales: AppLanguage.values.map(
+              (language) => language.locale,
+            ),
             // The first screen is built here rather than through
             // `initialRoute`, so the splash can be swapped for the real entry
             // point without a route transition. Pushed routes still go through

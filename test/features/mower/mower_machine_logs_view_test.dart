@@ -4,6 +4,8 @@ import 'package:flowerpot/src/features/messages/message_category_tabs.dart';
 import 'package:flowerpot/src/features/mower/mower_ui.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/mock_tuya_repository.dart';
@@ -23,6 +25,8 @@ void main() {
       FlowerpotScope(
         state: state,
         child: const MaterialApp(
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          supportedLocales: [Locale('zh'), Locale('en')],
           home: Scaffold(body: MowerMachineLogsView(deviceId: 'mower')),
         ),
       ),
@@ -83,6 +87,8 @@ void main() {
       FlowerpotScope(
         state: state,
         child: const MaterialApp(
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          supportedLocales: [Locale('zh'), Locale('en')],
           home: Scaffold(body: MowerMachineLogsView(deviceId: 'mower')),
         ),
       ),
@@ -112,7 +118,18 @@ void main() {
     await tester.tap(find.text('选择日期').last);
     await tester.pumpAndSettle();
     expect(find.byType(DatePickerDialog), findsOneWidget);
-    await tester.tap(find.text('OK'));
+    expect(find.text('选择日期'), findsOneWidget);
+    expect(find.text('取消'), findsOneWidget);
+    expect(find.text('确定'), findsOneWidget);
+    expect(find.text('OK'), findsNothing);
+    expect(find.text('Cancel'), findsNothing);
+    expect(
+      Localizations.localeOf(
+        tester.element(find.byType(DatePickerDialog)),
+      ).languageCode,
+      'zh',
+    );
+    await tester.tap(find.text('确定'));
     await tester.pumpAndSettle();
     expect(find.byType(DatePickerDialog), findsNothing);
     await tester.tap(find.byKey(const Key('mower-messages-date')));

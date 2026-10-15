@@ -110,7 +110,7 @@ class _MowerHomePageState extends State<MowerHomePage> {
           // 只在停在「首页」这一栏时弹 DP18 设备告警（见 MowerControlPage）
           MowerControlPage(active: _tab == MowerTab.home, now: widget.now),
           const MowerPlanPage(),
-          MowerSettingsPage(onTabRequested: _select),
+          MowerSettingsPage(deviceId: widget.deviceId),
         ],
       ),
       bottomNavigationBar: MowerBottomNav(current: _tab, onTap: _select),

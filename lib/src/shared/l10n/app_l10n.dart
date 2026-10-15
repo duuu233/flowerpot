@@ -6,8 +6,8 @@ import 'app_language.dart';
 /// （含 push 出来的业务页）的祖先。切换语言时 [language] 变化，凡是通过
 /// [AppL10n.of] 取文案的页面（都因此注册了对本 InheritedWidget 的依赖）都会重建。
 ///
-/// 这就是 Flutter 自带 `Localizations` 的机制，只是用一个轻量自定义实现，不引入
-/// `flutter_localizations` 依赖、也不生成 .arb —— 与相册 APP 的做法一致。
+/// 业务文案使用轻量目录，不生成 .arb；Material/Cupertino 内建控件另由根应用的
+/// flutter_localizations delegates 跟随同一界面语言。
 class AppLocalizationsScope extends InheritedWidget {
   const AppLocalizationsScope({
     required this.language,
@@ -106,7 +106,8 @@ class AppL10n {
   });
 
   String get plantDetectionDescription => t(const {
-    AppLanguage.zh: '开启后，YSplanter 发现盆里的植物和当前记录不一致时会主动提醒，\n'
+    AppLanguage.zh:
+        '开启后，YSplanter 发现盆里的植物和当前记录不一致时会主动提醒，\n'
         '由你确认换成新植物还是保持原样。',
     AppLanguage.en:
         'When on, YSplanter asks you to confirm whenever the plant it '

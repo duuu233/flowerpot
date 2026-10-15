@@ -7,6 +7,8 @@ import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/mock_tuya_repository.dart';
@@ -143,6 +145,47 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('花盆消息按设备查询，中文日期弹框及取消不改变筛选', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = _MessagesRepository();
+    final state = FlowerpotState(repository: repository);
+    addTearDown(state.dispose);
+    await state.refreshDevices();
+    final id = state.devices.first.id;
+    await tester.pumpWidget(
+      FlowerpotScope(
+        state: state,
+        child: MaterialApp(
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          supportedLocales: const [Locale('zh'), Locale('en')],
+          home: DeviceMessagesPage(deviceId: id, showMonitorConsole: false),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(repository.queriedDevices, [id]);
+    expect(repository.queriedWindows, isEmpty);
+    await tester.tap(find.byKey(const Key('device-messages-date')));
+    await tester.pumpAndSettle();
+    expect(find.byType(DatePickerDialog), findsOneWidget);
+    expect(find.text('选择日期'), findsOneWidget);
+    expect(find.text('取消'), findsOneWidget);
+    expect(find.text('确定'), findsOneWidget);
+    expect(find.text('OK'), findsNothing);
+    expect(
+      Localizations.localeOf(
+        tester.element(find.byType(DatePickerDialog)),
+      ).languageCode,
+      'zh',
+    );
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(find.text('全部日期'), findsOneWidget);
+    expect(repository.queriedDevices, [id]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('消息中心取不到：如实写原因，不编数据', (tester) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -165,16 +208,11 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(
-      find.textContaining('没有取到：Mock 仓库没有涂鸦消息中心'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('没有取到：Mock 仓库没有涂鸦消息中心'), findsOneWidget);
     expect(find.byKey(const Key('device-messages-empty')), findsOneWidget);
   });
 
-  testWidgets('调试台：后台监控 10 条原样打印，按写死的参数调接口，逐条对 App 查到的', (
-    tester,
-  ) async {
+  testWidgets('调试台：后台监控 10 条原样打印，按写死的参数调接口，逐条对 App 查到的', (tester) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final at =
@@ -215,7 +253,10 @@ void main() {
       expect(find.byKey(Key('message-monitor-record-$i')), findsOneWidget);
     }
     expect(textOf('message-monitor-record-0'), contains('GYjoVtpHsqHjpZbc'));
-    expect(textOf('message-monitor-record-0'), contains('6c81cbf961a5074c36s0pq'));
+    expect(
+      textOf('message-monitor-record-0'),
+      contains('6c81cbf961a5074c36s0pq'),
+    );
     expect(textOf('message-monitor-record-9'), contains('SMmploujUsOI26FQ'));
 
     // 按写死的参数调了：三台设备按设备取，两段触发时间按时间窗取

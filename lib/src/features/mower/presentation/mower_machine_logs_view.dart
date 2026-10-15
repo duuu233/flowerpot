@@ -158,6 +158,10 @@ class _MowerMachineLogsViewState extends State<MowerMachineLogsView> {
       initialDate: _dates[category] ?? now,
       firstDate: DateTime(2000),
       lastDate: now,
+      locale: _ownerState!.language.locale,
+      helpText: _english ? 'Select date' : '选择日期',
+      cancelText: _english ? 'Cancel' : '取消',
+      confirmText: _english ? 'Confirm' : '确定',
     );
     if (!mounted || day == null) return;
     setState(() {

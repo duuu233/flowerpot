@@ -12,7 +12,7 @@ import 'package:flutter/widgets.dart';
 /// 3. 如果新语言要带脚本（例如 `zh-Hant`），[locale] 已经按 `-` 拆好了。
 ///
 /// 注意：Material / Cupertino 内建组件的文案（长按菜单、返回键无障碍标签等）跟
-/// 语言走还需要 `flutter_localizations` 依赖，本项目尚未引入，那部分目前恒为英文。
+/// 语言走由根应用的 `flutter_localizations` delegates 与本枚举的 locales 共同保证。
 enum AppLanguage {
   zh('zh', '简体中文'),
   en('en', 'English');

@@ -482,7 +482,8 @@ class _MowerControlPageState extends State<MowerControlPage> {
                     // 高度被下面几块吃掉时还会再缩。稿子 375 宽屏上环 263 ≈ 屏宽 70%，这里按宽撑满后比例一致。
                     Expanded(
                       child: Align(
-                        alignment: Alignment.topCenter,
+                        key: const Key('mower-status-viewport'),
+                        alignment: Alignment.center,
                         child: FittedBox(fit: BoxFit.contain, child: card),
                       ),
                     ),
