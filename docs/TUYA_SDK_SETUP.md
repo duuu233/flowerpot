@@ -77,7 +77,7 @@ storePassword=YOUR_STORE_PASSWORD
 flutter build apk --release --split-per-abi --no-pub
 ```
 
-该命令只决定 Android release 构建和拆包方式，不会自动启用真实涂鸦链路。真实设备生产构建仍需按第 5 节启用 `TUYA_ENABLED`，并完成密钥、安全组件、DP 与真机验证。
+当前真实涂鸦仓库默认启用。面向用户时还必须传 APP_DEBUG_TOOLS=false，并使用 ARM 目标及正式签名；完整命令见 [USER_RELEASE_BUILD.md](USER_RELEASE_BUILD.md)。真实设备仍需完成密钥、安全组件与真机验证。
 
 `StaticPreviewConfig.enabled` 只影响 Mock 后端是否预置演示设备，不影响真实模式，真机联调前不需要改它。但登录页的「体验模式」按钮在任何构建下都会把仓库切换成 `MockTuyaRepository`；真实链路验证必须走正常登录，不要用该入口。登录页另有「涂鸦 SDK 联调」入口，见 5.3；它使用当前仓库，不做任何切换。
 
@@ -243,6 +243,8 @@ App 侧的命名不再直接当 DP 键用，两层映射都在同一个文件里
 - **raw 功能点（131–139、154/155/157/158/159）**：SDK 交给 App 的上报值是**十六进制串**（`DevUtil.decodeRaw` 已把 base64 转成 hex，2026-09-13 解包 7.5.1 核对），下发同样写十六进制串（`TuyaMemorialCodec.encodeRaw`，SDK `encodeRaw` 再转 base64）；上报解码统一走 `TuyaRaw.bytes`，仍需真机确认。设备不回报整份自定义纪念日集合；后端会话可用时使用后端纪念日接口（按涂鸦 `deviceId`）分配 id 并同步列表，本地 `deviceMemorials` 是缓存；后端不可用时保留本地路径。纪念日列表满员是 **12 条 = 10 条自定义 + 158 生日 + 159 结婚纪念日**，页面上的计数按这 12 条算。
 
 ## 5. 运行
+
+> 2026-10-16 当前构建说明：[USER_RELEASE_BUILD.md](USER_RELEASE_BUILD.md)。当前生产代码默认使用 MethodChannelTuyaRepository 与 HTTPS 后端；无 Mock/体验/独立 SDK 联调路由。用户包请传 APP_DEBUG_TOOLS=false；原 TUYA_ENABLED、TUYA_DEBUG_TOOLS 不再决定运行模式。下列 5.1–5.3 是旧调试流程记录，不能作为当前打包指令。
 
 ### 5.1 模拟器上跑 UI / Mock 模式
 

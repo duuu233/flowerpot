@@ -1,3 +1,4 @@
+import '../../core/config/debug_log_gate.dart';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -94,14 +95,15 @@ abstract final class UploadImage {
       if (raw == null) return null;
 
       final rgba = raw.buffer.asUint8List(raw.offsetInBytes, raw.lengthInBytes);
-      final encoded = await compute(
-        _encodeJpeg,
-        (rgba, decodedWidth, decodedHeight),
-      );
+      final encoded = await compute(_encodeJpeg, (
+        rgba,
+        decodedWidth,
+        decodedHeight,
+      ));
       if (encoded == null || encoded.isEmpty) return null;
       return _write(encoded, sourcePath);
     } catch (error) {
-      debugPrint('[upload] 图片处理失败，本次不上传：$error');
+      DebugLogGate.log('[upload] 图片处理失败，本次不上传：$error');
       return null;
     }
   }

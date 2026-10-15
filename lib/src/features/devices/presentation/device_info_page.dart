@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/config/debug_log_gate.dart';
+
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../shared/widgets/blocking_progress.dart';
@@ -210,7 +212,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                         ),
                       ),
                     // 联调用：把 DP 162 当前上报的值原样弹出来核对（花盆 DP，割草机没有）。
-                    if (!mower) ...<Widget>[
+                    if (DebugLogGate.enabled && !mower) ...<Widget>[
                       const SizedBox(height: 20),
                       OutlinedButton(
                         key: const Key('device-info-dp162-probe'),

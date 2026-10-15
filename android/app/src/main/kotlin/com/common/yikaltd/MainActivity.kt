@@ -19,7 +19,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
-import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -418,7 +417,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 }
                 "setHomeId" -> {
                     homeId = call.argument<String>("homeId")?.toLongOrNull()
-                    Log.i(TUYA_LOG_TAG, "home pinned to $homeId")
+                    AppLog.i(TUYA_LOG_TAG, "home pinned to $homeId")
                     success(result, null)
                 }
                 "joinDeviceHotspot" -> joinDeviceHotspot(call, result)
@@ -1063,7 +1062,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // bean 去查列表、去配网。清掉等于自己把下一步的入参删了。下一轮开扫时
         // （[startBleScan]）才整张清掉。
         runCatching { invoke(bleOperator(), "stopLeScan") }.onFailure { cause ->
-            Log.w(TUYA_LOG_TAG, "stopLeScan 失败：${cause.javaClass.simpleName}")
+            AppLog.w(TUYA_LOG_TAG, "stopLeScan 失败：${cause.javaClass.simpleName}")
         }
     }
 
@@ -1573,7 +1572,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 并行配网器（现在的主路）：`stopConfigWifi` + 把这台从队列里摘掉。
         parallelActivator?.let { activator ->
             runCatching { invoke(activator, "stopConfigWifi") }.onFailure { cause ->
-                Log.w(TUYA_LOG_TAG, "stopConfigWifi 失败：${cause.javaClass.simpleName}")
+                AppLog.w(TUYA_LOG_TAG, "stopConfigWifi 失败：${cause.javaClass.simpleName}")
             }
             if (uuid.isNotEmpty()) {
                 runCatching { invoke(activator, "removeDevice", uuid) }
@@ -1582,7 +1581,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 旧路（回落用）：两条各自有自己的配网器，停一个不影响另一个。
         multiModeActivator?.let { activator ->
             runCatching { invoke(activator, "stopActivator", uuid) }.onFailure { cause ->
-                Log.w(TUYA_LOG_TAG, "stopActivator 失败：${cause.javaClass.simpleName}")
+                AppLog.w(TUYA_LOG_TAG, "stopActivator 失败：${cause.javaClass.simpleName}")
             }
         }
         disconnectBleDevice(uuid)
@@ -1599,7 +1598,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             runCatching { invoke(operator, "disconnectBleDevice", uuid) }
                 .onSuccess { trace("ble: 已断开 $uuid（断开后设备才会重新广播）") }
                 .onFailure { cause ->
-                    Log.w(TUYA_LOG_TAG, "disconnectBleDevice 失败：${cause.javaClass.simpleName}")
+                    AppLog.w(TUYA_LOG_TAG, "disconnectBleDevice 失败：${cause.javaClass.simpleName}")
                 }
             return
         }
@@ -1841,7 +1840,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                             ready(picked)
                         }
                         boundNetwork != null -> {
-                            Log.i(TUYA_LOG_TAG, "home list empty while bound to device hotspot")
+                            AppLog.i(TUYA_LOG_TAG, "home list empty while bound to device hotspot")
                             error(
                                 result,
                                 "home_offline",
@@ -1849,7 +1848,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                             )
                         }
                         retry -> {
-                            Log.i(TUYA_LOG_TAG, "home list came back empty, retrying once")
+                            AppLog.i(TUYA_LOG_TAG, "home list came back empty, retrying once")
                             queryHome(result, retry = false, ready = ready)
                         }
                         else -> createHome(manager, result, ready)
@@ -1888,7 +1887,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 .thenByDescending { it.devices }
                 .thenBy { it.id },
         ).first()
-        Log.i(
+        AppLog.i(
             TUYA_LOG_TAG,
             "home picked ${picked.id} (name=${picked.name}, ${picked.devices} devices) " +
                 "of ${ranked.size} homes, tag=$tag",
@@ -2015,7 +2014,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 取令牌要走云端。没有配网在跑却还绑着网络，只能是上一次失败留下的——
         // 绑着的那个热点早就没了，不解开这次取令牌必然无网失败。
         if (activator == null && boundNetwork != null) {
-            Log.i(TUYA_LOG_TAG, "token fetch: dropping stale network binding")
+            AppLog.i(TUYA_LOG_TAG, "token fetch: dropping stale network binding")
             unbindProcessNetwork()
         }
         withHome(result) { id ->
@@ -2107,7 +2106,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 这台机器上 adb 未必连得上，所以诊断信息不能只进 logcat——失败时一并
         // 回给 Dart，联调页的日志区才看得到实际用了哪个工厂、哪个枚举常量。
         val used = "ap/${factory.name}/${(mode as Enum<*>).name}"
-        Log.i(TUYA_LOG_TAG, "pairing $used")
+        AppLog.i(TUYA_LOG_TAG, "pairing $used")
         invokeWithCallback(
             builder,
             "setListener",
@@ -2145,9 +2144,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // 是从 allNetworks 里挑第一个 Wi-Fi，很可能挑中路由器，反而把凭据发错地方。
         if (boundNetwork == null) {
             val bound = bindProcessToWifi()
-            Log.i(TUYA_LOG_TAG, "AP pairing: process bound to Wi-Fi = $bound")
+            AppLog.i(TUYA_LOG_TAG, "AP pairing: process bound to Wi-Fi = $bound")
         } else {
-            Log.i(TUYA_LOG_TAG, "AP pairing: reusing hotspot binding")
+            AppLog.i(TUYA_LOG_TAG, "AP pairing: reusing hotspot binding")
         }
         invoke(activator!!, "start")
     }
@@ -2442,7 +2441,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onLost(network: Network) {
                 if (network == boundNetwork) {
-                    Log.i(TUYA_LOG_TAG, "AP pairing: hotspot lost, releasing network binding")
+                    AppLog.i(TUYA_LOG_TAG, "AP pairing: hotspot lost, releasing network binding")
                     activity.runOnUiThread { unbindProcessNetwork() }
                 }
             }
@@ -3778,7 +3777,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             registerWarnListener(device, deviceId)
         }.onFailure { throwable ->
             val cause = TuyaSdkInitializer.unwrap(throwable)
-            Log.w(
+            AppLog.w(
                 TUYA_LOG_TAG,
                 "registerDevListener failed for one device: ${cause.javaClass.simpleName}",
             )
@@ -3828,7 +3827,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             method.invoke(device, listener)
         }.onFailure { throwable ->
             val cause = TuyaSdkInitializer.unwrap(throwable)
-            Log.w(TUYA_LOG_TAG, "registerWarnMessageListener failed: ${cause.javaClass.simpleName}")
+            AppLog.w(TUYA_LOG_TAG, "registerWarnMessageListener failed: ${cause.javaClass.simpleName}")
         }
     }
 
@@ -3925,7 +3924,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
      * 界面上。`Log.i` 照旧保留：真机联调时两边都能看。
      */
     private fun trace(line: String) {
-        Log.i(TUYA_LOG_TAG, line)
+        if (!BuildConfig.APP_DEBUG_TOOLS) return;
+        AppLog.i(TUYA_LOG_TAG, line)
         emit(mapOf("type" to "pairingLog", "line" to line))
     }
 
@@ -4103,7 +4103,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
 
     private fun fail(result: MethodChannel.Result, throwable: Throwable) {
         val cause = TuyaSdkInitializer.unwrap(throwable)
-        Log.e(TUYA_LOG_TAG, "Tuya SDK call failed: ${cause.javaClass.simpleName}")
+        AppLog.e(TUYA_LOG_TAG, "Tuya SDK call failed: ${cause.javaClass.simpleName}")
         val (code, message) = TuyaSdkInitializer.describe(cause)
         error(result, code, message)
     }

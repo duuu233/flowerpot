@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.util.Base64
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -7,6 +8,13 @@ plugins {
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Use the same compile-time switch as Dart; existing builds keep their diagnostics.
+val dartDefines = providers.gradleProperty("dart-defines").orNull.orEmpty()
+    .split(',').filter { it.isNotBlank() }
+    .map { String(Base64.getDecoder().decode(it), Charsets.UTF_8) }
+val debugToolsEnabled = dartDefines.lastOrNull { it.startsWith("APP_DEBUG_TOOLS=") }
+    ?.substringAfter('=')?.let { it != "false" } ?: true
 
 val tuyaHomeSdkVersion = "7.5.1"
 val tuyaExpansionSdkVersion = "7.8.0"
@@ -99,7 +107,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
+        buildConfigField("boolean", "APP_DEBUG_TOOLS", debugToolsEnabled.toString())
         applicationId = "com.common.yikaltd"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.

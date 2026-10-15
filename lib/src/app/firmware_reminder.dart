@@ -1,3 +1,4 @@
+import '../core/config/debug_log_gate.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -219,7 +220,7 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
   }) async {
     final dialogContext = widget.routes.navigator?.overlay?.context;
     if (dialogContext == null || !widget.state.isDeviceOnline(deviceId)) return;
-    debugPrint(
+    DebugLogGate.log(
       '[ota] 升级提醒（${force ? '强制' : '提醒'}）$deviceId → ${update.version}',
     );
     final upgrade = await _showUpgradeDialog(

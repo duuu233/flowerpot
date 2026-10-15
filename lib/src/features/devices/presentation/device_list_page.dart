@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/config/debug_log_gate.dart';
+
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
@@ -361,8 +363,10 @@ class _DeviceListError extends StatelessWidget {
       ),
       children: <Widget>[
         AppErrorView(title: '设备列表没读出来', message: message, onRetry: onRetry),
-        const SizedBox(height: 20),
-        _SessionDiagnosticsLine(text: diagnostics),
+        if (DebugLogGate.enabled) ...<Widget>[
+          const SizedBox(height: 20),
+          _SessionDiagnosticsLine(text: diagnostics),
+        ],
       ],
     );
   }
@@ -476,8 +480,10 @@ class _EmptyDeviceList extends StatelessWidget {
             fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(height: 20),
-        _SessionDiagnosticsLine(text: diagnostics),
+        if (DebugLogGate.enabled) ...<Widget>[
+          const SizedBox(height: 20),
+          _SessionDiagnosticsLine(text: diagnostics),
+        ],
       ],
     );
   }

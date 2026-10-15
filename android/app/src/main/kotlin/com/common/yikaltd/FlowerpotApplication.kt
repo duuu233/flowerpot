@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
-import android.util.Log
 import java.lang.reflect.InvocationTargetException
 
 internal const val TUYA_LOG_TAG = "FlowerpotTuya"
@@ -86,11 +85,11 @@ internal object TuyaSdkInitializer {
         initCalled = true
         return try {
             sdk.getMethod("init", Application::class.java).invoke(null, application)
-            Log.i(TUYA_LOG_TAG, "ThingHomeSdk.init returned successfully")
+            AppLog.i(TUYA_LOG_TAG, "ThingHomeSdk.init returned successfully")
             initExpansionSdk(application)
             runCatching {
                 sdk.getMethod("setDebugMode", java.lang.Boolean.TYPE)
-                    .invoke(null, isDebugBuild(application))
+                    .invoke(null, BuildConfig.APP_DEBUG_TOOLS && isDebugBuild(application))
             }
             ready = true
             failureCode = null
@@ -98,7 +97,7 @@ internal object TuyaSdkInitializer {
             true
         } catch (throwable: Throwable) {
             val cause = unwrap(throwable)
-            Log.e(TUYA_LOG_TAG, "ThingHomeSdk.init failed: ${cause.javaClass.simpleName}")
+            AppLog.e(TUYA_LOG_TAG, "ThingHomeSdk.init failed: ${cause.javaClass.simpleName}")
             val (code, message) = describe(cause)
             record(code, message)
         }
@@ -157,15 +156,15 @@ internal object TuyaSdkInitializer {
     private fun initExpansionSdk(application: Application) {
         val optimus = runCatching { Class.forName(OPTIMUS_SDK_CLASS) }.getOrNull()
         if (optimus == null) {
-            Log.w(TUYA_LOG_TAG, "ThingOptimusSdk is unavailable; expansion features stay off")
+            AppLog.w(TUYA_LOG_TAG, "ThingOptimusSdk is unavailable; expansion features stay off")
             return
         }
         runCatching {
             optimus.getMethod("init", Context::class.java)
                 .invoke(null, application)
-            Log.i(TUYA_LOG_TAG, "ThingOptimusSdk.init returned successfully")
+            AppLog.i(TUYA_LOG_TAG, "ThingOptimusSdk.init returned successfully")
         }.onFailure {
-            Log.w(TUYA_LOG_TAG, "ThingOptimusSdk.init failed: ${unwrap(it).javaClass.simpleName}")
+            AppLog.w(TUYA_LOG_TAG, "ThingOptimusSdk.init failed: ${unwrap(it).javaClass.simpleName}")
         }
     }
 
@@ -190,7 +189,7 @@ internal object TuyaSdkInitializer {
         failureCode = code
         failureMessage = message
         ready = false
-        Log.w(TUYA_LOG_TAG, "Tuya SDK is not ready: $code")
+        AppLog.w(TUYA_LOG_TAG, "Tuya SDK is not ready: $code")
         return false
     }
 }

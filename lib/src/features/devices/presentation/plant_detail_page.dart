@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/config/debug_log_gate.dart';
+
 import '../../../app/flowerpot_app.dart';
 import '../../../app/network_alert.dart';
 import '../../../design_system/design_system.dart';
@@ -467,7 +469,7 @@ class _PlantBasicInfoCard extends StatelessWidget {
             // 明明配全了。差别在于：**详情页用的是列表接口 `getProductPlantList` 传进来的
             // 对象，从不单独拉详情**——列表返回什么，这一页就只有什么。所以要能一眼看出
             // 到底是哪几项没从接口下来。正式包不画。
-            if (kDebugMode) ...<Widget>[
+            if (DebugLogGate.enabled && kDebugMode) ...<Widget>[
               const SizedBox(height: 12),
               _DetailRow(
                 label: '接口体检',
@@ -805,5 +807,4 @@ class _PlantDetailData {
     final match = RegExp(r'[1-5]').firstMatch(value);
     return int.tryParse(match?.group(0) ?? '') ?? 0;
   }
-
 }

@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../../core/config/debug_log_gate.dart';
+
 import '../../app/flowerpot_app.dart';
 import '../mower/mower_ui.dart';
 import '../mower/presentation/widgets/mower_card.dart';
@@ -221,8 +223,9 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
     });
   }
 
-  static String _reason(Map<String, Object?> data) =>
-      '${data['message'] ?? (data['diagnostic'] as List<Object?>?)?.join('；') ?? '未知原因'}';
+  static String _reason(Map<String, Object?> data) => !DebugLogGate.enabled
+      ? '消息加载失败，请稍后重试'
+      : '${data['message'] ?? (data['diagnostic'] as List<Object?>?)?.join('；') ?? '未知原因'}';
 
   /// 消息中心的一条 → 条目。时间优先取数字的 `time`（秒），没有再解 `dateTime` 字符串。
   static _Entry _alarmEntry(Map<Object?, Object?> item) {

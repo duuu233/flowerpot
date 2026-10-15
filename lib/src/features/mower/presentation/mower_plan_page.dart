@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/config/debug_log_gate.dart';
+
 import '../../devices/presentation/device_online_guard.dart';
 import 'package:flutter/services.dart';
 
@@ -342,8 +344,10 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  _ScheduleDebugWindow(device: _device),
+                  if (DebugLogGate.enabled) ...<Widget>[
+                    const SizedBox(height: 16),
+                    _ScheduleDebugWindow(device: _device),
+                  ],
                 ],
               ),
             ),

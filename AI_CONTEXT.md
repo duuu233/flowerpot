@@ -1,5 +1,7 @@
 # AI 项目上下文
 
+当前用户版构建与兼容规则见 [docs/USER_RELEASE_BUILD.md](docs/USER_RELEASE_BUILD.md)：APP_DEBUG_TOOLS=false 统一关闭调试功能，省略保持现有联调；当前真实涂鸦仓库默认启用，旧 TUYA_ENABLED 参数不再控制模式。
+
 > **产品口径与硬性要求看 [`docs/PRODUCT_RULES.md`](docs/PRODUCT_RULES.md)**（必须怎样 / 绝对不要怎样）。本文件只放**技术事实**，试错过程在 `docs/history/`。三者不重复。
 
 > 文档类型：当前项目上下文

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/config/debug_log_gate.dart';
+
 import '../../../app/flowerpot_app.dart';
 import '../../../app/network_alert.dart';
 import '../../../core/network/api_exception.dart';
@@ -123,7 +125,7 @@ class _PlantPickerPageState extends State<PlantPickerPage>
   String _loadErrorText(ApiException error) {
     const base = '植物列表加载失败：';
     final body = error.body;
-    if (!kDebugMode || body == null || body.isEmpty) {
+    if (!DebugLogGate.enabled || !kDebugMode || body == null || body.isEmpty) {
       return '$base${error.message}';
     }
     return '$base${error.message}\n$body';

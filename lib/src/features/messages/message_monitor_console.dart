@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../../core/config/debug_log_gate.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/flowerpot_app.dart';
@@ -124,7 +126,7 @@ class _MessageMonitorConsoleState extends State<MessageMonitorConsole> {
   @override
   void initState() {
     super.initState();
-    if (!widget.autoRun) return;
+    if (!DebugLogGate.enabled || !widget.autoRun) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_runAll());
     });
@@ -132,7 +134,7 @@ class _MessageMonitorConsoleState extends State<MessageMonitorConsole> {
 
   /// 按写死的参数依次调一遍（先按设备、再按时间窗），一条跑完画一条。
   Future<void> _runAll() async {
-    if (_running) return;
+    if (!DebugLogGate.enabled || _running) return;
     final state = FlowerpotScope.of(context);
     setState(() {
       _running = true;
@@ -300,7 +302,8 @@ class _MessageMonitorConsoleState extends State<MessageMonitorConsole> {
         '${call.data['message'] == null ? '' : '  message=${call.data['message']}'}',
     for (var i = 0; i < call.items.length; i++) ...<String>[
       '--- 第 ${i + 1} 条 → 分到 ${describeMessageGrade(call.items[i])} ---',
-      for (final entry in call.items[i].entries) '${entry.key} = ${entry.value}',
+      for (final entry in call.items[i].entries)
+        '${entry.key} = ${entry.value}',
     ],
     for (final line in call.diagnostic) '· $line',
   ];
@@ -342,6 +345,7 @@ class _MessageMonitorConsoleState extends State<MessageMonitorConsole> {
 
   @override
   Widget build(BuildContext context) {
+    if (!DebugLogGate.enabled) return const SizedBox.shrink();
     final state = FlowerpotScope.of(context);
     const mono = TextStyle(
       color: MowerColors.ink,
@@ -422,10 +426,7 @@ class _MessageMonitorConsoleState extends State<MessageMonitorConsole> {
             ),
             if (widget.records.isNotEmpty) ...<Widget>[
               const SizedBox(height: 10),
-              Text(
-                '后台「设备消息监控」${widget.records.length} 条（写死）',
-                style: heading,
-              ),
+              Text('后台「设备消息监控」${widget.records.length} 条（写死）', style: heading),
               const SizedBox(height: 4),
               for (var i = 0; i < widget.records.length; i++)
                 Padding(

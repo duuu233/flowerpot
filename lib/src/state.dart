@@ -1810,6 +1810,7 @@ class FlowerpotState extends ChangeNotifier {
   void _startPairingLog() {
     _pairingLog.clear();
     _pairingLogSub?.cancel();
+    if (!DebugLogGate.enabled) return;
     _pairingLogSub = _repository.pairingLogs.listen((line) {
       _pairingLog.add(line);
       if (_pairingLog.length > _pairingLogLimit) _pairingLog.removeAt(0);
@@ -1835,7 +1836,7 @@ class FlowerpotState extends ChangeNotifier {
         : '手机在「$now」'
               '${(_wifiScan?.currentIsDeviceHotspot ?? false) ? '(设备热点)' : '(不是设备热点)'}';
     final detail = '$reason｜用时 ${watch.elapsedMilliseconds}ms · $where';
-    debugPrint('[pairing] 连设备热点失败：$detail');
+    DebugLogGate.log('[pairing] 连设备热点失败：$detail');
     return detail;
   }
 
@@ -2299,7 +2300,7 @@ class FlowerpotState extends ChangeNotifier {
       }
       final recovered = await _recoverPairedDevice(knownIds);
       if (recovered == null) rethrow;
-      debugPrint('[pair] ${error.code} 后在云端发现新设备，按成功处理');
+      DebugLogGate.log('[pair] ${error.code} 后在云端发现新设备，按成功处理');
       return recovered;
     }
   }
@@ -4215,7 +4216,7 @@ class FlowerpotState extends ChangeNotifier {
       error.code,
       error.message,
     );
-    debugPrint('[session] $_backendSessionError');
+    DebugLogGate.log('[session] $_backendSessionError');
     notifyListeners();
   }
 
@@ -4507,7 +4508,7 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 每次读设备列表都留一行日志（`adb logcat -s flutter` / Xcode 控制台可见）。
   /// 用户不再进联调页之后，这是现场唯一能翻到的记录，所以不按 debug 模式过滤。
-  void _logDevices() => debugPrint('[devices] $sessionDiagnostics');
+  void _logDevices() => DebugLogGate.log('[devices] $sessionDiagnostics');
 
   static String _deviceLoadMessage(Object error) => switch (error) {
     TuyaException tuya => _diagnostic('涂鸦', tuya.code, tuya.message),

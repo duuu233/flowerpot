@@ -202,7 +202,7 @@ class _MowerPlanEditSheetState extends State<_MowerPlanEditSheet> {
           // 关着时下面整块置灰禁用；默认开启）。对应 DP101 每组的「时段 N 有效」字节。
           _SheetSwitchCard(
             title: '启用时段${_draft.activeSlot}',
-            subtitle: '关闭后该时段不下发（DP101 有效位=0）',
+            subtitle: '关闭后该时段不执行割草',
             value: enabled,
             switchKey: const Key('mower-plan-edit-slot-enabled'),
             onChanged: (value) =>
@@ -245,7 +245,7 @@ class _MowerPlanEditSheetState extends State<_MowerPlanEditSheet> {
           const SizedBox(height: 12),
           _SheetSwitchCard(
             title: '修边',
-            subtitle: '先绕边再割草（DP101 沿边位，整天生效）',
+            subtitle: '先绕边再割草，当天所有时段生效',
             value: _draft.edge,
             switchKey: const Key('mower-plan-edit-trim'),
             onChanged: (value) =>

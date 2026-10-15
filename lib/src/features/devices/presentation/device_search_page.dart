@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../../../core/config/debug_log_gate.dart';
 import 'package:flutter/services.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -1025,6 +1027,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                 '设备放久了会退出配网模式，那种情况下断电重启再试。'
           : '可以先试：给设备断电重启后再点「连接」；或等十几秒让系统的 Wi-Fi 扫描限制缓过来。';
     }
+    if (!DebugLogGate.enabled) {
+      return viaBle
+          ? '连接设备失败，请确认手机蓝牙已打开，让设备靠近手机并重启设备后重试。'
+          : '连接设备失败，请确认设备处于配网状态后重试。';
+    }
     return '$tag$reason\n'
         '\n'
         '$advice';
@@ -1176,7 +1183,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         // ⚠️ AP 屏蔽期间**只要有日志就画**，不再等到失败才画：这一轮的
                         // 目的就是判定设备支不支持蓝牙，「扫描起没起来、报了什么」本身
                         // 就是要交付的结论，成功那次的日志同样要能截图。
-                        if ((PairingGate.showUnfilteredBleScan ||
+                        if (DebugLogGate.enabled &&
+                            (PairingGate.showUnfilteredBleScan ||
                                 _connectError != null) &&
                             state.pairingLog.isNotEmpty) ...<Widget>[
                           const SizedBox(height: 12),
@@ -1187,10 +1195,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         // **常驻的搜索状态行**（AP 屏蔽期间）：这一页现在是排查工具，
                         // 「用的是不是蓝牙、扫到几台、扫了多久」必须一眼看得到、能截图。
                         // 常驻状态行只在**排查态**画：配网跑通之后它对用户没有意义。
-                        if (PairingGate.showUnfilteredBleScan) ...<Widget>[
+                        if (DebugLogGate.enabled &&
+                            PairingGate.showUnfilteredBleScan) ...<Widget>[
                           const SizedBox(height: 10),
                           GestureDetector(
-                            onLongPress: () => _copyMessage(_bleScanStatus(state)),
+                            onLongPress: () =>
+                                _copyMessage(_bleScanStatus(state)),
                             child: Text(
                               _bleScanStatus(state),
                               key: const Key('device-search-ble-status'),
@@ -1204,7 +1214,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                             ),
                           ),
                         ],
-                        if (_bleNotice(state) case final String notice) ...<Widget>[
+                        if (_bleNotice(state)
+                            case final String notice) ...<Widget>[
                           const SizedBox(height: 10),
                           Text(
                             notice,
@@ -1266,7 +1277,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                         // Wi-Fi，只能按前缀直连热点）。AP 屏蔽期间它通向一条走不通的
                         // 路——点下去只会在下一页拿不到 BLE uuid 而报错，所以直接不画，
                         // 由 `_bleOnlyOutcome()` 说明本机为什么没有可用路径。
-                        if (!_canListNetworks && PairingGate.apEnabled) ...<Widget>[
+                        if (!_canListNetworks &&
+                            PairingGate.apEnabled) ...<Widget>[
                           const SizedBox(height: 20),
                           _SearchActions(onContinue: _continueWithoutList),
                         ] else if ((!_scanning || _stalled) &&
@@ -1380,15 +1392,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
           'iOS 不提供附近 Wi-Fi 列表，设备无法在这里列出来。\n设备开机即可配网，直接下一步即可。',
         );
       }
-      return const _SearchOutcome(
-        '无法列出附近设备',
-        '当前系统不提供附近网络列表，无法在这里列出设备。',
-      );
+      return const _SearchOutcome('无法列出附近设备', '当前系统不提供附近网络列表，无法在这里列出设备。');
     }
-    return const _SearchOutcome(
-      '未发现设备',
-      '请确认设备已开机并靠近手机后重新扫描。',
-    );
+    return const _SearchOutcome('未发现设备', '请确认设备已开机并靠近手机后重新扫描。');
   }
 
   /// AP 屏蔽期间还没扫到设备时说什么。**只讲蓝牙**，并且把当前事实摆出来。
@@ -1405,16 +1411,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       final reason = availability.reason.isEmpty
           ? '这台手机或这个包不支持 BLE'
           : availability.reason;
-      return _SearchOutcome(
-        '本机用不了蓝牙配网',
-        '$reason。',
-      );
+      return _SearchOutcome('本机用不了蓝牙配网', '$reason。');
     }
     if (!availability.enabled) {
-      return const _SearchOutcome(
-        '请先打开蓝牙',
-        '打开手机蓝牙后点「重新扫描」。',
-      );
+      return const _SearchOutcome('请先打开蓝牙', '打开手机蓝牙后点「重新扫描」。');
     }
     if (!availability.scanPermission || !availability.locationPermission) {
       return const _SearchOutcome(
@@ -1436,21 +1436,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       // **2026-09-14 产品定稿**：下面那一大段（「设备静置一段时间会退出配网状态，此时它
       // 不再广播。请给设备断电重启…」）换成一句 [_notFoundMessage]，上面的雷达插图换成
       // `pairing_failure_illustration.png`（见 `_SearchRadar.notFound`）。
-      return const _SearchOutcome(
-        '还没搜索到设备',
-        _notFoundMessage,
-        notFound: true,
-      );
+      return const _SearchOutcome('还没搜索到设备', _notFoundMessage, notFound: true);
     }
     // **按 UI 图**（`docs/UI/搜索附近设备.png`）：标题「搜索附近设备...」，
     // 副标题「请保持手机蓝牙和Wi-Fi已开启，并让设备处于配网状态」。
     //
     // ⚠️ 这里原来写的是「当前版本已屏蔽热点(AP)配网…扫到的设备不做任何过滤，全部列出」
     // ——那是排查期的自述，用户不需要知道，2026-09-12 按设计稿换回来。
-    return const _SearchOutcome(
-      '搜索附近设备...',
-      '请保持手机蓝牙和Wi-Fi已开启，并让设备处于配网状态',
-    );
+    return const _SearchOutcome('搜索附近设备...', '请保持手机蓝牙和Wi-Fi已开启，并让设备处于配网状态');
   }
 
   String _failureHint(ActionResult result) => switch (result.code) {
@@ -1514,7 +1507,9 @@ class _PairingLogBox extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.textTertiary.withValues(alpha: .3)),
+          border: Border.all(
+            color: AppColors.textTertiary.withValues(alpha: .3),
+          ),
         ),
         child: Text(
           text,
@@ -1663,7 +1658,8 @@ class _FoundDevice {
       '云端产品名 ${product == null ? '查询中…' : or(product.name)}',
       'deviceType ${device.deviceType} · flag ${device.flag}'
           ' · configType ${or(device.configType)}',
-      if (device.providerName.trim().isNotEmpty) 'provider ${device.providerName}',
+      if (device.providerName.trim().isNotEmpty)
+        'provider ${device.providerName}',
       if (device.rawText.trim().isNotEmpty) 'raw ${device.rawText}',
     ].join('\n');
   }
@@ -1822,7 +1818,9 @@ class _FoundDeviceTile extends StatelessWidget {
                         style: TextStyle(
                           color: AppColors.textTertiary,
                           fontSize: PairingGate.showUnfilteredBleScan ? 11 : 12,
-                          height: PairingGate.showUnfilteredBleScan ? 1.5 : null,
+                          height: PairingGate.showUnfilteredBleScan
+                              ? 1.5
+                              : null,
                           fontFamily: PairingGate.showUnfilteredBleScan
                               ? 'monospace'
                               : null,

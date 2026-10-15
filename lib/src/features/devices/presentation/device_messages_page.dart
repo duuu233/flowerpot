@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/config/debug_log_gate.dart';
+
 import '../../../design_system/design_system.dart';
 import '../../messages/device_messages_view.dart';
 import '../../messages/message_monitor_console.dart';
@@ -36,7 +38,7 @@ class DeviceMessagesPage extends StatelessWidget {
         pageName: '花盆-消息通知',
         keyPrefix: 'device-messages',
         logsEntry: false,
-        footer: showMonitorConsole
+        footer: DebugLogGate.enabled && showMonitorConsole
             ? MessageMonitorConsole(
                 title: '调试台 · 花盆后台消息监控对照',
                 deviceIds: <String>[

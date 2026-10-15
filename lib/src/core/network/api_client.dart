@@ -1,3 +1,4 @@
+import '../config/debug_log_gate.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show FileSystemException, IOException;
@@ -100,11 +101,7 @@ class ApiClient {
       'POST',
       uri,
       () => _http
-          .post(
-            uri,
-            headers: headers,
-            body: jsonEncode(payload),
-          )
+          .post(uri, headers: headers, body: jsonEncode(payload))
           .timeout(timeout),
       revision: revision,
       retryTransportErrors: retryTransportErrors,
@@ -254,7 +251,9 @@ class ApiClient {
   void _ensureSession(int revision) {
     if (session.revision != revision) {
       throw const ApiException(
-        'SESSION_CHANGED', '账号会话已切换，请重新操作', authError: false,
+        'SESSION_CHANGED',
+        '账号会话已切换，请重新操作',
+        authError: false,
       );
     }
   }
@@ -278,18 +277,14 @@ class ApiClient {
     if (retCode == 406) {
       // 只有业务码 406 表示登录失效；HTTP 状态或其它业务错误不清除 Token。
       // 只记接口路径，不记 query，避免 Token 进入日志。
-      debugPrint(
+      DebugLogGate.log(
         '[session] 后端会话失效：${response.request?.method ?? 'REQ'} '
         '${response.request?.url.path ?? '-'} '
         '→ HTTP ${response.statusCode} / retCode $retCode',
       );
       session.clear();
       onSessionExpired?.call();
-      throw ApiException(
-        406,
-        retMessage ?? '登录状态已失效，请重新登录',
-        body: rawBody,
-      );
+      throw ApiException(406, retMessage ?? '登录状态已失效，请重新登录', body: rawBody);
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       // 状态码进文案：这一支专门对应“后端没回 2xx”，不带上状态码时界面只剩一
@@ -319,18 +314,20 @@ class ApiClient {
   }
 
   void _logRequest(String method, Uri uri, Object? data) {
-    if (!kDebugMode) return;
-    debugPrint('[HTTP] --> $method ${_redactUri(uri)}');
+    if (!DebugLogGate.enabled || !kDebugMode) return;
+    DebugLogGate.log('[HTTP] --> $method ${_redactUri(uri)}');
     if (data != null) {
-      debugPrint('[HTTP] request: ${jsonEncode(_redact(data))}');
+      DebugLogGate.log('[HTTP] request: ${jsonEncode(_redact(data))}');
     }
   }
 
   void _logResponse(String method, Uri uri, http.Response response) {
-    if (!kDebugMode) return;
+    if (!DebugLogGate.enabled || !kDebugMode) return;
     final text = utf8.decode(response.bodyBytes, allowMalformed: true);
-    debugPrint('[HTTP] <-- ${response.statusCode} $method ${_redactUri(uri)}');
-    debugPrint('[HTTP] response: ${jsonEncode(_redactJson(text))}');
+    DebugLogGate.log(
+      '[HTTP] <-- ${response.statusCode} $method ${_redactUri(uri)}',
+    );
+    DebugLogGate.log('[HTTP] response: ${jsonEncode(_redactJson(text))}');
   }
 
   Uri _redactUri(Uri uri) {
@@ -348,7 +345,7 @@ class ApiClient {
   /// 正式包返回 null；凭证字段沿用日志那套打码规则；超过 [_debugBodyLimit]
   /// 截断，避免把整页 HTML 错误页塞进异常。
   String? _debugBody(http.Response response) {
-    if (!kDebugMode) return null;
+    if (!DebugLogGate.enabled || !kDebugMode) return null;
     final text = utf8.decode(response.bodyBytes, allowMalformed: true).trim();
     if (text.isEmpty) return null;
     final redacted = _redactJson(text);

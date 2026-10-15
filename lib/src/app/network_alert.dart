@@ -1,3 +1,4 @@
+import '../core/config/debug_log_gate.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -173,7 +174,7 @@ class _NetworkAlertHostState extends State<NetworkAlertHost>
     try {
       if (await _probe()) return;
       if (!mounted || !widget.enabled || _quiet) return;
-      debugPrint(
+      DebugLogGate.log(
         '[network] 网络不可用（${widget.routes.currentPage?.settings.name}）',
       );
       if (widget.routes.popupOnTop) {
@@ -247,7 +248,7 @@ class _NetworkAlertHostState extends State<NetworkAlertHost>
           (item) => item.mounted && identical(item._networkRetryRoute, page),
         )
         .toList(growable: false);
-    debugPrint(
+    DebugLogGate.log(
       '[network] 重试：刷新 ${page?.settings.name}（登记 ${pages.length} 处）',
     );
     if (pages.isEmpty) {
@@ -261,7 +262,7 @@ class _NetworkAlertHostState extends State<NetworkAlertHost>
     try {
       await page.reloadForNetworkRetry();
     } catch (error) {
-      debugPrint('[network] 重试刷新失败：$error');
+      DebugLogGate.log('[network] 重试刷新失败：$error');
     }
   }
 
