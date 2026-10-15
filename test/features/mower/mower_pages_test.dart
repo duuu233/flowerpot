@@ -33,10 +33,142 @@ import '../../support/plant_catalog.dart';
 /// ⚠️ 下发后有 5 秒的回显计时器；测试框架在用例体结束时就检查挂着的 Timer（比 tearDown 早），
 /// 所以每条下发过的用例结尾都手动 `resetForTest` 一次把它们取消。
 void main() {
+  testWidgets('编辑周一时收到新回读，保存只改当前时段，保留另一时段和修边的新值', (tester) async {
+    final incoming = Uint8List(88);
+    incoming.setRange(0, 11, [0x1c, 2, 0xd0, 2, 0x48, 3, 0x38, 4, 1, 1, 1]);
+    final repo = await _pumpMowerHome(tester, {101: TuyaRaw.hex(incoming)});
+    await tester.tap(find.byKey(const Key('mower-nav-plan')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mower-plan-slot-1-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mower-plan-edit-slot-enabled')));
+    final reported = Uint8List(88);
+    for (var group = 1; group <= 7; group++) {
+      reported.setRange(group * 11, group * 11 + 11, [
+        0x1c,
+        2,
+        0xd0,
+        2,
+        0x48,
+        3,
+        0x38,
+        4,
+        1,
+        1,
+        1,
+      ]);
+    }
+    reported.setRange(15, 20, [0x84, 3, 0x74, 4, 0]);
+    repo.rawDpsByDevice[_mowerId]![101] = TuyaRaw.hex(reported);
+    repo.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: {101},
+        reportedDps: {101: TuyaRaw.hex(reported)},
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mower-plan-edit-save')));
+    await tester.pumpAndSettle();
+    final sent = TuyaRaw.bytes(repo.publishedDps.single.$2[101])!;
+    expect(sent.sublist(0, 11), everyElement(0));
+    expect(sent.sublist(11, 22), [0x1c, 2, 0xd0, 2, 0x84, 3, 0x74, 4, 0, 0, 1]);
+    expect(sent.sublist(22), reported.sublist(22));
+    MowerDevice.instance.resetForTest();
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final size in [const Size(375, 812), const Size(320, 568)]) {
+    testWidgets('首页${size.width}宽电量环紧随标题，不把多余高度堆到图片上方', (tester) async {
+      await _pumpMowerHome(tester, {13: 100, 117: 'charging'});
+      await tester.binding.setSurfaceSize(size);
+      await tester.pumpAndSettle();
+      final ringTop = tester
+          .getTopLeft(find.byKey(const Key('mower-battery-ring')))
+          .dy;
+      final headerBottom = tester
+          .getBottomLeft(find.byType(AppPageHeader).first)
+          .dy;
+      expect(ringTop - headerBottom, inInclusiveRange(0, 24));
+      expect(find.text('电量 100%'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      MowerDevice.instance.resetForTest();
+    });
+  }
+
+  for (var weekday = 0; weekday < 7; weekday++) {
+    testWidgets('每天上报展开后独立编辑周$weekday，不复制且不改变其它日期/时段', (tester) async {
+      final raw = Uint8List(88);
+      raw.setRange(0, 11, [0x1c, 2, 0xd0, 2, 0x48, 3, 0x38, 4, 1, 1, 1]);
+      final repo = await _pumpMowerHome(tester, {101: TuyaRaw.hex(raw)});
+      await tester.tap(find.byKey(const Key('mower-nav-plan')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('mower-plan-slot-1-1')), findsOneWidget);
+      final slot = weekday.isEven ? 1 : 2;
+      await tester.tap(find.byKey(Key('mower-plan-slot-$weekday-$slot')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Switch>(find.byKey(const Key('mower-plan-edit-copy-week')))
+            .value,
+        isFalse,
+      );
+      await tester.tap(find.byKey(const Key('mower-plan-edit-slot-enabled')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('mower-plan-edit-save')));
+      await tester.pumpAndSettle();
+      final sent = TuyaRaw.bytes(repo.publishedDps.single.$2[101])!;
+      expect(sent.sublist(0, 11), everyElement(0));
+      for (var group = 1; group <= 7; group++) {
+        final target = group == (weekday == 0 ? 7 : weekday);
+        expect(sent.sublist(group * 11, group * 11 + 8), [
+          0x1c,
+          2,
+          0xd0,
+          2,
+          0x48,
+          3,
+          0x38,
+          4,
+        ]);
+        expect(sent[group * 11 + 8], 1);
+        expect(sent[group * 11 + 9], target && slot == 1 ? 0 : 1);
+        expect(sent[group * 11 + 10], target && slot == 2 ? 0 : 1);
+      }
+      expect(find.byKey(Key('mower-plan-slot-$weekday-$slot')), findsNothing);
+      expect(
+        find.byKey(Key('mower-plan-slot-$weekday-${slot == 1 ? 2 : 1}')),
+        findsOneWidget,
+      );
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final percent in [99, 100]) {
+    for (final charging in ['charging', 'full']) {
+      testWidgets('电量$percent%，DP117=$charging，满电/充满不再显示充电中', (tester) async {
+        await _pumpMowerHome(tester, {13: percent, 117: charging});
+        await tester.pump(const Duration(milliseconds: 200));
+        final shouldCharge = percent < 100 && charging == 'charging';
+        expect(
+          find.byKey(const Key('mower-charging-bolt')),
+          shouldCharge ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.textContaining('充电中', findRichText: true),
+          shouldCharge ? findsOneWidget : findsNothing,
+        );
+        if (!shouldCharge) expect(find.text('电量 $percent%'), findsOneWidget);
+        MowerDevice.instance.resetForTest();
+      });
+    }
+  }
+
   testWidgets('计划图只显示设备DP，点击修边等实际回读，复制诊断含收发两份', (tester) async {
     final repo = _MowerRepository()..echoSchedules = false;
     final incoming = Uint8List(88);
-    for (var group = 0; group < 7; group++) {
+    for (var group = 1; group <= 7; group++) {
       incoming.setRange(group * 11, group * 11 + 11, [
         0x1c,
         2,
@@ -74,7 +206,7 @@ void main() {
       isTrue,
       reason: 'SDK下发完成不代表已回显，仍显示设备值',
     );
-    final reply = Uint8List.fromList(incoming)..[19] = 0;
+    final reply = Uint8List.fromList(incoming)..[30] = 0;
     repo.rawDpsByDevice[_mowerId]![101] = TuyaRaw.hex(reply);
     repo.pushDeviceUpdate(
       DeviceUpdate.changed(
@@ -92,7 +224,7 @@ void main() {
   });
   testWidgets('编辑修边后保存，不清掉设备已报且等于默认时间的停用时段', (tester) async {
     final raw = Uint8List(88);
-    raw.setRange(33, 44, [0xfe, 1, 0xd0, 2, 0x48, 3, 0x38, 4, 0, 0, 0]);
+    raw.setRange(44, 55, [0xfe, 1, 0xd0, 2, 0x48, 3, 0x38, 4, 0, 0, 0]);
     final repo = await _pumpMowerHome(tester, {101: TuyaRaw.hex(raw)});
     await tester.tap(find.byKey(const Key('mower-nav-plan')));
     await tester.pumpAndSettle();
@@ -107,18 +239,16 @@ void main() {
     await tester.tap(find.byKey(const Key('mower-plan-edit-save')));
     await tester.pumpAndSettle();
     final sent = TuyaRaw.bytes(repo.publishedDps.single.$2[101])!;
-    expect(sent.sublist(33, 44), [0xfe, 1, 0xd0, 2, 0x48, 3, 0x38, 4, 1, 0, 0]);
+    expect(sent.sublist(44, 55), [0xfe, 1, 0xd0, 2, 0x48, 3, 0x38, 4, 1, 0, 0]);
     MowerDevice.instance.resetForTest();
   });
 
   for (final edge in [true, false]) {
     for (final changeEdge in [false, true]) {
-      testWidgets('V2.6固定设备帧：复制整周修边=$edge、现场修改=$changeEdge下发并回读7天', (
-        tester,
-      ) async {
-        // 独立于编码器的协议样例：组0~6=周一~周日，组7备用。
+      testWidgets('固定设备帧：复制整周修边=$edge、现场修改=$changeEdge下发并回读7天', (tester) async {
+        // 独立于编码器的协议样例：组0全部，组1~7周一~周日。
         final incoming = Uint8List(88);
-        for (var group = 0; group < 7; group++) {
+        for (var group = 1; group <= 7; group++) {
           incoming.setRange(group * 11, group * 11 + 11, [
             0x1c,
             0x02,
@@ -128,7 +258,7 @@ void main() {
             0x03,
             0xfc,
             0x03,
-            (group == 3 ? edge : !edge) ? 1 : 0,
+            (group == 4 ? edge : !edge) ? 1 : 0,
             1,
             0,
           ]);
@@ -144,7 +274,7 @@ void main() {
         expect(
           tester.widget<Switch>(trim).value,
           edge,
-          reason: '周四修边按设备组3，不能借周一覆盖整周',
+          reason: '周四修边按设备组4，不能借全部组覆盖整周',
         );
         final savedEdge = changeEdge ? !edge : edge;
         if (changeEdge) {
@@ -165,7 +295,7 @@ void main() {
           repo.publishedDps.single.$2[MowerDp.mowSchedule],
         )!;
         expect(sent, hasLength(88));
-        for (var group = 0; group < 7; group++) {
+        for (var group = 1; group <= 7; group++) {
           expect(
             sent[group * 11 + 8],
             savedEdge ? 1 : 0,
@@ -184,7 +314,7 @@ void main() {
             0x03,
           ]);
         }
-        expect(sent.sublist(77), everyElement(0), reason: '备用组保持零');
+        expect(sent.sublist(0, 11), everyElement(0), reason: '全部组保持零');
         repo.rawDpsByDevice[_mowerId]![MowerDp.mowSchedule] = TuyaRaw.hex(sent);
         repo.pushDeviceUpdate(
           DeviceUpdate.changed(_mower(), changedDps: {MowerDp.mowSchedule}),
@@ -1292,10 +1422,10 @@ void main() {
     final sent = TuyaRaw.bytes(
       repository.publishedDps.last.$2[MowerDp.mowSchedule],
     )!;
-    const sunday = 6 * MowerScheduleCodec.groupSize;
+    const sunday = 7 * MowerScheduleCodec.groupSize;
     expect(sent[sunday + 8], 0, reason: '周日沿边位清掉');
     expect(sent[sunday + 9], 1, reason: '时段有效位不动');
-    expect(sent[3 * MowerScheduleCodec.groupSize + 8], 1, reason: '周四修边照旧');
+    expect(sent[4 * MowerScheduleCodec.groupSize + 8], 1, reason: '周四修边照旧');
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
@@ -1321,7 +1451,7 @@ void main() {
     // 下发里这一段有效位 0（设备不执行），起止照写。
     final sent = repository.publishedDps.last.$2[MowerDp.mowSchedule]!;
     final bytes = TuyaRaw.bytes(sent)!;
-    const tuesday = 1 * MowerScheduleCodec.groupSize;
+    const tuesday = 2 * MowerScheduleCodec.groupSize;
     expect(bytes[tuesday + 9], 0);
     expect(bytes[tuesday] | (bytes[tuesday + 1] << 8), 600);
     expect(bytes[tuesday + 2] | (bytes[tuesday + 3] << 8), 720);
@@ -1410,7 +1540,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('消息通知：本机机器日志三栏、日期筛选，云端调试按需展开', (tester) async {
+  testWidgets('消息通知：三栏可点击且日期可选，移除所有调试区域', (tester) async {
     await _pumpMowerHome(tester, <int, Object?>{});
     await tester.tap(find.byKey(const Key('mower-nav-settings')));
     await tester.pump();
@@ -1427,22 +1557,16 @@ void main() {
     expect(find.byKey(const Key('mower-messages-date')), findsOneWidget);
     expect(find.text('全部日期'), findsOneWidget);
     expect(find.text('暂无日志'), findsOneWidget);
-    expect(find.textContaining('根据本机接收的 DP 上报生成'), findsOneWidget);
+    expect(find.textContaining('根据本机接收的 DP 上报生成'), findsNothing);
     expect(find.byKey(const Key('message-monitor-console')), findsNothing);
-    await tester.tap(find.text('云端推送调试'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const Key('mower-messages-debug-panel')),
-    );
-    await tester.pump();
-    expect(find.byKey(const Key('mower-messages-debug-panel')), findsOneWidget);
-    // 2026-09-28：花盆那套写死参数的调试台照搬过来，参数换成这台割草机 + 最近 7 天
-    expect(find.byKey(const Key('message-monitor-console')), findsOneWidget);
-    final params = tester
-        .widget<SelectableText>(find.byKey(const Key('message-monitor-params')))
-        .data;
-    expect(params, contains('按设备取：$_mowerId'));
-    expect(params, contains('最近 7 天'));
+    expect(find.text('云端推送调试'), findsNothing);
+    expect(find.textContaining('当前等级'), findsNothing);
+    expect(find.byKey(const Key('mower-messages-debug-panel')), findsNothing);
+    for (var category = 0; category < 3; category++) {
+      await tester.tap(find.byKey(Key('mower-messages-tab-$category')));
+      await tester.pumpAndSettle();
+      expect(find.text(['暂无日志', '暂无提醒', '暂无告警'][category]), findsOneWidget);
+    }
     expect(tester.takeException(), isNull);
   });
 

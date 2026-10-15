@@ -116,13 +116,13 @@ class MowerPlanChart extends StatelessWidget {
                   padding: EdgeInsets.only(right: 6),
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerRight,
+                    alignment: Alignment.center,
                     child: Text(
                       '修边',
                       key: Key('mower-plan-trim-label'),
                       style: TextStyle(
                         color: MowerColors.inkSecondary,
-                        fontSize: 11,
+                        fontSize: 9,
                         height: 1.2,
                       ),
                     ),
@@ -144,60 +144,66 @@ class MowerPlanChart extends StatelessWidget {
         ),
         Flexible(
           child: Padding(
-          padding: const EdgeInsets.fromLTRB(30, 10, 20, 0),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-            final axisHeight = constraints.hasBoundedHeight
-                ? constraints.maxHeight
-                : designAxisHeight;
-            return SizedBox(
-            height: axisHeight,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: <Widget>[
-                // 左边那列刻度：贴着纵轴外侧，用的是同一套锚点。
-                for (final hour in MowerPlanAxis.axisHours)
-                  Positioned(
-                    left: -30,
-                    top: offsetForMinutes(hour * 60, axisHeight) - 7,
-                    child: SizedBox(
-                      width: 24,
-                      child: Text(
-                        hour.toString().padLeft(2, '0'),
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(
-                          color: MowerColors.inkSecondary,
-                          fontSize: 11,
-                          height: 1.2,
-                        ),
-                      ),
-                    ),
-                  ),
-                Row(
-                  children: <Widget>[
-                    for (var day = 0; day < MowerPlanAxis.dayLabels.length; day++)
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: _DayColumn(
-                            axisHeight: axisHeight,
-                            day: day,
-                            enabled: enabledDays[day],
-                            slots: slots
-                                .where((slot) => slot.day == day)
-                                .toList(growable: false),
-                            onEdit: onEditDay,
-                            onDelete: onDeleteSlot,
+            padding: const EdgeInsets.fromLTRB(30, 10, 20, 0),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final axisHeight = constraints.hasBoundedHeight
+                    ? constraints.maxHeight
+                    : designAxisHeight;
+                return SizedBox(
+                  height: axisHeight,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: <Widget>[
+                      // 左边那列刻度：贴着纵轴外侧，用的是同一套锚点。
+                      for (final hour in MowerPlanAxis.axisHours)
+                        Positioned(
+                          left: -30,
+                          top: offsetForMinutes(hour * 60, axisHeight) - 7,
+                          child: SizedBox(
+                            width: 24,
+                            child: Text(
+                              hour.toString().padLeft(2, '0'),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: MowerColors.inkSecondary,
+                                fontSize: 11,
+                                height: 1.2,
+                              ),
+                            ),
                           ),
                         ),
+                      Row(
+                        children: <Widget>[
+                          for (
+                            var day = 0;
+                            day < MowerPlanAxis.dayLabels.length;
+                            day++
+                          )
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                child: _DayColumn(
+                                  axisHeight: axisHeight,
+                                  day: day,
+                                  enabled: enabledDays[day],
+                                  slots: slots
+                                      .where((slot) => slot.day == day)
+                                      .toList(growable: false),
+                                  onEdit: onEditDay,
+                                  onDelete: onDeleteSlot,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                );
+              },
             ),
-            );
-            },
-          ),
           ),
         ),
         const SizedBox(height: 26),
@@ -235,6 +241,7 @@ class _DayColumn extends StatelessWidget {
     final bottomLimit = axisHeight - _blockHeight(slot, axisHeight);
     return top > bottomLimit ? (bottomLimit < 0 ? 0 : bottomLimit) : top;
   }
+
   final void Function(int day, int? slot) onEdit;
   final void Function(MowerPlanSlot slot) onDelete;
 
@@ -421,10 +428,7 @@ class _LegendItem extends StatelessWidget {
         const SizedBox(width: 7),
         Text(
           label,
-          style: const TextStyle(
-            color: MowerColors.inkSecondary,
-            fontSize: 12,
-          ),
+          style: const TextStyle(color: MowerColors.inkSecondary, fontSize: 12),
         ),
       ],
     );

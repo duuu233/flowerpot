@@ -113,6 +113,7 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
       List<MowerScheduleDay>.of(_device.schedule);
 
   Future<void> _edit(int day, int? slot) async {
+    final original = _device.schedule[day];
     var draft = MowerPlanDraft.forDay(
       day,
       _device.schedule,
@@ -125,7 +126,7 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
       final result = await showMowerPlanEditSheet(context, draft: draft);
       if (result is MowerPlanEditSaved) {
         if (!mounted) return;
-        _apply(result.draft);
+        _apply(result.draft, original);
         return;
       }
       if (result is! MowerPlanEditOverlap) return;
@@ -139,9 +140,15 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
     }
   }
 
-  void _apply(MowerPlanDraft draft) {
+  void _apply(MowerPlanDraft draft, MowerScheduleDay original) {
     final week = _week;
-    final day = draft.day0;
+    final edited = draft.day0;
+    final current = week[draft.day];
+    final day = MowerScheduleDay(
+      slotOne: _mergeSlot(original.slotOne, edited.slotOne, current.slotOne),
+      slotTwo: _mergeSlot(original.slotTwo, edited.slotTwo, current.slotTwo),
+      edge: edited.edge == original.edge ? current.edge : edited.edge,
+    );
     if (draft.copyWeek) {
       for (var index = 0; index < week.length; index++) {
         week[index] = day;
@@ -150,6 +157,31 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
       week[draft.day] = day;
     }
     _publish(week);
+  }
+
+  MowerScheduleSlot? _mergeSlot(
+    MowerScheduleSlot? original,
+    MowerScheduleSlot? edited,
+    MowerScheduleSlot? current,
+  ) {
+    if (original == null || edited == null || current == null) {
+      final unchanged =
+          original?.startMinutes == edited?.startMinutes &&
+          original?.endMinutes == edited?.endMinutes &&
+          original?.enabled == edited?.enabled;
+      return unchanged ? current : edited;
+    }
+    return MowerScheduleSlot(
+      startMinutes: edited.startMinutes == original.startMinutes
+          ? current.startMinutes
+          : edited.startMinutes,
+      endMinutes: edited.endMinutes == original.endMinutes
+          ? current.endMinutes
+          : edited.endMinutes,
+      enabled: edited.enabled == original.enabled
+          ? current.enabled
+          : edited.enabled,
+    );
   }
 
   /// 点空白 = 添加：直接开在没启用的那个时段上（还没排的、或被停用的——停用的再打开就能原样启用），
@@ -403,7 +435,7 @@ class _ScheduleDebugWindow extends StatelessWidget {
 
   String get _text {
     final lines = <String>[
-      'DP101 V2.6：组0~6=周一~周日，组7备用；+8沿边，+9/+10时段有效',
+      'DP101：组0=全部设置，组1~7=周一~周日；逐日设置组0全零；+8沿边，+9/+10时段有效',
       '显示来源：${device.hasScheduleReport ? '涂鸦返回DP101' : '尚未收到有效DP101'}',
       if (device.schedulePending) '下发状态：等待设备回读，页面尚未确认新计划',
       if (device.scheduleCommandResult case final result?)

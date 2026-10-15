@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../app/flowerpot_app.dart';
 import '../mower/mower_ui.dart';
 import '../mower/presentation/widgets/mower_card.dart';
+import 'message_category_tabs.dart';
 
 /// 设备的消息通知列表（花盆、割草机共用，2026-09-28 花盆照割草机加上）。
 ///
@@ -374,7 +375,7 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            _CategoryTabs(
+            MessageCategoryTabs(
               keyPrefix: prefix,
               current: _tab,
               onChanged: (index) => setState(() => _tab = index),
@@ -431,61 +432,6 @@ class _Entry {
     if (day == today.subtract(const Duration(days: 1))) return '昨天 $hm';
     if (at.year == now.year) return '${at.month}月${at.day}日 $hm';
     return '${at.year}年${at.month}月${at.day}日 $hm';
-  }
-}
-
-/// 日志 / 提醒 / 告警。
-class _CategoryTabs extends StatelessWidget {
-  const _CategoryTabs({
-    required this.keyPrefix,
-    required this.current,
-    required this.onChanged,
-  });
-
-  final String keyPrefix;
-  final int current;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    // 稿子 651:2573：条高 40、内边距 4、外圆角 12 / 选中块 9。
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .9),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: <Widget>[
-          for (var i = 0; i < _tabs.length; i++)
-            Expanded(
-              child: GestureDetector(
-                key: Key('$keyPrefix-tab-$i'),
-                onTap: () => onChanged(i),
-                behavior: HitTestBehavior.opaque,
-                child: Container(
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: i == current
-                        ? MowerColors.brand
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: Text(
-                    _tabs[i],
-                    style: TextStyle(
-                      color: i == current ? Colors.white : MowerColors.ink,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
   }
 }
 

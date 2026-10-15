@@ -482,20 +482,20 @@ String _hhmm(int minutes) {
 
 /// DP101 割草计划的 88 字节编解码（8 组 × 11 字节）。
 ///
-/// V2.6：组 0~6 = 周一~周日，组 7 备用，发送时留零。
-/// ⚠️ **界面用的是「日一二三四五六」（周日在前），DP 用的是「周一~周日」**，
+/// 组 0 = 全部设置，组 1~7 = 周一~周日。
+/// ⚠️ **界面用的是「日一二三四五六」（周日在前），DP 用的是「全部、周一~周日」**，
 /// 两者星期起点不同，换算集中在 [groupOfWeekday] / [weekdayOfGroup]，别在页面里各算各的。
 abstract final class MowerScheduleCodec {
   static const int bytes = 88;
   static const int groupSize = 11;
 
-  /// 界面星期序（0=周日 … 6=周六）→ DP 组号（0=周一 … 6=周日）。
-  static int groupOfWeekday(int weekday) => weekday == 0 ? 6 : weekday - 1;
+  /// 界面星期序（0=周日 … 6=周六）→ DP 组号（1=周一 … 7=周日）。
+  static int groupOfWeekday(int weekday) => weekday == 0 ? 7 : weekday;
 
   /// DP 组号 → 界面星期序。
-  static int weekdayOfGroup(int group) => group == 6 ? 0 : group + 1;
+  static int weekdayOfGroup(int group) => group == 7 ? 0 : group;
 
-  /// 按天编码：7 天各自的时段和沿边位写进组 0~6，组 7 留空。
+  /// 按天编码：7 天各自的时段和沿边位写进组 1~7，组 0 留零。
   ///
   /// ⚠️ **全量替换**：设备每次收到都会清空重建，所以这里必须把 7 天一起发，
   /// 不能只发改动的那一天（V2.2 §5.1）。
@@ -509,9 +509,13 @@ abstract final class MowerScheduleCodec {
     return data;
   }
 
-  /// 整周相同：明确写七个星期组，不借备用组或把周一当作全部设置。
-  static Uint8List encodeAll(MowerScheduleDay day) =>
-      encodeByDay(List<MowerScheduleDay>.filled(7, day));
+  /// 有效的每天计划写组 0，其余 77 字节留零；只有停用时间或修边时逐日保留。
+  static Uint8List encodeAll(MowerScheduleDay day) {
+    if (day.isEmpty) return encodeByDay(List<MowerScheduleDay>.filled(7, day));
+    final data = Uint8List(bytes);
+    _writeGroup(data, 0, day);
+    return data;
+  }
 
   static void _writeGroup(Uint8List data, int offset, MowerScheduleDay day) {
     _writeSlot(data, offset, offset + 9, day.slotOne);
@@ -554,11 +558,13 @@ abstract final class MowerScheduleCodec {
 
   /// 解 88 字节回 7 天（界面序，0=周日）。
   ///
-  /// 只读组0~6对应星期；周一有计划不代表整周相同，备用组不覆盖星期。
+  /// 组 0 有效时展开为每天；否则按组 1~7 逐日解析。
   static List<MowerScheduleDay> decode(Uint8List data) {
     final week = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());
     if (data.length < bytes) return week;
-    for (var group = 0; group < 7; group++) {
+    final all = _readGroup(data, 0);
+    if (!all.isEmpty) return List<MowerScheduleDay>.filled(7, all);
+    for (var group = 1; group <= 7; group++) {
       week[weekdayOfGroup(group)] = _readGroup(data, group * groupSize);
     }
     return week;
@@ -610,15 +616,17 @@ abstract final class MowerScheduleCodec {
         .sublist(group * groupSize, (group + 1) * groupSize)
         .every((b) => b == 0);
     final daysSet = <int>[
-      for (var group = 0; group < 7; group++)
+      for (var group = 1; group <= 7; group++)
         if (!zero(group)) group,
     ];
     final lines = <String>[
-      daysSet.isEmpty
-          ? '形态：组0~6 全 00 → 清空星期计划'
-          : '形态：V2.6 按天设置（组0~6=周一~周日，组${daysSet.join('/')}有内容）',
+      !_readGroup(Uint8List.fromList(data), 0).isEmpty
+          ? '形态：全部设置（组0有效，每天执行）${daysSet.isEmpty ? '' : '；异常：组1~7必须全00'}'
+          : daysSet.isEmpty
+          ? '形态：组1~7 全 00 → 清空星期计划'
+          : '形态：按天设置（组0留零，组1~7=周一~周日，组${daysSet.join('/')}有内容）',
     ];
-    const names = <String>['周一', '周二', '周三', '周四', '周五', '周六', '周日', '备用'];
+    const names = <String>['全部', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     for (var group = 0; group < 8; group++) {
       final o = group * groupSize;
       final hex = data

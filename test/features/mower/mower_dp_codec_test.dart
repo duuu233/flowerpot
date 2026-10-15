@@ -5,40 +5,44 @@ import 'package:flutter_test/flutter_test.dart';
 /// 割草机 DP 编解码的回归用例（2026-09-18 接线）。
 ///
 /// 锁的是「错了也不会报错、只是设备按另一套跑」的那几处：
-///   ① DP101 是 **88 字节 = 8 组 × 11**，组 0~6=**周一~周日**、组7备用，
+///   ① DP101 是 **88 字节 = 8 组 × 11**，组0全部、组1~7周一~周日，
 ///      而界面用的是「日一二三四五六」——两者差一位，换算错了整周计划就整体错开一天；
 ///   ② 时间是 **uint16 小端**，大端写进去设备会解成完全不同的时刻；
-///   ③ 周一组0不能冒充整周，复制整周必须写七个星期组与沿边位；
+///   ③ 单日和复制整周下发组0留零，保留七个星期组与沿边位；
 ///   ④ DP103 的百分比 0 = 删除该区，valid 位必须跟着给 0。
 void main() {
-  test('V2.6空时段的整周修边写满七天，备用组零；回读保留沿边位', () {
+  test('空时段的整周修边写满七天，全部组零；回读保留沿边位', () {
     final data = MowerScheduleCodec.encodeAll(
       const MowerScheduleDay(edge: true),
     );
-    for (var group = 0; group < 7; group++) {
+    for (var group = 1; group <= 7; group++) {
       expect(data.sublist(group * 11, group * 11 + 8), everyElement(0));
       expect(data[group * 11 + 8], 1);
       expect(data[group * 11 + 9], 0);
       expect(data[group * 11 + 10], 0);
     }
-    expect(data.sublist(77), everyElement(0));
+    expect(data.sublist(0, 11), everyElement(0));
     expect(MowerScheduleCodec.decode(data).every((day) => day.edge), isTrue);
   });
-  test('V2.6备用组不覆盖七天，日志明确标周一/周日/备用', () {
+  test('组7是周日，单日不覆盖其它六天，日志标全部/周一/周日', () {
     final data = Uint8List(88);
     data.setRange(77, 88, [0x1c, 0x02, 0xd0, 0x02, 0, 0, 0, 0, 1, 1, 0]);
     expect(
-      MowerScheduleCodec.decode(data).every((day) => day.isEmpty && !day.edge),
+      MowerScheduleCodec.decode(
+        data,
+      ).skip(1).every((day) => day.isEmpty && !day.edge),
       isTrue,
     );
+    expect(MowerScheduleCodec.decode(data)[0].slotOne?.startMinutes, 540);
     final lines = MowerScheduleCodec.describe(data);
-    expect(lines[1], startsWith('组0 周一'));
-    expect(lines[7], startsWith('组6 周日'));
-    expect(lines[8], startsWith('组7 备用'));
+    expect(lines[1], startsWith('组0 全部'));
+    expect(lines[2], startsWith('组1 周一'));
+    expect(lines[8], startsWith('组7 周日'));
   });
 
-  test('V2.6固定周一~周五示例解码，周末空；周一不能当全部设置', () {
+  test('固定周一~周五示例解码，周末空；周一不能当全部设置', () {
     final raw = <int>[
+      ...List<int>.filled(11, 0),
       for (var day = 0; day < 5; day++) ...[
         0x1c,
         0x02,
@@ -52,11 +56,11 @@ void main() {
         1,
         1,
       ],
-      ...List<int>.filled(33, 0),
+      ...List<int>.filled(22, 0),
     ];
     final decoded = MowerScheduleCodec.decode(Uint8List.fromList(raw));
-    expect(decoded[0].slotOne, isNull, reason: '周日组6为空');
-    expect(decoded[6].slotOne, isNull, reason: '周六组5为空');
+    expect(decoded[0].slotOne, isNull, reason: '周日组7为空');
+    expect(decoded[6].slotOne, isNull, reason: '周六组6为空');
     for (var day = 1; day <= 5; day++) {
       expect(decoded[day].edge, isTrue);
       expect(decoded[day].slotOne?.startMinutes, 540);
@@ -66,19 +70,18 @@ void main() {
   });
 
   group('DP101 割草计划', () {
-    test('按天编码：周日落在组 6，时间是小端', () {
+    test('按天编码：周日落在组7，时间是小端', () {
       final week = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());
-      // 界面序 0 = 周日 → DP 组 6
+      // 界面序 0 = 周日 → DP 组 7
       week[0] = const MowerScheduleDay(
         slotOne: MowerScheduleSlot(startMinutes: 540, endMinutes: 660),
       );
       final data = MowerScheduleCodec.encodeByDay(week);
 
       expect(data.length, 88);
-      // 组7备用，明确留零
-      expect(data.sublist(77, 88), everyElement(0));
+      expect(data.sublist(0, 11), everyElement(0));
 
-      const offset = 6 * MowerScheduleCodec.groupSize;
+      const offset = 7 * MowerScheduleCodec.groupSize;
       expect(data[offset], 540 & 0xFF, reason: '开始时间低字节在前（小端）');
       expect(data[offset + 1], 540 >> 8);
       expect(data[offset + 2], 660 & 0xFF);
@@ -87,13 +90,14 @@ void main() {
       expect(data[offset + 10], 0, reason: '没有时段 2');
     });
 
-    test('周一落在组0，不是全部设置', () {
+    test('周一落在组1，全部组留零', () {
       final week = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());
       week[1] = const MowerScheduleDay(
         slotOne: MowerScheduleSlot(startMinutes: 480, endMinutes: 600),
       );
       final data = MowerScheduleCodec.encodeByDay(week);
-      expect(data[9], 1);
+      expect(data[20], 1);
+      expect(data.sublist(0, 11), everyElement(0));
       expect(data.sublist(77, 88), everyElement(0));
     });
 
@@ -103,7 +107,7 @@ void main() {
         slotOne: MowerScheduleSlot(startMinutes: 600, endMinutes: 609),
       );
       final data = MowerScheduleCodec.encodeByDay(week);
-      final offset = 1 * MowerScheduleCodec.groupSize;
+      final offset = 2 * MowerScheduleCodec.groupSize;
       expect(data[offset + 9], 0, reason: '9 分钟的时段不该带有效位');
     });
 
@@ -119,7 +123,7 @@ void main() {
         slotTwo: MowerScheduleSlot(startMinutes: 900, endMinutes: 960),
       );
       final data = MowerScheduleCodec.encodeByDay(week);
-      final offset = 2 * MowerScheduleCodec.groupSize;
+      final offset = 3 * MowerScheduleCodec.groupSize;
       expect(data[offset + 9], 0, reason: '停用的时段设备不能执行');
       expect(data[offset] | (data[offset + 1] << 8), 540);
       expect(data[offset + 2] | (data[offset + 3] << 8), 660);
@@ -164,13 +168,15 @@ void main() {
       expect(decoded[5].slotOne, isNull);
     });
 
-    test('整周相同明确写七个组，备用留零，解回七天', () {
+    test('每天设置只填组0，其余77字节零，解回七天', () {
       final data = MowerScheduleCodec.encodeAll(
         const MowerScheduleDay(
           slotOne: MowerScheduleSlot(startMinutes: 540, endMinutes: 660),
         ),
       );
       final decoded = MowerScheduleCodec.decode(data);
+      expect(data[9], 1);
+      expect(data.sublist(11), everyElement(0));
       expect(decoded, hasLength(7));
       for (final day in decoded) {
         expect(day.slotOne?.startMinutes, 540);
@@ -296,30 +302,29 @@ void main() {
   });
 
   group('DP101 逐字节解析（联调对比用，2026-09-23）', () {
-    test('V2.6只填组0：只设置周一09:00–11:00，不覆盖其他天', () {
+    test('只填组0：每天09:00–11:00', () {
       final data = List<int>.filled(MowerScheduleCodec.bytes, 0);
       data.setRange(0, 11, <int>[0x1C, 0x02, 0x94, 0x02, 0, 0, 0, 0, 0, 1, 0]);
 
       final lines = MowerScheduleCodec.describe(data);
 
-      expect(lines.first, contains('V2.6 按天设置'));
-      expect(lines[1], startsWith('组0 周一：时段1 09:00–11:00；'));
+      expect(lines.first, contains('全部设置'));
+      expect(lines[1], startsWith('组0 全部：时段1 09:00–11:00；'));
       expect(lines[1], contains('时段2 00:00–00:00（无效）'));
       expect(lines.skip(2), everyElement(endsWith('全 00')));
     });
 
-    test('V2.6协议示例2：填组0和组1 → 按天设置；≤10 分钟和长度不对都会标出来', () {
+    test('填组1和组2 → 按天设置；≤10 分钟和长度不对都会标出来', () {
       final data = List<int>.filled(MowerScheduleCodec.bytes, 0);
-      data.setRange(0, 11, <int>[0xE0, 0x01, 0x58, 0x02, 0, 0, 0, 0, 0, 1, 0]);
-      // 周二（组 1）放一个 5 分钟的时段：设备会丢弃
-      data.setRange(11, 22, <int>[0xE0, 0x01, 0xE5, 0x01, 0, 0, 0, 0, 1, 1, 0]);
+      data.setRange(11, 22, <int>[0xE0, 0x01, 0x58, 0x02, 0, 0, 0, 0, 0, 1, 0]);
+      data.setRange(22, 33, <int>[0xE0, 0x01, 0xE5, 0x01, 0, 0, 0, 0, 1, 1, 0]);
 
       final lines = MowerScheduleCodec.describe(data);
 
       expect(lines.first, contains('按天设置'));
-      expect(lines[1], startsWith('组0 周一：时段1 08:00–10:00；'));
-      expect(lines[2], contains('≤10 分钟，设备会丢弃'));
-      expect(lines[2], contains('沿边=1'));
+      expect(lines[2], startsWith('组1 周一：时段1 08:00–10:00；'));
+      expect(lines[3], contains('≤10 分钟，设备会丢弃'));
+      expect(lines[3], contains('沿边=1'));
       expect(
         MowerScheduleCodec.describe(<int>[1, 2, 3]).single,
         contains('不按 DP101 解析'),

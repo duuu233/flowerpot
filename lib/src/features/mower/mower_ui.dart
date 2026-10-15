@@ -18,7 +18,7 @@ enum MowerPowerState {
   /// `割草机-控制.png`
   idle,
 
-  /// `割草机-控制-充电中.png`（DP117=charging/full）
+  /// `割草机-控制-充电中.png`（电量<100且DP117=charging）
   charging,
 
   /// `割草机-控制-电量告警.png`（电量 ≤ [warningPercent]）

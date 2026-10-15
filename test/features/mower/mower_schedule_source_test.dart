@@ -39,9 +39,9 @@ SmartPlanterDevice device() => SmartPlanterDevice(
 // 合成协议帧，绝不是用户真机默认包。true=七天启用且修边，false=模拟用户所述现象。
 Uint8List frame(bool allEnabled) {
   final data = Uint8List(88);
-  for (var group = 0; group < 7; group++) {
-    final enabled = allEnabled || group != 0;
-    final edge = allEnabled || group == 2 || group == 4 || group == 6;
+  for (var group = 1; group <= 7; group++) {
+    final enabled = allEnabled || group != 1;
+    final edge = allEnabled || group == 3 || group == 5 || group == 7;
     data.setRange(group * 11, group * 11 + 11, [
       0x1c,
       0x02,
@@ -309,7 +309,7 @@ void main() {
       week,
     ).copyWith(edge: true, copyWeek: true);
     final raw = MowerScheduleCodec.encodeAll(draft.day0);
-    for (var group = 0; group < 7; group++) {
+    for (var group = 1; group <= 7; group++) {
       expect(raw.sublist(group * 11, group * 11 + 11), [
         0xfe,
         1,
