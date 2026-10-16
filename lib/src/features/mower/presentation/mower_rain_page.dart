@@ -90,6 +90,8 @@ class _MowerRainPageState extends State<MowerRainPage> {
   }
 
   void _save() {
+    final id = _device.deviceId;
+    if (id == null || !ensureDeviceOnline(context, id)) return;
     final state = FlowerpotScope.of(context);
     _device.setRain(
       state,

@@ -204,7 +204,7 @@ enum MowerStatus {
 /// DP117 充电状态。
 enum MowerChargingStatus {
   notCharging('not_charging', '未在充电'),
-  charging('charging', '在充电'),
+  charging('charging', '充电中'),
   full('full', '已充满');
 
   const MowerChargingStatus(this.code, this.label);

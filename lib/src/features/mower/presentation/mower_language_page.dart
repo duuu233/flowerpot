@@ -63,6 +63,8 @@ class _MowerLanguagePageState extends State<MowerLanguagePage> {
   }
 
   void _save() {
+    final id = _device.deviceId;
+    if (id == null || !ensureDeviceOnline(context, id)) return;
     final state = FlowerpotScope.of(context);
     _device.setLanguage(state, _selected);
     showAppMessage(context, '已下发 DP${MowerDp.language} = ${_selected.code}');

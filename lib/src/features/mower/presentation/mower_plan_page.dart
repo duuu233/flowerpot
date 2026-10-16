@@ -107,6 +107,8 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
   }
 
   void _publish(List<MowerScheduleDay> week) {
+    final id = _device.deviceId;
+    if (id == null || !ensureDeviceOnline(context, id)) return;
     final state = FlowerpotScope.of(context);
     setState(() => _device.setSchedule(state, week));
   }
@@ -247,6 +249,8 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
   /// 设备写好后会上报 DP101，界面随那条上报刷新，下面的临时窗口也会打出解析。
   /// （2026-09-23 上午曾因 V2.2 没有这条而改成只提示；此前下发的是设计稿上的四块，是假数据。）
   Future<void> _restoreDefault() async {
+    final id = _device.deviceId;
+    if (id == null || !ensureDeviceOnline(context, id)) return;
     final confirmed = await showMowerRestoreDefaultDialog(context);
     if (confirmed != true || !mounted) return;
     MowerDevice.instance.resetSchedule(FlowerpotScope.of(context));
@@ -262,7 +266,7 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
           leading: const AppBackButton(),
           actions: <Widget>[
             _RestoreDefaultButton(
-              onTap: _device.online && !_device.schedulePending
+              onTap: !_device.schedulePending
                   ? () => unawaited(_restoreDefault())
                   : null,
             ),

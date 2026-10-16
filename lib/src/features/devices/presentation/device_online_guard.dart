@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -7,12 +9,30 @@ import '../../../tuya/tuya_models.dart';
 /// 设备离线时统一的提示文案。
 const String deviceOfflineMessage = '设备已离线';
 
+final Set<NavigatorState> _offlineNoticeNavigators = <NavigatorState>{};
+
+/// 割草机离线仍可浏览和编辑；提交时提示，留在当前页且保留草稿。
+/// 同一导航栈只显示一张离线提示，关闭后再次操作仍会提示。
+void showMowerOfflineNotice(BuildContext context) {
+  final navigator = Navigator.of(context, rootNavigator: true);
+  if (!_offlineNoticeNavigators.add(navigator)) return;
+  unawaited(
+    showAppNoticeDialog(
+      context,
+      title: '提示',
+      message: deviceOfflineMessage,
+      icon: Icons.wifi_off_rounded,
+    ).whenComplete(() => _offlineNoticeNavigators.remove(navigator)),
+  );
+}
+
 /// 设备在线门禁。**页面侧的统一入口**。
 ///
 /// 产品口径（2026-09-12）：设备列表页、设备详情页能点进去的相关页面，以及任何
 /// 下发 DP 的动作，都要先判断设备在不在线；不在线就提示「设备已离线」并回到设备
 /// 列表页。
 ///
+/// 割草机例外（2026-10-16）：正文可交互，提交离线时弹框并留在当前页面。
 /// 在线判断本身只有一处——[FlowerpotState.isDeviceOnline]，DP 下发那一路在
 /// `FlowerpotState._publishDps` 里用的是同一个方法，所以页面漏加这道门禁时指令
 /// 也发不出去。这里只负责提示和跳转。
@@ -20,7 +40,13 @@ const String deviceOfflineMessage = '设备已离线';
 /// 返回 true 表示可以继续；false 表示已经提示过、并且（除非本来就在最外层）已经
 /// 退回设备列表页，调用方直接 return 即可。
 bool ensureDeviceOnline(BuildContext context, String deviceId) {
-  if (FlowerpotScope.of(context).isDeviceOnline(deviceId)) return true;
+  final state = FlowerpotScope.of(context);
+  if (state.isDeviceOnline(deviceId)) return true;
+  final device = state.deviceById(deviceId);
+  if (device != null && state.isMowerDevice(device)) {
+    showMowerOfflineNotice(context);
+    return false;
+  }
   showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.error);
   backToDeviceList(context);
   return false;
@@ -51,16 +77,26 @@ void showDeviceActionResult(
   BuildContext context,
   ActionResult result, {
   bool announceSuccess = false,
+  String? deviceId,
 }) {
   if (result.success) {
     if (announceSuccess) showAppMessage(context, result.message);
+    return;
+  }
+  final device = deviceId == null
+      ? null
+      : FlowerpotScope.of(context).deviceById(deviceId);
+  if (result.code == deviceOfflineCode &&
+      device != null &&
+      FlowerpotScope.of(context).isMowerDevice(device)) {
+    showMowerOfflineNotice(context);
     return;
   }
   showAppMessage(context, result.message, tone: AppMessageTone.error);
   if (result.code == deviceOfflineCode) backToDeviceList(context);
 }
 
-/// 缓存信息仍可看；离线期间正文中的控制、编辑和保存都不可交互。
+/// 花盆离线正文只读；割草机页面不按列表online限制交互。
 /// 标题栏和返回导航保留，恢复在线后自动放行。
 class DeviceOnlineBody extends StatelessWidget {
   const DeviceOnlineBody({
@@ -75,7 +111,8 @@ class DeviceOnlineBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = FlowerpotScope.of(context);
     final online = deviceId != null && state.isDeviceOnline(deviceId!);
-    if (online) return child;
+    final device = deviceId == null ? null : state.deviceById(deviceId!);
+    if (online || (device != null && state.isMowerDevice(device))) return child;
     return Column(
       children: [
         if (!online)

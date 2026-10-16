@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../mower_device.dart';
+import '../../devices/presentation/device_online_guard.dart';
 import 'mower_control_page.dart';
 import 'mower_plan_page.dart';
 import 'mower_settings_page.dart';
@@ -63,7 +64,11 @@ class _MowerHomePageState extends State<MowerHomePage> {
     MowerHomePage.tabRequests.addListener(_onTabRequest);
     _failures = MowerDevice.instance.failures.listen((message) {
       if (!mounted) return;
-      showAppMessage(context, message, tone: AppMessageTone.error);
+      if (message == deviceOfflineMessage) {
+        showMowerOfflineNotice(context);
+      } else {
+        showAppMessage(context, message, tone: AppMessageTone.error);
+      }
     });
     // 放到首帧之后：bind 会 notifyListeners，在构建期间通知会让正在建的页面报错。
     WidgetsBinding.instance.addPostFrameCallback((_) {

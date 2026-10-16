@@ -56,7 +56,12 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
       () => state.renameDevice(device.id, name),
     );
     if (result != null && context.mounted) {
-      showDeviceActionResult(context, result, announceSuccess: true);
+      showDeviceActionResult(
+        context,
+        result,
+        announceSuccess: true,
+        deviceId: device.id,
+      );
     }
   }
 

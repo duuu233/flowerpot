@@ -65,7 +65,7 @@
   → 点「连接」→ 输路由器密码 → IMultiModeActivator 双模配网（和花盆同一条动线）
   → 设备列表：FlowerpotState.isMowerDevice（设备 productId == mz7g3yzaufvoh4ls）分流
        · 胶囊：在线 / 离线（涂鸦 SDK online；DP113 不覆盖列表）
-       · 割草机离线能进入看缓存/后台连蓝牙，但控制与参数只读，SDK在线后才可操作；花盆离线照旧拦
+       · 割草机离线能进入看缓存/后台连蓝牙，但控制/参数可编辑点击，离线提交弹框提示且不发DP；花盆离线照旧拦
   → AppRoutes.mowerHome + MowerHomeArguments(deviceId)
   → 外壳 MowerHomePage：进来 MowerDevice.instance.bind(deviceId)，退出 release；
        订阅 MowerDevice.failures 统一弹下发失败；底部导航 首页 / 割草计划 / 设置
@@ -257,7 +257,7 @@ P0 是挡住发布或真机闭环的事；P1 是链路还差一段的能力；P2
 - **证据**：TUYA_CAPABILITY_AUDIT.md §5.6；features/messages/device_messages_view.dart。
 
 #### M12 DP117状态文案与充电动效分别显示（2026-10-15）
-- **现状**：有效DP117的0/not_charging、1/charging、2/full分别显示未在充电、在充电、已充满；兼容整数、数字字符串和名称。100%不覆盖文字，未上报不编造，异常值保留最后有效返回。
+- **现状**：有效DP117的0/not_charging、1/charging、2/full分别不显示充电文案、显示充电中、已充满；兼容整数、数字字符串和名称。100%不覆盖文字，未上报不编造，异常值保留最后有效返回。
 - **边界**：闪电仍仅电量<100且charging显示；等待雨停不改写充电状态。OTA仍仅charging，full不放行，不下发或改写DP。
 - **证据**：MowerDp.enumOf、MowerDevice.chargingLabel、mower_control_page、mower_status_card及99/100全枚举组合回归。
 
@@ -353,7 +353,7 @@ P0 是挡住发布或真机闭环的事；P1 是链路还差一段的能力；P2
 | 114 | 时间设置 | `device_time` | string（UTC 秒） | 可下发可上报 | 🟡 有条件 | 只在时间同步页保存（DP106 开）时发；连接后 / 升级后不自动对时（M05） |
 | 115 | 命令结果 | `command_results` | string (JSON) | 只上报 | 🟡 有条件 | 当前实际下发DP2/DP3的回执，匹配dp/可选val，seq去重回绕；安全/时间窗后code≥16弹设备异常，16–70定义码具体提示、255通用，26新鲜111定位及现场处理/1～2秒间隔/保留位反馈建议，按钮仅关闭；其他DP拒绝可入本机日志、未接控制UI |
 | 116 | 升级状态 | `ota_status` | string | 只上报 | ✅ 已接入 | 本次 OTA 的实时 `"7"`（非待机拒绝）/ `"20"`（包校验失败）由共享状态收尾失败，不依赖页面；页面提示保留。不认旧快照、不参与百分比 |
-| 117 | 充电状态 | `charging_status` | enum 3 值 | 只上报 | ✅ 已接入 | 首页按0/1/2显示未在充电/在充电/已充满，兼容名称及数字字符串；文字不被100%覆盖，闪电仍仅<100且charging。OTA仍仅charging可提醒/发起，确认后检查最新值 |
+| 117 | 充电状态 | `charging_status` | enum 3 值 | 只上报 | ✅ 已接入 | 首页0不显示充电文案、1/2显示充电中/已充满，兼容名称及数字字符串；文字不被100%覆盖，闪电仍仅<100且charging。OTA仍仅charging可提醒/发起，确认后检查最新值 |
 | 118 | 盖子状态 | `cover_status` | bool | 只上报 | ✅ 已接入 | 左三下发前预检，false 弹「请先合上盖子」、不下发 |
 | 119 | 工作时间 | `opearting_time` | value 1–24 h | 可下发可上报 | ✅ 已接入 | 启动前弹窗每次默认当日18点前完整小时，可减少；先下发119成功再启动。解析合法1–24整数小时上报，未上报为null。18点后或不足整小时禁止启动 |
 

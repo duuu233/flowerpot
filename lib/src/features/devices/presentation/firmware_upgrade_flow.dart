@@ -34,7 +34,11 @@ Future<void> runFirmwareUpgrade(
   final device = state.deviceById(deviceId);
   if (device == null) return;
   if (!state.isDeviceOnline(deviceId)) {
-    showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.info);
+    if (state.isMowerDevice(device)) {
+      showMowerOfflineNotice(context);
+    } else {
+      showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.info);
+    }
     return;
   }
 

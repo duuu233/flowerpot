@@ -69,6 +69,8 @@ class _MowerTimeSyncPageState extends State<MowerTimeSyncPage> {
       MowerTimezone.fromDeviceOffset(DateTime.now().timeZoneOffset);
 
   void _save() {
+    final id = _device.deviceId;
+    if (id == null || !ensureDeviceOnline(context, id)) return;
     final state = FlowerpotScope.of(context);
     _device.setTimeSync(
       state,

@@ -85,6 +85,8 @@ class _MowerZonesPageState extends State<MowerZonesPage> {
   }
 
   void _save() {
+    final id = _device.deviceId;
+    if (id == null || !ensureDeviceOnline(context, id)) return;
     final state = FlowerpotScope.of(context);
     // 先拦 Σ>100：设备是**整包拒绝**，发下去等于什么都没做，还让用户以为成了。
     if (_total > MowerZoneCodec.maxTotalPercent) {

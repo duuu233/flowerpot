@@ -247,7 +247,9 @@ class _MowerControlPageState extends State<MowerControlPage> {
   /// 按钮点击统一入口：操作期间不重入，异常时恢复按钮并提示。
   /// [button] 是被点的那颗。
   Future<void> _guarded(String button, Future<void> Function() action) async {
-    if (_operationInProgress || !_device.online || _device.shutdown) return;
+    if (_operationInProgress || _device.shutdown) return;
+    final id = _device.deviceId;
+    if (id == null || !ensureDeviceOnline(context, id)) return;
     _operationInProgress = true;
     final state = FlowerpotScope.of(context);
     try {
@@ -319,9 +321,8 @@ class _MowerControlPageState extends State<MowerControlPage> {
         widget.active &&
         _device.deviceId == id &&
         _device.bindingGeneration == generation &&
-        _device.online &&
         ModalRoute.of(context)?.isCurrent != false;
-    if (id == null || !_device.online) return;
+    if (id == null) return;
     final confirmed = await showMowerSafetyDialog(context);
     if (!mounted || !confirmed || !current()) return;
     final maxHours = mowerStartMaxHours(widget.now());

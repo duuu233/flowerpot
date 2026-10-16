@@ -122,7 +122,7 @@ class MowerSettingsPage extends StatelessWidget {
     );
     if (!context.mounted) return;
     if (!result.success) {
-      showDeviceActionResult(context, result);
+      showDeviceActionResult(context, result, deviceId: id);
       return;
     }
     showAppMessage(context, result.message, tone: AppMessageTone.success);

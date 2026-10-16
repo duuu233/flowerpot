@@ -95,7 +95,10 @@ class MowerDevice extends ChangeNotifier {
   bool _chargingReported = false;
 
   /// 只展示有效DP117返回的含义，未上报时不把默认枚举当成设备状态。
-  String? get chargingLabel => _chargingReported ? charging.label : null;
+  String? get chargingLabel =>
+      _chargingReported && charging != MowerChargingStatus.notCharging
+      ? charging.label
+      : null;
 
   /// DP118：盖子。true=合盖（可启动）。
   late bool coverClosed;
@@ -466,11 +469,13 @@ class MowerDevice extends ChangeNotifier {
       _deviceId != null && (_watchedState?.isDeviceOnline(_deviceId!) ?? false);
 
   bool get commandsEnabled =>
-      online && status != MowerStatus.paused && !shutdown;
+      _deviceId != null && status != MowerStatus.paused && !shutdown;
 
   /// 待机没有可恢复的工作点，不能通过 DP2 启动新任务。
   bool get switchEnabled =>
-      online && !shutdown && (switchGo || status != MowerStatus.standby);
+      _deviceId != null &&
+      !shutdown &&
+      (switchGo || status != MowerStatus.standby);
 
   bool _canWrite(FlowerpotState state) {
     final id = _deviceId;

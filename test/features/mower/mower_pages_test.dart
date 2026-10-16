@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/pairing_gate.dart';
+import 'package:flowerpot/src/features/devices/presentation/device_online_guard.dart';
 import 'package:flowerpot/src/features/devices/presentation/device_search_page.dart';
 import 'package:flowerpot/src/features/mower/mower_device.dart';
 import 'package:flowerpot/src/features/mower/mower_dp.dart';
@@ -36,6 +37,66 @@ import '../../support/plant_catalog.dart';
 /// ⚠️ 下发后有 5 秒的回显计时器；测试框架在用例体结束时就检查挂着的 Timer（比 tearDown 早），
 /// 所以每条下发过的用例结尾都手动 `resetForTest` 一次把它们取消。
 void main() {
+  for (final size in [const Size(375, 812), const Size(320, 568)]) {
+    testWidgets('离线首页四按钮均可点击、每次弹窗、可进入参数页 $size', (tester) async {
+      final repo = await _pumpMowerHome(tester, {
+        2: true,
+        3: 'standby',
+        5: 'mowing',
+        13: 65,
+        117: 'not_charging',
+      });
+      tester.view.physicalSize = size;
+      await tester.binding.setSurfaceSize(size);
+      repo.pushDeviceUpdate(
+        DeviceUpdate.changed(_mower().copyWith(online: false)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('device-offline-read-only')), findsNothing);
+      expect(find.textContaining('未在充电', findRichText: true), findsNothing);
+      for (final action in ['smart', 'spot', 'gotoCharge', 'switch']) {
+        final button = find.byKey(Key('mower-action-$action'));
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
+        expect(tester.widget<InkWell>(button).onTap, isNotNull);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(find.text('设备已离线'), findsOneWidget);
+        expect(find.byType(Dialog), findsOneWidget);
+        expect(repo.publishedDps, isEmpty);
+        await tester.tap(find.text('我知道了'));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.byKey(const Key('mower-nav-settings')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('device-offline-read-only')), findsNothing);
+      final nav = tester.state<NavigatorState>(find.byType(Navigator));
+      for (final route in [
+        AppRoutes.mowerZones,
+        AppRoutes.mowerRain,
+        AppRoutes.mowerTimeSync,
+        AppRoutes.mowerLanguage,
+      ]) {
+        unawaited(nav.pushNamed(route));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('device-offline-read-only')), findsNothing);
+        final save = find.text('保存');
+        await tester.ensureVisible(save);
+        await tester.pumpAndSettle();
+        await tester.tap(save);
+        await tester.pumpAndSettle();
+        expect(find.text('设备已离线'), findsOneWidget);
+        expect(repo.publishedDps, isEmpty);
+        await tester.tap(find.text('我知道了'));
+        await tester.pumpAndSettle();
+        nav.pop();
+        await tester.pumpAndSettle();
+      }
+      expect(tester.takeException(), isNull);
+      MowerDevice.instance.resetForTest();
+    });
+  }
+
   testWidgets('编辑周一时收到新回读，保存只改当前时段，保留另一时段和修边的新值', (tester) async {
     final incoming = Uint8List(88);
     incoming.setRange(0, 11, [0x1c, 2, 0xd0, 2, 0x48, 3, 0x38, 4, 1, 1, 1]);
@@ -114,7 +175,7 @@ void main() {
           findsOneWidget,
         );
       }
-      expect(find.text('在充电 100%', findRichText: true), findsOneWidget);
+      expect(find.text('充电中 100%', findRichText: true), findsOneWidget);
       expect(tester.takeException(), isNull);
       MowerDevice.instance.resetForTest();
     });
@@ -171,24 +232,27 @@ void main() {
 
   for (final percent in [99, 100]) {
     for (final (charging, expected) in <(Object, String)>[
-      (0, '未在充电'),
-      (1, '在充电'),
+      (0, ''),
+      (1, '充电中'),
       (2, '已充满'),
-      ('0', '未在充电'),
-      ('1', '在充电'),
+      ('0', ''),
+      ('1', '充电中'),
       ('2', '已充满'),
-      ('not_charging', '未在充电'),
-      ('charging', '在充电'),
+      ('not_charging', ''),
+      ('charging', '充电中'),
       ('full', '已充满'),
     ]) {
       testWidgets('电量$percent%，DP117=$charging按含义显示$expected', (tester) async {
         await _pumpMowerHome(tester, {13: percent, 117: charging});
         await tester.pump(const Duration(milliseconds: 200));
         expect(
-          find.text('$expected $percent%', findRichText: true),
+          find.text(
+            expected.isEmpty ? '电量 $percent%' : '$expected $percent%',
+            findRichText: true,
+          ),
           findsOneWidget,
         );
-        final shouldAnimate = percent < 100 && expected == '在充电';
+        final shouldAnimate = percent < 100 && expected == '充电中';
         expect(
           find.byKey(const Key('mower-charging-bolt')),
           shouldAnimate ? findsOneWidget : findsNothing,
@@ -222,10 +286,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('等待雨停挂桩且DP117=charging时文案仍为在充电', (tester) async {
+  testWidgets('等待雨停挂桩且DP117=charging时文案仍为充电中', (tester) async {
     await _pumpMowerHome(tester, {13: 100, 5: 'wait_rain', 117: 'charging'});
     await tester.pumpAndSettle();
-    expect(find.text('在充电 100%', findRichText: true), findsOneWidget);
+    expect(find.text('充电中 100%', findRichText: true), findsOneWidget);
     expect(find.text('等待雨停'), findsOneWidget);
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
@@ -441,7 +505,7 @@ void main() {
     expect(identical(MowerDevice.instance.schedule, original), isTrue);
     MowerDevice.instance.resetForTest();
   });
-  testWidgets('计划页标题恢复默认：离线置灰不弹确认，在线恢复', (tester) async {
+  testWidgets('计划页标题恢复默认：离线可点击并弹提示，在线恢复', (tester) async {
     final repo = await _pumpMowerHome(tester, {});
     await tester.tap(find.byKey(const Key('mower-nav-plan')));
     await tester.pumpAndSettle();
@@ -450,10 +514,12 @@ void main() {
     );
     await tester.pumpAndSettle();
     final restore = find.byKey(const Key('mower-plan-restore'));
-    expect(tester.widget<GestureDetector>(restore).onTap, isNull);
+    expect(tester.widget<GestureDetector>(restore).onTap, isNotNull);
     await tester.tap(restore);
     await tester.pumpAndSettle();
-    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('设备已离线'), findsOneWidget);
+    await tester.tap(find.text('我知道了'));
+    await tester.pumpAndSettle();
     expect(repo.publishedDps, isEmpty);
     repo.pushDeviceUpdate(DeviceUpdate.changed(_mower()));
     await tester.pumpAndSettle();
@@ -531,7 +597,7 @@ void main() {
     expect(_sentDps(repo), [MowerDp.operatingTime, MowerDp.mode]);
     MowerDevice.instance.resetForTest();
   });
-  testWidgets('安全确认期间离线：继续不发送，恢复SDK在线后按钮恢复', (tester) async {
+  testWidgets('安全确认期间离线：继续不发送，弹窗提示但按钮仍可点', (tester) async {
     final repo = await _pumpMowerHome(tester, {
       MowerDp.status: 'stop',
       MowerDp.switchGo: false,
@@ -545,12 +611,15 @@ void main() {
     await tester.tap(find.text('我已确认，周围安全'));
     await tester.pumpAndSettle();
     expect(repo.publishedDps, isEmpty);
-    expect(find.byKey(const Key('device-offline-read-only')), findsOneWidget);
+    expect(find.text('设备已离线'), findsOneWidget);
+    await tester.tap(find.text('我知道了'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('device-offline-read-only')), findsNothing);
     expect(
       tester
           .widget<InkWell>(find.byKey(const Key('mower-action-switch')))
           .onTap,
-      isNull,
+      isNotNull,
     );
     repo.pushDeviceUpdate(DeviceUpdate.changed(_mower()));
     await tester.pumpAndSettle();
@@ -563,7 +632,7 @@ void main() {
     );
     MowerDevice.instance.resetForTest();
   });
-  testWidgets('割草参数页打开后离线，雨淋开关不可修改或保存', (tester) async {
+  testWidgets('割草参数页离线可编辑，保存弹窗且草稿保留', (tester) async {
     final repo = await _pumpMowerHome(tester, {
       MowerDp.rainDetectEnable: false,
     });
@@ -578,7 +647,14 @@ void main() {
     final before = tester.widget<Switch>(switches.first).value;
     await tester.tap(switches.first, warnIfMissed: false);
     await tester.pumpAndSettle();
-    expect(tester.widget<Switch>(switches.first).value, before);
+    expect(tester.widget<Switch>(switches.first).value, !before);
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('设备已离线'), findsOneWidget);
+    expect(find.textContaining('已下发'), findsNothing);
+    await tester.tap(find.text('我知道了'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Switch>(switches.first).value, !before);
     expect(repo.publishedDps, isEmpty);
     await tester.tap(find.byType(AppBackButton).first);
     await tester.pumpAndSettle();
@@ -762,10 +838,10 @@ void main() {
     MowerDevice.instance.resetForTest();
   });
 
-  testWidgets('Wi-Fi 与蓝牙均不可达：与花盆一样显示离线 toast，连点只保留一条并自动消失', (tester) async {
+  testWidgets('实际通道不可达：离线弹窗不叠加，关闭后仍可再次操作', (tester) async {
     final repository = await _pumpMowerHome(
       tester,
-      <int, Object?>{MowerDp.switchGo: false, MowerDp.mode: 'standby'},
+      {MowerDp.switchGo: false, MowerDp.mode: 'standby'},
       setup: (repository) {
         repository.wifiLinked = false;
         repository.bleLinked = false;
@@ -773,20 +849,24 @@ void main() {
       },
     );
     await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
     expect(find.text('设备已离线'), findsOneWidget);
-    expect(find.byIcon(Icons.error_rounded), findsOneWidget);
-    expect(find.byType(SnackBar), findsNothing);
-    expect(repository.publishedDps, isEmpty);
-
-    await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(find.text('设备已离线'), findsOneWidget);
+    expect(find.byType(Dialog), findsOneWidget);
+    final context = tester.element(find.byType(MowerHomePage));
+    showMowerOfflineNotice(context);
+    showMowerOfflineNotice(context);
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsOneWidget);
     expect(repository.publishedDps, isEmpty);
     await tester.pump(const Duration(seconds: 2));
-    expect(find.text('设备已离线'), findsNothing);
+    expect(find.text('设备已离线'), findsOneWidget);
+    await tester.tap(find.text('我知道了'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
+    await tester.pumpAndSettle();
+    expect(find.text('设备已离线'), findsOneWidget);
+    await tester.tap(find.text('我知道了'));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     MowerDevice.instance.resetForTest();
   });
