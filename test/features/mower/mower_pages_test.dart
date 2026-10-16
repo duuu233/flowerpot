@@ -311,12 +311,14 @@ void main() {
 
   for (final edge in [true, false]) {
     for (final changeEdge in [false, true]) {
-      testWidgets('固定设备帧：复制整周修边=$edge、现场修改=$changeEdge下发并回读7天', (tester) async {
+      testWidgets('复制整周仅复制时段，各天修边独立：源修边=$edge、现场修改=$changeEdge', (
+        tester,
+      ) async {
         // 独立于编码器的协议样例：组0全部，组1~7周一~周日。
         final incoming = Uint8List(88);
         for (var group = 1; group <= 7; group++) {
           incoming.setRange(group * 11, group * 11 + 11, [
-            0x1c,
+            group == 4 ? 0x1c : 0x1c + group,
             0x02,
             0xd0,
             0x02,
@@ -324,7 +326,7 @@ void main() {
             0x03,
             0xfc,
             0x03,
-            (group == 4 ? edge : !edge) ? 1 : 0,
+            (group == 4 ? edge : group.isEven) ? 1 : 0,
             1,
             0,
           ]);
@@ -349,6 +351,19 @@ void main() {
           await tester.tap(trim);
           await tester.pumpAndSettle();
         }
+        // 编辑期间其它天修边上报变更，复制仍以最新回读保留。
+        if (changeEdge) {
+          incoming[19] = 1 - incoming[19];
+          repo.rawDpsByDevice[_mowerId]![101] = TuyaRaw.hex(incoming);
+          repo.pushDeviceUpdate(
+            DeviceUpdate.changed(
+              _mower(),
+              changedDps: {101},
+              reportedDps: {101: TuyaRaw.hex(incoming)},
+            ),
+          );
+          await tester.pumpAndSettle();
+        }
         final copy = find.byKey(const Key('mower-plan-edit-copy-week'));
         await Scrollable.ensureVisible(tester.element(copy), alignment: .5);
         await tester.pumpAndSettle();
@@ -364,8 +379,8 @@ void main() {
         for (var group = 1; group <= 7; group++) {
           expect(
             sent[group * 11 + 8],
-            savedEdge ? 1 : 0,
-            reason: '协议组$group修边同步',
+            group == 4 ? (savedEdge ? 1 : 0) : incoming[group * 11 + 8],
+            reason: '协议组$group修边仅本日维护',
           );
           expect(sent[group * 11 + 9], 1);
           expect(sent[group * 11 + 10], 0, reason: '停用时段保持停用');
@@ -393,7 +408,11 @@ void main() {
           );
           expect(
             tick,
-            savedEdge ? findsOneWidget : findsNothing,
+            (day == 4
+                    ? savedEdge
+                    : incoming[(day == 0 ? 7 : day) * 11 + 8] == 1)
+                ? findsOneWidget
+                : findsNothing,
             reason: '回读后第$day天修边',
           );
         }

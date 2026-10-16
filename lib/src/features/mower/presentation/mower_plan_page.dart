@@ -153,7 +153,12 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
     );
     if (draft.copyWeek) {
       for (var index = 0; index < week.length; index++) {
-        week[index] = day;
+        week[index] = MowerScheduleDay(
+          slotOne: day.slotOne,
+          slotTwo: day.slotTwo,
+          // 修边按天维护；编辑当天的修改只作用于当天。
+          edge: index == draft.day ? day.edge : week[index].edge,
+        );
       }
     } else {
       week[draft.day] = day;

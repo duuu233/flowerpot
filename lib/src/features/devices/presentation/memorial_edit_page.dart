@@ -48,12 +48,20 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
     text: _entry.title,
   );
   late final TextEditingController _textController = TextEditingController(
-    text: _entry.type == MemorialContentType.text ? _entry.content : '',
+    text: widget.arguments.entry.type == MemorialContentType.text
+        ? widget.arguments.entry.content
+        : '',
   );
 
   /// Local path of a freshly picked image, before it is uploaded. The DP wants
   /// a URL, so this is only what the page previews.
   String? _pickedImagePath;
+
+  // 两种内容各自保留草稿，切换不清空，也不把文字当成图片路径。
+  late final String _imageContent =
+      widget.arguments.entry.type == MemorialContentType.image
+      ? widget.arguments.entry.content
+      : '';
   bool _saving = false;
 
   @override
@@ -148,6 +156,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
       return;
     }
     setState(() => _saving = true);
+    // contentType + content 共用一个保存请求；只提交所选草稿，覆盖旧类型的值。
     final result = await FlowerpotScope.of(context).saveMemorial(
       widget.arguments.deviceId,
       _entry.copyWith(title: title, content: content),
@@ -166,7 +175,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
     if (_entry.type == MemorialContentType.text) {
       return _textController.text.trim();
     }
-    return _pickedImagePath ?? _entry.content;
+    return _pickedImagePath ?? _imageContent;
   }
 
   @override
@@ -197,8 +206,9 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                   children: <Widget>[
                     _EnableRow(
                       enabled: _entry.enabled,
-                      onChanged: (value) =>
-                          setState(() => _entry = _entry.copyWith(enabled: value)),
+                      onChanged: (value) => setState(
+                        () => _entry = _entry.copyWith(enabled: value),
+                      ),
                     ),
                     const Divider(height: 40),
                     const _FieldLabel('标题'),
@@ -223,7 +233,12 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                           // body 缩矮、框架也会把光标滚进视口，但默认只留 20px，
                           // 而那 20px 正好被浮在底部的保存按钮（bottom: 12 + 高 50）
                           // 占着。把按钮的占位算进来，获焦时页面就多往上滚一点。
-                          scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 96),
+                          scrollPadding: const EdgeInsets.fromLTRB(
+                            20,
+                            20,
+                            20,
+                            96,
+                          ),
                           style: const TextStyle(
                             color: AppColors.textPrimary,
                             fontSize: 17,
@@ -234,20 +249,18 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                     const SizedBox(height: 22),
                     const _FieldLabel('日期'),
                     const SizedBox(height: 10),
-                    _DateField(
-                      label: _entry.dateLabel,
-                      onTap: _pickDate,
-                    ),
+                    _DateField(label: _entry.dateLabel, onTap: _pickDate),
                     const SizedBox(height: 22),
-                    const _FieldLabel('内容'),
+                    _FieldLabel(_fixed ? '内容' : '内容 （类型二选一）'),
                     const SizedBox(height: 10),
                     if (_fixed)
                       _FixedContentChip(label: '${_entry.title}动画')
                     else ...<Widget>[
                       _ContentTypeTabs(
                         type: _entry.type,
-                        onChanged: (type) =>
-                            setState(() => _entry = _entry.copyWith(type: type)),
+                        onChanged: (type) => setState(
+                          () => _entry = _entry.copyWith(type: type),
+                        ),
                       ),
                       const SizedBox(height: 16),
                       if (_entry.type == MemorialContentType.text)
@@ -255,7 +268,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                       else
                         _ImageContentSlot(
                           localPath: _pickedImagePath,
-                          url: _entry.content,
+                          url: _imageContent,
                           onTap: _pickImage,
                         ),
                     ],

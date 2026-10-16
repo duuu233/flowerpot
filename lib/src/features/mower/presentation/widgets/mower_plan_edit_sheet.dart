@@ -64,7 +64,7 @@ class MowerPlanDraft {
   /// 不是每个时段一个——稿子把它画在时段编辑里，这里就按整天生效。
   final bool edge;
 
-  /// 「复制整周」：保存时把这一天铺到七天。
+  /// 「复制整周」：保存时只复制两个时段，各天修边独立维护。
   final bool copyWeek;
 
   /// 设备已报过的停用时段不能因为恰好等于编辑器默认时间而被清空。
@@ -254,7 +254,7 @@ class _MowerPlanEditSheetState extends State<_MowerPlanEditSheet> {
           const SizedBox(height: 10),
           _SheetSwitchCard(
             title: '复制整周',
-            subtitle: '将当前时段与修边设置应用到整周',
+            subtitle: '将两个时段应用到整周，修边按天独立设置',
             value: _draft.copyWeek,
             switchKey: const Key('mower-plan-edit-copy-week'),
             onChanged: (value) =>
