@@ -1,5 +1,7 @@
 # 项目文档导航
 
+- [2026-10-19 花盆DP第1–6项本地核查](history/2026-10/2026-10-19-flowerpot-dp-local-audit.md)：主要实现与未确认删除、负温曲线、校准异常退出边界，未改原业务实现。
+
 - [2026-10-19 OTA 准备阶段与恢复](history/2026-10/2026-10-19-mower-ota-preparing-recovery.md)：Android Service、状态查询兜底、终态与停滞提示，未真机。
 
 - [2026-10-16 割草机离线交互与充电文案](history/2026-10/2026-10-16-mower-offline-dialog-charging-copy.md)：撤回整页只读，操作弹离线提示，未充电不显示状态词。
