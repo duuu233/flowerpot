@@ -70,7 +70,9 @@ abstract final class TuyaConfig {
     // 后台植物管理里的「涂鸦标识 ID」（0 是通用植物）。上报 + 下发。
     'plant_variety': 116,
     // Control.
-    'disp_brightness_switch': 117, // bool
+    // 117 = 自动亮度开关：true 自动（跟随环境光）/ false 手动（亮度由 168 决定）。
+    // 平台名称仍写「显示屏幕亮度开关」是旧语义，见 docs/app_DP_问题修正说明.md §6。
+    'disp_brightness_switch': 117, // bool rw，出厂默认 false（手动）
     'voice_interaction_switch': 118, // bool
     'sound_sensitivity': 119, // value 0-100 %
     'touch_interact_switch': 120, // bool
@@ -96,7 +98,7 @@ abstract final class TuyaConfig {
     'light_monthly_hist': 139,
 
     // Maintenance and media.
-    'water_level_calib': 140, // enum step0..step5, step5 cancels
+    'water_level_calib': 140, // enum step0..step5：0 开始 / 1~3 采样 / 4 保存 / 5 取消
     'factory_reset': 141, // bool, write only
     'dl_url': 142, // raw, write only
     'dl_show': 143, // string, write only
@@ -106,8 +108,7 @@ abstract final class TuyaConfig {
     'time_format': 147, // enum 24h/12h
     'firmware_version': 148, // string
     'hardware_version': 149, // value 1-100
-    're_pairing': 150, // bool, write only
-
+    're_pairing': 150, // bool, write only：清配网信息、重启进配网，本地数据保留
     // Standby, language and the memorial/photo features added by the 09-03
     // export.
     'standby_switch': 151, // bool, default false (never sleep)
@@ -120,7 +121,6 @@ abstract final class TuyaConfig {
     'memorial_birthday': 158, // raw, 8 ASCII bytes YYYYMMDD
     'memorial_wedding': 159, // raw, 8 ASCII bytes YYYYMMDD
     'op_result': 160, // string `<操作>:<对象>:<结果>`
-
     // Added by the 09-07 export.
     'plant_type': 161, // enum 1/2/3, rw: 后台植物分类，随 116 一起下发
     // 2026-09-09 起两态、且只由设备上报：0 = 不弹窗，1 = 弹「发现新植物」引导窗。
@@ -140,16 +140,17 @@ abstract final class TuyaConfig {
     // 类型 bool 都对得上。两个名字都留着：下发按 DP 号走，改名不影响行为。
     'plant_confirm_switch': 163, // bool, rw
     'plant_detect_switch': 163, // bool, rw（本地旧名，平台已改用上面那个）
-
     // Added by the 09-16 export: the two daily history packets the 温度 / 湿度
-    // status pages had been missing. Variable-length frames, see
-    // [historyVariableFrames] and `TuyaHistoryCodec`.
+    // status pages had been missing. 帧格式与 131/134/137 的日帧相同，见
+    // `TuyaHistoryCodec`。
     'temp_daily_hist': 164, // raw, ro：空气温度日历史
     'humi_daily_hist': 165, // raw, ro：空气湿度日历史
     // 2026-09-28 新增（`docs/新增 DP 说明 — DP166 ~ DP169.md`）。167 power_off 关机 / 169 file_download
     // 文件分片下载暂不对接（产品：页面没有先不弄），这里不登记。
     'led_switch': 166, // bool rw：双色 LED 灯效总开关，默认 false（关）；和 117 屏幕是两个独立开关
-    'ota_result': 168, // enum ro：0 idle / 1 downloading / 2 success / 3 failed
+    // 168 = 手动亮度（docs/app_DP_问题修正说明.md §6）：0~100，0 = 灭屏，仅 117 = false 时
+    // 生效，出厂 100。09-28 那版说明里 168 是 `ota_result`，按新说明作废，App 不再按 OTA 结果解读。
+    'manual_brightness': 168, // value rw 0-100
   };
 
   /// DPs the device transmits as an integer scaled by a power of ten (涂鸦
@@ -165,6 +166,7 @@ abstract final class TuyaConfig {
   /// resolved by [settingDps] instead.
   static const setting = <String, String>{
     'autoBrightness': 'disp_brightness_switch',
+    'manualBrightness': 'manual_brightness',
     // LED 设置页走 166 `led_switch`（2026-09-28 固件新增，双色 LED 灯效总开关）。原来 09-03 的功能点表里
     // 没有单独的 LED 开关，和显示页共用 117；新 DP 说明写明「117 = 屏幕背光、166 = 双色 LED，两个独立开关，
     // APP 不要共用一个」。
@@ -234,23 +236,12 @@ abstract final class TuyaConfig {
   /// 温度、湿度的历史点和它们的实时 DP 一样是十分之一度 / 十分之一个百分点。
   static const historyScale = <String, int>{'temperature': 10, 'humidity': 10};
 
-  /// 帧头长度要按帧长现算的历史 DP。
-  ///
-  /// 131–139 的帧头是定死的（日 3 字节、周 4 字节、**月 5 字节**——月帧 2026-09-18
-  /// 起是「年 月 日 段号 总段数」，见设备端 1.0.13 §2.4 与 tuya_history_codec.dart）；
-  /// 164 / 165 是 2026-09-16
-  /// 新加的**变长**日帧，而且那版导出里两行写得不一样——164 是「年 月 日 +
-  /// N×点数据」（3 字节头），165 是「年 月 日 N + N×点数据」（4 字节头），可 165
-  /// 那格的说明整段是周 / 月的口径（「日均值」「有效天数」「满 7/31 滚动」），
-  /// 像是抄串了。固件 1.0.12 把 165 做成**与 164 对称**，按对称口径它就是 3 字节头。
-  ///
-  /// 即便如此这里**仍然不认死帧头**：导出那一行还写着 4 字节头，两种解法认错一个
-  /// 曲线就是一整条错位的垃圾数据，而 `TuyaHistoryCodec` 按帧长判的代价是零——点宽
-  /// 2 时两种解释的帧长奇偶不同，判定是精确的，对称与否都解得出来。
-  static const historyVariableFrames = <String>{
-    'temp_daily_hist',
-    'humi_daily_hist',
-  };
+  /// 历史点位上报时被缩小的倍数：水位历史点存的是 mL ÷ 2（1 字节装得下 0~200 mL），
+  /// 画之前 ×2 还原成 mL（`docs/app_DP_问题修正说明.md` §4.3）。
+  static const historyMultiplier = <String, int>{'waterLevel': 2};
+
+  /// 历史点按**有符号**数解的指标：空气温度日历史（164）是 2 字节有符号大端，支持负温。
+  static const historySignedSamples = <String>{'temperature'};
 
   /// `temp_unit_convert` enum values against the labels the settings sheet
   /// uses.
@@ -282,13 +273,34 @@ abstract final class TuyaConfig {
   static const standbyDelayMin = 1;
   static const standbyDelayMax = 180;
 
-  /// `water_level_calib` 的阶段值，下标就是校准弹窗**正要展示**的那张卡片。
+  /// `water_level_calib`（140）的枚举值，下标就是 DP140 的编号（固件 1.0.16 起的新语义，
+  /// `docs/app_DP_问题修正说明.md` §5）：
   ///
-  /// 顺序 step0 → step1 → step2 → step3，**每一步在卡片出现时下发**，不是等用户
-  /// 确认完再补（2026-09-18 产品口径：第一步就要下发 step0，弹窗一开设备就进校准
-  /// 模式）。step4 保留、任何路径都不发；半途退出发 step5 取消。
-  static const calibrationSteps = <String>['step0', 'step1', 'step2', 'step3'];
+  /// 0 开始会话（不采样）→ 1 采样空杯 → 2 采样 20 mL → 3 采样 40 mL → 4 计算并保存；
+  /// 5 取消（丢弃暂存）。**采样发生在报文到达的瞬间**，所以每个采样步都是用户做完
+  /// 卡片上的动作、点按钮之后才发。
+  static const calibrationSteps = <String>[
+    'step0',
+    'step1',
+    'step2',
+    'step3',
+    'step4',
+  ];
   static const calibrationCancel = 'step5';
+
+  /// 每一步在 DP160 回执里的对象名：`calib:<对象>:ok/fail`。
+  static const calibrationReceiptObjects = <String>[
+    'begin',
+    'step1',
+    'step2',
+    'step3',
+    'step4',
+  ];
+  static const calibrationCancelReceiptObject = 'step5';
+
+  /// 手动亮度（168）的范围。
+  static const manualBrightnessMin = 0;
+  static const manualBrightnessMax = 100;
 
   /// Encodes one app setting into the DPs that carry it.
   ///
@@ -312,11 +324,16 @@ abstract final class TuyaConfig {
         final language = deviceLanguages[value];
         if (language == null) return null;
         return _single('language', language);
+      case 'manualBrightness':
+        if (value is! num) return null;
+        final brightness = value.round().clamp(
+          manualBrightnessMin,
+          manualBrightnessMax,
+        );
+        return _single('manual_brightness', brightness);
       case 'standbyDelay':
         if (value is! num) return null;
-        final minutes = value
-            .round()
-            .clamp(standbyDelayMin, standbyDelayMax);
+        final minutes = value.round().clamp(standbyDelayMin, standbyDelayMax);
         return _single('standby_delay', minutes);
     }
     final identifier = setting[key];

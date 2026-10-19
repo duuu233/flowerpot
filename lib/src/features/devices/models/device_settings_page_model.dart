@@ -67,7 +67,9 @@ class DeviceSettingsPageModel {
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.display,
           label: '显示',
-          value: settings.autoBrightness ? '自动' : '手动',
+          value: settings.autoBrightness
+              ? '自动'
+              : '手动 ${settings.manualBrightness}%',
         ),
         DeviceSettingsMenuItem(
           kind: DeviceSettingsMenuKind.led,

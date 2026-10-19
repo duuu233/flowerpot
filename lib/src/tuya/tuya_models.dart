@@ -337,8 +337,13 @@ class AppUser {
 class PlantProfile {
   /// No catalog response yet; never substitute another plant's data.
   static const unavailable = PlantProfile(
-    id: '', name: '植物资料暂未获取', latinName: '',
-    color: Color(0xFF4D8B55), moistureTarget: 0, lightTarget: 0, tip: '',
+    id: '',
+    name: '植物资料暂未获取',
+    latinName: '',
+    color: Color(0xFF4D8B55),
+    moistureTarget: 0,
+    lightTarget: 0,
+    tip: '',
   );
 
   const PlantProfile({
@@ -492,7 +497,8 @@ class SensorSnapshot {
 
 class DeviceControlSettings {
   const DeviceControlSettings({
-    this.autoBrightness = true,
+    this.autoBrightness = false,
+    this.manualBrightness = 100,
     this.ledEnabled = false,
     this.soundInteraction = true,
     this.soundSensitivity = 62,
@@ -513,7 +519,13 @@ class DeviceControlSettings {
     this.plantDetection = true,
   });
 
+  /// `disp_brightness_switch`（117）= 自动亮度开关：true 跟随环境光，false 手动（亮度看
+  /// [manualBrightness]）。出厂默认 false。
   final bool autoBrightness;
+
+  /// `manual_brightness`（168）：手动亮度 0~100（0 = 灭屏），只在 [autoBrightness] 为 false
+  /// 时生效；自动模式下下发设备只缓存。出厂默认 100。
+  final int manualBrightness;
 
   /// `led_switch`（166）：双色 LED 灯效总开关，关着时告警灯 / 配网灯 / 呼吸灯全灭。
   /// 和 [autoBrightness]（117 屏幕）是两个独立开关。固件默认 false（2026-09-28 变更），
@@ -614,6 +626,7 @@ class DeviceControlSettings {
 
   DeviceControlSettings copyWith({
     bool? autoBrightness,
+    int? manualBrightness,
     bool? ledEnabled,
     bool? soundInteraction,
     int? soundSensitivity,
@@ -634,6 +647,7 @@ class DeviceControlSettings {
     bool? plantDetection,
   }) => DeviceControlSettings(
     autoBrightness: autoBrightness ?? this.autoBrightness,
+    manualBrightness: manualBrightness ?? this.manualBrightness,
     ledEnabled: ledEnabled ?? this.ledEnabled,
     soundInteraction: soundInteraction ?? this.soundInteraction,
     soundSensitivity: soundSensitivity ?? this.soundSensitivity,
@@ -682,7 +696,6 @@ class SmartPlanterDevice {
     this.birthday,
     this.weddingDay,
     this.lastOperationResult = '',
-    this.otaResult = '',
   });
 
   final String id;
@@ -744,26 +757,6 @@ class SmartPlanterDevice {
   /// `<操作>:<对象>:<结果>`. Empty until it reports one.
   final String lastOperationResult;
 
-  /// `ota_result`（168，2026-09-28 固件新增）：设备自己报的 OTA 结果，原样留着。
-  /// 空串 = 没报过（旧固件没有这个 DP）。数字码见 [otaResultCode]。
-  final String otaResult;
-
-  /// [otaResult] 的数字码：0 idle / 1 downloading / 2 success / 3 failed。
-  ///
-  /// DP 说明写「枚举类 DP 传数字下标、平台显示字符串由云端映射」，App 这边经 SDK 拿到的是哪种没实测过，
-  /// 数字和英文名都认；认不出为 null。
-  int? get otaResultCode {
-    final text = otaResult.trim().toLowerCase();
-    return int.tryParse(text) ??
-        switch (text) {
-          'idle' => 0,
-          'downloading' => 1,
-          'success' => 2,
-          'failed' || 'fail' => 3,
-          _ => null,
-        };
-  }
-
   /// Whether the last receipt says the operation succeeded. Null when the
   /// device has reported nothing, or something this app cannot parse.
   bool? get lastOperationSucceeded {
@@ -800,7 +793,6 @@ class SmartPlanterDevice {
     DateTime? weddingDay,
     bool clearWeddingDay = false,
     String? lastOperationResult,
-    String? otaResult,
   }) => SmartPlanterDevice(
     id: id,
     productId: productId,
@@ -827,7 +819,6 @@ class SmartPlanterDevice {
     birthday: clearBirthday ? null : (birthday ?? this.birthday),
     weddingDay: clearWeddingDay ? null : (weddingDay ?? this.weddingDay),
     lastOperationResult: lastOperationResult ?? this.lastOperationResult,
-    otaResult: otaResult ?? this.otaResult,
   );
 }
 
@@ -1366,11 +1357,12 @@ class WifiScan {
   ///
   /// 先按时间筛、再按 SSID 取最强：同一个热点名在缓存里可能一新一旧两条，先取最强
   /// 可能正好留下旧的那条、再被时间筛掉。
-  List<WifiNetwork> deviceHotspotsSeenSince(DateTime since) => _strongestPerSsid(
-    networks.where(
-      (item) => item.looksLikeDeviceHotspot && item.seenSince(since),
-    ),
-  );
+  List<WifiNetwork> deviceHotspotsSeenSince(DateTime since) =>
+      _strongestPerSsid(
+        networks.where(
+          (item) => item.looksLikeDeviceHotspot && item.seenSince(since),
+        ),
+      );
 
   /// The rest of the scan, as a fallback pick list for the pairing pages:
   /// everything [deviceHotspots] did not claim, minus 5 GHz entries the

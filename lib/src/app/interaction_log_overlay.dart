@@ -110,50 +110,46 @@ class InteractionLogRouteObserver extends NavigatorObserver {
   final FlowerpotState state;
 
   /// 各页面用到的设置键，和页面里 `updateSetting(...)` 的那几个一一对应。
-  static const Map<String, List<String>> pageSettingKeys =
-      <String, List<String>>{
-        AppRoutes.displaySettings: <String>['autoBrightness'],
-        AppRoutes.hearingSettings: <String>[
-          'soundInteraction',
-          'soundSensitivity',
-        ],
-        AppRoutes.touchSettings: <String>[
-          'touchInteraction',
-          'touchSensitivity',
-        ],
-        AppRoutes.vibrationSettings: <String>[
-          'vibration',
-          'touchKeyVibration',
-          'touchPlantVibration',
-        ],
-        AppRoutes.ledSettings: <String>['led'],
-        AppRoutes.plantDetectionSettings: <String>['plantDetection'],
-        AppRoutes.behaviorSettings: <String>[
-          'napEnabled',
-          'napPeriod',
-          'nightEnabled',
-          'nightPeriod',
-          'standby',
-          'standbyDelay',
-        ],
-        AppRoutes.deviceOtherSettings: <String>[
-          'temperatureUnit',
-          'clockFormat',
-        ],
-        // 设备设置页一进来就要把整页菜单的值都读出来，所以列全。
-        AppRoutes.deviceSettings: <String>[
-          'plantDetection',
-          'autoBrightness',
-          // LED 2026-09-28 起是自己的 166，不再跟着 117 走，单列一项。
-          'led',
-          'soundInteraction',
-          'touchInteraction',
-          'vibration',
-          'napEnabled',
-          'nightEnabled',
-          'standby',
-        ],
-      };
+  static const Map<String, List<String>>
+  pageSettingKeys = <String, List<String>>{
+    AppRoutes.displaySettings: <String>['autoBrightness', 'manualBrightness'],
+    AppRoutes.hearingSettings: <String>['soundInteraction', 'soundSensitivity'],
+    AppRoutes.touchSettings: <String>['touchInteraction', 'touchSensitivity'],
+    AppRoutes.vibrationSettings: <String>[
+      'vibration',
+      'touchKeyVibration',
+      'touchPlantVibration',
+    ],
+    AppRoutes.ledSettings: <String>['led'],
+    AppRoutes.plantDetectionSettings: <String>['plantDetection'],
+    AppRoutes.behaviorSettings: <String>[
+      'napEnabled',
+      'napPeriod',
+      'nightEnabled',
+      'nightPeriod',
+      'standby',
+      'standbyDelay',
+    ],
+    AppRoutes.deviceOtherSettings: <String>[
+      'temperatureUnit',
+      'clockFormat',
+      'deviceLanguage',
+    ],
+    // 设备设置页一进来就要把整页菜单的值都读出来，所以列全。
+    AppRoutes.deviceSettings: <String>[
+      'plantDetection',
+      'autoBrightness',
+      'manualBrightness',
+      // LED 2026-09-28 起是自己的 166，不再跟着 117 走，单列一项。
+      'led',
+      'soundInteraction',
+      'touchInteraction',
+      'vibration',
+      'napEnabled',
+      'nightEnabled',
+      'standby',
+    ],
+  };
 
   static const Map<String, String> pageLabels = <String, String>{
     AppRoutes.deviceHome: '设备详情',

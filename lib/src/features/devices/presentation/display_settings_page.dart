@@ -17,6 +17,33 @@ class DisplaySettingsPage extends StatefulWidget {
 
 class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
   bool updating = false;
+  bool updatingBrightness = false;
+  double? pendingBrightness;
+
+  void _previewBrightness(double value) {
+    setState(() => pendingBrightness = value);
+  }
+
+  /// DP168 手动亮度：松手才下发，0~100。
+  Future<void> _setBrightness(double value) async {
+    if (updatingBrightness) return;
+    final brightness = value.round().clamp(0, 100);
+    setState(() {
+      updatingBrightness = true;
+      pendingBrightness = brightness.toDouble();
+    });
+    final result = await FlowerpotScope.of(
+      context,
+    ).updateSetting(widget.deviceId, 'manualBrightness', brightness);
+    if (!mounted) return;
+    setState(() {
+      updatingBrightness = false;
+      pendingBrightness = null;
+    });
+    if (!result.success) {
+      showDeviceActionResult(context, result);
+    }
+  }
 
   Future<void> _setAutoBrightness(bool value) async {
     if (updating) return;
@@ -57,8 +84,13 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
             ),
             child: DisplaySettingsCard(
               model: model,
+              brightness:
+                  pendingBrightness ?? model.manualBrightness.toDouble(),
               updating: updating,
+              updatingBrightness: updatingBrightness,
               onAutoBrightnessChanged: _setAutoBrightness,
+              onBrightnessChanged: _previewBrightness,
+              onBrightnessChangeEnd: _setBrightness,
             ),
           ),
         ),

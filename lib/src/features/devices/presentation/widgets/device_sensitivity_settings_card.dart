@@ -20,6 +20,8 @@ class DeviceSensitivitySettingsCard extends StatelessWidget {
     super.key,
     this.updatingInteraction = false,
     this.updatingSensitivity = false,
+    this.sliderLabel = '传感器灵敏度',
+    this.sliderLocked = false,
   });
 
   final DeviceSettingSymbol symbol;
@@ -37,9 +39,15 @@ class DeviceSensitivitySettingsCard extends StatelessWidget {
   final bool updatingInteraction;
   final bool updatingSensitivity;
 
+  /// 滑条那一行的标题，默认「传感器灵敏度」；显示页用它画「屏幕亮度」。
+  final String sliderLabel;
+
+  /// 滑条整体不可拖（显示页自动亮度开着时手动亮度不生效）。
+  final bool sliderLocked;
+
   @override
   Widget build(BuildContext context) {
-    final sliderEnabled = !updatingSensitivity;
+    final sliderEnabled = !updatingSensitivity && !sliderLocked;
     return AppSurfaceCard(
       color: AppColors.surfaceTranslucent,
       borderRadius: AppRadius.large,
@@ -148,7 +156,7 @@ class DeviceSensitivitySettingsCard extends StatelessWidget {
                   Row(
                     children: <Widget>[
                       Text(
-                        '传感器灵敏度',
+                        sliderLabel,
                         style: AppTypography.sectionTitle.copyWith(
                           color: AppColors.textPrimary,
                           fontSize: 15,

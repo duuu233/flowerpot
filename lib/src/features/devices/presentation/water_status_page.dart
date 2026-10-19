@@ -112,7 +112,7 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
                   ),
                   const SizedBox(height: 12),
                   DateRangeNavigator(
-                    label: _dateLabel(),
+                    label: _dateLabel(values.length),
                     // 窗口按周期来：日 = 设备日包的 7 天（当天 + 往前 6 天）；
                     // 周 / 月设备只有当期那一包，往前没有第二份，所以一格都不给翻。
                     // ⚠️ 原来这里是裸的 `periodOffset--`，能一直往前翻到去年
@@ -131,7 +131,7 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
                     WaterTrendChartCard(
                       metric: metric,
                       values: values,
-                      labels: _chartLabels(),
+                      labels: _chartLabels(values.length),
                       onMetricChanged: _changeMetric,
                     ),
                   const SizedBox(height: AppSpacing.lg),
@@ -169,30 +169,15 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
     ReportRange.month => '月',
   };
 
-  String _dateLabel() {
-    final now = DateTime.now();
-    return switch (range) {
-      ReportRange.day => _formatDay(HistoryPeriod.dayFor(periodOffset)),
-      ReportRange.week => _formatWeek(
-        now.add(Duration(days: periodOffset * 7)),
-      ),
-      ReportRange.month => _formatMonth(
-        DateTime(now.year, now.month + periodOffset),
-      ),
-    };
-  }
+  /// 周 / 月只说窗口，不写具体日期：点数是已聚合天数、右端是最近聚合日（见 [HistoryPeriod]）。
+  String _dateLabel(int count) => switch (range) {
+    ReportRange.day => _formatDay(HistoryPeriod.dayFor(periodOffset)),
+    _ => HistoryPeriod.windowLabel(range, count),
+  };
 
   String _formatDay(DateTime date) => '${date.month}月${date.day}日';
 
-  String _formatWeek(DateTime anchor) {
-    final start = anchor.subtract(Duration(days: anchor.weekday - 1));
-    final end = start.add(const Duration(days: 6));
-    return '${start.month}月${start.day}日 - ${end.month}月${end.day}日';
-  }
-
-  String _formatMonth(DateTime date) => '${date.year}年${date.month}月';
-
-  List<String> _chartLabels() => switch (range) {
+  List<String> _chartLabels(int count) => switch (range) {
     ReportRange.day => const <String>[
       '00:00',
       '05:00',
@@ -201,15 +186,6 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
       '20:00',
       '00:00',
     ],
-    ReportRange.week => const <String>[
-      '周一',
-      '周二',
-      '周三',
-      '周四',
-      '周五',
-      '周六',
-      '周日',
-    ],
-    ReportRange.month => const <String>['1日', '6日', '11日', '16日', '21日', '26日'],
+    _ => HistoryPeriod.relativeTicks(count),
   };
 }

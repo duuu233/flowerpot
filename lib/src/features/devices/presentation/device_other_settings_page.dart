@@ -9,7 +9,7 @@ import '../../../tuya/tuya_models.dart';
 import 'device_online_guard.dart';
 import 'firmware_upgrade_flow.dart';
 import 'widgets/ota_progress_dialog.dart';
-import 'widgets/water_level_calibration_dialog.dart';
+import 'water_level_calibration_page.dart';
 
 /// 「其他设置」的路由参数。老调用点传的裸 deviceId 字符串照样认。
 class DeviceOtherSettingsArguments {
@@ -112,6 +112,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
                       firmwareUpdate: state.hasFirmwareUpdate(widget.deviceId),
                       onTemperatureUnit: () => _chooseTemperatureUnit(device),
                       onClockFormat: () => _chooseClockFormat(device),
+                      onDeviceLanguage: () => _chooseDeviceLanguage(device),
                       onCalibration: _calibrateWaterLevel,
                       onFirmware: _checkFirmware,
                     ),
@@ -153,6 +154,16 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     }
   }
 
+  Future<void> _chooseDeviceLanguage(SmartPlanterDevice device) async {
+    final selected = await showDeviceLanguageSheet(
+      context,
+      selectedLanguage: device.settings.deviceLanguage,
+    );
+    if (selected != null && selected != device.settings.deviceLanguage) {
+      await _updateSetting('deviceLanguage', selected);
+    }
+  }
+
   Future<void> _updateSetting(String key, Object value) async {
     // 下发要走云端往返，这段盖住不让点第二次（2026-09-12 产品：所有可能重复
     // 点击的地方都要有 loading）。
@@ -166,54 +177,61 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     showDeviceActionResult(context, result, announceSuccess: true);
   }
 
+  /// 水位校准向导（新 6 步流程，见 [WaterLevelCalibrationPage]）。设备得在线才进。
   Future<void> _calibrateWaterLevel() async {
-    final scope = FlowerpotScope.of(context);
-    await showWaterLevelCalibrationDialog(
-      context,
-      onCalibrate: (step) async {
-        final result = await scope.calibrateWaterLevel(widget.deviceId, step);
-        if (!mounted) return false;
-        if (!result.success) {
-          showDeviceActionResult(context, result);
-        }
-        return result.success;
-      },
-      onCancel: () => scope.cancelWaterLevelCalibration(widget.deviceId),
+    if (!ensureDeviceOnline(context, widget.deviceId)) return;
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => WaterLevelCalibrationPage(deviceId: widget.deviceId),
+      ),
     );
   }
 
   /// 固件版本更新：和割草机「设备升级」共用 [runFirmwareUpgrade]（逻辑和交互都是那一份）。
   Future<void> _checkFirmware() => runFirmwareUpgrade(context, widget.deviceId);
 
-  /// 重新配网 = 先解绑，再从搜索设备重新走一遍。
+  /// 重新配网：下发 DP150 `re_pairing`（`docs/app_DP_问题修正说明.md` §1）。
   ///
-  /// 不能直接跳到填 Wi-Fi 那一页：设备还绑在账号上时它是正常工作状态，既不拉
-  /// 热点也不监听配网广播，配过去只会等满 120 秒报 `1006 out of time`。解绑
-  /// （带 DP 141 恢复出厂）会让它回到配网状态，这时搜索页才扫得到它的热点。
+  /// 设备清掉配网信息、重启进入配网模式，**本地数据（设置 / 历史 / 校准 / 照片）全部保留**；
+  /// 不解绑、不发 DP141（那是恢复出厂，会清数据）。下发后提示「设备将重启并进入配网」，
+  /// 再进搜索页把设备重新配上，配上后设备重新上线。
+  ///
+  /// 设备离线时 DP150 发不到：说明情况，用户可在设备上手动进入配网后直接去添加。
   Future<void> _repairNetwork(SmartPlanterDevice device) async {
+    final state = FlowerpotScope.of(context);
+    if (!state.isDeviceOnline(widget.deviceId)) {
+      final goSearch = await showAppConfirmDialog(
+        context,
+        title: '重新配网',
+        message:
+            '“${device.name}”当前离线，无法通知设备进入配网。\n'
+            '请先在设备上手动进入配网模式，再重新添加设备。',
+        confirmLabel: '去添加设备',
+      );
+      if (!goSearch || !mounted) return;
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      Navigator.pushNamed(context, AppRoutes.deviceSearch);
+      return;
+    }
     final confirmed = await showAppConfirmDialog(
       context,
       title: '重新配网',
       message:
-          '需要先解绑“${device.name}”，设备会回到配网状态，随后重新添加。\n'
-          '设备上的个性化设置会被清除，确定继续吗？',
-      confirmLabel: '解绑并重新配网',
-      destructive: true,
+          '“${device.name}”将重启并进入配网模式，随后需要重新连接 Wi-Fi。\n'
+          '设备上的设置、历史、校准和照片都会保留，确定继续吗？',
+      confirmLabel: '重新配网',
     );
     if (!confirmed || !mounted) return;
-    final state = FlowerpotScope.of(context);
-    // 解绑是不可逆动作，更不能点两次。
     final result = await withBlockingProgress(
       context,
-      () => state.removeDevice(widget.deviceId, resetFactory: true),
+      () => state.rePairDevice(widget.deviceId),
     );
     if (!mounted || result == null) return;
     if (!result.success) {
       showDeviceActionResult(context, result);
       return;
     }
-    // 设备已经从账号里移除，本页和它的兄弟页都失去了数据源，所以清到根再进
-    // 搜索页——而不是 push 一层上去。
+    showAppMessage(context, result.message, tone: AppMessageTone.success);
     Navigator.of(context).popUntil((route) => route.isFirst);
     Navigator.pushNamed(context, AppRoutes.deviceSearch);
   }
@@ -287,6 +305,27 @@ Future<String?> showClockFormatSheet(
     ],
   );
 }
+
+/// 设备屏幕语言（DP153）：目前只支持简体中文和英文。
+Future<String?> showDeviceLanguageSheet(
+  BuildContext context, {
+  required String selectedLanguage,
+}) {
+  return _showSettingsChoiceSheet(
+    context,
+    title: '设备语言',
+    selectedValue: selectedLanguage,
+    keyPrefix: 'device-language',
+    options: const <_SettingsChoiceOptionData>[
+      _SettingsChoiceOptionData(value: 'zh', label: '简体中文'),
+      _SettingsChoiceOptionData(value: 'en', label: 'English'),
+    ],
+  );
+}
+
+/// 「设备语言」那一行的显示值。
+String deviceLanguageLabel(String language) =>
+    language == 'en' ? 'English' : '简体中文';
 
 Future<String?> _showSettingsChoiceSheet(
   BuildContext context, {
@@ -502,6 +541,7 @@ class _GeneralSettingsCard extends StatelessWidget {
     required this.updatingFirmware,
     required this.onTemperatureUnit,
     required this.onClockFormat,
+    required this.onDeviceLanguage,
     required this.onCalibration,
     required this.ota,
     required this.firmwareUpdate,
@@ -512,6 +552,7 @@ class _GeneralSettingsCard extends StatelessWidget {
   final bool updatingFirmware;
   final VoidCallback onTemperatureUnit;
   final VoidCallback onClockFormat;
+  final VoidCallback onDeviceLanguage;
   final VoidCallback onCalibration;
   final OtaProgress? ota;
 
@@ -539,6 +580,14 @@ class _GeneralSettingsCard extends StatelessWidget {
             title: '时钟模式',
             value: settings.clockFormat == '24h' ? '24小时' : '12小时',
             onTap: onClockFormat,
+          ),
+          // DP153 `language`：设备屏幕语言，下发即生效（与 App 界面语言无关）。
+          _SettingsRow(
+            key: const Key('device-language-setting'),
+            icon: Icons.translate,
+            title: '设备语言',
+            value: deviceLanguageLabel(settings.deviceLanguage),
+            onTap: onDeviceLanguage,
           ),
           _SettingsRow(
             key: const Key('water-level-calibration-setting'),
@@ -616,17 +665,20 @@ class _DeviceActionsCard extends StatelessWidget {
 
 class _SettingsRow extends StatelessWidget {
   const _SettingsRow({
-    required this.assetPath,
     required this.title,
     required this.onTap,
     super.key,
+    this.assetPath,
+    this.icon,
     this.value,
     this.titleColor,
     this.loading = false,
     this.badge = false,
-  });
+  }) : assert(assetPath != null || icon != null);
 
-  final String assetPath;
+  /// 行首切图；没有切图的行（设备语言）用 [icon] 画同尺寸品牌色图标。
+  final String? assetPath;
+  final IconData? icon;
   final String title;
   final String? value;
   final Color? titleColor;
@@ -641,14 +693,21 @@ class _SettingsRow extends StatelessWidget {
       // 单行列表的标准高度）；七行一共多出 98，375×812 仍是一屏放下。
       minTileHeight: 56,
       contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-      leading: Image.asset(
-        assetPath,
-        width: 23,
-        height: 23,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.high,
-        semanticLabel: title,
-      ),
+      leading: assetPath != null
+          ? Image.asset(
+              assetPath!,
+              width: 23,
+              height: 23,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              semanticLabel: title,
+            )
+          : Icon(
+              icon,
+              size: 23,
+              color: AppColors.brandPrimary,
+              semanticLabel: title,
+            ),
       title: Text(
         title,
         style: AppTypography.bodyEmphasis.copyWith(

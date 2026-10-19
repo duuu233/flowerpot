@@ -220,7 +220,7 @@ class _ReportsPageState extends State<ReportsPage>
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: <Widget>[
-                            Text(_startLabel(range)),
+                            Text(_startLabel(range, values.length)),
                             // 翻到过去某一天时右端是那天的 23:45，不是「当前」。
                             Text(_endLabel(range)),
                           ],
@@ -293,14 +293,15 @@ class _ReportsPageState extends State<ReportsPage>
       range == ReportRange.day &&
       _MetricInfo.hasHistorySource(widget.arguments.metric, ReportRange.day);
 
-  String _startLabel(ReportRange range) => switch (range) {
+  /// 周 / 月右端对齐：最老一点是「点数天前」，最后一点是最近聚合日（通常昨天）。
+  String _startLabel(ReportRange range, int count) => switch (range) {
     ReportRange.day => '00:00',
-    ReportRange.week => '7 天前',
-    ReportRange.month => '30 天前',
+    ReportRange.week || ReportRange.month =>
+      count > 0 ? HistoryPeriod.relativeDayLabel(0, count) : '',
   };
 
   String _endLabel(ReportRange range) {
-    if (range != ReportRange.day) return '当前';
+    if (range != ReportRange.day) return '昨天';
     return _daysAgo(date) == 0 ? '当前' : '23:45';
   }
 

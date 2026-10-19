@@ -119,7 +119,7 @@ class _LightStatusPageState extends State<LightStatusPage> {
                   ),
                   const SizedBox(height: 12),
                   DateRangeNavigator(
-                    label: _dateLabel(),
+                    label: _dateLabel(values.length),
                     // 窗口按周期来：日 = 设备日包的 7 天（当天 + 往前 6 天）；
                     // 周 / 月设备只有当期那一包，往前没有第二份，所以一格都不给翻。
                     // ⚠️ 原来这里是裸的 `periodOffset--`，能一直往前翻到去年
@@ -198,46 +198,20 @@ class _LightStatusPageState extends State<LightStatusPage> {
     ReportRange.month => '月',
   };
 
-  String _dateLabel() {
-    final now = DateTime.now();
-    return switch (range) {
-      ReportRange.day => _formatDay(HistoryPeriod.dayFor(periodOffset)),
-      ReportRange.week => _formatWeek(
-        now.add(Duration(days: periodOffset * 7)),
-      ),
-      ReportRange.month => _formatMonth(
-        DateTime(now.year, now.month + periodOffset),
-      ),
-    };
-  }
+  /// 周 / 月只说窗口，不写具体日期：点数是已聚合天数、右端是最近聚合日（见 [HistoryPeriod]）。
+  String _dateLabel(int count) => switch (range) {
+    ReportRange.day => _formatDay(HistoryPeriod.dayFor(periodOffset)),
+    _ => HistoryPeriod.windowLabel(range, count),
+  };
 
   String _formatDay(DateTime date) => '${date.month}月${date.day}日';
 
-  String _formatWeek(DateTime anchor) {
-    final start = anchor.subtract(Duration(days: anchor.weekday - 1));
-    final end = start.add(const Duration(days: 6));
-    return '${start.month}月${start.day}日 - ${end.month}月${end.day}日';
-  }
-
-  String _formatMonth(DateTime date) => '${date.year}年${date.month}月';
-
   /// 柱状图的标签是**一根柱子一个**（[LightDliBarChart] 按下标取），所以要按点数
-  /// 生成。日视图已经改画折线、走 [_dayLabels]，这里只剩周和月。
+  /// 生成。日视图已经改画折线、走 [_dayLabels]，这里只剩周和月：只标相对天数。
   List<String> _chartLabels(int count) => switch (range) {
-    ReportRange.week => const <String>[
-      '周一',
-      '周二',
-      '周三',
-      '周四',
-      '周五',
-      '周六',
-      '周日',
-    ],
     ReportRange.day => _dayLabels,
-    ReportRange.month => List<String>.generate(
-      count,
-      (index) => index % 5 == 0 ? '${index + 1}日' : '',
-    ),
+    ReportRange.week => HistoryPeriod.relativeBarLabels(count),
+    ReportRange.month => HistoryPeriod.relativeBarLabels(count, every: 30),
   };
 
   /// 纵轴上限：比峰值大的第一个「整」刻度（1/2/5×10ⁿ 一格，共五格）。

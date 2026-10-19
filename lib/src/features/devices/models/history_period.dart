@@ -38,4 +38,45 @@ abstract final class HistoryPeriod {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day + offset);
   }
+
+  // ── 周 / 月：只标相对刻度（docs/app_DP_问题修正说明.md §4.5 第 3 条）──
+  //
+  // 周包 / 月包的点数是「已聚合天数」，设备断过电就会缺天；**右端对齐**，最后一个点是
+  // 最近一次聚合日（通常是昨天，不是今天）。所以横轴不标具体日期 / 星期，只标「N天前」，
+  // 第 i 个点按 `点数 − i` 天前算。
+
+  /// 第 [index] 个点（共 [count] 个）的相对标签。
+  static String relativeDayLabel(int index, int count) {
+    final daysAgo = count - index;
+    return daysAgo <= 1 ? '昨天' : '$daysAgo天前';
+  }
+
+  /// 折线图用的均匀刻度（标签在图上等距铺开）：从最老一点到最新一点取 [ticks] 个。
+  static List<String> relativeTicks(int count, {int ticks = 5}) {
+    if (count <= 0) return const <String>[];
+    if (count <= ticks) {
+      return <String>[
+        for (var i = 0; i < count; i++) relativeDayLabel(i, count),
+      ];
+    }
+    return <String>[
+      for (var tick = 0; tick < ticks; tick++)
+        relativeDayLabel(((count - 1) * tick / (ticks - 1)).round(), count),
+    ];
+  }
+
+  /// 柱状图用的逐柱标签：每隔 [every] 根标一个，最后一根一定标，其余留空。
+  static List<String> relativeBarLabels(int count, {int every = 7}) => <String>[
+    for (var i = 0; i < count; i++)
+      i == count - 1 || (count - 1 - i) % every == 0
+          ? relativeDayLabel(i, count)
+          : '',
+  ];
+
+  /// 日期条上的标题：周 / 月只说窗口，不写日期区间。
+  static String windowLabel(ReportRange range, int count) => switch (range) {
+    ReportRange.day => '',
+    ReportRange.week => count > 0 ? '近 $count 天日均' : '近 4 周',
+    ReportRange.month => count > 0 ? '近 $count 天日均' : '近半年',
+  };
 }

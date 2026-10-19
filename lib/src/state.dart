@@ -478,7 +478,6 @@ class FlowerpotState extends ChangeNotifier {
     await _refreshDevicesForSession(ignoreErrors: false);
   }
 
-
   /// Nearby access points: AP 配网要能看见设备热点，而设备本身只连 2.4 GHz。
   ///
   /// Used by the pairing flow — the search step looks for planter hotspots and
@@ -496,11 +495,7 @@ class FlowerpotState extends ChangeNotifier {
   /// 其它应用、设置页）也在扫，缓存会被它们刷新——这正是「读缓存」能提速的原因。
   Future<ActionResult> probeWifi({bool refresh = true}) async {
     if (_wifiScanning) {
-      return const ActionResult(
-        false,
-        '正在扫描附近网络，请稍候',
-        code: 'wifi_scanning',
-      );
+      return const ActionResult(false, '正在扫描附近网络，请稍候', code: 'wifi_scanning');
     }
     _wifiScanning = true;
     try {
@@ -568,7 +563,8 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 云端查回来的产品信息，按 uuid 存。**只在本轮里留着**：同一轮里查过的（含查空的）
   /// 不再往返，每轮开扫时整张清掉（2026-09-21 产品：「不要缓存」）。
-  final Map<String, BleProductInfo> _bleProductInfo = <String, BleProductInfo>{};
+  final Map<String, BleProductInfo> _bleProductInfo =
+      <String, BleProductInfo>{};
 
   /// 正在查的 uuid，防止同一台并发查两次。
   final Set<String> _productInfoInFlight = <String>{};
@@ -624,7 +620,6 @@ class FlowerpotState extends ChangeNotifier {
 
   BleAvailability get bleAvailability => _bleAvailability;
 
-
   bool get bleScanning => _bleScanning;
 
   /// 扫到的设备，信号强的在前。
@@ -637,15 +632,12 @@ class FlowerpotState extends ChangeNotifier {
   /// 已绑定，剔掉之后页面上就是「什么都没扫到」，结论正好反了。列出来并在行上标注，
   /// 比藏起来有用。
   List<BleDevice> get bleDevices {
-    final items = _bleDevices.values
-        .where((item) {
-          if (PairingGate.showUnfilteredBleScan) return true;
-          // 正常动线：**只列本产品、且还没被绑定的**。附近别人的涂鸦设备、已经绑走的，
-          // 列出来只会让用户点到一个必然失败的东西。
-          return !item.bound && _isOurProduct(item);
-        })
-        .toList()
-      ..sort((a, b) => b.rssi.compareTo(a.rssi));
+    final items = _bleDevices.values.where((item) {
+      if (PairingGate.showUnfilteredBleScan) return true;
+      // 正常动线：**只列本产品、且还没被绑定的**。附近别人的涂鸦设备、已经绑走的，
+      // 列出来只会让用户点到一个必然失败的东西。
+      return !item.bound && _isOurProduct(item);
+    }).toList()..sort((a, b) => b.rssi.compareTo(a.rssi));
     // **按信号强弱只取前 [bleListLimit] 台**（2026-09-11 产品要求：列出来我看看有没有）。
     //
     // 不过滤 + 扫描类型全开之后，附近的涂鸦设备可能不止一台（邻居的、办公室里的）；
@@ -727,8 +719,7 @@ class FlowerpotState extends ChangeNotifier {
   }
 
   /// 扫到的**本产品**台数。页面上单独报——这就是「到底有没有搜到花盆」的答案。
-  int get bleOurProductCount =>
-      _bleDevices.values.where(_isOurProduct).length;
+  int get bleOurProductCount => _bleDevices.values.where(_isOurProduct).length;
 
   /// 列表是否只保留本产品。排查态（[PairingGate.showUnfilteredBleScan]）下不过滤。
   bool get _filterToOurProduct => !PairingGate.showUnfilteredBleScan;
@@ -782,11 +773,14 @@ class FlowerpotState extends ChangeNotifier {
   /// 扫描回调都会重试，几十台设备就是几十次往返**。
   Future<void> refreshBleProductInfo() async {
     final round = _bleRound;
-    final targets = bleDevices.take(_productInfoBudget).where((device) {
-      if (device.uuid.isEmpty || device.productId.isEmpty) return false;
-      return !_bleProductInfo.containsKey(device.uuid) &&
-          !_productInfoInFlight.contains(device.uuid);
-    }).toList(growable: false);
+    final targets = bleDevices
+        .take(_productInfoBudget)
+        .where((device) {
+          if (device.uuid.isEmpty || device.productId.isEmpty) return false;
+          return !_bleProductInfo.containsKey(device.uuid) &&
+              !_productInfoInFlight.contains(device.uuid);
+        })
+        .toList(growable: false);
     if (targets.isEmpty) return;
     for (final device in targets) {
       _productInfoInFlight.add(device.uuid);
@@ -1063,10 +1057,7 @@ class FlowerpotState extends ChangeNotifier {
     // 带上家庭 id：0 台设备最常见的原因不是没配上，而是查的家庭和配网时用的
     // 不是同一个，而那在 Dart 侧原本完全看不出来。
     final home = await _repository.currentHomeId().catchError((_) => '?');
-    return ActionResult(
-      true,
-      '设备列表已刷新，共 ${_devices.length} 台（家庭 $home）',
-    );
+    return ActionResult(true, '设备列表已刷新，共 ${_devices.length} 台（家庭 $home）');
   });
 
   Future<ActionResult> logout() => _guard(() async {
@@ -1145,14 +1136,11 @@ class FlowerpotState extends ChangeNotifier {
       _activatorTokenAt = DateTime.now();
     }
     notifyListeners();
-    return ActionResult(
-      true,
-      switch (home) {
-        '' => '准备就绪',
-        '0' => '准备就绪（家庭待解析）',
-        _ => '准备就绪（家庭 $home）',
-      },
-    );
+    return ActionResult(true, switch (home) {
+      '' => '准备就绪',
+      '0' => '准备就绪（家庭待解析）',
+      _ => '准备就绪（家庭 $home）',
+    });
   });
 
   // ══════════════ 联调日志（临时，流程验通后去掉） ══════════════
@@ -1389,7 +1377,8 @@ class FlowerpotState extends ChangeNotifier {
   Future<String?> productNameFor(String deviceId) =>
       _productNames[deviceId] ??= _loadProductName(deviceId);
 
-  final Map<String, Future<String?>> _productNames = <String, Future<String?>>{};
+  final Map<String, Future<String?>> _productNames =
+      <String, Future<String?>>{};
 
   Future<String?> _loadProductName(String deviceId) async {
     final data = await _repository.deviceProductName(deviceId);
@@ -1428,12 +1417,13 @@ class FlowerpotState extends ChangeNotifier {
     if (device == null || !device.online) return false;
     if (!isMowerDevice(device)) return true;
     final dps = await mowerDps(deviceId);
-    return isDeviceOnline(deviceId) && MowerDp.enumOf(
-          MowerChargingStatus.values,
-          (item) => item.code,
-          dps?[MowerDp.chargingStatus],
-        ) ==
-        MowerChargingStatus.charging;
+    return isDeviceOnline(deviceId) &&
+        MowerDp.enumOf(
+              MowerChargingStatus.values,
+              (item) => item.code,
+              dps?[MowerDp.chargingStatus],
+            ) ==
+            MowerChargingStatus.charging;
   }
 
   final Map<String, Future<MowerMachineLog>> _mowerLogLoads = {};
@@ -1566,7 +1556,9 @@ class FlowerpotState extends ChangeNotifier {
       );
     } else {
       if (_mowerShutdown.remove(device.id) == null) return;
-      _logInteraction('开机 ← ${device.name} DP113 shutdown_report=false：清除「已关机」');
+      _logInteraction(
+        '开机 ← ${device.name} DP113 shutdown_report=false：清除「已关机」',
+      );
     }
     notifyListeners();
   }
@@ -1647,7 +1639,9 @@ class FlowerpotState extends ChangeNotifier {
         // 通道选择只读取涂鸦 SDK 的实际连接状态。
         if (link['wifi'] == true) {
           final lanOnly =
-              link['lan'] == true && link['mqtt'] != true && link['cloud'] != true;
+              link['lan'] == true &&
+              link['mqtt'] != true &&
+              link['cloud'] != true;
           mode = lanOnly
               ? 'ThingDevicePublishModeLocal'
               : 'ThingDevicePublishModeInternet';
@@ -1683,11 +1677,17 @@ class FlowerpotState extends ChangeNotifier {
   /// 割草机的 DP 上报：哪台设备、这条报文带了哪几个 DP（设备快照另由 [mowerDps] 取）。
   ///
   /// 割草机的上报**不进**花盆那条处理（植物、历史曲线、引导窗），只从这里分发出去。
-  Stream<({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})> get mowerReports =>
-      _mowerReports.stream;
-  final StreamController<({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})>
+  Stream<
+    ({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})
+  >
+  get mowerReports => _mowerReports.stream;
+  final StreamController<
+    ({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})
+  >
   _mowerReports =
-      StreamController<({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})>.broadcast();
+      StreamController<
+        ({String deviceId, Set<int> changedDps, Map<int, Object?> reportedDps})
+      >.broadcast();
 
   /// 配网失败的完整原因（提示 + 失败码 + 各步耗时）记一条。
   ///
@@ -1749,6 +1749,7 @@ class FlowerpotState extends ChangeNotifier {
   Object? _settingLogValue(DeviceControlSettings settings, String key) =>
       switch (key) {
         'autoBrightness' => settings.autoBrightness,
+        'manualBrightness' => settings.manualBrightness,
         'led' => settings.ledEnabled,
         'soundInteraction' => settings.soundInteraction,
         'soundSensitivity' => settings.soundSensitivity,
@@ -1826,7 +1827,6 @@ class FlowerpotState extends ChangeNotifier {
     _pairingLogSub = null;
   }
 
-
   /// 连设备失败时的诊断串：原文 + 用时 + 手机当时连在哪个网络。
   ///
   /// 这三样比任何猜测都有用：**用时**看得出是不是跑满了超时（跑满 ⇒ SDK 一直没能和设备
@@ -1893,10 +1893,7 @@ class FlowerpotState extends ChangeNotifier {
             target: target,
             joinedManually: false,
           );
-          return ActionResult(
-            true,
-            joinedByApp ? '已连接设备热点' : '手机已经在设备热点上',
-          );
+          return ActionResult(true, joinedByApp ? '已连接设备热点' : '手机已经在设备热点上');
         } on TuyaException catch (error) {
           // 事实在前、建议在后（`PRODUCT_RULES` §4.1）：原文 + 用时 + 手机当时连在哪。
           throw TuyaException(
@@ -1909,9 +1906,6 @@ class FlowerpotState extends ChangeNotifier {
         }
       });
 
-
-
-
   /// 取消配网动线：把手机的 Wi-Fi 还回去，进度卡收起来。
   ///
   /// 「无论怎么退出都要把网络还回去」是硬性要求（`PRODUCT_RULES` §1.4.1）：用户点了
@@ -1920,7 +1914,6 @@ class FlowerpotState extends ChangeNotifier {
     await releaseDeviceHotspot();
     _setPairingStage(PairingStage.idle);
   }
-
 
   /// **AP 热点配网——全项目唯一的一条配网路径。**
   ///
@@ -1988,17 +1981,13 @@ class FlowerpotState extends ChangeNotifier {
         joinedManually: hotspotJoinedManually,
       );
       mark(
-        joinedByApp
-            ? '连热点${target == null ? '(前缀)' : '($target)'}'
-            : '连热点(手动)',
+        joinedByApp ? '连热点${target == null ? '(前缀)' : '($target)'}' : '连热点(手动)',
       );
 
       pairingStarted = true;
       _setPairingStage(PairingStage.sendingWifi);
       final result = await _pairInternal(
-        () => _repository.pair(
-          PairingRequest(ssid: ssid, password: password),
-        ),
+        () => _repository.pair(PairingRequest(ssid: ssid, password: password)),
       );
       mark('配网');
       return ActionResult(
@@ -2114,7 +2103,11 @@ class FlowerpotState extends ChangeNotifier {
         releaseHotspot: false,
         invalidateToken: pairingStarted,
       );
-      throw ApiException(error.code, withSteps(error.message), data: error.data);
+      throw ApiException(
+        error.code,
+        withSteps(error.message),
+        data: error.data,
+      );
     } catch (_) {
       await _abandonPairingAttempt(
         releaseHotspot: false,
@@ -2127,7 +2120,6 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   static const String _manualHotspotCode = 'hotspot_manual_required';
-
 
   /// 让手机连上设备热点。返回 true 表示由 App 发起的连接（配网后由原生释放），
   /// false 表示走的是手动路径（用户自己在系统设置里连的）。
@@ -2171,10 +2163,8 @@ class FlowerpotState extends ChangeNotifier {
           )
           .timeout(
             hotspotJoinDeadline,
-            onTimeout: () => throw const TuyaException(
-              'hotspot_join_timeout',
-              '等待连接设备热点超时',
-            ),
+            onTimeout: () =>
+                throw const TuyaException('hotspot_join_timeout', '等待连接设备热点超时'),
           );
       if (!joined) {
         throw const TuyaException('hotspot_join_failed', '未能连上设备热点');
@@ -2498,6 +2488,9 @@ class FlowerpotState extends ChangeNotifier {
       final current = device.settings;
       final next = switch (key) {
         'autoBrightness' => current.copyWith(autoBrightness: value as bool),
+        'manualBrightness' => current.copyWith(
+          manualBrightness: (value as num).round(),
+        ),
         // 'led' 2026-09-28 起走自己的 166，不再和屏幕（117）共用一个字段。
         'led' => current.copyWith(ledEnabled: value as bool),
         'soundInteraction' => current.copyWith(soundInteraction: value as bool),
@@ -2519,9 +2512,10 @@ class FlowerpotState extends ChangeNotifier {
         'clockFormat' => current.copyWith(clockFormat: value as String),
         'standby' => current.copyWith(standbyEnabled: value as bool),
         'standbyDelay' => current.copyWith(
-          standbyDelayMinutes: (value as num)
-              .round()
-              .clamp(TuyaConfig.standbyDelayMin, TuyaConfig.standbyDelayMax),
+          standbyDelayMinutes: (value as num).round().clamp(
+            TuyaConfig.standbyDelayMin,
+            TuyaConfig.standbyDelayMax,
+          ),
         ),
         'deviceLanguage' => current.copyWith(deviceLanguage: value as String),
         'plantDetection' => current.copyWith(plantDetection: value as bool),
@@ -2669,7 +2663,8 @@ class FlowerpotState extends ChangeNotifier {
     //
     // ⚠️ 过去那几天**不接实时点**：实时推送是「现在」这个值，接在历史某天的曲线
     // 后面就是一条假曲线（昨天的图右端冒出今天的读数）。实时只属于今天。
-    final past = range == ReportRange.day && date != null && _daysAgoOf(date) > 0
+    final past =
+        range == ReportRange.day && date != null && _daysAgoOf(date) > 0
         ? date
         : null;
     // 同一份数据返回同一个列表：图表按列表是否换了来决定重置选中点，别的原因触发的
@@ -2710,9 +2705,11 @@ class FlowerpotState extends ChangeNotifier {
   /// [date] 距今几天：今天 0，昨天 1。只看年月日，不看时分。
   static int _daysAgoOf(DateTime date) {
     final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day)
-        .difference(DateTime(date.year, date.month, date.day))
-        .inDays;
+    return DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).difference(DateTime(date.year, date.month, date.day)).inDays;
   }
 
   /// 每个指标跟着哪条实时 DP 往曲线上接点、哪条日包 DP 到了就以包为准。
@@ -2806,81 +2803,75 @@ class FlowerpotState extends ChangeNotifier {
 
   /// Writes one memorial day: 158/159 for the fixed pair, a 154 upsert frame
   /// for everything else.
-  Future<ActionResult> saveMemorial(String deviceId, MemorialEntry entry) =>
-      _guard(() async {
-        if (entry.isFixed) {
-          await _publishFixedMemorial(deviceId, entry);
-          _replaceDevice(deviceId, (device) {
-            final date = entry.enabled ? entry.date : null;
-            return entry.kind == MemorialKind.birthday
-                ? device.copyWith(birthday: date, clearBirthday: date == null)
-                : device.copyWith(
-                    weddingDay: date,
-                    clearWeddingDay: date == null,
-                  );
-          });
-          return ActionResult(true, '${entry.title}已保存');
-        }
-        final date = entry.date;
-        if (date == null && entry.enabled) {
-          throw const TuyaException('memorial_date_missing', '请先选择纪念日日期');
-        }
-        final entries = _memorials.putIfAbsent(
-          deviceId,
-          () => <MemorialEntry>[],
-        );
-        final index = entries.indexWhere((item) => item.id == entry.id);
-        if (index < 0 && entries.length >= TuyaMemorialCodec.maxCustomEntries) {
-          throw TuyaException(
-            'memorial_limit_reached',
-            '自定义纪念日最多 ${TuyaMemorialCodec.maxCustomEntries} 条',
-          );
-        }
-        // 先写后端：帧里的 id 用的就是后端分配的 anniversaryId，新增时得先拿到
-        // 它才写得了 DP。图片内容也在这一步上传换成 URL。
-        final saved = _backendReady
-            ? await _saveMemorialOnBackend(deviceId, entry, isNew: index < 0)
-            : entry;
-        await _publishMemorialFrame(
-          deviceId,
-          TuyaMemorialCodec.encodeEntry(
-            id: saved.id,
-            // 停用帧不带日期，但本地要留着，用户重新开启时不用再选一次。
-            date: saved.date ?? DateTime.now(),
-            type: saved.type,
-            content: saved.content,
-            enabled: saved.enabled,
-          ),
-        );
-        if (index >= 0) {
-          entries[index] = saved;
-        } else {
-          entries.add(saved);
-        }
-        await _persistMemorials();
-        notifyListeners();
-        return const ActionResult(true, '纪念日已保存');
+  Future<ActionResult> saveMemorial(
+    String deviceId,
+    MemorialEntry entry,
+  ) => _guard(() async {
+    if (entry.isFixed) {
+      await _publishFixedMemorial(deviceId, entry);
+      _replaceDevice(deviceId, (device) {
+        final date = entry.enabled ? entry.date : null;
+        return entry.kind == MemorialKind.birthday
+            ? device.copyWith(birthday: date, clearBirthday: date == null)
+            : device.copyWith(weddingDay: date, clearWeddingDay: date == null);
       });
+      return ActionResult(true, '${entry.title}已保存');
+    }
+    final date = entry.date;
+    if (date == null && entry.enabled) {
+      throw const TuyaException('memorial_date_missing', '请先选择纪念日日期');
+    }
+    final entries = _memorials.putIfAbsent(deviceId, () => <MemorialEntry>[]);
+    final index = entries.indexWhere((item) => item.id == entry.id);
+    if (index < 0 && entries.length >= TuyaMemorialCodec.maxCustomEntries) {
+      throw TuyaException(
+        'memorial_limit_reached',
+        '自定义纪念日最多 ${TuyaMemorialCodec.maxCustomEntries} 条',
+      );
+    }
+    // 先写后端：帧里的 id 用的就是后端分配的 anniversaryId，新增时得先拿到
+    // 它才写得了 DP。图片内容也在这一步上传换成 URL。
+    final saved = _backendReady
+        ? await _saveMemorialOnBackend(deviceId, entry, isNew: index < 0)
+        : entry;
+    await _publishMemorialFrame(
+      deviceId,
+      TuyaMemorialCodec.encodeEntry(
+        id: saved.id,
+        // 停用帧不带日期，但本地要留着，用户重新开启时不用再选一次。
+        date: saved.date ?? DateTime.now(),
+        type: saved.type,
+        content: saved.content,
+        enabled: saved.enabled,
+      ),
+    );
+    if (index >= 0) {
+      entries[index] = saved;
+    } else {
+      entries.add(saved);
+    }
+    await _persistMemorials();
+    notifyListeners();
+    return const ActionResult(true, '纪念日已保存');
+  });
 
   /// Removes a custom entry from the device and from the local list. The fixed
   /// pair cannot be deleted — disabling it is what the UI offers instead.
-  Future<ActionResult> deleteMemorial(String deviceId, int id) =>
-      _guard(() async {
-        // 设备先删、后端后删：删帧是幂等的，后端这步失败时条目还在列表里，用户
-        // 再点一次就能补上；反过来后端先删的话，失败重试要面对一条列表里已经
-        // 没有、设备上还在显示的孤儿记录。
-        await _publishMemorialFrame(
-          deviceId,
-          TuyaMemorialCodec.encodeDelete(id),
-        );
-        if (_backendReady) {
-          await _backend.deleteAnniversary(id);
-        }
-        _memorials[deviceId]?.removeWhere((item) => item.id == id);
-        await _persistMemorials();
-        notifyListeners();
-        return const ActionResult(true, '纪念日已删除');
-      });
+  Future<ActionResult> deleteMemorial(String deviceId, int id) => _guard(
+    () async {
+      // 设备先删、后端后删：删帧是幂等的，后端这步失败时条目还在列表里，用户
+      // 再点一次就能补上；反过来后端先删的话，失败重试要面对一条列表里已经
+      // 没有、设备上还在显示的孤儿记录。
+      await _publishMemorialFrame(deviceId, TuyaMemorialCodec.encodeDelete(id));
+      if (_backendReady) {
+        await _backend.deleteAnniversary(id);
+      }
+      _memorials[deviceId]?.removeWhere((item) => item.id == id);
+      await _persistMemorials();
+      notifyListeners();
+      return const ActionResult(true, '纪念日已删除');
+    },
+  );
 
   /// APP 后端此刻是否可用。没配后端（纯涂鸦链路）或会话已经失效
   /// 时，纪念日、设备改名这些会退回接后端之前的行为，而不是直接报错。
@@ -2981,16 +2972,45 @@ class FlowerpotState extends ChangeNotifier {
         return ActionResult(true, '已通知设备删除 $fileName');
       });
 
-  /// `del_all_photos` (156).
+  /// 删除设备上的所有照片：DP156 `del_all_photos` = true（`docs/app_DP_问题修正说明.md` §3）。
+  ///
+  /// 设备**没有主动完成回执**，删除是异步的，所以下发后等 [deleteAllConfirmDelay] 用 DP160
+  /// 主动查 `del_all:`，设备答 `del_all::ok` 表示相册目录已空；没确认就再查一次。
+  /// 两次都没确认时仍算「已下发」，只是消息里写明暂未确认（`code: 'unconfirmed'`）。
   Future<ActionResult> deleteAllDevicePhotos(String deviceId) =>
       _guard(() async {
         final dpId = TuyaConfig.dp['del_all_photos'];
-        if (dpId == null) {
+        final queryDp = TuyaConfig.dp['op_result'];
+        if (dpId == null || queryDp == null) {
           throw const TuyaException('unsupported_dp', '当前产品未提供清空照片功能点');
         }
         await _publishDps(deviceId, <int, Object>{dpId: true});
-        return const ActionResult(true, '已通知设备清空照片');
+        for (var attempt = 0; attempt < 2; attempt++) {
+          await Future<void>.delayed(deleteAllConfirmDelay);
+          final cleared = await _publishAwaitingReceipt(
+            deviceId,
+            <int, Object>{queryDp: 'del_all:'},
+            receiptPrefix: 'del_all::',
+            timeout: deleteAllQueryTimeout,
+          );
+          if (cleared == true) {
+            return const ActionResult(true, '设备照片已全部删除');
+          }
+        }
+        return const ActionResult(
+          true,
+          '已通知设备删除所有照片，暂未确认删除完成',
+          code: 'unconfirmed',
+        );
       });
+
+  /// 下发 DP156 之后多久去查一次（说明建议 3~5 秒）。测试里可以改短。
+  @visibleForTesting
+  static Duration deleteAllConfirmDelay = const Duration(seconds: 4);
+
+  /// DP160 查询等应答的上限。
+  @visibleForTesting
+  static Duration deleteAllQueryTimeout = const Duration(seconds: 5);
 
   /// `pin_photo` (157): the device shows this file first.
   Future<ActionResult> pinDevicePhoto(String deviceId, String fileName) =>
@@ -3194,8 +3214,7 @@ class FlowerpotState extends ChangeNotifier {
   /// 是「没有新版本」；只有确实不同的版本号才点亮小红点。比较的基准优先用同一
   /// 条 OTA 记录里的当前版本，取不到才退回设备列表里的固件版本。
   void _rememberFirmwareUpdate(String id, FirmwareUpdate? update) {
-    final current =
-        update?.currentVersion ?? deviceById(id)?.firmwareVersion;
+    final current = update?.currentVersion ?? deviceById(id)?.firmwareVersion;
     final version = update?.version ?? '';
     final next = version.isEmpty || version == current ? null : update;
     if (next == null) {
@@ -3304,29 +3323,89 @@ class FlowerpotState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Advances `water_level_calib` (DP 140) by one step.
+  /// 水位校准下发一步（DP140 = [step]，0~4），并等 DP160 回执 `calib:<对象>:ok/fail`。
   ///
-  /// The DP is an enum of stages rather than a single "calibrate" command: the
-  /// dialog reports the step it is **about to show**, so the device is already
-  /// in that stage while the user performs the action written on the card.
-  /// step0 therefore goes out as the dialog opens, before the user does
-  /// anything.
+  /// 新编号语义见 [TuyaConfig.calibrationSteps]：采样发生在报文到达的瞬间，页面必须在
+  /// 用户做完卡片上的动作、点了按钮之后才调。结果：
+  /// - 成功：`success`；
+  /// - 设备回 fail：`code: 'calib_fail'`，消息按步骤给（§5.5）；
+  /// - 没等到回执：`code: 'receipt_timeout'`。
   Future<ActionResult> calibrateWaterLevel(String id, int step) =>
       _guard(() async {
         if (step < 0 || step >= TuyaConfig.calibrationSteps.length) {
           throw TuyaException('unknown_dp', '未知的校准步骤：$step');
         }
-        await _publishCalibration(id, TuyaConfig.calibrationSteps[step]);
-        return const ActionResult(true, '指令已发送，请保持设备在线');
+        final ok = await _publishCalibration(
+          id,
+          TuyaConfig.calibrationSteps[step],
+          TuyaConfig.calibrationReceiptObjects[step],
+        );
+        if (ok == null) {
+          return const ActionResult(
+            false,
+            '未收到设备确认，请确认设备在线后重试',
+            code: 'receipt_timeout',
+          );
+        }
+        if (!ok) {
+          return ActionResult(false, switch (step) {
+            0 => '未能开始校准，请确认设备在线后重试',
+            4 => '校准数据异常，请从第 1 步重新开始',
+            _ => '未检测到加水或操作过快，请确认已加入对应水量并等待 5 秒后重试',
+          }, code: 'calib_fail');
+        }
+        return ActionResult(true, step == 4 ? '校准完成' : '已记录');
       });
 
-  /// Leaves calibration mode when the user backs out part way through, so the
-  /// device does not sit waiting for the rest of the sequence.
+  /// 取消校准：DP140 = 5（丢弃暂存），等 `calib:step5:ok`。没等到回执返回
+  /// `code: 'receipt_timeout'`，页面提示「未收到设备确认」。
   Future<ActionResult> cancelWaterLevelCalibration(String id) =>
       _guard(() async {
-        await _publishCalibration(id, TuyaConfig.calibrationCancel);
-        return const ActionResult(true, '已取消校准');
+        final ok = await _publishCalibration(
+          id,
+          TuyaConfig.calibrationCancel,
+          TuyaConfig.calibrationCancelReceiptObject,
+        );
+        if (ok == null) {
+          return const ActionResult(false, '未收到设备确认', code: 'receipt_timeout');
+        }
+        return ActionResult(ok, ok ? '已取消校准' : '设备未能取消校准');
       });
+
+  /// 重新配网（DP150 `re_pairing`，`docs/app_DP_问题修正说明.md` §1）。
+  ///
+  /// 设备收到后清配网信息、重启并进入配网模式，**本地数据全部保留**；不解绑、不发 141。
+  /// 成功没有 ok 回执（设备直接重启离线），被拒时 DP160 回 `re_pairing:trigger:fail`——
+  /// 下发后短暂等一下这条失败回执，没等到就按已受理处理。DP150 只写，设备得在线才收得到。
+  Future<ActionResult> rePairDevice(String id) => _guard(() async {
+    final dpId = TuyaConfig.dp['re_pairing'];
+    if (dpId == null) {
+      throw const TuyaException('unsupported_dp', '当前产品未提供重新配网功能点');
+    }
+    _requireDeviceOnline(id);
+    final ok = await _publishAwaitingReceipt(
+      id,
+      <int, Object>{dpId: true},
+      receiptPrefix: 're_pairing:trigger:',
+      timeout: rePairingRejectWindow,
+    );
+    if (ok == false) {
+      return const ActionResult(
+        false,
+        '设备拒绝了重新配网，请稍后重试',
+        code: 're_pairing_rejected',
+      );
+    }
+    return const ActionResult(true, '设备将重启并进入配网');
+  });
+
+  /// 下发 DP150 之后等「被拒」回执的时长。成功不会有回执，所以这只是个短窗口。
+  @visibleForTesting
+  static Duration rePairingRejectWindow = const Duration(seconds: 3);
+
+  /// 校准回执的等待上限（§5.4：5~10 秒）。
+  @visibleForTesting
+  static Duration calibrationReceiptTimeout = const Duration(seconds: 10);
 
   /// Tells the planter itself to reset (DP 141) before the SDK unbinds it.
   ///
@@ -3359,12 +3438,67 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
-  Future<void> _publishCalibration(String id, String step) async {
+  /// 下发 DP140 的一步并等回执：true ok / false fail / null 超时。
+  Future<bool?> _publishCalibration(
+    String id,
+    String step,
+    String receiptObject,
+  ) async {
     final dpId = TuyaConfig.dp['water_level_calib'];
     if (dpId == null) {
       throw const TuyaException('unsupported_dp', '当前产品未提供水位校准功能点');
     }
-    await _publishDps(id, <int, Object>{dpId: step});
+    return _publishAwaitingReceipt(
+      id,
+      <int, Object>{dpId: step},
+      receiptPrefix: 'calib:$receiptObject:',
+      timeout: calibrationReceiptTimeout,
+    );
+  }
+
+  /// 设备的 DP160 `op_result` 回执（`<操作>:<对象>:<结果>`），按设备分发。
+  final StreamController<({String deviceId, String receipt})> _opReceipts =
+      StreamController<({String deviceId, String receipt})>.broadcast();
+
+  /// 下发 [dps]，并等这台设备第一条以 [receiptPrefix] 开头的 DP160 回执。
+  ///
+  /// 监听在下发**之前**挂上，免得回执比下发调用先回来。返回 true（`…:ok`）、
+  /// false（`…:fail` 或其它结果）、null（[timeout] 内没等到）。
+  Future<bool?> _publishAwaitingReceipt(
+    String deviceId,
+    Map<int, Object> dps, {
+    required String receiptPrefix,
+    required Duration timeout,
+  }) async {
+    final receipt = Completer<bool?>();
+    final subscription = _opReceipts.stream
+        .where(
+          (event) =>
+              event.deviceId == deviceId &&
+              event.receipt.startsWith(receiptPrefix),
+        )
+        .listen((event) {
+          if (receipt.isCompleted) return;
+          final result = event.receipt.substring(receiptPrefix.length).trim();
+          receipt.complete(result == 'ok');
+        });
+    try {
+      await _publishDps(deviceId, dps);
+      return await receipt.future.timeout(timeout, onTimeout: () => null);
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
+  /// 把这条上报里的 DP160 回执分发出去（只看本条报文真正带了的值）。
+  void _noteOpReceipt(String deviceId, Map<int, Object?> reportedDps) {
+    final dpId = TuyaConfig.dp['op_result'];
+    if (dpId == null) return;
+    final value = reportedDps[dpId];
+    if (value == null) return;
+    final receipt = '$value';
+    _logInteraction('回执 ← DP$dpId $receipt');
+    _opReceipts.add((deviceId: deviceId, receipt: receipt));
   }
 
   /// 下发植物：116 植物品种和 161 植物分类走同一条指令。
@@ -3813,8 +3947,11 @@ class FlowerpotState extends ChangeNotifier {
       // 不走下面花盆那套（植物、引导窗、历史曲线）。
       if (device != null && isMowerDevice(device)) {
         _applyDeviceUpdate(update);
-        _mowerReports.add((deviceId: device.id, changedDps: update.changedDps,
-          reportedDps: update.reportedDps));
+        _mowerReports.add((
+          deviceId: device.id,
+          changedDps: update.changedDps,
+          reportedDps: update.reportedDps,
+        ));
         unawaited(_recordMowerMachineUpdate(update));
         if (update.changedDps.contains(MowerDp.shutdownReport)) {
           unawaited(_noteMowerShutdownReport(device));
@@ -3832,6 +3969,7 @@ class FlowerpotState extends ChangeNotifier {
         _logInteraction('上报 ← 设备被解绑 ${update.removedId}');
       }
       _applyDeviceUpdate(update);
+      if (device != null) _noteOpReceipt(device.id, update.reportedDps);
       // ⚠️ **必须放在 [_applyDeviceUpdate] 之后**：计数一变页面就会重建并去读
       // `plantGuidePending`，而那个读的是合并后的设备快照。先记数的话，页面会拿
       // 着**上一版**状态判定「不用弹」，把这次上报白白消耗掉。
@@ -4031,46 +4169,12 @@ class FlowerpotState extends ChangeNotifier {
       }
     }
     _confirmOtaByReportedVersion(
-      device, update.changedDps, reportedDps: update.reportedDps,
+      device,
+      update.changedDps,
+      reportedDps: update.reportedDps,
     );
-    _confirmOtaByResultDp(device, update.changedDps);
-  }
-
-  /// DP168 `ota_result`（花盆，2026-09-28 固件新增）：设备重启连云后自己比对「目标版本 == 当前版本」，
-  /// 成功报 2、失败报 3（失败会恢复资源再重启，回来补发 3）。App 发起的升级还没结论时拿它收尾，
-  /// 升级页不再一直停在「升级中」；和涂鸦回调、版本号兜底（[_confirmOtaByReportedVersion]）并存，谁先到谁算。
-  ///
-  /// - 只看**这条报文里带了** 168 的，不看快照里的旧值（那是上一次升级的结论）；
-  /// - 只收尾**进行中**的升级（已成功 / 已失败的不改），不看阶段——报 2 / 3 时设备已经重启连云，
-  ///   中间「重启中」那段本来就不判失败；
-  /// - 0 idle / 1 downloading 只记日志。
-  void _confirmOtaByResultDp(SmartPlanterDevice device, Set<int> changedDps) {
-    if (isMowerDevice(device)) return;
-    final dpId = TuyaConfig.dp['ota_result'];
-    if (dpId == null || !changedDps.contains(dpId)) return;
-    final progress = _otaProgress[device.id];
-    final running = progress != null && progress.status == OtaStatus.running;
-    final code = device.otaResultCode;
-    _logInteraction(
-      'OTA ← DP$dpId ota_result=${device.otaResult}'
-      '${running ? '' : '（App 这边没有进行中的升级，只记录）'}',
-    );
-    if (!running) return;
-    if (code == 2) {
-      _logInteraction('OTA ← DP$dpId 设备报升级成功，按升级完成处理');
-      _applyOtaProgress(
-        OtaProgress(deviceId: device.id, status: OtaStatus.success),
-      );
-    } else if (code == 3) {
-      _logInteraction('OTA ✗ DP$dpId 设备报升级失败');
-      _applyOtaProgress(
-        OtaProgress(
-          deviceId: device.id,
-          status: OtaStatus.failed,
-          message: '设备报告固件升级失败，请稍后重试。',
-        ),
-      );
-    }
+    // 花盆 DP168 曾按 `ota_result` 收尾升级；按 docs/app_DP_问题修正说明.md §6，168 是手动亮度，
+    // 已不再参与 OTA 判定（涂鸦回调与 DP148 版本号兜底照旧）。
   }
 
   /// Applies a change the device pushed on its own.
@@ -4155,6 +4259,7 @@ class FlowerpotState extends ChangeNotifier {
     _deviceUpdates?.cancel();
     _otaUpdates?.cancel();
     unawaited(_mowerReports.close());
+    unawaited(_opReceipts.close());
     _clearMowerMachineLogs();
     // BLE 扫描在原生侧握着 Activity、还在耗电，状态对象没了更没人去停它。
     //
@@ -4223,35 +4328,19 @@ class FlowerpotState extends ChangeNotifier {
     try {
       return await action();
     } on AuthValidationException catch (error) {
-      return ActionResult(
-        false,
-        error.message,
-        code: 'invalid_input',
-      );
+      return ActionResult(false, error.message, code: 'invalid_input');
     } on TuyaException catch (error) {
       // 涂鸦的错误码分不出是不是手机没网：交给「网络异常」弹窗去查一次，网是通的
       // 就什么都不发生。APP 后端那边由 ApiClient 自己上报。
       NetworkStatus.reportFailure();
-      return ActionResult(
-        false,
-        error.message,
-        code: error.code,
-      );
+      return ActionResult(false, error.message, code: error.code);
     } on ApiException catch (error) {
       if (error.isAuthError && epoch == _sessionEpoch) {
         _handleBackendSessionExpired(error);
       }
-      return ActionResult(
-        false,
-        error.message,
-        code: error.code.toString(),
-      );
+      return ActionResult(false, error.message, code: error.code.toString());
     } catch (error) {
-      return ActionResult(
-        false,
-        '操作失败：$error',
-        code: 'unexpected_error',
-      );
+      return ActionResult(false, '操作失败：$error', code: 'unexpected_error');
     }
   }
 
@@ -4565,7 +4654,11 @@ class FlowerpotState extends ChangeNotifier {
 
   static String _deviceLoadMessage(Object error) => switch (error) {
     TuyaException tuya => _diagnostic('涂鸦', tuya.code, tuya.message),
-    ApiException api => _diagnostic(_apiSource(api.code), api.code, api.message),
+    ApiException api => _diagnostic(
+      _apiSource(api.code),
+      api.code,
+      api.message,
+    ),
     _ => _diagnostic('APP', 'device_list_failed', '设备列表读取失败：$error'),
   };
 
@@ -4605,10 +4698,7 @@ class FlowerpotState extends ChangeNotifier {
   /// 这一句，避免无 token 的请求打出去再靠 401 兜回来。
   void _requireBackendSession() {
     if (_backend.enabled && _backend.hasSession) return;
-    throw const ApiException(
-      'BACKEND_SESSION_REQUIRED',
-      'APP 后端登录状态已失效，请重新登录',
-    );
+    throw const ApiException('BACKEND_SESSION_REQUIRED', 'APP 后端登录状态已失效，请重新登录');
   }
 
   Future<void> _refreshBackendImages(String deviceId) async {

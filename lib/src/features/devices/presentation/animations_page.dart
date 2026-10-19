@@ -87,7 +87,24 @@ class _AnimationsPageState extends State<AnimationsPage>
         .where((item) => !item.path.startsWith('builtin://'))
         .toList(growable: false);
     return AppPageScaffold(
-      appBar: const AppPageHeader(title: '定制动画', leading: AppBackButton()),
+      appBar: AppPageHeader(
+        title: '定制动画',
+        leading: const AppBackButton(),
+        actions: <Widget>[
+          // DP156：清空设备相册（docs/app_DP_问题修正说明.md §3）。
+          if (files.isNotEmpty)
+            TextButton(
+              key: const Key('delete-all-photos-button'),
+              onPressed: state.busy || _busy
+                  ? null
+                  : () => _deleteAll(context, files),
+              child: Text(
+                '全部删除',
+                style: AppTypography.body.copyWith(color: AppColors.danger),
+              ),
+            ),
+        ],
+      ),
       background: AppPageBackground.standard,
       body: Stack(
         children: <Widget>[
@@ -227,9 +244,7 @@ class _AnimationsPageState extends State<AnimationsPage>
     final confirmed = await showAppConfirmDialog(
       context,
       title: all ? '清空全部文件' : '删除选中文件',
-      message: all
-          ? '设备上这 1 个文件会被清空，确定继续吗？'
-          : '选中的文件会从云端和设备上移除，确定继续吗？',
+      message: all ? '设备上这 1 个文件会被清空，确定继续吗？' : '选中的文件会从云端和设备上移除，确定继续吗？',
       confirmLabel: '删除',
       destructive: true,
       icon: Icons.delete_outline,
@@ -264,6 +279,56 @@ class _AnimationsPageState extends State<AnimationsPage>
       context,
       failed == 0 ? '已删除 1 个文件' : '文件删除失败，请重试',
       tone: failed == 0 ? AppMessageTone.success : AppMessageTone.error,
+    );
+  }
+
+  /// 删除所有照片：DP156 清空设备相册（等 DP160 `del_all::ok` 确认），再把 App 相册列表
+  /// 里的云端记录逐条删掉，两边同步清空。置顶壁纸、正在看图的状态由设备自己处理。
+  Future<void> _deleteAll(
+    BuildContext context,
+    List<AnimationAsset> files,
+  ) async {
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: '删除所有照片',
+      message: '设备相册中的全部 ${files.length} 张照片会被清空（含置顶壁纸），确定继续吗？',
+      confirmLabel: '全部删除',
+      destructive: true,
+      icon: Icons.delete_outline,
+    );
+    if (!confirmed || !context.mounted) return;
+    final state = FlowerpotScope.of(context);
+    final outcome = await _run(() async {
+      final cleared = await state.deleteAllDevicePhotos(widget.deviceId);
+      if (!cleared.success) return (cleared, 0);
+      var failed = 0;
+      for (final file in files) {
+        final removed = await state.deleteAnimation(widget.deviceId, file.id);
+        if (!removed.success) failed++;
+      }
+      return (cleared, failed);
+    });
+    if (outcome == null || !context.mounted) return;
+    final (cleared, failed) = outcome;
+    if (!cleared.success) {
+      showDeviceActionResult(context, cleared);
+      return;
+    }
+    setState(() => _selectedId = null);
+    if (failed > 0) {
+      showAppMessage(
+        context,
+        '设备照片已清空，$failed 条云端记录删除失败，请重试',
+        tone: AppMessageTone.error,
+      );
+      return;
+    }
+    showAppMessage(
+      context,
+      cleared.message,
+      tone: cleared.code == 'unconfirmed'
+          ? AppMessageTone.info
+          : AppMessageTone.success,
     );
   }
 
@@ -771,11 +836,7 @@ class _Thumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const fallback = Center(
-      child: Icon(
-        Icons.image_outlined,
-        color: AppColors.brandDark,
-        size: 26,
-      ),
+      child: Icon(Icons.image_outlined, color: AppColors.brandDark, size: 26),
     );
     if (path.startsWith('http')) {
       return Image.network(

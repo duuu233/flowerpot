@@ -128,7 +128,6 @@ abstract class TuyaRepository {
   /// 搜索页据此「30 秒一次真扫 + 2 秒一次读缓存」，比只靠真扫快得多。
   Future<WifiScan> scanWifi({bool refresh = true});
 
-
   Future<void> publishDps(String deviceId, Map<int, Object> dps);
 
   /// 指定通道下发（涂鸦 `publishDps(String, ThingDevicePublishModeEnum, cb)`，2026-09-23 割草机）。
@@ -468,8 +467,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   late final Stream<String> bleScanStops = _rawEvents
       .where(
-        (event) =>
-            event is Map && '${event['type'] ?? ''}' == 'bleScanStopped',
+        (event) => event is Map && '${event['type'] ?? ''}' == 'bleScanStopped',
       )
       // 不走 `_stringField`：它在字段缺失时返回 null，而原因缺失不该让这条结束事件丢掉。
       .map((event) => '${(event as Map)['reason'] ?? ''}');
@@ -494,9 +492,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       'queryDeviceProductInfo',
       <String, Object?>{'productId': productId, 'uuid': uuid, 'mac': mac},
     );
-    return raw == null
-        ? const BleProductInfo()
-        : BleProductInfo.fromMap(raw);
+    return raw == null ? const BleProductInfo() : BleProductInfo.fromMap(raw);
   }
 
   /// 解析原生的 BLE 事件：`{type: 'bleDevice', uuid, name, rssi, …}`。
@@ -521,7 +517,6 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     if ('${event['type'] ?? ''}' != type) return null;
     return event[field]?.toString();
   }
-
 
   /// 解析原生的 OTA 事件：`{deviceId, ota: {status, percent?, message?, stage?}}`。
   OtaProgress? _otaUpdate(Object? event) {
@@ -562,6 +557,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     if (event['removed'] == true) {
       _snapshots.remove(deviceId);
       _history.remove(deviceId);
+      _historyFrames.remove(deviceId);
       return DeviceUpdate.removed(deviceId);
     }
 
@@ -581,10 +577,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     var changed = const <int>{};
     if (dps is Map) {
       final known = merged['dps'];
-      merged['dps'] = <Object?, Object?>{
-        if (known is Map) ...known,
-        ...dps,
-      };
+      merged['dps'] = <Object?, Object?>{if (known is Map) ...known, ...dps};
       changed = dps.keys
           .map((key) => int.tryParse('$key'))
           .whereType<int>()
@@ -663,14 +656,12 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     required String password,
     required String countryCode,
   }) async {
-    final raw = await _invoke<Map<Object?, Object?>>(
-      'loginWithUid',
-      <String, Object?>{
-        'uid': uid,
-        'password': password,
-        'countryCode': _resolveCountryCode(LoginRegion.domestic, countryCode),
-      },
-    );
+    final raw =
+        await _invoke<Map<Object?, Object?>>('loginWithUid', <String, Object?>{
+          'uid': uid,
+          'password': password,
+          'countryCode': _resolveCountryCode(LoginRegion.domestic, countryCode),
+        });
     if (raw == null) throw const TuyaException('empty_user', '登录未返回用户信息');
     return _user(raw);
   }
@@ -730,6 +721,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     final owned = devices.map((device) => device.id).toSet();
     _snapshots.removeWhere((id, _) => !owned.contains(id));
     _history.removeWhere((id, _) => !owned.contains(id));
+    _historyFrames.removeWhere((id, _) => !owned.contains(id));
     return devices;
   }
 
@@ -803,12 +795,12 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   Future<void> useHomeTag(String tag) =>
       _invoke<void>('setHomeTag', <String, Object?>{'tag': tag});
 
-
   @override
   Future<WifiScan> scanWifi({bool refresh = true}) async {
-    final raw = await _invoke<Map<Object?, Object?>>('scanWifi', <String, Object?>{
-      'refresh': refresh,
-    });
+    final raw = await _invoke<Map<Object?, Object?>>(
+      'scanWifi',
+      <String, Object?>{'refresh': refresh},
+    );
     if (raw == null) throw const TuyaException('scan_failed', 'Wi-Fi 扫描未返回结果');
     // 原生报的是每条结果的「年龄」（毫秒），在这里换成绝对时刻：搜索页要拿它和
     // 本轮开始的时刻比，年龄一离开这一刻就不再有意义。
@@ -851,11 +843,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   }
 
   @override
-  Future<void> startBleScan({
-    Duration timeout = const Duration(seconds: 60),
-  }) => _invoke<void>('startBleScan', <String, Object?>{
-    'timeoutMs': timeout.inMilliseconds,
-  });
+  Future<void> startBleScan({Duration timeout = const Duration(seconds: 60)}) =>
+      _invoke<void>('startBleScan', <String, Object?>{
+        'timeoutMs': timeout.inMilliseconds,
+      });
 
   @override
   Future<void> stopBleScan() => _invoke<void>('stopBleScan');
@@ -884,15 +875,13 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     required String password,
     Duration timeout = const Duration(seconds: 120),
   }) async {
-    final raw = await _invoke<Map<Object?, Object?>>(
-      'pairBleDevice',
-      <String, Object?>{
-        'uuid': uuid,
-        'ssid': ssid,
-        'password': password,
-        'timeoutMs': timeout.inMilliseconds,
-      },
-    );
+    final raw =
+        await _invoke<Map<Object?, Object?>>('pairBleDevice', <String, Object?>{
+          'uuid': uuid,
+          'ssid': ssid,
+          'password': password,
+          'timeoutMs': timeout.inMilliseconds,
+        });
     if (raw == null) throw const TuyaException('pair_failed', '配网未返回设备信息');
     return _device(raw);
   }
@@ -936,6 +925,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   /// account does not have.
   final Map<String, DeviceHistory> _history = <String, DeviceHistory>{};
 
+  /// 每台设备跨推送攒下的历史帧（日 7 帧、月 1~2 段），见 [HistoryFrameBuffer]。
+  final Map<String, HistoryFrameBuffer> _historyFrames =
+      <String, HistoryFrameBuffer>{};
+
   @override
   Future<List<double>> getHistory(
     String deviceId,
@@ -957,13 +950,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     if (snapshot == null) {
       return <String, String>{'设备': '本次会话还没拉到这台设备的快照'};
     }
-    final dps = (snapshot['dps'] as Map<Object?, Object?>?) ??
-        <Object?, Object?>{};
-    const rangeLabels = <String, String>{
-      'day': '日',
-      'week': '周',
-      'month': '月',
-    };
+    final dps =
+        (snapshot['dps'] as Map<Object?, Object?>?) ?? <Object?, Object?>{};
+    const rangeLabels = <String, String>{'day': '日', 'week': '周', 'month': '月'};
     final report = <String, String>{};
     TuyaConfig.history.forEach((metricKey, ranges) {
       final sampleBytes = TuyaConfig.historySampleBytes[metricKey] ?? 1;
@@ -977,34 +966,40 @@ class MethodChannelTuyaRepository implements TuyaRepository {
           return;
         }
         final range = ReportRange.values.byName(rangeName);
-        final variableLength = TuyaConfig.historyVariableFrames.contains(
-          identifier,
-        );
+        final signed = TuyaConfig.historySignedSamples.contains(metricKey);
         // 编码和字节数一起打：SDK 交上来的是十六进制串（见 TuyaRaw），这里
-        // 一眼能看出是不是又按错编码解了——`hex 99字节/96点` 才是日包的正常样子。
+        // 一眼能看出是不是又按错编码解了——`hex 99字节/96点` 才是过去那几天日帧的样子。
         final bytes = TuyaRaw.bytes(raw);
         final size = raw is String || raw is List
             ? '${TuyaRaw.encodingOf(raw)} ${bytes?.length ?? 0}字节'
             : '${raw.runtimeType}';
-        // 日包**认的是哪一种帧**必须打出来：7 天帧没有功能点表，App 是按帧长认的
-        // （见 `TuyaHistoryCodec.decodeDaily`），认错一种整条曲线就是错位的垃圾
-        // 数据，真机上只有这一行能看出来。
-        if (range == ReportRange.day) {
-          final frames = TuyaHistoryCodec.decodeDaily(
-            raw,
-            sampleBytes: sampleBytes,
-            variableLength: variableLength,
-          );
-          parts.add('$label DP$id $size/${frames.label}');
-          return;
-        }
         final decoded = TuyaHistoryCodec.decode(
           raw,
           range: range,
           sampleBytes: sampleBytes,
-          variableLength: variableLength,
+          signed: signed,
         );
-        parts.add('$label DP$id $size/${decoded.length}点');
+        // 最后一帧 + 缓冲里已攒下的：日看攒了哪几天，月看收到几段。
+        final buffer = _historyFrames[deviceId];
+        final buffered = switch (range) {
+          ReportRange.day => () {
+            final days = buffer?.days(identifier) ?? const <HistoryDayFrame>[];
+            if (days.isEmpty) return '';
+            return ' 已收${days.length}天'
+                '${days.first.dayKey}→${days.last.dayKey}'
+                '（最新${days.last.samples.length}点）';
+          }(),
+          ReportRange.week => '',
+          ReportRange.month =>
+            buffer == null
+                ? ''
+                : ' 已拼${buffer.month(identifier).length}点'
+                      '${buffer.monthComplete(identifier) ? '（齐）' : '（未齐）'}',
+        };
+        parts.add(
+          '$label DP$id $size/'
+          '${decoded.isEmpty ? '丢弃' : '${decoded.length}点'}$buffered',
+        );
       });
       report[metricKey] = parts.join(' · ');
     });
@@ -1018,12 +1013,13 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   ) async {
     final snapshot = _snapshots[deviceId];
     if (snapshot == null) return null;
-    final dps = (snapshot['dps'] as Map<Object?, Object?>?) ??
-        <Object?, Object?>{};
+    final dps =
+        (snapshot['dps'] as Map<Object?, Object?>?) ?? <Object?, Object?>{};
     return <String, Object?>{
       for (final identifier in identifiers)
         identifier:
-            dps['${TuyaConfig.dp[identifier]}'] ?? dps[TuyaConfig.dp[identifier]],
+            dps['${TuyaConfig.dp[identifier]}'] ??
+            dps[TuyaConfig.dp[identifier]],
     };
   }
 
@@ -1145,7 +1141,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
             method,
             arguments,
           ) ??
-          <String, Object?>{'diagnostic': <String>['原生侧返回了 null']};
+          <String, Object?>{
+            'diagnostic': <String>['原生侧返回了 null'],
+          };
     } on MissingPluginException {
       return <String, Object?>{
         'unsupported': true,
@@ -1223,16 +1221,14 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     int limit = 50,
   }) async {
     try {
-      final raw = await _channel.invokeMapMethod<String, Object?>(
-        'messagesByTime',
-        <String, Object?>{
-          'startTime': startTime,
-          'endTime': endTime,
-          'deviceId': deviceId,
-          'offset': offset,
-          'limit': limit,
-        },
-      );
+      final raw = await _channel
+          .invokeMapMethod<String, Object?>('messagesByTime', <String, Object?>{
+            'startTime': startTime,
+            'endTime': endTime,
+            'deviceId': deviceId,
+            'offset': offset,
+            'limit': limit,
+          });
       return raw ??
           <String, Object?>{
             'ok': false,
@@ -1382,47 +1378,70 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       return value == null ? null : values['$value'];
     }
 
+    final deviceId = '${raw['deviceId'] ?? raw['devId'] ?? ''}';
+
+    // 历史 DP 是分帧上报的（日 7 帧、月 1~2 段），快照里每个 DP 只剩最后一帧，
+    // 所以先把这一帧喂进这台设备的缓冲，曲线从缓冲里取（见 HistoryFrameBuffer）。
     DeviceHistory decodeHistory() {
+      final buffer = _historyFrames.putIfAbsent(
+        deviceId,
+        HistoryFrameBuffer.new,
+      );
       final series = <String, List<double>>{};
       final daily = <String, Map<String, List<double>>>{};
       TuyaConfig.history.forEach((metricKey, ranges) {
         final metric = _historyMetric(metricKey);
         final sampleBytes = TuyaConfig.historySampleBytes[metricKey] ?? 1;
-        // 温度、湿度的点位和它们的实时 DP 一样带倍数，画之前先还原成真值。
-        final scale = TuyaConfig.historyScale[metricKey];
-        List<double> restore(List<double> points) => scale == null
+        final signed = TuyaConfig.historySignedSamples.contains(metricKey);
+        // 水位存的是 mL÷2，温度、湿度带 ×10 倍数：画之前先还原成真值。
+        final scale = TuyaConfig.historyScale[metricKey] ?? 1;
+        final multiplier = TuyaConfig.historyMultiplier[metricKey] ?? 1;
+        List<double> restore(List<double> points) =>
+            scale == 1 && multiplier == 1
             ? points
-            : <double>[for (final point in points) point / scale];
+            : <double>[for (final point in points) point * multiplier / scale];
         ranges.forEach((rangeName, identifier) {
           final range = ReportRange.values.byName(rangeName);
-          final variableLength = TuyaConfig.historyVariableFrames.contains(
-            identifier,
-          );
-          // 日包 2026-09-17 起一次带 7 天：按天解一份给报表按日期取，同时把**最新
-          // 那天**放进 series，状态页和首页那条曲线照旧读它，不用跟着改。
-          if (range == ReportRange.day) {
-            final frames = TuyaHistoryCodec.decodeDaily(
-              dp(identifier),
-              sampleBytes: sampleBytes,
-              variableLength: variableLength,
-            );
-            final newest = frames.newest;
-            if (newest == null) return;
-            daily[metric.name] = <String, List<double>>{
-              for (final slice in frames.days)
-                slice.dayKey: restore(slice.samples),
-            };
-            series[DeviceHistory.key(metric, range)] = restore(newest.samples);
-            return;
-          }
-          final decoded = TuyaHistoryCodec.decode(
-            dp(identifier),
-            range: range,
-            sampleBytes: sampleBytes,
-            variableLength: variableLength,
-          );
-          if (decoded.isNotEmpty) {
-            series[DeviceHistory.key(metric, range)] = restore(decoded);
+          final value = dp(identifier);
+          switch (range) {
+            case ReportRange.day:
+              final frame = TuyaHistoryCodec.decodeDayFrame(
+                value,
+                sampleBytes: sampleBytes,
+                signed: signed,
+              );
+              if (frame != null) buffer.addDay(identifier, frame);
+              final days = buffer.days(identifier);
+              if (days.isEmpty) return;
+              daily[metric.name] = <String, List<double>>{
+                for (final day in days) day.dayKey: restore(day.samples),
+              };
+              // 最新日期那帧才是「今天」，不是最后到的那帧。
+              series[DeviceHistory.key(metric, range)] = restore(
+                days.last.samples,
+              );
+            case ReportRange.week:
+              final frame = TuyaHistoryCodec.decodeWeekFrame(
+                value,
+                sampleBytes: sampleBytes,
+                signed: signed,
+              );
+              if (frame != null) buffer.addWeek(identifier, frame);
+              final week = buffer.week(identifier);
+              if (week.isNotEmpty) {
+                series[DeviceHistory.key(metric, range)] = restore(week);
+              }
+            case ReportRange.month:
+              final segment = TuyaHistoryCodec.decodeMonthSegment(
+                value,
+                sampleBytes: sampleBytes,
+                signed: signed,
+              );
+              if (segment != null) buffer.addMonth(identifier, segment);
+              final month = buffer.month(identifier);
+              if (month.isNotEmpty) {
+                series[DeviceHistory.key(metric, range)] = restore(month);
+              }
           }
         });
       });
@@ -1430,40 +1449,32 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       return DeviceHistory(series, daily);
     }
 
-    final batteryStatus = reported(
-      'battery_status',
-      const <String, BatteryStatus>{
-        'shortage': BatteryStatus.shortage,
-        'good': BatteryStatus.good,
-        'charging': BatteryStatus.charging,
-      },
-    );
+    final batteryStatus =
+        reported('battery_status', const <String, BatteryStatus>{
+          'shortage': BatteryStatus.shortage,
+          'good': BatteryStatus.good,
+          'charging': BatteryStatus.charging,
+        });
     final status = DeviceStatusReport(
       battery: batteryStatus,
-      waterNeeds: reported(
-        'water_needs_status',
-        const <String, WaterNeedsStatus>{
-          'shortage': WaterNeedsStatus.shortage,
-          'drinking': WaterNeedsStatus.drinking,
-          'watery': WaterNeedsStatus.watery,
-        },
-      ),
-      lighting: reported(
-        'lighting_condition',
-        const <String, LightingCondition>{
-          'shortage': LightingCondition.shortage,
-          'good': LightingCondition.good,
-          'very_good': LightingCondition.veryGood,
-        },
-      ),
-      temperature: reported(
-        'air_temperature_status',
-        const <String, ComfortLevel>{
-          'cold': ComfortLevel.low,
-          'suitable': ComfortLevel.suitable,
-          'heat': ComfortLevel.high,
-        },
-      ),
+      waterNeeds:
+          reported('water_needs_status', const <String, WaterNeedsStatus>{
+            'shortage': WaterNeedsStatus.shortage,
+            'drinking': WaterNeedsStatus.drinking,
+            'watery': WaterNeedsStatus.watery,
+          }),
+      lighting:
+          reported('lighting_condition', const <String, LightingCondition>{
+            'shortage': LightingCondition.shortage,
+            'good': LightingCondition.good,
+            'very_good': LightingCondition.veryGood,
+          }),
+      temperature:
+          reported('air_temperature_status', const <String, ComfortLevel>{
+            'cold': ComfortLevel.low,
+            'suitable': ComfortLevel.suitable,
+            'heat': ComfortLevel.high,
+          }),
       humidity: reported('air_humidity_status', const <String, ComfortLevel>{
         'dry': ComfortLevel.low,
         'suitable': ComfortLevel.suitable,
@@ -1472,7 +1483,12 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     );
 
     final settings = DeviceControlSettings(
-      autoBrightness: boolean(dp('disp_brightness_switch'), true),
+      // 117 / 168 出厂默认：手动 + 100（全亮），没报过就按出厂值画。
+      autoBrightness: boolean(dp('disp_brightness_switch'), false),
+      manualBrightness: integer(
+        dp('manual_brightness'),
+        100,
+      ).clamp(TuyaConfig.manualBrightnessMin, TuyaConfig.manualBrightnessMax),
       ledEnabled: boolean(dp('led_switch'), false),
       soundInteraction: boolean(dp('voice_interaction_switch'), true),
       soundSensitivity: integer(dp('sound_sensitivity'), 60),
@@ -1500,7 +1516,6 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       plantDetection: boolean(dp('plant_detect_switch'), true),
     );
 
-    final deviceId = '${raw['deviceId'] ?? raw['devId'] ?? ''}';
     final history = decodeHistory();
     _history[deviceId] = history;
     // Kept so the next DP report has a full device to merge into.
@@ -1561,7 +1576,6 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       birthday: TuyaMemorialCodec.decodeFixedDate(dp('memorial_birthday')),
       weddingDay: TuyaMemorialCodec.decodeFixedDate(dp('memorial_wedding')),
       lastOperationResult: '${dp('op_result') ?? ''}',
-      otaResult: '${dp('ota_result') ?? ''}',
     );
   }
 
@@ -1572,9 +1586,13 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   };
 
   /// `language` (153) enum value back to the app's own `zh`/`en` code.
+  ///
+  /// 平台枚举顺序是 Chinese 在前（0 = 中文、1 = English），所以按下标上报时也认。
   static final Map<String, String> _deviceLanguages = <String, String>{
     for (final entry in TuyaConfig.deviceLanguages.entries)
       entry.value: entry.key,
+    '0': 'zh',
+    '1': 'en',
   };
 
   /// `TuyaConfig.history` 的键换成图表用的指标。表里没有的键归到照度是历史遗留，
