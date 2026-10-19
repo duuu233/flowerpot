@@ -691,7 +691,11 @@ class MockTuyaRepository implements TuyaRepository {
   }
 
   @override
-  Future<void> startFirmwareUpgrade(String deviceId) async {
+  Future<void> startFirmwareUpgrade(
+    String deviceId, {
+    String? targetVersion,
+    int? componentType,
+  }) async {
     await Future<void>.delayed(const Duration(seconds: 1));
   }
 

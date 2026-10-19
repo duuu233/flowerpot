@@ -2,10 +2,11 @@
 
 > 文档类型：实现说明
 > 状态：Active
-> 最后核验：2026-10-13（充电条件与弹框顺序：当前源码与 Widget 回归；SDK/平台依据仍为 2026-10-12；未真机）
+> 最后核验：2026-10-19（Android 实际 SDK 7.5.1、源码、隔离回归及 Kotlin 编译；未真机）
 
 | 日期 | 更新内容 | 落点 |
 | --- | --- | --- |
+| 2026-10-19 | Android OTA Service、状态查询兜底、终态映射与分阶段停滞提示；支持接回 SDK 已有任务 | §1–6、附录 A |
 | 2026-10-13 | 割草机提醒/强制提醒限 DP117=charging；手动确认后按最新状态拦截并提示回桩 | §1、§2.4、§4 |
 | 2026-10-13 | 提醒和版本确认等待完整退场后继续，避免与升级进度交叠；割草机切设置期间防重弹 | §2.4、§4、附录 A1 |
 | 2026-10-12 | 补齐 Android 超时/文本失败回调；本次版本上报保留到安装阶段重验；DP116 拒绝/失败结束共享状态 | §2、§3、§4、附录 A |
@@ -23,13 +24,13 @@
 | 段 | 方式 | 数据来源 |
 | --- | --- | --- |
 | ① 有没有新版本 | **主动拉取**，没有推送订阅 | 涂鸦云端的 OTA 记录（SDK 查询） |
-| ② 升级中的状态 | **SDK 回调推送**，没有轮询 | 涂鸦 SDK 的 OTA 监听；割草机另有 DP116 |
+| ② 升级中的状态 | **SDK 回调推送**；Android 每 8 秒查询 SDK 进度兜底 | 涂鸦 SDK 的 OTA 监听；割草机另有 DP116 |
 
 ## 1. 新版本监控（拉取）
 
-**调用**：Android `newOTAInstance(devId).getOtaInfo()`，iOS `getFirmwareUpgradeInfo`（`state.checkFirmware` → `tuya_repository.dart` → 原生层）。
+**调用**：Android 优先 `newOTAServiceInstance(devId).getFirmwareUpgradeInfo()`，旧 SDK 保留 `newOTAInstance/getOtaInfo`；iOS `getFirmwareUpgradeInfo`（`state.checkFirmware` → `tuya_repository.dart` → 原生层）。
 
-**判定**：SDK 按组件返回记录，取 `upgradeStatus == 1`（有待装版本）那一条，拿出新版本号、当前版本号、升级方式。新版本号为空或等于当前版本号 = 没有新版本；否则记进 `_availableFirmware`，小红点亮起。
+**判定**：SDK 按组件返回记录，优先取 `upgradeStatus == 1` 的待装版本，否则识别 2 / 5（已有升级 / 等待唤醒）。同一条记录保留目标版本、当前版本、组件类型和升级方式。新版本为空或等于当前版本时没有可展示更新。已有任务标记 `inProgress`，不亮新版本红点、不弹新升级提醒；手动检查可重新挂接监听与查询，不重复下发启动命令。
 
 **触发时机**（没有定时器，全是事件触发）：
 
@@ -52,18 +53,18 @@
 
 ```
 发起升级（原生层只回答「已发起」）
-  → SDK 的 OTA 监听回调
+  → SDK 的 OTA 监听回调（Android 另每 8 秒查询 SDK 当前进度）
   → 原生层发事件 {deviceId, ota:{status, percent, stage, message}}（事件通道）
   → tuya_repository.otaUpdates
   → state._applyOtaProgress（合并、记录时间）
   → 进度弹层 / 功能行 / 小红点
 ```
 
-发起时 App 先把状态置为 `running 0%`，并记下目标版本号。OTA 实例一直留着引用（Android 放在 `otaInstances`，iOS 放在 `upgrading`），升级结束才释放；否则监听会被回收，进度条会停住不动。退出登录时统一释放。
+发起时 App 先把状态置为 `running 0%`，并记下目标版本号。OTA 实例一直留着引用（Android 放在 `otaInstances`，iOS 放在 `upgrading`），升级结束才释放；否则监听会被回收，进度条会停住不动。退出登录时统一释放。Android 同时维护本次任务标识和组件类型，拒收旧任务、其他设备或组件的结果；结束时取消查询。
 
 ### 2.2 回调 → 状态
 
-| Android（`IOtaListener`，7.5.1） | iOS（设备 delegate） | 转成 |
+| Android（旧 `IOtaListener` 兼容路径，7.5.1） | iOS（设备 delegate） | 转成 |
 | --- | --- | --- |
 | `onProgress(type, percent)` | `firmwareUpgradeProgress` | `running` + 百分比 |
 | `onStatusChanged(code, type)` | 无 | `running` + 阶段码（只转下表中的码） |
@@ -71,12 +72,14 @@
 | `onFailure` / `onError` | `deviceFirmwareUpgradeFailure` | `failed` + 失败原因 |
 | `onTimeout(type)` / `onFailureWithText(type, code, bean)` | 不适用 | `failed` + 超时提示 / bean 的正文（无正文取标题，再用默认提示）；随后释放实例 |
 
+Android 现优先使用 `registerDevOTAListener` 的 `firmwareUpgradeStatus`，回调与 `getUpgradeProgress` 快照均经 `TuyaOtaServiceBridge` 解码：3 成功、4 失败、7 超时；1 / 2 / 5 / 6 / 13 / 14 / 100 为进行中阶段。旧 `onStatusChanged` 也补齐 3 / 4 / 7，不能只等独立成败回调。百分比 -1 或超出 0–100 表示无可用值，沿用旧值。弱信号 5005 显示原因，不自动代替用户确认。
+
 阶段码（涂鸦 SDK 7.5.1 `DevUpgradeStatusEnum`）：
 
 | 码 | 含义 | 界面 |
 | --- | --- | --- |
-| 13 / 14 / 100 | 云端排队、准备 | 固件准备中 |
-| 2 | 升级中 | 固件升级中 N% |
+| 1 / 13 / 14 / 100 | 就绪、排队、云端或本地准备 | 固件准备中 |
+| 2 | 升级中 | 固件升级中；有有效进度才显示 N%，否则不定进度动画 |
 | 5 | 等待设备唤醒 | 等待设备唤醒 |
 | 6 | 固件已下载到设备 | 固件安装中 |
 
@@ -84,7 +87,7 @@
 
 - 本次升级的第一个终态（成功或失败）生效；迟到的进度、重复终态或相反结论均丢弃。
 - 百分比和阶段码往往分开到达，缺哪个就沿用上一次的值，不会把进度条打回 0。
-- 每收到一个事件都刷新「最后事件时间」，用于判断是否卡住。
+- 百分比和阶段不倒退；只有状态、阶段或有效百分比实际改变才刷新「最后推进时间」。重复快照不延长停滞阈值。
 - **成功**：熄灭小红点，版本号显示为目标版本。**失败**：清掉目标版本号，弹层显示失败原因。
 
 ### 2.4 界面怎么读
@@ -95,8 +98,8 @@
 - 提醒/确认框与进度框顺序显示。普通提醒通过 `showAppDialog(waitForDismissal: true)` 等待退场完成，强制提醒与 `showFirmwareUpdateDialog` 等待其 `ModalRoute.completed`；结果返回不代表 overlay 和遮罩已经移除。
 - 花盆保持进入「其他设置」再确认版本的流程；割草机切到设置栏后等待共用升级流程结束，避免确认框出现前重新提醒。确认按钮重复点击只处理第一次，不额外 pop 下层页面。
 
-- 百分比显示：0% → 准备中；1–97% → 升级中 N%；≥98% 或阶段码 6 → 安装中，进度条改成来回走的动画。进度自己走到 98% 时，先停留 0.9 秒再切换。
-- 进度弹层在升级结束前关不掉；「其他设置」里的功能行、割草机设置页的红点也读同一份状态（升级中不显示红点）。
+- 未收到有效进度且无升级阶段时显示准备中；SDK 明确报告阶段 2 时显示升级中，无百分比就用动画，不伪造 0%。有效 1–97% 显示升级中 N%；≥98% 或阶段码 6 显示安装中。走到 98% 时仍先停留 0.9 秒。
+- 正常运行时进度弹层不可关闭；超过停滞阈值后显示「暂未收到升级进度」，允许「关闭窗口」。关闭只退出界面，不取消设备升级、不改成功/失败、不自动重试。「其他设置」功能行和割草机设置红点共用状态。
 
 ### 2.5 兜底
 
@@ -108,7 +111,8 @@
   - 开始、清理/重试、成败收尾、退出登录、解绑或移除设备时清除本次记录，不跨升级使用。
   - 实现：`_confirmOtaFromDeviceReport` → `_confirmOtaByReportedVersion` 记录，`_confirmOtaByPendingReport` 判断；`_applyOtaProgress` 也触发重验。
 - **花盆 DP168 `ota_result`**：进行中的升级收到本条报文中的 2 / success 时判成功，3 / failed 时判失败；0 / 1 只记录。不要求安装阶段，不适用于割草机。实现为 `_confirmOtaByResultDp`。
-- **卡住**：`otaStallTimeout` 是最后一次 OTA 事件后 10 分钟的停滞判定阈值，重新打开入口或提醒流程时允许清理、重新检查；没有设置“必须等 10 分钟”的成功延迟，也没有弹层内自动失败计时器。
+- **停滞提示**：准备阶段 `otaPreparationTimeout` 为 2 分钟，升级/唤醒/安装 `otaStallTimeout` 为 10 分钟，均从最后一次真实推进起算。弹层每秒检查，即使 SDK 完全无回调也能提示并允许关闭。阈值不是成功延迟、设备超时或失败结论。再次进入时可确认清理本地进度、重新检查 SDK；若 SDK 返回已有任务，只挂接监听，不重复启动。
+- **启动方法长期未答复**：Dart 等待 30 秒后仍保持进行中并进入进度窗口，等待后续事件/停滞提示；不假定成功、失败或重发命令。
 - **割草机 DP116 `ota_status`**：本 App 发起的升级仍在进行时，本条实时 DP116 `"7"`（非待机拒绝）或 `"20"`（包校验失败）直接置 `failed`，弹层结束等待并可关闭。不要求割草机页面打开；只取 `reportedDps` 的本条值，无升级、其他状态、旧快照或花盆同号 DP 不收尾。同条同时有错误与目标版本时先认失败。原割草机页面的提示流保留，DP116 不参与百分比。
 
 ## 3. 状态存在哪
@@ -122,7 +126,7 @@
 | 情况 | 两边一致的行为 |
 | --- | --- |
 | 正在升级（没卡住） | 重新打开进度弹层 |
-| 卡住（10 分钟没有事件） | 弹「升级似乎已中断」，确认后清掉旧进度、重新问云端 |
+| 停滞（准备 2 分钟、其他阶段 10 分钟无真实推进） | 当前窗口提示并可关闭；再次进入时确认重新检查，已有 SDK 任务仅重新挂接 |
 | 设备离线 | 提示「花盆已离线，无法检查固件」或「割草机已离线，无法检查固件」，不跳页 |
 | 问云端 / 发起升级期间 | 入口那一行转圈，同时挡住连点（`isCheckingFirmware`） |
 | 有新版本 | 弹「检查更新」框（当前版本 → 新版本），确认框完整退场后发起升级、打开进度弹层；割草机此时还需 DP117=charging，否则提示回桩 |
@@ -142,7 +146,7 @@
 
 - **发现新版本慢 1～2 分钟**：云端 OTA 记录本身有滞后，加上 App 自己 1 分钟的节流。
 - **设备重新上线、版本号 DP（花盆 148 / 割草机 112）变化，都不会触发重查新版本**。要缩短上面的延迟，App 侧可以从这里补。
-- **App 重启后进度丢失**：状态只在内存里。重启时如果设备还在升级，云端返回的是 `upgradeStatus = 2`（升级中），App 只认 1，会当作「没有新版本」，界面也看不到正在升级。
+- **App 重启后内存进度丢失**：Android 手动检查已识别 SDK 返回的 `upgradeStatus = 2 / 5` 并重新挂接；不保证 SDK 永远返回任务，也未实现启动时无条件自动恢复。iOS 保持原行为。
 - **本轮已修复**：Android 超时/文本失败回调、提前版本上报漏验和割草机 DP116 只提示这三项已修复，见 §2 及[修复记录](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。实际 4–5 分钟耗时根因仍待真机时间线。
 
 - iOS 不转发阶段码，只有百分比和成败。
@@ -153,7 +157,7 @@
 
 ### 6.1 手机 App 与设备固件的职责
 
-Android 当前使用 Home SDK 7.5.1，Expansion SDK 7.8.0；实际 OTA 经 `newOTAInstance → getOtaInfo → setOtaListener → startOta`，由 SDK 负责发起和监听。App 没有自写升级包下载、Flash 擦写或传输分片逻辑，`onProgress(type, progress)` 取最后一个数字作为进度，符合当前 AAR 签名。
+Android 当前使用 Home SDK 7.5.1，Expansion SDK 7.8.0；优先 `newOTAServiceInstance → getFirmwareUpgradeInfo → registerDevOTAListener → startFirmwareUpgrade`，SDK 回调加每 8 秒 `getUpgradeProgress` 快照兜底，旧接口仅兼容无 Service 的 SDK。查询不下载、不重启升级，待装任务通过 SDK `canUpgrade` 预检后才发起；已有任务只挂接。App 没有自写升级包下载、Flash 擦写或传输分片逻辑，`onProgress(type, progress)` 取最后一个数字作为进度，符合当前 AAR 签名。
 
 `tuya_iot_dev_upgd_progress_rept`、`tuya_iot_upgrade_gw_notify`、`FW_UG_S.diff_ota`、`download_buf_size` 属于设备 TuyaOS/联网模块固件接口，不是 Android Home SDK 的配置。本仓库没有割草机固件源码；在 App 源码中找不到它们，不能证明设备未启用差分或未上报进度。
 
@@ -165,7 +169,7 @@ Android 当前使用 Home SDK 7.5.1，Expansion SDK 7.8.0；实际 OTA 经 `newO
 
 [官方网关联网 SDK 文档](https://developer.tuya.com/en/docs/iot-device-dev/tuya-gateway-link-sdk-development-manual?id=K9ducoah42rl2)的子设备升级章节描述了 App 收到进度会重置 60 秒计时器；[机器人设备 OTA 文档](https://developer.tuya.com/en/docs/iot-device-dev/robot_ota_upgrade?id=Kd93o3vid2fkk)也提到默认超时及平台配置。这些是特定方案的行为说明，不能代替本割草机的模组、SDK 与 PID 配置核实，也不能证明存在自动重试。
 
-本 App 源码没有 OTA 超时后自动重新 `startOta` 的循环。10 分钟停滞阈值与 98% 处 900ms 的显示停留不会强制让升级持续 4–5 分钟。安全完成判定、失败回调漏接与真实下载/烧录耗时必须分开核查。
+本 App 源码没有 OTA 超时后自动重新 `startOta` 的循环。准备 2 分钟/其他阶段 10 分钟的停滞提示阈值与 98% 处 900ms 的显示停留不会强制让升级持续 4–5 分钟。安全完成判定、失败回调漏接与真实下载/烧录耗时必须分开核查。
 
 ### 6.3 比较两款 App 的最小实测
 
@@ -182,99 +186,26 @@ Android 当前使用 Home SDK 7.5.1，Expansion SDK 7.8.0；实际 OTA 经 `newO
 
 Android 终态回调与 DP 时序处理已补齐，下一步记录真机时间线；若设备约 1 分钟已安装并上报目标版本，而弹层到 4–5 分钟才收尾，排查 App 桥接和 DP112 时序。若设备本身下载较慢，核对平台实际下发全量/差分包、模组传输路径及两款 App 的 SDK；若下载相同而安装慢，由固件团队核对校验/Flash/重启连云。升级 SDK 或增大设备下载缓存都应有兼容性和实测依据。
 
-2026-10-12 尚未取得真机时间线，不能认定 4–5 分钟根因或宣称已提速。最初核查见[检查记录](history/2026-10/2026-10-12-mower-ota-audit.md)，后续 App 代码修复及验证见[修复记录](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。
+截至 2026-10-19 仍未取得真机时间线，不能认定现场停滞唯一根因或宣称物理升级已提速。Service API、状态含义和快照接口依据[涂鸦官方固件升级文档](https://developer.tuya.com/en/docs/app-development/otaupdate?id=Ka6ki8la8wnr9)，并以本机实际 7.5.1 AAR 核对签名；本轮修复与验证见[准备阶段修复记录](history/2026-10/2026-10-19-mower-ota-preparing-recovery.md)。最初核查见[检查记录](history/2026-10/2026-10-12-mower-ota-audit.md)，后续 App 代码修复及验证见[修复记录](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。
 
-## 附录 A：发起升级与进度——实现步骤
+## 附录 A：当前实现调用链
 
-**通道**：方法通道 `com.common.yikaltd/tuya`（Dart 调原生），事件通道 `com.common.yikaltd/tuya_events`（原生推给 Dart）。
+### A1. 入口
 
-### A1. 入口（Dart，花盆和割草机共用）
+`runFirmwareUpgrade` 统一花盆与割草机入口。检查在线状态和已有本地进度，正常运行重开进度，停滞时经确认后重新查询。SDK 返回已有任务时跳过新升级确认和充电预检，只挂接；新任务仍等待版本确认弹框完整退场，并按最新 DP117=charging 放行。离线提示及原提醒路由规则保留。
 
-`runFirmwareUpgrade(context, deviceId, {confirmed, log})`（`features/devices/presentation/firmware_upgrade_flow.dart`）：
-- 花盆：「其他设置 → 固件版本更新」（`DeviceOtherSettingsPage._checkFirmware`）调它；
-- 割草机：「设置 → 设备升级」经 `upgradeMowerFirmware` 调它，额外传入联调日志 `log`；
-- 升级提醒弹窗（`FirmwareReminderHost`）点「立刻更新」：先跳到上面两个设置页，再调它。
+### A2. 状态与仓库层
 
-入口里依次处理：
-1. 正在升级、没卡住 → `showOtaProgressDialog`；卡住了 → `showAppConfirmDialog`（「升级似乎已中断」），确认后 `clearOtaProgress`；
-2. `isDeviceOnline` 为 false → `showAppMessage`（「花盆 / 割草机已离线，无法检查固件」）；
-3. `setCheckingFirmware(id, true)`，入口行开始转圈；
-4. 取 `availableFirmwareFor(id)`，没有就 `checkFirmware(id)` 问云端；
-5. `showFirmwareUpdateDialog`（当前版本 → 新版本）；
-6. 用户点「立即更新」→ 确认框退场动画完成、overlay 和遮罩移除 → `FlowerpotState.upgradeFirmware(id, version)`；
-7. 成功 → `showOtaProgressDialog`；失败 → `showDeviceActionResult`；
-8. `finally` 里 `setCheckingFirmware(id, false)`。
+`FlowerpotState.upgradeFirmware` 先建本次目标和 running 状态，再调用 `TuyaRepository.startFirmwareUpgrade(id, targetVersion:, componentType:)`。本地已有进行中任务拒绝重复下发。方法答复最多等 30 秒，超时只转入等待事件。`FirmwareUpdate` 带同组件版本、`componentType`、`inProgress`；后者不作为新版本提醒。
 
-### A2. 状态层发起（`state.dart`）
+### A3. Android 发起及监听
 
-`upgradeFirmware` 包在 `_guard` 里：
-1. 记录当前会话，清除上一次 `_reportedOtaVersion[id]`；
-2. 先写 `_pendingOtaVersion[id] = version`、`_otaProgress[id] = running 0%` 与 `_otaUpdatedAt[id] = now`；
-3. `await _repository.startFirmwareUpgrade(id)`，即时回调可直接更新上面的状态；
-4. 启动抛错时将本次状态置失败，再交给 `_guard` 返回错误；会话变化不补写旧状态；
-5. 已收到失败则返回失败，否则返回已发起，不覆盖即时进度或成功结果。
+`otaInstance` 优先创建 Service，注册监听后重新查固件，按目标版本与组件筛选。仅 `upgradeStatus=1` 且预检允许时调用 `startFirmwareUpgrade(listOf(selected))`；2/5 仅监听。每 8 秒 `getUpgradeProgress` 补漏，查询失败记录原因，不重启任务。未观察到当前任务推进前不接受首个缓存终态快照；本地准备 100 不足以证明它是本次任务。回调/快照过滤设备及组件；每次尝试标识防迟到回调，首个终态生效后释放实例并取消查询。旧 SDK 保留 `setOtaListener/startOta`。
 
-### A3. 仓库层（`tuya_repository.dart`）
+### A4. 事件合并与界面
 
-`MethodChannelTuyaRepository.startFirmwareUpgrade(deviceId)` → `_invoke('startFirmwareUpgrade', {deviceId})`。
+事件通道仍为 `{deviceId, ota:{status, percent?, stage?, message?}}`，无新通道。Repository 忽略无效百分比，状态层合并阶段和单调百分比，重复快照不刷新推进时间。阶段 2 不再被 0% 错误显示为准备中；无有效数值使用动画。弹层每秒检查停滞；正常运行不可关闭，停滞可关闭但不取消设备任务。
 
-### A4. 原生发起
+### A5. 完成与边界
 
-**Android**（`MainActivity.kt`，涂鸦类通过反射调用）：
-1. `handle(call)` 收到 `"startFirmwareUpgrade"` → `startFirmwareUpgrade(call, result)`；
-2. `otaInstance(deviceId)`：`ThingHomeSdk.newOTAInstance(devId)`，按 deviceId 缓存在 `otaInstances`，避免监听被回收；
-3. `ota.setOtaListener(otaListenerProxy(...))`，映射由 `TuyaOtaListenerBridge` 创建 `IOtaListener` 动态代理；
-4. `ota.startOta()`，随即 `answerStarted()`，也就是 `result.success(null)`，只代表「已发起」；
-5. 老版本 SDK 没有 `setOtaListener` 时，改用 `startOta(callback)`。
-
-**iOS**（`AppDelegate.swift`）：
-1. `startFirmwareUpgrade(args, result)`；
-2. `otaDevice(id)`：设备已在监听中就复用那个实例，否则新建 `ThingSmartDevice`，设 `delegate = self`，放进 `upgrading` 留住引用；
-3. `device.getFirmwareUpgradeInfo` 取 `upgradeStatus == 1` 那条记录；没有就回错误 `firmware_up_to_date`；
-4. `device.upgradeFirmware(pending.type, success: result(nil), failure: releaseOta + 回错误)`。
-
-### A5. 原生回调 → 事件
-
-事件格式统一为 `{deviceId, ota: {status, percent?, stage?, message?}}`：Android 经 `emitOta` → `emit` → `events.success`，iOS 经 `emitOta` → `emit` → `eventSink`。
-
-| Android 回调（代理） | iOS 回调（delegate） | 发出的事件 |
-| --- | --- | --- |
-| `onProgress(type, percent)` | `device(_:firmwareUpgradeProgress:progress:)` | `running` + `percent`（iOS 为 `progress × 100`） |
-| `onStatusChanged(code, type)`，只转 2/5/6/13/14/100 | 无 | `running` + `stage` |
-| `onSuccess` | `deviceFirmwareUpgradeSuccess` | `success`，然后 `releaseOta` |
-| `onFailure` / `onError` | `deviceFirmwareUpgradeFailure` | `failed` + `message`，然后 `releaseOta` |
-| `onTimeout` / `onFailureWithText` | 不适用 | `failed` + 友好超时提示 / 文本失败原因，然后 `releaseOta` |
-
-Android 发起闭包用独立的原子标记分别保证方法调用只回答一次、终态只处理一次。
-
-`releaseOta`：Android 移出缓存并调 `onDestroy`；iOS 移出 `upgrading` 并把 `delegate` 置空。退出登录时，`releaseDeviceListeners` 会把所有 OTA 实例一起释放。
-
-### A6. Dart 接收（`tuya_repository.dart` → `state.dart`）
-
-1. `otaUpdates = _rawEvents.map(_otaUpdate)`：把事件解析成 `OtaProgress`，阶段码经 `OtaStage.fromTuya` 转换；
-2. `_listenForDeviceUpdates()` 里订阅：`_repository.otaUpdates.listen(_applyOtaProgress)`；
-3. `_applyOtaProgress(incoming)`：
-   - 已经有了结论（成功或失败），所有迟到事件均丢弃；
-   - 百分比和阶段码缺哪个，就沿用上一次的值；
-   - 更新 `_otaProgress[id]`、`_otaUpdatedAt[id]`；
-   - `success`：`_availableFirmware.remove(id)` 熄灭红点，`_replaceDevice(... firmwareVersion: 目标版本)`；
-   - `failed`：`_pendingOtaVersion.remove(id)`；成败均清掉 `_reportedOtaVersion`；
-   - `running`：重验本次已收到的版本报告，满足安装阶段与目标版本时收尾；
-   - 最后 `notifyListeners()`。
-
-### A7. 界面（`ota_progress_dialog.dart`）
-
-- `showOtaProgressDialog`：`showDialog` 贴底、满宽，`PopScope(canPop: !running)`，升级结束前关不掉；
-- `_OtaProgressDialog` 读 `state.otaProgressFor(id)`，由 `OtaProgress.displayStage` 决定显示哪个阶段，文案由 `otaRunningLabel` 生成：0% 准备中 / 1–97% 升级中 N% / ≥98% 或阶段码 6 安装中；
-- `_holding`：进度走到 98% 时先停留 0.9 秒（`_holdAt98`），再切到安装中。
-
-### A8. 兜底
-
-- 设备 DP 收尾：`_applyDeviceUpdate` 先写入最新设备快照，再调用 `_confirmOtaFromDeviceReport`，避免成功写入的目标版本又被旧快照覆盖。
-  1. 割草机本次实时 DP116=7/20 先判失败；不取历史快照的 DP116；
-  2. 版本号 DP：割草机 112 / 花盆 148，本条 `changedDps` 必须带此 DP，本 App 已发起升级且仍 running；记录本条有效版本；
-  3. `_confirmOtaByPendingReport` 只在 ≥98% 或阶段 6 的安装阶段比较目标版本；SDK 后续阶段/进度也调用它，接住先到的版本；
-  4. 相等就 `_applyOtaProgress(success)`，后续与 SDK 成功完全相同；失败或清理后不再接受这份记录；
-  5. 花盆仍按 `_confirmOtaByResultDp` 处理本条 DP168 的 2/3，割草机不使用它。
-- `otaStalled(id)`：状态还是 `running`，但超过 10 分钟（`otaStallTimeout`）没有任何事件，就判定为卡住；再点入口时走 A1 的第 1 步；
-- 割草机页面的 DP116 提示仍走 `MowerDevice._failures`；共享 OTA 失败收尾在状态层进行，不依赖页面订阅。
+iOS 原生 API 和设备固件未改。SDK 成败与原设备 DP 逻辑并存，第一份终态生效；割草机实时 DP116=7/20 判失败，DP112/花盆 DP148 必须是本次真实上报且安装阶段匹配目标才补判成功，不能用旧版本快照、准备计时或方法返回推定成功。花盆既有 DP168 行为见 §2.5。退出登录/销毁释放监听与查询。

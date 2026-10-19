@@ -1,5 +1,7 @@
 # 本地操作更新记录
 
+- [2026-10-19 OTA 准备阶段与恢复](2026-10/2026-10-19-mower-ota-preparing-recovery.md)：Android Service、状态查询兜底、终态与停滞提示，未真机。
+
 - [2026-10-16 割草机离线交互与充电文案](2026-10/2026-10-16-mower-offline-dialog-charging-copy.md)：撤回整页只读，操作弹离线提示，未充电不显示状态词。
 
 - [2026-10-16 修边独立与纪念日内容二选一](2026-10/2026-10-16-schedule-edge-memorial-content.md)：复制只影响时段，切换保留草稿，保存只提交当前内容。

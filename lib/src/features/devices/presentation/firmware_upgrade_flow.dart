@@ -48,7 +48,7 @@ Future<void> runFirmwareUpgrade(
       await showOtaProgressDialog(context, deviceId: deviceId);
       return;
     }
-    // 设备掉电、掉线或校验失败时，涂鸦可能再也不回终态。十分钟没有任何事件就让用户
+    // 设备掉电、掉线或校验失败时，涂鸦可能再也不回终态。按阶段的停滞阈值让用户
     // 重新检查，而不是把他锁在一个永远不动的进度上。
     final retry = await showAppConfirmDialog(
       context,
@@ -86,6 +86,17 @@ Future<void> runFirmwareUpgrade(
     );
     if (update == null || update.version == currentVersion) {
       showAppMessage(context, '当前已是最新固件版本');
+      return;
+    }
+    if (update.inProgress) {
+      // Reattach to the SDK-confirmed task; this is not a new upgrade request.
+      final result = await state.upgradeFirmware(deviceId, update.version);
+      if (!context.mounted) return;
+      if (result.success) {
+        await showOtaProgressDialog(context, deviceId: deviceId);
+      } else {
+        showDeviceActionResult(context, result);
+      }
       return;
     }
     if (!confirmed) {

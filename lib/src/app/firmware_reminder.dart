@@ -190,7 +190,7 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
     }
 
     final update = state.availableFirmwareFor(deviceId);
-    if (update == null) return;
+    if (update == null || update.inProgress) return;
     if (!await state.canStartFirmwareUpgrade(deviceId)) return;
     // 读取状态期间可能离开页面、弹出其他框或开始升级，不能继续弹旧提醒。
     if (!mounted ||

@@ -816,5 +816,9 @@ class _OtherSettingsRepository extends MockTuyaRepository {
 
   /// 真实桥接只把升级发起出去就返回，进度和成败走事件通道。
   @override
-  Future<void> startFirmwareUpgrade(String deviceId) async {}
+  Future<void> startFirmwareUpgrade(
+    String deviceId, {
+    String? targetVersion,
+    int? componentType,
+  }) async {}
 }

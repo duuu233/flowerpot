@@ -294,7 +294,11 @@ abstract class TuyaRepository {
 
   Future<String> createShareLink(String deviceId);
   Future<FirmwareUpdate?> checkFirmware(String deviceId);
-  Future<void> startFirmwareUpgrade(String deviceId);
+  Future<void> startFirmwareUpgrade(
+    String deviceId, {
+    String? targetVersion,
+    int? componentType,
+  });
   Future<void> uploadAnimation(String deviceId, AnimationAsset asset);
 
   /// Changes the devices push on their own: DP reports, online state and
@@ -537,7 +541,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     return OtaProgress(
       deviceId: deviceId,
       status: status,
-      percent: percent is num ? percent.toInt().clamp(0, 100) : null,
+      percent: percent is num && percent >= 0 && percent <= 100
+          ? percent.toInt()
+          : null,
       message: ota['message']?.toString(),
       stage: OtaStage.fromTuya(ota['stage']),
     );
@@ -1282,14 +1288,21 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       version: version,
       currentVersion: current.isEmpty ? null : current,
       upgradeType: FirmwareUpgradeType.fromTuya(raw['upgradeType']),
+      componentType: (raw['componentType'] as num?)?.toInt(),
+      inProgress: raw['inProgress'] == true,
     );
   }
 
   @override
-  Future<void> startFirmwareUpgrade(String deviceId) => _invoke<void>(
-    'startFirmwareUpgrade',
-    <String, Object?>{'deviceId': deviceId},
-  );
+  Future<void> startFirmwareUpgrade(
+    String deviceId, {
+    String? targetVersion,
+    int? componentType,
+  }) => _invoke<void>('startFirmwareUpgrade', <String, Object?>{
+    'deviceId': deviceId,
+    'targetVersion': targetVersion,
+    'componentType': componentType,
+  });
 
   @override
   Future<void> uploadAnimation(String deviceId, AnimationAsset asset) =>

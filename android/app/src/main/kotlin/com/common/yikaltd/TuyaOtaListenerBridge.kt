@@ -18,13 +18,17 @@ internal object TuyaOtaListenerBridge {
             "toString" -> "TuyaOtaListener(${listenerType.simpleName})"
             "onProgress" -> {
                 // IOtaListener.onProgress(otaType, progress).
-                onRunning(args?.filterIsInstance<Number>()?.lastOrNull()?.toInt(), null)
+                val percent = args?.filterIsInstance<Number>()?.lastOrNull()?.toInt()
+                if (percent != null && percent in 0..100) onRunning(percent, null)
                 defaultValue(method.returnType)
             }
             "onStatusChanged" -> {
                 val stage = (args?.firstOrNull() as? Number)?.toInt()
-                if (stage != null && stage in setOf(2, 5, 6, 13, 14, 100)) {
-                    onRunning(null, stage)
+                when (stage) {
+                    1, 2, 5, 6, 13, 14, 100 -> onRunning(null, stage)
+                    3 -> onSuccess(args?.getOrNull(1))
+                    4 -> onError("ota_failed", "固件升级失败，请保持设备通电并重新检查。")
+                    7 -> onError("ota_timeout", "固件升级超时，请保持设备通电并稍后重新检查。")
                 }
                 defaultValue(method.returnType)
             }

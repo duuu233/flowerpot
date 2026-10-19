@@ -121,8 +121,8 @@ void main() {
 
     expect(stageOf(percent: 0), OtaStage.preparing);
     expect(stageOf(), OtaStage.preparing);
-    // 涂鸦报了「升级中」但设备还没回进度：仍说准备中，不写 0%。
-    expect(stageOf(percent: 0, stage: OtaStage.upgrading), OtaStage.preparing);
+    // SDK 已明确进入升级阶段，即使尚未报告百分比也不应继续说准备中。
+    expect(stageOf(percent: 0, stage: OtaStage.upgrading), OtaStage.upgrading);
     expect(
       stageOf(percent: 0, stage: OtaStage.waitingWake),
       OtaStage.waitingWake,
@@ -931,7 +931,11 @@ class _OtaRepository extends MockTuyaRepository {
   /// 真实桥接的 `startFirmwareUpgrade` 只是把升级发起出去就返回；Mock 的默认
   /// 实现要等一秒，测试里不需要那一秒。
   @override
-  Future<void> startFirmwareUpgrade(String deviceId) async {
+  Future<void> startFirmwareUpgrade(
+    String deviceId, {
+    String? targetVersion,
+    int? componentType,
+  }) async {
     await onStart?.call(deviceId);
   }
 }

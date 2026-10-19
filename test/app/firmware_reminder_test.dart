@@ -582,7 +582,11 @@ class _UpgradeRepository extends MockTuyaRepository {
   }
 
   @override
-  Future<void> startFirmwareUpgrade(String deviceId) async {
+  Future<void> startFirmwareUpgrade(
+    String deviceId, {
+    String? targetVersion,
+    int? componentType,
+  }) async {
     startCalls++;
   }
 

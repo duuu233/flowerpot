@@ -45,7 +45,9 @@ String otaRunningLabel(
   return switch (stage) {
     OtaStage.preparing => '固件准备中',
     OtaStage.upgrading =>
-      withPercent ? '固件升级中 ${(ota?.percent ?? 0).clamp(0, 100)}%' : '固件升级中',
+      withPercent && (ota?.percent ?? 0) > 0
+          ? '固件升级中 ${(ota?.percent ?? 0).clamp(0, 100)}%'
+          : '固件升级中',
     OtaStage.installing => '固件安装中',
     OtaStage.waitingWake => '等待设备唤醒',
   };
@@ -93,11 +95,23 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
   static const _holdAt98 = Duration(milliseconds: 900);
 
   Timer? _holdTimer;
+  Timer? _stallTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // A stalled SDK may never send another event to rebuild this dialog.
+    _stallTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   bool _held98 = false;
 
   @override
   void dispose() {
     _holdTimer?.cancel();
+    _stallTimer?.cancel();
     super.dispose();
   }
 
@@ -123,6 +137,8 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
     final ota = state.otaProgressFor(widget.deviceId);
     final status = ota?.status ?? OtaStatus.running;
     final running = status == OtaStatus.running;
+    final stalled = running && state.otaStalled(widget.deviceId);
+    if (!running) _stallTimer?.cancel();
     final rawStage = ota?.displayStage ?? OtaStage.preparing;
     // 亮相那一拍：文案回到「固件升级中」、进度条钉在 98%，一拍过后才换成安装中。
     final holdingAt98 = _holding(ota, rawStage);
@@ -133,10 +149,10 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
     // 准备中 / 安装中 / 等待唤醒没有可信的百分比：进度条改成来回走的动画、不写数字，
     // 让人看得出在跑，而不是停在 0%（或者 2026-09-17 之后的 98%）。三段共用同一套
     // 动效，产品口径就是「98% 之后换成最开始那个动效」。
-    final indeterminate = running && stage != OtaStage.upgrading;
+    final indeterminate = running && (stage != OtaStage.upgrading || percent == 0);
     return PopScope(
       // 升级中不许返回键关掉：关了就再也看不到进度，用户只会以为升级没在跑。
-      canPop: !running,
+      canPop: !running || stalled,
       child: Dialog(
         key: const Key('ota-progress-dialog'),
         backgroundColor: AppColors.surface,
@@ -169,14 +185,16 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
                         Text(
-                          switch (status) {
-                            OtaStatus.running => otaRunningLabel(
-                              ota,
-                              stageOverride: stage,
-                            ),
-                            OtaStatus.success => '升级完成',
-                            OtaStatus.failed => '升级失败',
-                          },
+                          stalled
+                              ? '暂未收到升级进度'
+                              : switch (status) {
+                                  OtaStatus.running => otaRunningLabel(
+                                    ota,
+                                    stageOverride: stage,
+                                  ),
+                                  OtaStatus.success => '升级完成',
+                                  OtaStatus.failed => '升级失败',
+                                },
                           key: const Key('ota-progress-title'),
                           textAlign: TextAlign.center,
                           style: AppTypography.sectionTitle.copyWith(
@@ -220,7 +238,10 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
                         const SizedBox(height: AppSpacing.sm),
                         Text(
                           switch (status) {
-                            OtaStatus.running => _runningHint(stage),
+                            OtaStatus.running =>
+                              stalled
+                                  ? '设备可能仍在升级，请保持通电、不要断开 Wi-Fi。可以关闭窗口，稍后重新检查；关闭不会中断设备升级。'
+                                  : _runningHint(stage),
                             OtaStatus.success => '设备已升级到新版本。',
                             OtaStatus.failed => ota?.message ?? '请稍后重试。',
                           },
@@ -232,12 +253,12 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
                   ),
                 ),
                 // 跑完（成功或失败）才给关闭按钮；升级中不给，避免用户以为能中断。
-                if (!running) ...<Widget>[
+                if (!running || stalled) ...<Widget>[
                   const SizedBox(height: AppSpacing.xxl),
                   FilledButton(
                     key: const Key('ota-progress-close'),
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('知道了'),
+                    child: Text(stalled ? '关闭窗口' : '知道了'),
                   ),
                 ],
               ],

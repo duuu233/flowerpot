@@ -28,7 +28,7 @@ fun main() {
         verify(running.last() == (null to stage))
     }
     val count = running.size
-    for (terminalStage in listOf(0, 3, 4, 7)) listener.onStatusChanged(terminalStage, 1)
+    listener.onStatusChanged(0, 1)
     verify(running.size == count)
     listener.onTimeout(1)
     verify(errors.last().first == "ota_timeout")
@@ -53,6 +53,12 @@ fun main() {
     verify(errors.last() == ("E104" to "固件升级失败，请稍后重试。"))
     listener.onSuccess(1)
     verify(successes.single() == 1)
+    listener.onStatusChanged(3, 9)
+    verify(successes.last() == 9)
+    listener.onStatusChanged(4, 9)
+    verify(errors.last().first == "ota_failed")
+    listener.onStatusChanged(7, 9)
+    verify(errors.last().first == "ota_timeout")
     verify(listener == listener)
     verify(listener != Any())
     verify(listener.hashCode() == System.identityHashCode(listener))

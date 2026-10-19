@@ -258,6 +258,7 @@ class OtaProgress {
     final value = percent ?? 0;
     if (value >= installingPercent) return OtaStage.installing;
     if (value > 0) return OtaStage.upgrading;
+    if (stage == OtaStage.upgrading) return OtaStage.upgrading;
     return stage == OtaStage.waitingWake
         ? OtaStage.waitingWake
         : OtaStage.preparing;
@@ -281,7 +282,7 @@ enum OtaStage {
   static OtaStage? fromTuya(Object? raw) {
     final value = raw is num ? raw.toInt() : int.tryParse('${raw ?? ''}');
     return switch (value) {
-      13 || 14 || 100 => OtaStage.preparing,
+      1 || 13 || 14 || 100 => OtaStage.preparing,
       2 => OtaStage.upgrading,
       5 => OtaStage.waitingWake,
       6 => OtaStage.installing,
@@ -1294,6 +1295,8 @@ class FirmwareUpdate {
     required this.version,
     this.currentVersion,
     this.upgradeType = FirmwareUpgradeType.check,
+    this.componentType,
+    this.inProgress = false,
   });
 
   /// 待安装的新版本号。
@@ -1304,6 +1307,8 @@ class FirmwareUpdate {
 
   /// 平台上配的升级方式，决定设备页弹不弹提醒，见 [FirmwareUpgradeType]。
   final FirmwareUpgradeType upgradeType;
+  final int? componentType;
+  final bool inProgress;
 }
 
 class WifiScan {
