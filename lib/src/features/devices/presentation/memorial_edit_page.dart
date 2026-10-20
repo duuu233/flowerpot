@@ -58,7 +58,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
   String? _pickedImagePath;
 
   // 两种内容各自保留草稿，切换不清空，也不把文字当成图片路径。
-  late final String _imageContent =
+  late String _imageContent =
       widget.arguments.entry.type == MemorialContentType.image
       ? widget.arguments.entry.content
       : '';
@@ -157,12 +157,24 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
     }
     setState(() => _saving = true);
     // contentType + content 共用一个保存请求；只提交所选草稿，覆盖旧类型的值。
-    final result = await FlowerpotScope.of(context).saveMemorial(
-      widget.arguments.deviceId,
-      _entry.copyWith(title: title, content: content),
-    );
+    final savedEntry = _entry.copyWith(title: title, content: content);
+    final result = await FlowerpotScope.of(
+      context,
+    ).saveMemorial(widget.arguments.deviceId, savedEntry);
     if (!mounted) return;
-    setState(() => _saving = false);
+    setState(() {
+      _saving = false;
+      if (result.success) {
+        _entry = savedEntry;
+        // 仅保存成功后丢弃另一类型草稿；失败仍允许切回继续编辑。
+        if (savedEntry.type == MemorialContentType.text) {
+          _imageContent = '';
+          _pickedImagePath = null;
+        } else {
+          _textController.clear();
+        }
+      }
+    });
     showDeviceActionResult(context, result, announceSuccess: true);
     if (result.success) Navigator.pop(context);
   }
@@ -256,7 +268,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                     if (_fixed)
                       _FixedContentChip(label: '${_entry.title}动画')
                     else ...<Widget>[
-                      _ContentTypeTabs(
+                      _ContentTypeSelector(
                         type: _entry.type,
                         onChanged: (type) => setState(
                           () => _entry = _entry.copyWith(type: type),
@@ -510,84 +522,45 @@ class _FixedContentChip extends StatelessWidget {
   }
 }
 
-class _ContentTypeTabs extends StatelessWidget {
-  const _ContentTypeTabs({required this.type, required this.onChanged});
+class _ContentTypeSelector extends StatelessWidget {
+  const _ContentTypeSelector({required this.type, required this.onChanged});
 
   final MemorialContentType type;
   final ValueChanged<MemorialContentType> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      // 稿子分段控件：外框 44 高、圆角 12，选中块 38 高、内缩 3、圆角 10（原 56 / 46 / 16）。
-      decoration: const BoxDecoration(
-        color: AppColors.fieldFill,
-        borderRadius: BorderRadius.all(Radius.circular(12)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(3),
-        child: Row(
-          children: <Widget>[
+    return RadioGroup<MemorialContentType>(
+      groupValue: type,
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
+      child: Row(
+        children: <Widget>[
+          for (final item in MemorialContentType.values)
             Expanded(
-              child: _Tab(
-                tabKey: const Key('memorial-type-text'),
-                label: '文字',
-                selected: type == MemorialContentType.text,
-                onTap: () => onChanged(MemorialContentType.text),
+              child: RadioListTile<MemorialContentType>(
+                key: Key(
+                  item == MemorialContentType.text
+                      ? 'memorial-type-text'
+                      : 'memorial-type-image',
+                ),
+                value: item,
+                activeColor: AppColors.brandPrimary,
+                contentPadding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                title: Text(
+                  item == MemorialContentType.text ? '文字' : '图片',
+                  style: TextStyle(
+                    color: type == item
+                        ? AppColors.brandPrimary
+                        : AppColors.textSecondary,
+                    fontSize: 17,
+                  ),
+                ),
               ),
             ),
-            Expanded(
-              child: _Tab(
-                tabKey: const Key('memorial-type-image'),
-                label: '图片',
-                selected: type == MemorialContentType.image,
-                onTap: () => onChanged(MemorialContentType.image),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Tab extends StatelessWidget {
-  const _Tab({
-    required this.tabKey,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final Key tabKey;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? AppColors.surface : Colors.transparent,
-      borderRadius: const BorderRadius.all(Radius.circular(10)),
-      child: InkWell(
-        key: tabKey,
-        borderRadius: const BorderRadius.all(Radius.circular(10)),
-        onTap: onTap,
-        child: SizedBox(
-          height: 38,
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected
-                    ? AppColors.brandPrimary
-                    : AppColors.textSecondary,
-                fontSize: 17,
-                fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
-              ),
-            ),
-          ),
-        ),
+        ],
       ),
     );
   }

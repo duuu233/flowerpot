@@ -17,6 +17,41 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('纪念日内容用单选按钮切换且始终只选一项', (tester) async {
+    await _pumpEditPage(
+      tester,
+      MemorialEntry(
+        id: 7,
+        date: DateTime(2026, 10, 20),
+        title: '纪念日',
+        type: MemorialContentType.text,
+        content: '祝福',
+      ),
+    );
+    expect(find.byType(RadioListTile<MemorialContentType>), findsNWidgets(2));
+    expect(
+      tester
+          .widget<RadioGroup<MemorialContentType>>(
+            find.byType(RadioGroup<MemorialContentType>),
+          )
+          .groupValue,
+      MemorialContentType.text,
+    );
+    await _switchType(tester, true);
+    expect(
+      tester
+          .widget<RadioGroup<MemorialContentType>>(
+            find.byType(RadioGroup<MemorialContentType>),
+          )
+          .groupValue,
+      MemorialContentType.image,
+    );
+    await _switchType(tester, true);
+    expect(find.byKey(const Key('memorial-image-slot')), findsOneWidget);
+    expect(find.byKey(const Key('memorial-text-field')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final size in [const Size(375, 812), const Size(320, 568)]) {
     for (final imageSelected in [false, true]) {
       testWidgets('纪念日切换保留两份草稿，保存仅保留所选类型 image=$imageSelected $size', (
@@ -102,6 +137,50 @@ void main() {
           utf8.decode(frame.sublist(10)),
           imageSelected ? entry.content : '新的祝福',
         );
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+        // 退出页面，重新请求列表，再建立一个全新的编辑页面。
+        await result.state.refreshMemorials('device-01');
+        final reopened = result.state.customMemorialsFor('device-01').single;
+        expect(reopened.type, saved.type);
+        expect(reopened.content, saved.content);
+        await tester.pumpWidget(
+          FlowerpotScope(
+            state: result.state,
+            child: MaterialApp(
+              theme: buildAppTheme(),
+              home: MemorialEditPage(
+                arguments: MemorialEditArguments(
+                  deviceId: 'device-01',
+                  entry: reopened,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await _switchType(tester, !imageSelected);
+        if (imageSelected) {
+          expect(
+            tester
+                .widget<TextField>(find.byKey(const Key('memorial-text-field')))
+                .controller!
+                .text,
+            isEmpty,
+            reason: '保存图片后，重进不能恢复未选中的文字',
+          );
+        } else {
+          expect(find.text('上传图片'), findsOneWidget);
+          expect(
+            find.descendant(
+              of: find.byKey(const Key('memorial-image-slot')),
+              matching: find.byType(Image),
+            ),
+            findsNothing,
+            reason: '保存文字后，重进不能恢复未选中的图片',
+          );
+        }
+        expect(requests, hasLength(2), reason: '重进与切换不额外写入');
         expect(tester.takeException(), isNull);
       });
     }
@@ -432,6 +511,7 @@ HttpAppBackendRepository _memorialBackend(
 ) {
   final session = ApiSession(storageKey: 'memorial.exclusive')
     ..setToken('test-token');
+  var persisted = entry;
   return HttpAppBackendRepository(
     client: ApiClient(
       baseUrl: 'https://example.test',
@@ -442,17 +522,29 @@ HttpAppBackendRepository _memorialBackend(
           data = {
             'pageData': [
               {
-                'anniversaryId': entry.id,
+                'anniversaryId': persisted.id,
                 'deviceId': 'device-01',
-                'title': entry.title,
-                'anniversaryDate': entry.dateLabel,
-                'contentType': entry.type == MemorialContentType.image ? 1 : 0,
-                'content': entry.content,
+                'title': persisted.title,
+                'anniversaryDate': persisted.dateLabel,
+                'contentType': persisted.type == MemorialContentType.image
+                    ? 1
+                    : 0,
+                'content': persisted.content,
               },
             ],
           };
         } else {
           writes.add(request);
+          if (request.url.path.endsWith('editUserProductAnniversary')) {
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            persisted = persisted.copyWith(
+              type: body['contentType'] == 1
+                  ? MemorialContentType.image
+                  : MemorialContentType.text,
+              content: body['content'] as String,
+              title: body['title'] as String,
+            );
+          }
         }
         return http.Response(
           jsonEncode({'retCode': 200, 'retMsg': 'ok', 'retData': data}),
