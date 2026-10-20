@@ -20,6 +20,7 @@ import 'tuya/tuya_gallery_codec.dart';
 import 'tuya/tuya_history_codec.dart';
 import 'tuya/tuya_memorial_codec.dart';
 import 'tuya/tuya_models.dart';
+import 'tuya/ota_timing_trace.dart';
 import 'tuya/tuya_repository.dart';
 
 class FlowerpotState extends ChangeNotifier {
@@ -45,6 +46,8 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 每台设备最近一次的固件升级进度，界面据此显示进度条。
   final Map<String, OtaProgress> _otaProgress = <String, OtaProgress>{};
+  final Map<String, OtaTimingTrace> _otaTiming = <String, OtaTimingTrace>{};
+  int _otaAttempt = 0;
 
   /// 每台设备最后一次收到升级事件的时刻，用来判断升级是不是断在半路。见
   /// [otaStalled]。
@@ -3263,12 +3266,25 @@ class FlowerpotState extends ChangeNotifier {
     _reportedOtaVersion.remove(id);
     _otaVerificationStartedAt.remove(id);
     _pendingOtaVersion[id] = version;
+    if (DebugLogGate.enabled) {
+      _otaTiming[id] =
+          OtaTimingTrace(
+            attempt: ++_otaAttempt,
+            clock: _otaNow,
+            emit: DebugLogGate.log,
+          )..mark(
+            'start',
+            detail:
+                'component=${_availableFirmware[id]?.componentType ?? "unknown"}',
+          );
+    }
     _otaProgress[id] = OtaProgress(
       deviceId: id,
       status: OtaStatus.running,
       percent: 0,
     );
     _otaUpdatedAt[id] = _otaNow();
+    final timing = _otaTiming[id];
     // 在原生调用之前建好本次状态，避免即时进度/失败被 startOta 的返回覆盖。
     try {
       await _repository
@@ -3282,6 +3298,9 @@ class FlowerpotState extends ChangeNotifier {
             onTimeout: () {
               // A missing method reply is not proof that the device failed.
               // Show the pending task; SDK events and the stall notice remain active.
+              if (identical(_otaTiming[id], timing)) {
+                timing?.mark('start_reply_timeout');
+              }
               _logInteraction('OTA 启动确认暂未返回，继续等待真实升级状态');
             },
           );
@@ -3357,6 +3376,7 @@ class FlowerpotState extends ChangeNotifier {
   /// 只动 App 这边：设备那头是不是真的还在升级，只有它自己知道。
   void clearOtaProgress(String deviceId) {
     if (_otaProgress.remove(deviceId) == null) return;
+    _otaTiming.remove(deviceId)?.mark('local_clear');
     _otaUpdatedAt.remove(deviceId);
     _otaVerificationStartedAt.remove(deviceId);
     _pendingOtaVersion.remove(deviceId);
@@ -4086,6 +4106,16 @@ class FlowerpotState extends ChangeNotifier {
     final previous = _otaProgress[incoming.deviceId];
     // 已确认的终态保持；安装中SDK报错先核验版本，不提前锁死失败。
     if (previous != null && previous.status != OtaStatus.running) return;
+    final timing = _otaTiming[incoming.deviceId];
+    if (incoming.status != OtaStatus.running) {
+      timing?.mark('signal_${incoming.status.name}');
+    }
+    if (incoming.stage != null) {
+      timing?.mark('stage_${incoming.stage!.name}');
+    }
+    if ((incoming.percent ?? 0) > 0 && (incoming.percent ?? 0) <= 100) {
+      timing?.mark('first_progress', detail: 'percent=${incoming.percent}');
+    }
     var progress = incoming;
     if (incoming.status == OtaStatus.failed &&
         !definitiveFailure &&
@@ -4102,6 +4132,7 @@ class FlowerpotState extends ChangeNotifier {
         verifyingVersion: true,
       );
       if (first) {
+        timing?.mark('version_verification');
         _logInteraction(
           'OTA 待核验 ← 安装阶段SDK报告失败：'
           '${incoming.message ?? "未提供原因"}；保留目标版本等待设备报告',
@@ -4121,6 +4152,13 @@ class FlowerpotState extends ChangeNotifier {
       );
     }
     _otaProgress[progress.deviceId] = progress;
+    if (progress.status == OtaStatus.running &&
+        progress.displayStage == OtaStage.installing) {
+      timing?.mark(
+        'installing',
+        detail: 'percent=${progress.percent ?? "unknown"}',
+      );
+    }
     // Repeated SDK snapshots are not forward movement. They must not keep a
     // permanently stuck preparation alive, nor move a progress bar backwards.
     if (previous == null ||
@@ -4130,6 +4168,8 @@ class FlowerpotState extends ChangeNotifier {
       _otaUpdatedAt[progress.deviceId] = _otaNow();
     }
     if (progress.status != OtaStatus.running) {
+      timing?.mark('result_${progress.status.name}');
+      _otaTiming.remove(progress.deviceId);
       _reportedOtaVersion.remove(progress.deviceId);
       _otaVerificationStartedAt.remove(progress.deviceId);
     }
@@ -4186,6 +4226,7 @@ class FlowerpotState extends ChangeNotifier {
       _reportedOtaVersion.remove(device.id);
       return;
     }
+    _otaTiming[device.id]?.mark('fresh_version_report');
     _reportedOtaVersion[device.id] = raw is String
         ? raw
         : device.firmwareVersion;
@@ -4204,6 +4245,7 @@ class FlowerpotState extends ChangeNotifier {
     String bare(String version) =>
         version.trim().replaceFirst(RegExp('^[Vv]'), '');
     if (bare(reported) != bare(target)) return false;
+    _otaTiming[deviceId]?.mark('target_version_match');
     _logInteraction('OTA 兜底 ← 本次上报版本 $reported = 目标版本，按升级完成处理');
     _applyOtaProgress(
       OtaProgress(deviceId: deviceId, status: OtaStatus.success),
@@ -4851,6 +4893,7 @@ class FlowerpotState extends ChangeNotifier {
     _user = null;
     _devices = <SmartPlanterDevice>[];
     _otaProgress.clear();
+    _otaTiming.clear();
     _otaUpdatedAt.clear();
     _otaVerificationStartedAt.clear();
     _pendingOtaVersion.clear();

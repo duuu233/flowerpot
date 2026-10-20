@@ -1,5 +1,10 @@
 # 项目文档导航
 
+- [2026-10-20 OTA分段计时与对外说明](history/2026-10/2026-10-20-ota-timing-and-external-brief.md)：调试计时不改变升级节奏；一页PDF说明已完成项、设备配合和真实耗时验收。
+
+- [设备方与项目负责人用一页说明](reports/2026-10-20-ota-optimization-brief.pdf)：覆盖亮度、DP同步、OTA结果修复和分段联调。
+
+
 - [2026-10-20 OTA安装结果核验](history/2026-10/2026-10-20-ota-installation-result-confirmation.md)：安装阶段SDK错误先等待版本，迟到DP可完成；2分钟只提示结果未确认，明确拒绝仍失败。
 
 - [2026-10-20 连续调光与DP实时更新、OTA兜底复核](history/2026-10/2026-10-20-brightness-live-dp-ota-review.md)：拖动实时下发、上报优先与监听恢复；目标版本兜底保留安装阶段要求，差分实际状态待真机。

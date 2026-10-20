@@ -1,3 +1,4 @@
+import 'package:flowerpot/src/core/config/debug_log_gate.dart';
 import 'package:flowerpot/src/app/flowerpot_app.dart';
 import 'package:flowerpot/src/design_system/design_system.dart';
 import 'package:flowerpot/src/features/devices/presentation/firmware_upgrade_flow.dart';
@@ -115,6 +116,70 @@ void _report(
 }
 
 void main() {
+  test(
+    'timing separates progress installation and fresh target confirmation',
+    () async {
+      var now = DateTime(2026, 10, 20, 10);
+      final lines = <String>[];
+      final previousPrint = debugPrint;
+      debugPrint = (String? message, {int? wrapWidth}) {
+        if (message?.startsWith('[ota-timing]') == true) lines.add(message!);
+      };
+      addTearDown(() => debugPrint = previousPrint);
+      final repository = _Repository();
+      final state = await _state(repository, clock: () => now);
+      addTearDown(state.dispose);
+      now = now.add(const Duration(seconds: 4));
+      await _sdk(repository, percent: 1);
+      await _sdk(repository, percent: 1);
+      now = now.add(const Duration(seconds: 90));
+      await _sdk(repository, percent: 96, stage: OtaStage.installing);
+      now = now.add(const Duration(seconds: 1));
+      await _sdk(repository, status: OtaStatus.failed);
+      now = now.add(const Duration(seconds: 25));
+      _report(repository, state);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        lines.where((line) => line.contains('event=first_progress ')),
+        hasLength(1),
+      );
+      expect(lines, contains(contains('event=installing elapsedMs=94000')));
+      expect(
+        lines,
+        contains(contains('event=version_verification elapsedMs=95000')),
+      );
+      expect(
+        lines,
+        contains(contains('event=target_version_match elapsedMs=120000')),
+      );
+      expect(lines.last, contains('event=result_success elapsedMs=120000'));
+      expect(lines.any((line) => line.contains(_id)), isFalse);
+      final completedCount = lines.length;
+      await _sdk(repository, status: OtaStatus.failed);
+      expect(lines.length, completedCount);
+      state.clearOtaProgress(_id);
+      await state.upgradeFirmware(_id, _target);
+      expect(lines.last, contains('attempt=2 event=start elapsedMs=0'));
+    },
+  );
+
+  test('user builds do not collect OTA timing diagnostics', () async {
+    // Run this assertion in the APP_DEBUG_TOOLS=false variant as well.
+    if (DebugLogGate.enabled) return;
+    final lines = <String>[];
+    final previousPrint = debugPrint;
+    debugPrint = (String? message, {int? wrapWidth}) {
+      if (message?.startsWith('[ota-timing]') == true) lines.add(message!);
+    };
+    addTearDown(() => debugPrint = previousPrint);
+    final repository = _Repository();
+    final state = await _state(repository);
+    addTearDown(state.dispose);
+    await _sdk(repository, percent: 2);
+    await _sdk(repository, status: OtaStatus.success);
+    expect(lines, isEmpty);
+  });
+
   test(
     'explicit SDK precheck refusal is not softened by installation progress',
     () async {

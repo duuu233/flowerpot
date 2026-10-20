@@ -1,5 +1,8 @@
 # AI 项目上下文
 
+OTA分段诊断：调试构建新增 `[ota-timing]` 首次里程碑与累计/间隔时间；不改变SDK传输、重试及等待。用户包关闭调试不采集。实际差分和提速仍待设备及平台联合取证，取证步骤与边界见 [OTA实现说明](docs/OTA_实现说明.md)。
+
+
 当前用户版构建与兼容规则见 [docs/USER_RELEASE_BUILD.md](docs/USER_RELEASE_BUILD.md)：APP_DEBUG_TOOLS=false 统一关闭调试功能，省略保持现有联调；当前真实涂鸦仓库默认启用，旧 TUYA_ENABLED 参数不再控制模式。
 
 > **产品口径与硬性要求看 [`docs/PRODUCT_RULES.md`](docs/PRODUCT_RULES.md)**（必须怎样 / 绝对不要怎样）。本文件只放**技术事实**，试错过程在 `docs/history/`。三者不重复。
