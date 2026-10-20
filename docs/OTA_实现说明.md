@@ -2,10 +2,11 @@
 
 > 文档类型：实现说明
 > 状态：Active
-> 最后核验：2026-10-19（Android 实际 SDK 7.5.1、源码、隔离回归及 Kotlin 编译；未真机）
+> 最后核验：2026-10-20（源码与10月19日提交对比、设备/App接口边界和官方差分流程；本轮只核查文档，未真机）
 
 | 日期 | 更新内容 | 落点 |
 | --- | --- | --- |
+| 2026-10-20 | 明确设备进度上报与差分标识的职责，不能从App未调用推定设备未开启；同步DP168现语义 | §2.5、§4、§6.4 |
 | 2026-10-19 | Android OTA Service、状态查询兜底、终态映射与分阶段停滞提示；支持接回 SDK 已有任务 | §1–6、附录 A |
 | 2026-10-13 | 割草机提醒/强制提醒限 DP117=charging；手动确认后按最新状态拦截并提示回桩 | §1、§2.4、§4 |
 | 2026-10-13 | 提醒和版本确认等待完整退场后继续，避免与升级进度交叠；割草机切设置期间防重弹 | §2.4、§4、附录 A1 |
@@ -110,7 +111,7 @@ Android 现优先使用 `registerDevOTAListener` 的 `firmwareUpgradeStatus`，�
   - 版本先到：只记录到 `_reportedOtaVersion`，准备/下载阶段仍不成功；后续 SDK 进度进入安装阶段时重验。后来的不同版本替换先前记录，空值/非字符串本条版本上报清除记录。
   - 开始、清理/重试、成败收尾、退出登录、解绑或移除设备时清除本次记录，不跨升级使用。
   - 实现：`_confirmOtaFromDeviceReport` → `_confirmOtaByReportedVersion` 记录，`_confirmOtaByPendingReport` 判断；`_applyOtaProgress` 也触发重验。
-- **花盆 DP168 `ota_result`**：进行中的升级收到本条报文中的 2 / success 时判成功，3 / failed 时判失败；0 / 1 只记录。不要求安装阶段，不适用于割草机。实现为 `_confirmOtaByResultDp`。
+- **花盆 DP168**：当前协议为手动亮度，已不作为 OTA 结果，不参与成功/失败收尾；旧 `ota_result` 解释已移除。当前成功依据仍为 SDK 与安装阶段 DP148 版本兜底，按产品 ID 与割草机 DP 区分。
 - **停滞提示**：准备阶段 `otaPreparationTimeout` 为 2 分钟，升级/唤醒/安装 `otaStallTimeout` 为 10 分钟，均从最后一次真实推进起算。弹层每秒检查，即使 SDK 完全无回调也能提示并允许关闭。阈值不是成功延迟、设备超时或失败结论。再次进入时可确认清理本地进度、重新检查 SDK；若 SDK 返回已有任务，只挂接监听，不重复启动。
 - **启动方法长期未答复**：Dart 等待 30 秒后仍保持进行中并进入进度窗口，等待后续事件/停滞提示；不假定成功、失败或重发命令。
 - **割草机 DP116 `ota_status`**：本 App 发起的升级仍在进行时，本条实时 DP116 `"7"`（非待机拒绝）或 `"20"`（包校验失败）直接置 `failed`，弹层结束等待并可关闭。不要求割草机页面打开；只取 `reportedDps` 的本条值，无升级、其他状态、旧快照或花盆同号 DP 不收尾。同条同时有错误与目标版本时先认失败。原割草机页面的提示流保留，DP116 不参与百分比。
@@ -139,7 +140,7 @@ Android 现优先使用 `registerDevOTAListener` 的 `firmwareUpgradeStatus`，�
 | 主动提醒 / 发起充电条件 | 沿用原规则 | 提醒及强制提醒限 DP117=charging（1）；手动确认后按最新 DP117 判断，其余提示回桩，full（2）不放行 |
 | 当前版本号 | DP 148 `firmware_version` | DP 112 `fw_version`（如 `"1.1.3"`） |
 | 版本 DP 都没报时 | 退回 SDK 的 `verSw` | 同左 |
-| 设备侧升级状态上报 | DP168 `ota_result`（仅本条实时上报可收尾） | DP116 `ota_status`（本次实时拒绝/失败可收尾） |
+| 设备侧升级状态上报 | 无独立结果DP；DP148版本安装阶段兜底，168为亮度 | DP116 `ota_status`（本次实时拒绝/失败可收尾） |
 | 进设置页静默查新版本 | 设置页、「其他设置」页各查一次 | 只靠提醒弹窗的检查（割草机各页都算设备页） |
 
 ## 5. 现状缺口
@@ -186,7 +187,22 @@ Android 当前使用 Home SDK 7.5.1，Expansion SDK 7.8.0；优先 `newOTAServic
 
 Android 终态回调与 DP 时序处理已补齐，下一步记录真机时间线；若设备约 1 分钟已安装并上报目标版本，而弹层到 4–5 分钟才收尾，排查 App 桥接和 DP112 时序。若设备本身下载较慢，核对平台实际下发全量/差分包、模组传输路径及两款 App 的 SDK；若下载相同而安装慢，由固件团队核对校验/Flash/重启连云。升级 SDK 或增大设备下载缓存都应有兼容性和实测依据。
 
-截至 2026-10-19 仍未取得真机时间线，不能认定现场停滞唯一根因或宣称物理升级已提速。Service API、状态含义和快照接口依据[涂鸦官方固件升级文档](https://developer.tuya.com/en/docs/app-development/otaupdate?id=Ka6ki8la8wnr9)，并以本机实际 7.5.1 AAR 核对签名；本轮修复与验证见[准备阶段修复记录](history/2026-10/2026-10-19-mower-ota-preparing-recovery.md)。最初核查见[检查记录](history/2026-10/2026-10-12-mower-ota-audit.md)，后续 App 代码修复及验证见[修复记录](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。
+截至 2026-10-20 仍未取得真机时间线，不能认定现场停滞唯一根因或宣称物理升级已提速。Service API、状态含义和快照接口依据[涂鸦官方固件升级文档](https://developer.tuya.com/en/docs/app-development/otaupdate?id=Ka6ki8la8wnr9)，并以本机实际 7.5.1 AAR 核对签名；本轮修复与验证见[准备阶段修复记录](history/2026-10/2026-10-19-mower-ota-preparing-recovery.md)。最初核查见[检查记录](history/2026-10/2026-10-12-mower-ota-audit.md)，后续 App 代码修复及验证见[修复记录](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。
+
+### 6.4 当前App是否开启差分：2026-10-20核查结论
+
+基线 `main/56ed25d`。10月19日 `9770867` 的 Android OTA 三份原生文件至当前没有变化；Home SDK 7.5.1 / Expansion 7.8.0 未改。应用可执行源码未找到 `tuya_iot_dev_upgd_progress_rept`、`FW_UG_S` 或 `diff_ota`，仓库未包含割草机设备固件工程。此结果只证明本App未直接调用/设置，不能推断设备内部SDK是否上报，或升级任务实际使用全量/差分。
+
+| 用户问题 | 当前App事实 | 仍需设备/平台证据 |
+| --- | --- | --- |
+| 是否调用 `tuya_iot_dev_upgd_progress_rept` 监控进度 | 未直接调用。这是设备向云端**上报**进度的C接口；App用 `registerDevOTAListener` 接收，另每8秒 `getUpgradeProgress` 查询。 | 确认所用设备SDK/OTA方案；自动上报配置，或手动上报调用与真实日志。不能要求所有方案必须手动调用同名函数。 |
+| 是否配置 `fw->diff_ota = TRUE` | App没有此结构体/赋值，不能在手机代码开启它。设备升级回调的 `FW_UG_S.diff_ota` 描述升级信息是否为差分。 | 对应模组/MCU/Bootloader是否支持、当前→目标版本差分包与部署开关、设备实际收到的标识与包大小。 |
+
+因此本轮结论是**设备实际差分状态未知**，不是“未开启”或“已经开启”。昨天改的是进度接收、恢复和界面等待；没有替设备接入差分，也没有强制全量下载。`upgradeType` 提醒/强制/检测、`upgradeMode` 通用/PID类型均不应直接当作差分标志。
+
+固件团队最小核验：提供本设备OTA回调里的 `tp`、`sw_ver`、`file_size`、`diff_ota`，以及实际下载字节数/包类型；若对应方案使用 `notify`，说明取值与自动/手动上报路径并给时间线；平台核对起始版本、目标版本、组件、差分包生成与“是否支持差分”。不要把完整下载URL、设备标识或密钥写入共享日志。`notify=TRUE` 由设备SDK上报，FALSE改为设备应用层负责，不可为提速盲目关闭。确认差分能力和有效包之前，不硬改收到的 `fw->diff_ota`。
+
+依据：[App固件升级接口](https://developer.tuya.com/en/docs/app-development/otaupdate?id=Ka6ki8la8wnr9)、[设备Wi-Fi SDK进度上报](https://developer.tuya.com/en/docs/iot-device-dev/tuya-common-wifi-sdk?id=K9glcmvw4u9ml)、[TuyaOS升级信息结构](https://developer.tuya.com/en/docs/iot-device-dev/tuyaos-gateway-ota?id=Kc34sycce62if)、[平台差分升级流程](https://developer.tuya.com/cn/docs/iot/firmware-upgrade-operation-guide?id=K93ixsft1w3to)。后两项按实际设备方案适用性核验，不把网关示例当成本割草机内部实现证明。
 
 ## 附录 A：当前实现调用链
 
@@ -208,4 +224,4 @@ Android 终态回调与 DP 时序处理已补齐，下一步记录真机时间�
 
 ### A5. 完成与边界
 
-iOS 原生 API 和设备固件未改。SDK 成败与原设备 DP 逻辑并存，第一份终态生效；割草机实时 DP116=7/20 判失败，DP112/花盆 DP148 必须是本次真实上报且安装阶段匹配目标才补判成功，不能用旧版本快照、准备计时或方法返回推定成功。花盆既有 DP168 行为见 §2.5。退出登录/销毁释放监听与查询。
+iOS 原生 API 和设备固件未改。SDK 成败与原设备 DP 逻辑并存，第一份终态生效；割草机实时 DP116=7/20 判失败，DP112/花盆 DP148 必须是本次真实上报且安装阶段匹配目标才补判成功，不能用旧版本快照、准备计时或方法返回推定成功。花盆 DP168 为手动亮度，不参与 OTA 收尾，见 §2.5。退出登录/销毁释放监听与查询。
