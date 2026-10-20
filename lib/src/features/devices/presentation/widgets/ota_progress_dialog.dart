@@ -41,6 +41,7 @@ String otaRunningLabel(
   bool withPercent = false,
   OtaStage? stageOverride,
 }) {
+  if (ota?.verifyingVersion == true) return '正在确认升级结果';
   final stage = stageOverride ?? ota?.displayStage ?? OtaStage.preparing;
   return switch (stage) {
     OtaStage.preparing => '固件准备中',
@@ -120,7 +121,7 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
   /// ⚠️ 只拦「进度自己走到了 98」这一条路径。涂鸦直接报阶段 6（固件已下载到设备）
   /// 而进度还很低时**不能**假装 98%——那是个设备从没报过的数字。
   bool _holding(OtaProgress? ota, OtaStage rawStage) {
-    if (_held98) return false;
+    if (_held98 || ota?.verifyingVersion == true) return false;
     if (ota?.status != OtaStatus.running) return false;
     if (rawStage != OtaStage.installing) return false;
     if ((ota?.percent ?? 0) < OtaProgress.installingPercent) return false;
@@ -137,6 +138,7 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
     final ota = state.otaProgressFor(widget.deviceId);
     final status = ota?.status ?? OtaStatus.running;
     final running = status == OtaStatus.running;
+    final verifying = running && ota?.verifyingVersion == true;
     final stalled = running && state.otaStalled(widget.deviceId);
     if (!running) _stallTimer?.cancel();
     final rawStage = ota?.displayStage ?? OtaStage.preparing;
@@ -149,10 +151,11 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
     // 准备中 / 安装中 / 等待唤醒没有可信的百分比：进度条改成来回走的动画、不写数字，
     // 让人看得出在跑，而不是停在 0%（或者 2026-09-17 之后的 98%）。三段共用同一套
     // 动效，产品口径就是「98% 之后换成最开始那个动效」。
-    final indeterminate = running && (stage != OtaStage.upgrading || percent == 0);
+    final indeterminate =
+        running && (stage != OtaStage.upgrading || percent == 0);
     return PopScope(
       // 升级中不许返回键关掉：关了就再也看不到进度，用户只会以为升级没在跑。
-      canPop: !running || stalled,
+      canPop: !running || stalled || verifying,
       child: Dialog(
         key: const Key('ota-progress-dialog'),
         backgroundColor: AppColors.surface,
@@ -186,7 +189,7 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
                       children: <Widget>[
                         Text(
                           stalled
-                              ? '暂未收到升级进度'
+                              ? (verifying ? '暂未确认升级结果' : '暂未收到升级进度')
                               : switch (status) {
                                   OtaStatus.running => otaRunningLabel(
                                     ota,
@@ -239,7 +242,11 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
                         Text(
                           switch (status) {
                             OtaStatus.running =>
-                              stalled
+                              verifying
+                                  ? (stalled
+                                        ? '暂未确认设备版本，请保持设备通电并连接 Wi-Fi。可以关闭窗口，稍后重新检查；关闭不会中断设备升级。'
+                                        : '设备可能正在安装或重启，正在等待版本确认。请保持设备通电、不要断开 Wi-Fi；关闭窗口不会中断升级。')
+                                  : stalled
                                   ? '设备可能仍在升级，请保持通电、不要断开 Wi-Fi。可以关闭窗口，稍后重新检查；关闭不会中断设备升级。'
                                   : _runningHint(stage),
                             OtaStatus.success => '设备已升级到新版本。',
@@ -253,12 +260,12 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
                   ),
                 ),
                 // 跑完（成功或失败）才给关闭按钮；升级中不给，避免用户以为能中断。
-                if (!running || stalled) ...<Widget>[
+                if (!running || stalled || verifying) ...<Widget>[
                   const SizedBox(height: AppSpacing.xxl),
                   FilledButton(
                     key: const Key('ota-progress-close'),
                     onPressed: () => Navigator.of(context).pop(),
-                    child: Text(stalled ? '关闭窗口' : '知道了'),
+                    child: Text(stalled || verifying ? '关闭窗口' : '知道了'),
                   ),
                 ],
               ],

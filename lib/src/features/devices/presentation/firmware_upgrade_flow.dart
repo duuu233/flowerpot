@@ -33,18 +33,10 @@ Future<void> runFirmwareUpgrade(
   if (state.isCheckingFirmware(deviceId)) return;
   final device = state.deviceById(deviceId);
   if (device == null) return;
-  if (!state.isDeviceOnline(deviceId)) {
-    if (state.isMowerDevice(device)) {
-      showMowerOfflineNotice(context);
-    } else {
-      showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.info);
-    }
-    return;
-  }
 
   var useKnownVersion = true;
   if (state.otaProgressFor(deviceId)?.status == OtaStatus.running) {
-    if (!state.otaStalled(deviceId)) {
+    if (!state.otaStalled(deviceId) || !state.isDeviceOnline(deviceId)) {
       await showOtaProgressDialog(context, deviceId: deviceId);
       return;
     }
@@ -52,10 +44,13 @@ Future<void> runFirmwareUpgrade(
     // 重新检查，而不是把他锁在一个永远不动的进度上。
     final retry = await showAppConfirmDialog(
       context,
-      title: '升级似乎已中断',
-      message:
-          '设备已经很久没有回报升级进度。可以重新检查固件；'
-          '若设备仍在升级中，请等它完成后再试。',
+      title: state.otaProgressFor(deviceId)?.verifyingVersion == true
+          ? '暂未确认升级结果'
+          : '升级似乎已中断',
+      message: state.otaProgressFor(deviceId)?.verifyingVersion == true
+          ? '尚未收到设备版本确认。可以重新检查固件；请保持设备通电并连接 Wi-Fi。'
+          : '设备已经很久没有回报升级进度。可以重新检查固件；'
+                '若设备仍在升级中，请等它完成后再试。',
       confirmLabel: '重新检查',
       icon: Icons.sync_problem_outlined,
     );
@@ -65,8 +60,11 @@ Future<void> runFirmwareUpgrade(
   }
 
   if (!state.isDeviceOnline(deviceId)) {
-    final kind = state.isMowerDevice(device) ? '割草机' : '花盆';
-    showAppMessage(context, '$kind已离线，无法检查固件', tone: AppMessageTone.info);
+    if (state.isMowerDevice(device)) {
+      showMowerOfflineNotice(context);
+    } else {
+      showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.info);
+    }
     return;
   }
 

@@ -26,9 +26,11 @@ void main() {
     bool realSettings = false,
     bool mower = false,
     _UpgradeRepository? repository,
+    DateTime Function()? clock,
   }) async {
     final state = FlowerpotState(
       repository: repository ?? _UpgradeRepository(type),
+      otaClock: clock,
     );
     addTearDown(state.dispose);
     await tester.runAsync(() async {
@@ -527,6 +529,49 @@ void main() {
     expect(find.text(force), findsNothing);
     expect(state.hasFirmwareUpdate(state.devices.single.id), isFalse);
   });
+
+  for (final type in [FirmwareUpgradeType.remind, FirmwareUpgradeType.force]) {
+    testWidgets(
+      '$type verification beyond deadline never launches another reminder',
+      (tester) async {
+        var now = DateTime(2026);
+        final repository = _UpgradeRepository(type);
+        final (state, _) = await pumpHost(
+          tester,
+          type,
+          repository: repository,
+          realSettings: true,
+          clock: () => now,
+        );
+        final id = state.devices.single.id;
+        await tester.runAsync(() async {
+          await state.upgradeFirmware(id, '1.1.0');
+          repository.pushOtaProgress(
+            OtaProgress(
+              deviceId: id,
+              status: OtaStatus.running,
+              percent: 96,
+              stage: OtaStage.installing,
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          repository.pushOtaProgress(
+            OtaProgress(deviceId: id, status: OtaStatus.failed),
+          );
+          await Future<void>.delayed(Duration.zero);
+        });
+        now = now.add(const Duration(minutes: 3));
+        expect(state.otaStalled(id), isTrue);
+        await open(tester, AppRoutes.deviceSettings, id);
+        expect(find.text(remind), findsNothing);
+        expect(find.text(force), findsNothing);
+        expect(repository.startCalls, 1);
+        expect(repository.checkCalls, 0);
+        expect(state.otaProgressFor(id)?.verifyingVersion, isTrue);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   test('upgradeType 0 / 2 / 3 map to remind / force / check', () {
     expect(FirmwareUpgradeType.fromTuya(0), FirmwareUpgradeType.remind);

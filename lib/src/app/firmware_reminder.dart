@@ -175,7 +175,8 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
     if (widget.routes.popupOnTop) return;
     final running =
         state.otaProgressFor(deviceId)?.status == OtaStatus.running &&
-        !state.otaStalled(deviceId);
+        (state.otaProgressFor(deviceId)?.verifyingVersion == true ||
+            !state.otaStalled(deviceId));
     if (running) return;
 
     final checkedAt = _checkedAt[deviceId];
@@ -199,7 +200,8 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
         widget.routes.currentPage != page ||
         widget.routes.popupOnTop ||
         (state.otaProgressFor(deviceId)?.status == OtaStatus.running &&
-            !state.otaStalled(deviceId))) {
+            (state.otaProgressFor(deviceId)?.verifyingVersion == true ||
+                !state.otaStalled(deviceId)))) {
       return;
     }
     switch (update.upgradeType) {

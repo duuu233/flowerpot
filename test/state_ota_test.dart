@@ -403,7 +403,7 @@ void main() {
       state.dispose();
     });
 
-    test('涂鸦已经报了失败：版本号对上也不改判', () async {
+    test('安装阶段SDK先报失败：本次目标版本上报仍可确认成功', () async {
       final repository = _OtaRepository();
       final state = await _state(repository);
       await state.upgradeFirmware('device-01', '1.1.0');
@@ -413,9 +413,12 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+      expect(state.otaProgressFor('device-01')?.verifyingVersion, isTrue);
       await report(repository, '1.1.0', <int>{148});
 
-      expect(state.otaProgressFor('device-01')?.status, OtaStatus.failed);
+      expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
+      expect(state.otaProgressFor('device-01')?.verifyingVersion, isFalse);
       state.dispose();
     });
 

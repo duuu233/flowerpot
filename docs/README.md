@@ -1,5 +1,7 @@
 # 项目文档导航
 
+- [2026-10-20 OTA安装结果核验](history/2026-10/2026-10-20-ota-installation-result-confirmation.md)：安装阶段SDK错误先等待版本，迟到DP可完成；2分钟只提示结果未确认，明确拒绝仍失败。
+
 - [2026-10-20 连续调光与DP实时更新、OTA兜底复核](history/2026-10/2026-10-20-brightness-live-dp-ota-review.md)：拖动实时下发、上报优先与监听恢复；目标版本兜底保留安装阶段要求，差分实际状态待真机。
 
 - [2026-10-20 OTA差分与进度上报边界](history/2026-10/2026-10-20-ota-differential-boundary-audit.md)：App监听已接入，设备差分实际状态待固件及平台证据确认；仅文档核查。

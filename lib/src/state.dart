@@ -50,6 +50,9 @@ class FlowerpotState extends ChangeNotifier {
   /// [otaStalled]。
   final Map<String, DateTime> _otaUpdatedAt = <String, DateTime>{};
 
+  /// 安装阶段的SDK失败不是固件最终结果；重复事件不重置核验起点。
+  final Map<String, DateTime> _otaVerificationStartedAt = <String, DateTime>{};
+
   /// 已发起升级但尚未收到 success 的目标版本号（涂鸦检测升级返回的新版本），收到后才写回
   /// 设备；版本号 DP 兜底也拿它比（`_confirmOtaByReportedVersion`）。
   final Map<String, String> _pendingOtaVersion = <String, String>{};
@@ -3258,6 +3261,7 @@ class FlowerpotState extends ChangeNotifier {
     }
     final epoch = _sessionEpoch;
     _reportedOtaVersion.remove(id);
+    _otaVerificationStartedAt.remove(id);
     _pendingOtaVersion[id] = version;
     _otaProgress[id] = OtaProgress(
       deviceId: id,
@@ -3292,7 +3296,21 @@ class FlowerpotState extends ChangeNotifier {
             status: OtaStatus.failed,
             message: error is TuyaException ? error.message : '固件升级未能开始，请稍后重试。',
           ),
+          definitiveFailure:
+              error is TuyaException &&
+              const {
+                'firmware_changed',
+                'firmware_component_missing',
+                'ota_precheck_failed',
+                'ota_start_failed',
+                '5005',
+              }.contains(error.code),
         );
+        // 进度可能先于启动方法答复到达，核验中仍应展示进度，而不是额外弹失败。
+        if (_otaProgress[id]?.verifyingVersion == true ||
+            _otaProgress[id]?.status == OtaStatus.success) {
+          return const ActionResult(true, '正在确认升级结果');
+        }
       }
       rethrow;
     }
@@ -3316,11 +3334,16 @@ class FlowerpotState extends ChangeNotifier {
   /// 用户既看不出出了问题，也没法重试——只能杀掉 App。
   static const Duration otaStallTimeout = Duration(minutes: 10);
   static const Duration otaPreparationTimeout = Duration(minutes: 2);
+  static const Duration otaVerificationTimeout = Duration(minutes: 2);
 
   /// 这台设备的升级是不是卡住了（仍处于 running，但已经 [otaStallTimeout]
   /// 没有任何事件）。
   bool otaStalled(String deviceId) {
     if (_otaProgress[deviceId]?.status != OtaStatus.running) return false;
+    final verificationAt = _otaVerificationStartedAt[deviceId];
+    if (verificationAt != null) {
+      return _otaNow().difference(verificationAt) >= otaVerificationTimeout;
+    }
     final at = _otaUpdatedAt[deviceId];
     if (at == null) return false;
     final timeout = _otaProgress[deviceId]?.displayStage == OtaStage.preparing
@@ -3335,6 +3358,7 @@ class FlowerpotState extends ChangeNotifier {
   void clearOtaProgress(String deviceId) {
     if (_otaProgress.remove(deviceId) == null) return;
     _otaUpdatedAt.remove(deviceId);
+    _otaVerificationStartedAt.remove(deviceId);
     _pendingOtaVersion.remove(deviceId);
     _reportedOtaVersion.remove(deviceId);
     notifyListeners();
@@ -4055,11 +4079,35 @@ class FlowerpotState extends ChangeNotifier {
         : incoming;
   }
 
-  void _applyOtaProgress(OtaProgress incoming) {
+  void _applyOtaProgress(
+    OtaProgress incoming, {
+    bool definitiveFailure = false,
+  }) {
     final previous = _otaProgress[incoming.deviceId];
-    // SDK 与设备 DP 并存：本次终态只接受一次，迟到的进度或相反结论都不能覆盖。
+    // 已确认的终态保持；安装中SDK报错先核验版本，不提前锁死失败。
     if (previous != null && previous.status != OtaStatus.running) return;
     var progress = incoming;
+    if (incoming.status == OtaStatus.failed &&
+        !definitiveFailure &&
+        previous?.displayStage == OtaStage.installing &&
+        (_pendingOtaVersion[incoming.deviceId]?.trim().isNotEmpty ?? false)) {
+      final first = !_otaVerificationStartedAt.containsKey(incoming.deviceId);
+      _otaVerificationStartedAt.putIfAbsent(incoming.deviceId, _otaNow);
+      progress = OtaProgress(
+        deviceId: incoming.deviceId,
+        status: OtaStatus.running,
+        percent: previous?.percent,
+        stage: OtaStage.installing,
+        message: incoming.message,
+        verifyingVersion: true,
+      );
+      if (first) {
+        _logInteraction(
+          'OTA 待核验 ← 安装阶段SDK报告失败：'
+          '${incoming.message ?? "未提供原因"}；保留目标版本等待设备报告',
+        );
+      }
+    }
     if (incoming.status == OtaStatus.running) {
       // 只报阶段（涂鸦状态码）的事件不带百分比，只报百分比的不带阶段：两样各自沿用上一次的，
       // 别把进度条打回 0，也别丢了「固件已下载到设备」。
@@ -4068,6 +4116,8 @@ class FlowerpotState extends ChangeNotifier {
         status: OtaStatus.running,
         percent: _otaPercent(incoming.percent, previous?.percent),
         stage: _otaStage(incoming.stage, previous?.stage),
+        verifyingVersion: previous?.verifyingVersion ?? false,
+        message: previous?.verifyingVersion == true ? previous?.message : null,
       );
     }
     _otaProgress[progress.deviceId] = progress;
@@ -4081,6 +4131,7 @@ class FlowerpotState extends ChangeNotifier {
     }
     if (progress.status != OtaStatus.running) {
       _reportedOtaVersion.remove(progress.deviceId);
+      _otaVerificationStartedAt.remove(progress.deviceId);
     }
     if (progress.status == OtaStatus.success) {
       // 装上了就不再是「待装」，小红点跟着灭掉。
@@ -4182,6 +4233,7 @@ class FlowerpotState extends ChangeNotifier {
             status: OtaStatus.failed,
             message: message,
           ),
+          definitiveFailure: true,
         );
       }
     }
@@ -4800,6 +4852,7 @@ class FlowerpotState extends ChangeNotifier {
     _devices = <SmartPlanterDevice>[];
     _otaProgress.clear();
     _otaUpdatedAt.clear();
+    _otaVerificationStartedAt.clear();
     _pendingOtaVersion.clear();
     _reportedOtaVersion.clear();
     _availableFirmware.clear();

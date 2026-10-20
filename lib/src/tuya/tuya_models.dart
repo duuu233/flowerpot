@@ -224,15 +224,19 @@ class OtaProgress {
     this.percent,
     this.message,
     this.stage,
+    this.verifyingVersion = false,
   });
 
   final String deviceId;
   final OtaStatus status;
 
+  /// 安装期间SDK失败后等待本次目标版本核验，不代表设备实际升级失败。
+  final bool verifyingVersion;
+
   /// 0–100，仅 [OtaStatus.running] 时有值。
   final int? percent;
 
-  /// 失败原因，仅 [OtaStatus.failed] 时有值。
+  /// 失败原因；核验期间保留SDK原始原因用于诊断，不直接显示为升级失败。
   final String? message;
 
   /// 原生报上来的升级阶段（涂鸦状态码换算），没报时为 null。见 [OtaStage.fromTuya]。
