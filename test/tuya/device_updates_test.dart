@@ -294,9 +294,60 @@ void main() {
         ReportRange.week,
       );
       expect(series, hasLength(7));
-      expect(series.first, 50);
+      // 水位历史以 mL/2 上报，显示时还原成 mL。
+      expect(series.first, 100);
     });
   });
+
+  test(
+    'integer DP delta replaces string key and preserves other DPs',
+    () async {
+      final updates = <DeviceUpdate>[];
+      final sub = repository.deviceUpdates.listen(updates.add);
+      addTearDown(sub.cancel);
+      await repository.getDevices();
+      await emit({
+        'deviceId': 'dev-1',
+        'dps': {105: 88, 168: 0, 117: false},
+      });
+      expect(updates.last.device!.sensors.waterLevel, 88);
+      expect(updates.last.device!.battery, 64);
+      expect(updates.last.device!.settings.manualBrightness, 0);
+      expect(updates.last.device!.settings.autoBrightness, isFalse);
+      expect(updates.last.reportedDps, {105: 88, 168: 0, 117: false});
+    },
+  );
+
+  test(
+    'late list result cannot replace newer DP report in repository cache',
+    () async {
+      final updates = <DeviceUpdate>[];
+      final sub = repository.deviceUpdates.listen(updates.add);
+      addTearDown(sub.cancel);
+      await repository.getDevices();
+      final response = Completer<List<Object?>>();
+      messenger.setMockMethodCallHandler(const MethodChannel(_methodChannel), (
+        call,
+      ) async {
+        return call.method == 'getDevices' ? response.future : null;
+      });
+      final loading = repository.getDevices();
+      await Future<void>.delayed(Duration.zero);
+      await emit({
+        'deviceId': 'dev-1',
+        'dps': {'105': 92, '168': 0},
+      });
+      response.complete([_deviceMap()]);
+      final devices = await loading;
+      expect(devices.single.sensors.waterLevel, 92);
+      expect(devices.single.settings.manualBrightness, 0);
+      await emit({
+        'deviceId': 'dev-1',
+        'dps': {'103': 20},
+      });
+      expect(updates.last.device!.sensors.waterLevel, 92);
+    },
+  );
 
   group('当前固件版本', () {
     Future<String> firmwareOf(Map<Object?, Object?> raw) async {
@@ -358,6 +409,75 @@ void main() {
       expect(notified, greaterThan(0));
     });
 
+    test('fresh report wins over a slow setting acknowledgement', () async {
+      final mock = _DelayedUpdatesRepository();
+      final state = FlowerpotState(repository: mock);
+      addTearDown(state.dispose);
+      await state.initialize();
+      final device = (await mock.getDevices()).single;
+      await state.refreshDevices();
+      final gate = Completer<void>();
+      mock.publishGate = gate.future;
+      final write = state.updateSetting(device.id, 'manualBrightness', 70);
+      await Future<void>.delayed(Duration.zero);
+      mock.pushDeviceUpdate(
+        DeviceUpdate.changed(
+          device.copyWith(
+            settings: device.settings.copyWith(manualBrightness: 25),
+          ),
+          changedDps: {168},
+          reportedDps: {168: 25},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      gate.complete();
+      expect((await write).success, isTrue);
+      expect(state.deviceById(device.id)!.settings.manualBrightness, 25);
+    });
+
+    test('fresh SDK list replaces old local control override', () async {
+      final mock = _DelayedUpdatesRepository();
+      final state = FlowerpotState(repository: mock);
+      addTearDown(state.dispose);
+      await state.initialize();
+      await state.refreshDevices();
+      final device = state.devices.single;
+      await state.updateSetting(device.id, 'manualBrightness', 70);
+      expect(state.deviceById(device.id)!.settings.manualBrightness, 70);
+      await state.refreshDevices();
+      expect(
+        state.deviceById(device.id)!.settings.manualBrightness,
+        device.settings.manualBrightness,
+      );
+    });
+
+    test(
+      'DP arriving while home lookup waits stays visible after refresh',
+      () async {
+        final mock = _DelayedUpdatesRepository();
+        final state = FlowerpotState(repository: mock);
+        addTearDown(state.dispose);
+        await state.initialize();
+        await state.refreshDevices();
+        final device = state.devices.single;
+        final gate = Completer<String>();
+        mock.homeGate = gate.future;
+        final refresh = state.refreshDevices();
+        await Future<void>.delayed(Duration.zero);
+        mock.pushDeviceUpdate(
+          DeviceUpdate.changed(
+            device.copyWith(battery: 12),
+            changedDps: {103},
+            reportedDps: {103: 12},
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        gate.complete('mock-home');
+        await refresh;
+        expect(state.deviceById(device.id)!.battery, 12);
+      },
+    );
+
     test('a pushed unbind drops the device', () async {
       final mock = MockTuyaRepository(latency: Duration.zero);
       final state = FlowerpotState(repository: mock);
@@ -377,4 +497,18 @@ void main() {
       expect(state.selectedDevice, isNull);
     });
   });
+}
+
+class _DelayedUpdatesRepository extends MockTuyaRepository {
+  _DelayedUpdatesRepository() : super(latency: Duration.zero);
+  Future<void>? publishGate;
+  Future<String>? homeGate;
+
+  @override
+  Future<void> publishDps(String deviceId, Map<int, Object> dps) async {
+    await publishGate;
+  }
+
+  @override
+  Future<String> currentHomeId() async => await homeGate ?? 'mock-home';
 }

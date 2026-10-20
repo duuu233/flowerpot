@@ -400,6 +400,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                         .mapNotNull { it?.toString()?.takeIf { id -> id.isNotEmpty() } }
                     val states = HashMap<String, Any?>()
                     for (id in ids) {
+                        watchDevice(id)
                         val bean = deviceBean(id) ?: continue
                         val online = optionalGetter(bean, "getIsOnline")
                             ?: optionalGetter(bean, "isOnline")

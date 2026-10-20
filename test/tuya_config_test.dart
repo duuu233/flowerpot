@@ -4,17 +4,18 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('the product DP table matches the platform export', () {
     // 101–165 来自 assets/智能花盆test(yciq4kssu1fv8umn)_09_16.xlsx，一个不缺、
-    // 也没有多出来的号。
+    // 外加现协议已接的166（LED）和168（手动亮度），167/169暂不接。
     expect(TuyaConfig.productId, 'yciq4kssu1fv8umn');
     // ⚠️ **键比 DP 号多两个**：162（plant_present / plant_confirm）和 163
     // （plant_confirm_switch / plant_detect_switch）各留了平台改名前后的两个
     // 标识符，好让按旧名查的地方也能查到。所以这里不能拿 `dp.length` 当 DP 个数
     // 比——2026-09-12 加别名时这条断言就是这么断的（`dp.length` 65 对 63）。
-    expect(TuyaConfig.dp.length, 67);
-    expect(
-      TuyaConfig.dp.values.toSet(),
-      List<int>.generate(65, (index) => 101 + index).toSet(),
-    );
+    expect(TuyaConfig.dp.length, 69);
+    expect(TuyaConfig.dp.values.toSet(), <int>{
+      ...List<int>.generate(65, (index) => 101 + index),
+      166,
+      168,
+    });
     expect(TuyaConfig.dp['soil_moist'], 106);
     expect(TuyaConfig.dp['vibration_switch'], 122);
     expect(TuyaConfig.dp['water_level_calib'], 140);
@@ -64,7 +65,9 @@ void main() {
     for (final identifier in TuyaConfig.dpScale.keys) {
       expect(TuyaConfig.dp, contains(identifier));
     }
-    for (final identifier in TuyaConfig.historyVariableFrames) {
+    for (final identifier in TuyaConfig.history.values.expand(
+      (ranges) => ranges.values,
+    )) {
       expect(TuyaConfig.dp, contains(identifier));
     }
     // 按指标查的两张表，键必须是 history 里真有的指标。
@@ -125,11 +128,14 @@ void main() {
   test('LED 走自己的 166，和屏幕的 117 分开', () {
     // 2026-09-28 新增 DP 说明：166 双色 LED 与 117 屏幕是两个独立开关，APP 不要共用一个。
     expect(TuyaConfig.settingDps('led', true), <int, Object>{166: true});
-    expect(
-      TuyaConfig.settingDps('autoBrightness', false),
-      <int, Object>{117: false},
-    );
-    expect(TuyaConfig.dp['ota_result'], 168);
+    expect(TuyaConfig.settingDps('autoBrightness', false), <int, Object>{
+      117: false,
+    });
+    expect(TuyaConfig.dp['manual_brightness'], 168);
+    expect(TuyaConfig.settingDps('manualBrightness', 0), <int, Object>{168: 0});
+    expect(TuyaConfig.settingDps('manualBrightness', 100), <int, Object>{
+      168: 100,
+    });
   });
 
   test('a setting the product has no DP for reports as unsupported', () {

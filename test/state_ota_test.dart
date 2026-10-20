@@ -8,23 +8,26 @@ import 'package:flowerpot/src/tuya/tuya_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('OTA starts via SDK; version and result DPs are report-only', () {
-    // 升级发起走 SDK；DP168 只上报结果，不是发起升级的可写 DP：
-    // 走的是涂鸦 SDK 的 OTA 接口（Android newOTAInstance/getOtaInfo/startOta，
-    // iOS getFirmwareUpgradeInfo/upgradeFirmware），由原生桥接封装。
-    expect(TuyaConfig.dp['firmware_version'], 148);
-    expect(TuyaConfig.dp['hardware_version'], 149);
-    expect(
-      TuyaConfig.dp.keys.where(
-        (key) => key.contains('ota') || key.contains('upgrade'),
-      ),
-      <String>['ota_result'],
-    );
-    expect(TuyaConfig.dp['ota_result'], 168);
-    expect(TuyaConfig.settingDps('ota_result', '2'), isNull);
-    // 版本号是只上报的，写它没有意义，所以也不在可写设置表里。
-    expect(TuyaConfig.settingDps('firmwareVersion', '1.1.0'), isNull);
-  });
+  test(
+    'OTA starts via SDK; DP168 is brightness and version is report-only',
+    () {
+      // 升级发起走 SDK；DP168 是手动亮度，不是升级结果：
+      // 走的是涂鸦 SDK 的 OTA 接口（Android newOTAInstance/getOtaInfo/startOta，
+      // iOS getFirmwareUpgradeInfo/upgradeFirmware），由原生桥接封装。
+      expect(TuyaConfig.dp['firmware_version'], 148);
+      expect(TuyaConfig.dp['hardware_version'], 149);
+      expect(
+        TuyaConfig.dp.keys.where(
+          (key) => key.contains('ota') || key.contains('upgrade'),
+        ),
+        <String>[],
+      );
+      expect(TuyaConfig.dp['manual_brightness'], 168);
+      expect(TuyaConfig.settingDps('ota_result', '2'), isNull);
+      // 版本号是只上报的，写它没有意义，所以也不在可写设置表里。
+      expect(TuyaConfig.settingDps('firmwareVersion', '1.1.0'), isNull);
+    },
+  );
 
   test('starting an upgrade only reports that it started', () async {
     final state = await _state();
@@ -457,69 +460,30 @@ void main() {
     });
   });
 
-  group('DP168 ota_result：设备重启连云后报 2 成功 / 3 失败，给进行中的升级收尾', () {
-    // 2026-09-28 花盆新增 DP：升级页要能收 2 / 3 收尾，不要一直停在「升级中」。
-    Future<void> result(_OtaRepository repository, String value) async {
-      repository.pushDeviceUpdate(
-        DeviceUpdate.changed(
-          _deviceOf().copyWith(otaResult: value),
-          changedDps: <int>{168},
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
+  group('DP168 手动亮度不参与OTA结果判定', () {
+    for (final brightness in <int>[0, 1, 2, 3, 100]) {
+      test('亮度$brightness实时更新，但不结束升级', () async {
+        final repository = _OtaRepository();
+        final state = await _state(repository);
+        addTearDown(state.dispose);
+        await state.upgradeFirmware('device-01', '1.1.0');
+        repository.pushDeviceUpdate(
+          DeviceUpdate.changed(
+            _deviceOf().copyWith(
+              settings: DeviceControlSettings(manualBrightness: brightness),
+            ),
+            changedDps: <int>{168},
+            reportedDps: <int, Object?>{168: brightness},
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          state.deviceById('device-01')?.settings.manualBrightness,
+          brightness,
+        );
+        expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
+      });
     }
-
-    test('报 2（success）：升级完成，版本号换成目标版本，红点熄灭', () async {
-      final repository = _OtaRepository();
-      final state = await _state(repository);
-      await state.refreshFirmwareUpdate('device-01');
-      await state.upgradeFirmware('device-01', '1.1.0');
-
-      await result(repository, '2');
-
-      expect(state.otaProgressFor('device-01')?.status, OtaStatus.success);
-      expect(state.deviceById('device-01')?.firmwareVersion, '1.1.0');
-      expect(state.hasFirmwareUpdate('device-01'), isFalse);
-      state.dispose();
-    });
-
-    test('报 3（英文名 failed 也认）：升级失败，带原因', () async {
-      final repository = _OtaRepository();
-      final state = await _state(repository);
-      await state.upgradeFirmware('device-01', '1.1.0');
-
-      await result(repository, 'failed');
-
-      final progress = state.otaProgressFor('device-01');
-      expect(progress?.status, OtaStatus.failed);
-      expect(progress?.message, contains('设备报告固件升级失败'));
-      state.dispose();
-    });
-
-    test('报 1（downloading）只记日志，仍在升级中', () async {
-      final repository = _OtaRepository();
-      final state = await _state(repository);
-      await state.upgradeFirmware('device-01', '1.1.0');
-
-      await result(repository, '1');
-
-      expect(state.otaProgressFor('device-01')?.status, OtaStatus.running);
-      expect(
-        state.interactionLog.any((line) => line.contains('ota_result=1')),
-        isTrue,
-      );
-      state.dispose();
-    });
-
-    test('App 里没有进行中的升级：只记录，不弹结论', () async {
-      final repository = _OtaRepository();
-      final state = await _state(repository);
-
-      await result(repository, '2');
-
-      expect(state.otaProgressFor('device-01'), isNull);
-      state.dispose();
-    });
   });
 
   group('OTA 本次上报与终态收尾', () {
@@ -871,27 +835,27 @@ Future<FlowerpotState> _state([_OtaRepository? repository]) async {
 
 SmartPlanterDevice _deviceOf({String productId = 'product-01'}) =>
     SmartPlanterDevice(
-  id: 'device-01',
-  productId: productId,
-  name: 'YSplanter-01',
-  online: true,
-  signal: 86,
-  battery: 94,
-  charging: false,
-  boundAt: DateTime.now().subtract(const Duration(days: 51)),
-  plant: PlantCatalog.items.first,
-  sensors: const SensorSnapshot(
-    waterLevel: 80,
-    soilMoisture: 97,
-    illuminance: 305,
-    ppfd: 5.642,
-    airTemperature: 26.9,
-    relativeHumidity: 52,
-  ),
-  settings: const DeviceControlSettings(),
-  firmwareVersion: '1.0.0',
-  macAddress: 'D8:85:AC:A2:B9:B4',
-);
+      id: 'device-01',
+      productId: productId,
+      name: 'YSplanter-01',
+      online: true,
+      signal: 86,
+      battery: 94,
+      charging: false,
+      boundAt: DateTime.now().subtract(const Duration(days: 51)),
+      plant: PlantCatalog.items.first,
+      sensors: const SensorSnapshot(
+        waterLevel: 80,
+        soilMoisture: 97,
+        illuminance: 305,
+        ppfd: 5.642,
+        airTemperature: 26.9,
+        relativeHumidity: 52,
+      ),
+      settings: const DeviceControlSettings(),
+      firmwareVersion: '1.0.0',
+      macAddress: 'D8:85:AC:A2:B9:B4',
+    );
 
 class _OtaRepository extends MockTuyaRepository {
   _OtaRepository({

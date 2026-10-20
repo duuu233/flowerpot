@@ -204,6 +204,14 @@ Android 终态回调与 DP 时序处理已补齐，下一步记录真机时间�
 
 依据：[App固件升级接口](https://developer.tuya.com/en/docs/app-development/otaupdate?id=Ka6ki8la8wnr9)、[设备Wi-Fi SDK进度上报](https://developer.tuya.com/en/docs/iot-device-dev/tuya-common-wifi-sdk?id=K9glcmvw4u9ml)、[TuyaOS升级信息结构](https://developer.tuya.com/en/docs/iot-device-dev/tuyaos-gateway-ota?id=Kc34sycce62if)、[平台差分升级流程](https://developer.tuya.com/cn/docs/iot/firmware-upgrade-operation-guide?id=K93ixsft1w3to)。后两项按实际设备方案适用性核验，不把网关示例当成本割草机内部实现证明。
 
+### 6.5 2026-10-20 本轮复核
+
+固件查询、启动、包下载/传输和安装由涂鸦SDK与设备执行；App仅桥接SDK、合并真实进度及维护页面，没有自建固件下载器、差分算法或自动重试启动循环。保留旧SDK的官方OTA接口兼容路径，不额外实现另一套传输。Android仍用现有Home7.5.1/Expansion7.8.0，未升级依赖；iOS仍用现有ThingSmartDevice接口。
+
+花盆DP148、割草机DP112均已从本次实时上报与SDK检查返回的目标版本比较，不是当前版本；版本先到会保留证据，安装阶段到达后重验，完成弹层同SDK成功共用。沿用产品§4.14已确认的安装阶段要求（98%或阶段6），本轮没有取消该约束。准备阶段即使先报匹配版本也不能直接完成；DP168为亮度，不再是OTA结果。本轮OTA状态回归覆盖这两种产品、先后时序、错误DP、旧快照和终态保护；没有进行真实设备升级。
+
+差分支持仍按§6.4边界：App使用SDK原生升级链路，不设置`fw->diff_ota`，也不自行下载全量包覆盖SDK选包。设备团队确认SDK具备能力是前提说明，当前实际任务是否使用差分仍需平台包/部署及设备运行证据，不能从App代码断言已启用。
+
 ## 附录 A：当前实现调用链
 
 ### A1. 入口

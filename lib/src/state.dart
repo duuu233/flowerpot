@@ -122,6 +122,7 @@ class FlowerpotState extends ChangeNotifier {
 
   /// Live device reports. See [_applyDeviceUpdate].
   StreamSubscription<DeviceUpdate>? _deviceUpdates;
+  final Map<String, Map<int, int>> _dpReportRevisions = {};
   StreamSubscription<OtaProgress>? _otaUpdates;
 
   /// Devices whose plant has been picked in this session.
@@ -2483,7 +2484,23 @@ class FlowerpotState extends ChangeNotifier {
     if (dps == null) {
       throw TuyaException('unsupported_dp', '当前产品未提供该功能点：$key');
     }
+    final epoch = _sessionEpoch;
+    final revisions = {
+      for (final dp in dps.keys) dp: _dpReportRevisions[id]?[dp] ?? 0,
+    };
+    final initialSettings = deviceById(id)?.settings;
     await _publishDps(id, dps);
+    if (epoch != _sessionEpoch) return const ActionResult(false, '会话已变化');
+    final latestSettings = deviceById(id)?.settings;
+    if (revisions.entries.any(
+          (entry) => (_dpReportRevisions[id]?[entry.key] ?? 0) != entry.value,
+        ) ||
+        (initialSettings != null &&
+            latestSettings != null &&
+            _settingLogValue(initialSettings, key) !=
+                _settingLogValue(latestSettings, key))) {
+      return const ActionResult(true, '设置已同步');
+    }
     _replaceDevice(id, (device) {
       final current = device.settings;
       final next = switch (key) {
@@ -4195,6 +4212,7 @@ class FlowerpotState extends ChangeNotifier {
       _backendAnimations.remove(removedId);
       _plantOverrides.remove(removedId);
       _settingsOverrides.remove(removedId);
+      _dpReportRevisions.remove(removedId);
       _liveSamples.remove(removedId);
       clearOtaProgress(removedId);
       _availableFirmware.remove(removedId);
@@ -4210,6 +4228,10 @@ class FlowerpotState extends ChangeNotifier {
     // A report for a device the session does not hold: the next list refresh
     // is what introduces it.
     if (index < 0) return;
+    final revisions = _dpReportRevisions.putIfAbsent(device.id, () => {});
+    for (final dp in update.changedDps) {
+      revisions[dp] = (revisions[dp] ?? 0) + 1;
+    }
     // 割草机：列表那一行换成最新快照（在线态、名字）就够了。下面是花盆专用的——
     // 割草机的 DP116 是升级状态，当成植物 id 去后端查只会白发请求。
     if (isMowerDevice(device)) {
@@ -4604,6 +4626,7 @@ class FlowerpotState extends ChangeNotifier {
 
   Future<void> _refreshDevicesForSession({required bool ignoreErrors}) async {
     final epoch = _sessionEpoch;
+    final queried = {for (final device in _devices) device.id: device};
     try {
       var devices = await _repository.getDevices();
       if (epoch != _sessionEpoch) return;
@@ -4623,9 +4646,19 @@ class FlowerpotState extends ChangeNotifier {
       final home = await _repository.currentHomeId().catchError((_) => '?');
       _lastHomeId = home;
       await _rememberHome(home);
+      if (epoch != _sessionEpoch) return;
       // 设备清单以涂鸦为准。登录后不再顺带拉 getUserInfo / getUserProductList /
       // getUserProductPlantList——主流程只允许 getProductPlantList 一个后端调用。
-      _devices = devices.map(_withLocalOverrides).toList();
+      final latest = {for (final device in _devices) device.id: device};
+      _devices = devices.map((device) {
+        final current = latest[device.id];
+        if (current != null && !identical(current, queried[device.id])) {
+          return current;
+        }
+        // A fresh SDK snapshot replaces old optimistic control values.
+        _settingsOverrides[device.id] = device.settings;
+        return _withLocalOverrides(device);
+      }).toList();
       if (_devices.isEmpty) {
         _selectedDeviceId = null;
       } else if (_devices.every((item) => item.id != _selectedDeviceId)) {
@@ -4779,6 +4812,7 @@ class FlowerpotState extends ChangeNotifier {
     _plantedDevices.clear();
     _plantOverrides.clear();
     _settingsOverrides.clear();
+    _dpReportRevisions.clear();
     _liveSamples.clear();
     _chartSeriesCache.clear();
     _backendDevices.clear();

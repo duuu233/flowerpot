@@ -577,7 +577,11 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     var changed = const <int>{};
     if (dps is Map) {
       final known = merged['dps'];
-      merged['dps'] = <Object?, Object?>{if (known is Map) ...known, ...dps};
+      merged['dps'] = <Object?, Object?>{
+        if (known is Map)
+          for (final entry in known.entries) '${entry.key}': entry.value,
+        for (final entry in dps.entries) '${entry.key}': entry.value,
+      };
       changed = dps.keys
           .map((key) => int.tryParse('$key'))
           .whereType<int>()
@@ -711,11 +715,16 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   @override
   Future<List<SmartPlanterDevice>> getDevices() async {
+    final queried = Map<String, Map<Object?, Object?>>.of(_snapshots);
     final raw = await _invoke<List<Object?>>('getDevices') ?? <Object?>[];
-    final devices = raw
-        .whereType<Map<Object?, Object?>>()
-        .map(_device)
-        .toList();
+    final devices = raw.whereType<Map<Object?, Object?>>().map((item) {
+      final id = '${item['deviceId'] ?? item['devId'] ?? ''}';
+      final latest = _snapshots[id];
+      // A DP/online event received while querying is newer than that query.
+      return _device(
+        latest != null && !identical(latest, queried[id]) ? latest : item,
+      );
+    }).toList();
     // Devices the account no longer owns leave their snapshot and decoded
     // history behind otherwise.
     final owned = devices.map((device) => device.id).toSet();

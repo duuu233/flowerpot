@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -16,37 +18,102 @@ class DisplaySettingsPage extends StatefulWidget {
 }
 
 class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
+  static const _brightnessInterval = Duration(milliseconds: 120);
   bool updating = false;
-  bool updatingBrightness = false;
+  bool _sendingBrightness = false;
+  bool _draggingBrightness = false;
+  int? _queuedBrightness;
+  Timer? _brightnessTimer;
   double? pendingBrightness;
 
   void _previewBrightness(double value) {
+    _draggingBrightness = true;
     setState(() => pendingBrightness = value);
+    _queuedBrightness = value.round().clamp(0, 100);
+    _scheduleBrightness();
   }
 
-  /// DP168 手动亮度：松手才下发，0~100。
-  Future<void> _setBrightness(double value) async {
-    if (updatingBrightness) return;
-    final brightness = value.round().clamp(0, 100);
-    setState(() {
-      updatingBrightness = true;
-      pendingBrightness = brightness.toDouble();
+  void _scheduleBrightness() {
+    if (_sendingBrightness || _brightnessTimer != null) return;
+    _brightnessTimer = Timer(_brightnessInterval, () {
+      _brightnessTimer = null;
+      unawaited(_flushBrightness());
     });
-    final result = await FlowerpotScope.of(
-      context,
-    ).updateSetting(widget.deviceId, 'manualBrightness', brightness);
+  }
+
+  // 拖动时限频、串行下发，只保留最近值；松手立即补发最终值（0=灭屏）。
+  void _setBrightness(double value) {
+    _draggingBrightness = false;
+    _queuedBrightness = value.round().clamp(0, 100);
+    setState(() => pendingBrightness = value);
+    _brightnessTimer?.cancel();
+    _brightnessTimer = null;
+    unawaited(_flushBrightness());
+  }
+
+  Future<void> _flushBrightness() async {
+    if (!mounted || _sendingBrightness || _queuedBrightness == null) return;
+    final state = FlowerpotScope.of(context);
+    final device = state.deviceById(widget.deviceId);
+    if (device == null || device.settings.autoBrightness || updating) {
+      _queuedBrightness = null;
+      setState(() => pendingBrightness = null);
+      return;
+    }
+    final brightness = _queuedBrightness!;
+    _queuedBrightness = null;
+    setState(() => _sendingBrightness = true);
+    final result = await state.updateSetting(
+      widget.deviceId,
+      'manualBrightness',
+      brightness,
+    );
     if (!mounted) return;
     setState(() {
-      updatingBrightness = false;
-      pendingBrightness = null;
+      _sendingBrightness = false;
+      if (!_draggingBrightness && _queuedBrightness == null) {
+        pendingBrightness = null;
+      }
     });
-    if (!result.success) {
+    if (_queuedBrightness != null) {
+      if (_draggingBrightness) {
+        _scheduleBrightness();
+      } else {
+        unawaited(_flushBrightness());
+      }
+    } else if (!result.success) {
       showDeviceActionResult(context, result);
     }
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final device = FlowerpotScope.of(context).deviceById(widget.deviceId);
+    // 设备端切回自动/离线时放弃拖动草稿，避免继续发送手动值或锁住自动开关。
+    if (device == null || !device.online || device.settings.autoBrightness) {
+      _brightnessTimer?.cancel();
+      _brightnessTimer = null;
+      _queuedBrightness = null;
+      _draggingBrightness = false;
+      pendingBrightness = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _brightnessTimer?.cancel();
+    _queuedBrightness = null;
+    super.dispose();
+  }
+
   Future<void> _setAutoBrightness(bool value) async {
-    if (updating) return;
+    if (updating ||
+        _sendingBrightness ||
+        _queuedBrightness != null ||
+        _draggingBrightness) {
+      return;
+    }
     setState(() => updating = true);
     final result = await FlowerpotScope.of(
       context,
@@ -86,8 +153,11 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
               model: model,
               brightness:
                   pendingBrightness ?? model.manualBrightness.toDouble(),
-              updating: updating,
-              updatingBrightness: updatingBrightness,
+              updating:
+                  updating ||
+                  _sendingBrightness ||
+                  _queuedBrightness != null ||
+                  _draggingBrightness,
               onAutoBrightnessChanged: _setAutoBrightness,
               onBrightnessChanged: _previewBrightness,
               onBrightnessChangeEnd: _setBrightness,

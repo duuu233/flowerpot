@@ -30,6 +30,12 @@
 
 割草机发命令时通道选择依据 `deviceLinkState` 返回的 SDK Wi-Fi/LAN/MQTT/Cloud/BLE 值，不再受本地探测不可达集合影响。列表总在线值和控制页的独立 Wi-Fi/BLE 图标职责不同；本轮没有补齐 iOS `deviceLinkState`，原有能力缺口仍由 `MOWER_DP_GAP_REPORT.md` 维护。
 
+## DP实时更新（2026-10-20）
+
+花盆与割草机均通过SDK的设备DP监听→EventChannel→Repository→FlowerpotState更新，割草机继续分发mowerReports；不通过自建网络心跳伪造DP。Android/iOS设备监听对所有上报DP生效，不需要逐项订阅。前台8秒在线缓存查询仅补在线状态并重试尚未注册的设备监听，不是每8秒向设备查询所有DP；后台暂停，返回前台刷新清单。设备未上报、固件不上报及SDK链路断开不能由App生成数值。
+
+同一DP的数字键/字符串键统一合并，避免旧字符串键掩盖新值。晚到设置成功答复不能覆盖期间收到的同DP上报；设备清单刷新和家庭查询期间到达的较新状态优先，最新SDK设置快照替换旧乐观缓存。下发中的本地拖动值仅作草稿展示，松手收敛后回到共享设备状态。
+
 ## 验证与真机验收
 
 回归文件：`test/state_reachability_test.dart`（已改为 SDK 唯一来源规则）、`test/tuya/device_updates_test.dart`、`test/features/devices/device_list_page_test.dart`，控制与固件流程由 mower_pages / firmware_reminder 回归。

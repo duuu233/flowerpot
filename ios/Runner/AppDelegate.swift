@@ -95,6 +95,7 @@ final class FlowerpotTuyaBridge: NSObject {
       let ids = args["deviceIds"] as? [String] ?? []
       var states: [String: Bool] = [:]
       for id in ids {
+        watchDevice(id)
         if let device = watched[id] ?? ThingSmartDevice(deviceId: id),
            let model = device.deviceModel {
           states[id] = model.isOnline
