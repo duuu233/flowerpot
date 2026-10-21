@@ -389,6 +389,11 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "logout" -> userAction("logout", result)
                 "cancelAccount" -> userAction("cancelAccount", result)
                 "getDevices" -> withHome(result) { home -> loadHomeDevices(home, result) }
+                "deviceSnapshot" -> {
+                    val id = call.argument<String>("deviceId").orEmpty()
+                    watchDevice(id)
+                    success(result, deviceBean(id)?.let(::deviceMap))
+                }
                 // 只读 SDK 本地缓存里的在线标志，**不发网络请求**。
                 //
                 // 在线/离线是 SDK 的 MQTT 心跳在维护的：设备掉线，云端判定之后把

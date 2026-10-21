@@ -93,6 +93,58 @@ void main() {
     });
     expect(hex.length, 176);
   });
+  test('原始DP每次读取SDK当前快照，不用APP旧清单值且允许正常下降', () async {
+    await repository.getDevices();
+    var level = 99;
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(const MethodChannel(_methodChannel), (
+      call,
+    ) async {
+      calls.add(call.method);
+      if (call.method == 'deviceSnapshot') {
+        return {
+          ..._deviceMap(),
+          'dps': {'13': level},
+        };
+      }
+      return null;
+    });
+    expect((await repository.rawDps('dev-1'))?[13], 99);
+    level = 66;
+    expect((await repository.rawDps('dev-1'))?[13], 66);
+    expect(calls, ['deviceSnapshot', 'deviceSnapshot']);
+  });
+
+  test('SDK当前快照缺失不回退APP旧DP', () async {
+    await repository.getDevices();
+    expect(await repository.rawDps('dev-1'), isNull);
+  });
+
+  test('慢SDK快照不能盖过期间到达的实时DP', () async {
+    final sub = repository.deviceUpdates.listen((_) {});
+    addTearDown(sub.cancel);
+    await repository.getDevices();
+    final gate = Completer<Map<Object?, Object?>>();
+    messenger.setMockMethodCallHandler(const MethodChannel(_methodChannel), (
+      call,
+    ) async {
+      if (call.method == 'deviceSnapshot') return gate.future;
+      return null;
+    });
+    final read = repository.rawDps('dev-1');
+    await emit({
+      'deviceId': 'dev-1',
+      'dps': {'13': 99},
+    });
+    gate.complete({
+      ..._deviceMap(),
+      'dps': {'13': 66, '117': 'full'},
+    });
+    final result = await read;
+    expect(result?[13], 99);
+    expect(result?[117], 'full', reason: '一条推送不能使其它DP退回APP旧快照');
+  });
+
   group('MethodChannelTuyaRepository.deviceUpdates', () {
     test('merges a reported DP into the last known device', () async {
       final updates = <DeviceUpdate>[];

@@ -8,6 +8,22 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// ⚠️ 闪电是无限循环的动画，这里**不能用 pumpAndSettle**（永远等不到停），只按时长 pump。
 void main() {
+  testWidgets('电量未返回时显示占位，不假装为0%或上次设备值', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: MowerStatusCard(
+            tone: MowerPowerState.idle,
+            percent: null,
+            statusLabel: '待机',
+          ),
+        ),
+      ),
+    );
+    expect(find.text('电量 —'), findsOneWidget);
+    expect(find.textContaining('0%'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
   Future<void> pumpCard(
     WidgetTester tester,
     MowerPowerState tone, {
@@ -65,8 +81,11 @@ void main() {
     final middle = boltOpacity(tester);
     expect(middle, greaterThan(start), reason: '前半程变亮');
     await tester.pump(const Duration(milliseconds: 700));
-    expect(boltOpacity(tester), moreOrLessEquals(start, epsilon: .02),
-        reason: '1.4 s 一个周期，回到起点');
+    expect(
+      boltOpacity(tester),
+      moreOrLessEquals(start, epsilon: .02),
+      reason: '1.4 s 一个周期，回到起点',
+    );
     expect(tester.takeException(), isNull);
   });
 

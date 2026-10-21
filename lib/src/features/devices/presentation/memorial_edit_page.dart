@@ -57,7 +57,6 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
   /// a URL, so this is only what the page previews.
   String? _pickedImagePath;
 
-  // 两种内容各自保留草稿，切换不清空，也不把文字当成图片路径。
   late String _imageContent =
       widget.arguments.entry.type == MemorialContentType.image
       ? widget.arguments.entry.content
@@ -72,6 +71,22 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
   }
 
   bool get _fixed => _entry.isFixed;
+
+  void _selectContentType(MemorialContentType type) {
+    if (type == _entry.type) return;
+    final saved = widget.arguments.entry;
+    setState(() {
+      _entry = _entry.copyWith(type: type);
+      _textController.text =
+          type == saved.type && type == MemorialContentType.text
+          ? saved.content
+          : '';
+      _imageContent = type == saved.type && type == MemorialContentType.image
+          ? saved.content
+          : '';
+      _pickedImagePath = null;
+    });
+  }
 
   Future<void> _pickDate() async {
     final current = _entry.date ?? DateTime.now();
@@ -270,9 +285,7 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
                     else ...<Widget>[
                       _ContentTypeSelector(
                         type: _entry.type,
-                        onChanged: (type) => setState(
-                          () => _entry = _entry.copyWith(type: type),
-                        ),
+                        onChanged: _selectContentType,
                       ),
                       const SizedBox(height: 16),
                       if (_entry.type == MemorialContentType.text)

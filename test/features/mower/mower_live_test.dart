@@ -68,6 +68,20 @@ void main() {
 
   setUp(MowerDevice.instance.resetForTest);
 
+  testWidgets('清单刷新拿到新DP后原首页立即跟随，无需退出重进', (tester) async {
+    final repo = _MowerRepository()
+      ..rawDpsByDevice[_mowerId] = {MowerDp.battery: 66};
+    final state = await _state(repo);
+    final device = MowerDevice.instance;
+    await device.bind(state, owner: _owner, deviceId: _mowerId);
+    expect(device.battery, 66);
+    repo.rawDpsByDevice[_mowerId] = {MowerDp.battery: 99};
+    await state.refreshDevices();
+    await tester.pump();
+    expect(device.battery, 99);
+    device.resetForTest();
+  });
+
   testWidgets('绑真机：设备快照里已上报的 DP 全部按原始值解出来', (tester) async {
     final repository = _MowerRepository();
     final week = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());

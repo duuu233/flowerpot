@@ -29,7 +29,7 @@ class MowerStatusCard extends StatelessWidget {
   final MowerPowerState tone;
 
   /// DP13 电量。
-  final int percent;
+  final int? percent;
 
   /// DP5 工作状态，画在状态胶囊里。
   final String statusLabel;
@@ -63,7 +63,7 @@ class MowerStatusCard extends StatelessWidget {
                     CustomPaint(
                       size: const Size.square(ringSize),
                       painter: _MowerRingPainter(
-                        progress: percent / 100,
+                        progress: (percent ?? 0) / 100,
                         color: tone.ringColor,
                         trackColor: tone.ringTrackColor,
                       ),
@@ -119,12 +119,19 @@ class _BatteryLine extends StatelessWidget {
   });
 
   final MowerPowerState tone;
-  final int percent;
+  final int? percent;
   final String? chargingLabel;
 
   @override
   Widget build(BuildContext context) {
     final label = chargingLabel ?? tone.statusLabel;
+    if (percent == null) {
+      return const Text(
+        '电量 —',
+        key: Key('mower-battery-label'),
+        style: TextStyle(color: MowerColors.ink, fontSize: 16),
+      );
+    }
     if (label == null) {
       return Text(
         '电量 $percent%',

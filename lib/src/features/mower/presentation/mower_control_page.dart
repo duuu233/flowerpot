@@ -231,6 +231,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
 
   /// 电量环的视觉态：充电动效看DP117及电量，其余按DP13分档；文字单独读取DP117。
   MowerPowerState get _tone {
+    if (!_device.hasBatteryReport) return MowerPowerState.idle;
     if (_device.battery < 100 &&
         _device.charging == MowerChargingStatus.charging) {
       return MowerPowerState.charging;
@@ -449,7 +450,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
                 width: _cardWidth,
                 child: MowerStatusCard(
                   tone: _tone,
-                  percent: _device.battery,
+                  percent: _device.hasBatteryReport ? _device.battery : null,
                   chargingLabel: _device.chargingLabel,
                   statusLabel: _device.shutdown ? '已关机' : _device.status.label,
                   wifiLinked: _device.wifiLinked,

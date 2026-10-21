@@ -91,6 +91,10 @@ final class FlowerpotTuyaBridge: NSObject {
     case "logout": logout(result)
     case "cancelAccount": cancelAccount(result)
     case "getDevices": withHome(result) { [weak self] home in self?.loadDevices(home, result) }
+    case "deviceSnapshot":
+      let id = args["deviceId"] as? String ?? ""
+      watchDevice(id)
+      result(watched[id].flatMap { deviceSnapshot($0) })
     case "deviceOnlineStates":
       let ids = args["deviceIds"] as? [String] ?? []
       var states: [String: Bool] = [:]

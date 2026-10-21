@@ -423,6 +423,8 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   /// which covers the device list, pairing and the merges themselves.
   final Map<String, Map<Object?, Object?>> _snapshots =
       <String, Map<Object?, Object?>>{};
+  final Map<String, Map<String, int>> _dpReportSequences = {};
+  int _dpReportSequence = 0;
 
   /// 原始事件流，只订阅一次后分给下面两个消费者。
   ///
@@ -556,6 +558,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
     if (event['removed'] == true) {
       _snapshots.remove(deviceId);
+      _dpReportSequences.remove(deviceId);
       _history.remove(deviceId);
       _historyFrames.remove(deviceId);
       return DeviceUpdate.removed(deviceId);
@@ -573,6 +576,14 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     final device = event['device'];
     if (device is Map) merged.addAll(device);
     final dps = event['dps'];
+    final deviceDps = device is Map ? device['dps'] : null;
+    for (final values in [deviceDps, dps]) {
+      if (values is! Map) continue;
+      final sequences = _dpReportSequences.putIfAbsent(deviceId, () => {});
+      for (final key in values.keys) {
+        sequences['$key'] = ++_dpReportSequence;
+      }
+    }
     // 本次报文带了哪几个 DP。合并之后就分不出来了，所以在合并前先记下来。
     var changed = const <int>{};
     if (dps is Map) {
@@ -729,6 +740,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     // history behind otherwise.
     final owned = devices.map((device) => device.id).toSet();
     _snapshots.removeWhere((id, _) => !owned.contains(id));
+    _dpReportSequences.removeWhere((id, _) => !owned.contains(id));
     _history.removeWhere((id, _) => !owned.contains(id));
     _historyFrames.removeWhere((id, _) => !owned.contains(id));
     return devices;
@@ -1034,14 +1046,28 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   @override
   Future<Map<int, Object?>?> rawDps(String deviceId) async {
-    final snapshot = _snapshots[deviceId];
-    if (snapshot == null) return null;
-    final dps = snapshot['dps'];
+    final queried = _snapshots[deviceId];
+    if (queried == null) return null;
+    final sequences = Map<String, int>.of(_dpReportSequences[deviceId] ?? {});
+    final fresh = await _invoke<Map<Object?, Object?>>('deviceSnapshot', {
+      'deviceId': deviceId,
+    });
+    final latest = _snapshots[deviceId];
+    if (latest == null || fresh == null) return null;
+    final dps = fresh['dps'];
     if (dps is! Map) return <int, Object?>{};
     final result = <int, Object?>{};
     for (final entry in dps.entries) {
       final dp = int.tryParse('${entry.key}');
       if (dp != null) result[dp] = entry.value;
+    }
+    final latestDps = latest['dps'];
+    if (latestDps is Map) {
+      for (final entry in (_dpReportSequences[deviceId] ?? {}).entries) {
+        if (entry.value == sequences[entry.key]) continue;
+        final dp = int.tryParse(entry.key);
+        if (dp != null) result[dp] = latestDps[entry.key] ?? latestDps[dp];
+      }
     }
     return result;
   }

@@ -17,6 +17,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final size in [const Size(375, 812), const Size(320, 568)]) {
+    testWidgets('原类型为文字时，切回只回填接口content，不保留旧编辑草稿 $size', (tester) async {
+      await _pumpEditPage(
+        tester,
+        MemorialEntry(
+          id: 8,
+          date: DateTime(2026, 10, 21),
+          title: '纪念日',
+          type: MemorialContentType.text,
+          content: '接口文字',
+        ),
+        size: size,
+      );
+      final field = find.byKey(const Key('memorial-text-field'));
+      expect(tester.widget<TextField>(field).controller!.text, '接口文字');
+      await tester.enterText(field, '未保存的修改');
+      await _switchType(tester, true);
+      expect(find.text('上传图片'), findsOneWidget);
+      await _switchType(tester, false);
+      expect(tester.widget<TextField>(field).controller!.text, '接口文字');
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('纪念日内容用单选按钮切换且始终只选一项', (tester) async {
     await _pumpEditPage(
       tester,
@@ -54,7 +77,7 @@ void main() {
 
   for (final size in [const Size(375, 812), const Size(320, 568)]) {
     for (final imageSelected in [false, true]) {
-      testWidgets('纪念日切换保留两份草稿，保存仅保留所选类型 image=$imageSelected $size', (
+      testWidgets('纪念日按原类型回填，另一类型为空且保存仅含所选内容 image=$imageSelected $size', (
         tester,
       ) async {
         final entry = MemorialEntry(
@@ -100,10 +123,18 @@ void main() {
               .widget<TextField>(find.byKey(const Key('memorial-text-field')))
               .controller!
               .text,
-          '新的祝福',
+          isEmpty,
+          reason: '原接口类型为图片，切回文字不能恢复旧页面草稿',
         );
         expect(requests, isEmpty, reason: '切换不能调用保存或清除接口');
-        if (imageSelected) await _switchType(tester, true);
+        if (imageSelected) {
+          await _switchType(tester, true);
+        } else {
+          await tester.enterText(
+            find.byKey(const Key('memorial-text-field')),
+            '新的祝福',
+          );
+        }
         await tester.tap(find.byKey(const Key('memorial-save')));
         await tester.tap(find.byKey(const Key('memorial-save')));
         await tester.pumpAndSettle();

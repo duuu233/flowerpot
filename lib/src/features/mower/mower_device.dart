@@ -58,6 +58,9 @@ class MowerDevice extends ChangeNotifier {
   FlowerpotState? _watchedState;
   bool? _lastOnline;
   bool _lastShutdown = false;
+  Object? _lastDeviceSnapshot;
+  int _snapshotSequence = 0;
+  final Map<int, int> _appliedDpReads = {};
 
   // ── 控制类 ──────────────────────────────────────────────
   /// DP2：true=运行中（按钮显示「停止」），false=已暂停（按钮显示「继续」）。
@@ -80,6 +83,7 @@ class MowerDevice extends ChangeNotifier {
 
   /// DP13：电量。
   late int battery;
+  bool hasBatteryReport = false;
 
   /// DP18：故障位图。0 = 无故障。
   ///
@@ -204,6 +208,7 @@ class MowerDevice extends ChangeNotifier {
     // 进页面就把蓝牙连上（2026-09-23 产品：「我进来设备正常情况下 wifi 和蓝牙图标应该都是亮的」）。
     unawaited(refreshLink(state, autoConnect: true));
     _watchedState = state;
+    _lastDeviceSnapshot = state.deviceById(deviceId);
     _lastOnline = state.deviceById(deviceId)?.online;
     _lastShutdown = state.isMowerShutdown(deviceId);
     state.addListener(_onStateChanged);
@@ -238,6 +243,11 @@ class MowerDevice extends ChangeNotifier {
     final state = _watchedState;
     final id = _deviceId;
     if (state == null || id == null) return;
+    final snapshot = state.deviceById(id);
+    if (!identical(snapshot, _lastDeviceSnapshot)) {
+      _lastDeviceSnapshot = snapshot;
+      unawaited(_syncFromDevice(state, const <int>{}));
+    }
     final online = state.deviceById(id)?.online;
     final was = _lastOnline;
     _lastOnline = online;
@@ -262,6 +272,8 @@ class MowerDevice extends ChangeNotifier {
     _queue = Future<void>.value();
     _watchedState?.removeListener(_onStateChanged);
     _watchedState = null;
+    _lastDeviceSnapshot = null;
+    _appliedDpReads.clear();
     _lastOnline = null;
     _lastShutdown = false;
     unawaited(_reportSub?.cancel());
@@ -304,6 +316,7 @@ class MowerDevice extends ChangeNotifier {
     lastCommandedMode = null;
     status = MowerStatus.standby;
     battery = 0;
+    hasBatteryReport = false;
     faultBitmap = null;
     faultAlarm = null;
     charging = MowerChargingStatus.notCharging;
@@ -713,11 +726,23 @@ class MowerDevice extends ChangeNotifier {
         changed.isEmpty ||
         changed.contains(MowerDp.mowSchedule);
     final scheduleRead = readsSchedule ? ++_scheduleReadSequence : null;
-    final snapshot = await state.mowerDps(id);
+    final read = ++_snapshotSequence;
+    final completeReport =
+        changed != null &&
+        changed.isNotEmpty &&
+        reported != null &&
+        changed.every(reported.containsKey);
+    final snapshot = completeReport ? null : await state.mowerDps(id);
     if ((snapshot == null && reported == null) || !_isCurrent(id, generation)) {
       return;
     }
     final dps = <int, Object?>{...?snapshot, ...?reported};
+    dps.removeWhere((dp, _) => (_appliedDpReads[dp] ?? 0) > read);
+    for (final dp in dps.keys) {
+      if (changed == null || changed.isEmpty || changed.contains(dp)) {
+        _appliedDpReads[dp] = read;
+      }
+    }
     if (readsSchedule && scheduleRead != _scheduleReadSequence) {
       dps.remove(MowerDp.mowSchedule);
     }
@@ -757,11 +782,11 @@ class MowerDevice extends ChangeNotifier {
         state.logMowerInteraction('上报 ← 割草机 DP$dp $identifier=${dps[dp]}$note');
       }
     }
-    if (changed == null) {
+    if (changed == null && dps.containsKey(MowerDp.commandResults)) {
       _lastCommandResult = MowerCommandResult.parse(
         dps[MowerDp.commandResults],
       );
-    } else if (changed.contains(MowerDp.commandResults)) {
+    } else if (changed != null && changed.contains(MowerDp.commandResults)) {
       _acceptCommandResult(
         dps[MowerDp.commandResults],
         generation,
@@ -920,7 +945,11 @@ class MowerDevice extends ChangeNotifier {
               MowerDp.enumOf(MowerStatus.values, (item) => item.code, value) ??
               status;
         case MowerDp.battery:
-          battery = (_asInt(value) ?? battery).clamp(0, 100);
+          final level = _asInt(value);
+          if (level != null && level >= 0 && level <= 100) {
+            battery = level;
+            hasBatteryReport = true;
+          }
         case MowerDp.fault:
           faultBitmap = MowerFault.parseBitmap(value) ?? faultBitmap;
         case MowerDp.faultAlarm:

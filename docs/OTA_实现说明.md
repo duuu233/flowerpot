@@ -1,8 +1,26 @@
 # 固件升级状态监控（花盆 / 割草机）
 
+## 2026-10-21 涂鸦工单建议核对与优化顺序
+
+核对[官方固件升级](https://developer.tuya.com/cn/docs/app-development/otaupdate?id=Ka6ki8la8wnr9)与[批量OTA业务](https://developer.tuya.com/cn/docs/app-development/device-batch-ota?id=Kdshehm7xxwkj)：100是APP连接/下载准备，不是设备已烧录；1才可新启动，2/5只应接回任务；canUpgrade=false不可直接升级。工单另附的support帮助链接本轮读取失败，不作为额外已核验依据。
+
+### 当前已具备，不重复改造
+
+Android已经优先使用newOTAServiceInstance、getFirmwareUpgradeInfo、startFirmwareUpgrade、registerDevOTAListener及getUpgradeProgress，按目标版本/组件筛选，防止重复发起；旧startOta只为旧SDK兼容，不是新版路径。每8秒状态查询只读，不重新下载或启动；缩短该间隔不能让设备下载/烧录更快。为避免确认期间固件信息变化，启动前重查保留，不能为节省一次请求盲目复用旧升级记录。
+
+本App当前只传listOf(selected)，iOS只取首个待升级组件，并不是自动把upgradeModelList全量串行跑完。因此“多个固件串行导致耗时”是SDK可支持的场景，不是本App本次慢的已证实根因；要先核对现场固件模型数量、组件和源/目标版本，不能直接扩大本次升级范围，也不并行刷多个组件。
+
+### 可以继续优化，但先用同条件真机时间线定位
+
+1. 复用现有[ota-timing]比较检查/启动应答、首次准备/进度、安装及版本确认时间。若100很长，请涂鸦结合SDK日志区分查固件、蓝牙连接、APP下载、发送这几个内部节点；目前100本身不能区分这些动作。必要时增加只含阶段、耗时和错误码的原生诊断，不记录下载URL、设备/账号标识及凭据。
+2. 5003先核查手机到固件CDN的网络与下载；5010核查蓝牙连接、距离和发送。5005应改善信号；官方只允许该警告下经用户选择调用confirmWarningUpgradeTask，不应自动传true。本轮保留既有安全失败提示，未新增继续按钮或自动确认；若后续实现必须保留SDK任务并新增等待用户决定的状态，不能在释放实例后假装继续旧任务。
+3. 蓝牙Mesh/Beacon适用时保持连接和前台、不退出App；不把该要求无条件套到所有Wi-Fi MCU设备。本轮不添加设备侧参数、私自选CDN、绕过校验、自写下载或强制差分；实际包类型/字节数及传输安装耗时仍需平台和设备日志。
+
+上述是排查与实施优先级，不是已经测得的提速；本轮没有改OTA下载、启动、重试、队列或结果判定。原始DP改为读当前SDK模型也让启动前充电条件不再依赖APP旧DP快照，但不宣称它缩短设备物理升级时长。
+
 ## 分段耗时诊断 2026年10月20日
 
-App 继续使用涂鸦SDK传输、安装和进度监听，没有自行切分固件或强制差分开关。新增 `OtaTimingTrace` 只帮助下一次真机定位约2分钟耗时，不能据此宣称实际提速已完成。对外一页说明见 [优化进展及OTA联调说明](reports/2026-10-20-ota-optimization-brief.pdf)。
+App 继续使用涂鸦SDK传输、安装和进度监听，没有自行切分固件或强制差分开关。新增 `OtaTimingTrace` 只帮助下一次真机定位约2分钟耗时，不能据此宣称实际提速已完成。对外说明见 [花盆APP改动简报](reports/2026-10-20-flowerpot-app-daily-brief.md)；已移除的旧PDF不再作为当前入口。
 
 ### 如何取证
 
