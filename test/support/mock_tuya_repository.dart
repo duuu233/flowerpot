@@ -428,6 +428,21 @@ class MockTuyaRepository implements TuyaRepository {
     return dps == null ? null : Map<int, Object?>.of(dps);
   }
 
+  /// SDK 当前模型里的固件版本（版本DP / verSw），用例按需填；没填的设备返回空表。
+  final Map<String, List<String>> firmwareVersionsByDevice =
+      <String, List<String>>{};
+
+  /// 置 true 时 [firmwareVersions] 抛错，模拟 SDK 读不到。
+  bool failFirmwareVersions = false;
+
+  @override
+  Future<List<String>> firmwareVersions(String deviceId) async {
+    if (failFirmwareVersions) {
+      throw const TuyaException('sdk_error', '读不到设备模型');
+    }
+    return List<String>.of(firmwareVersionsByDevice[deviceId] ?? const []);
+  }
+
   @override
   Future<List<double>> getHistory(
     String deviceId,

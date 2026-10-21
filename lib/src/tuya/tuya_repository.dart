@@ -183,6 +183,12 @@ abstract class TuyaRepository {
   /// 这台设备的快照。raw 型 DP 的值是 SDK 转好的十六进制串（见 `TuyaRaw`）。
   Future<Map<int, Object?>?> rawDps(String deviceId);
 
+  /// 涂鸦 SDK 当前设备模型里的固件版本，**每次现读，不用 App 的合并快照**。
+  ///
+  /// OTA 结果核验用：按产品取版本号 DP（花盆 148 / 割草机 112）和 SDK 的 `verSw`，
+  /// 两者都原样返回（去空白、去空值），由调用方和目标版本比。SDK 没有这台设备时为空。
+  Future<List<String>> firmwareVersions(String deviceId);
+
   /// 涂鸦**消息中心**里某台设备的消息（排查用，2026-09-18 起；2026-09-20 改成按设备取）。
   ///
   /// [deviceId] 就是涂鸦的 `msgSrcId`，**必填**；[msgType] 是消息类型枚举名，
@@ -424,6 +430,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   final Map<String, Map<Object?, Object?>> _snapshots =
       <String, Map<Object?, Object?>>{};
   final Map<String, Map<String, int>> _dpReportSequences = {};
+
+  /// 每台设备最近一次在线值到达（推送或 SDK 在线查询）的序号，和 DP 共用计数。
+  final Map<String, int> _onlineSequences = {};
   int _dpReportSequence = 0;
 
   /// 原始事件流，只订阅一次后分给下面两个消费者。
@@ -543,6 +552,10 @@ class MethodChannelTuyaRepository implements TuyaRepository {
           : null,
       message: ota['message']?.toString(),
       stage: OtaStage.fromTuya(ota['stage']),
+      code: switch ('${ota['code'] ?? ''}'.trim()) {
+        '' => null,
+        final code => code,
+      },
     );
   }
 
@@ -559,6 +572,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     if (event['removed'] == true) {
       _snapshots.remove(deviceId);
       _dpReportSequences.remove(deviceId);
+      _onlineSequences.remove(deviceId);
       _history.remove(deviceId);
       _historyFrames.remove(deviceId);
       return DeviceUpdate.removed(deviceId);
@@ -600,6 +614,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     }
     final online = event['online'];
     if (online is bool) merged['online'] = online;
+    if (online is bool || (device is Map && device['online'] is bool)) {
+      _onlineSequences[deviceId] = ++_dpReportSequence;
+    }
 
     return DeviceUpdate.changed(
       _device(merged),
@@ -727,13 +744,28 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   @override
   Future<List<SmartPlanterDevice>> getDevices() async {
     final queried = Map<String, Map<Object?, Object?>>.of(_snapshots);
+    final dpSequences = <String, Map<String, int>>{
+      for (final entry in _dpReportSequences.entries)
+        entry.key: Map<String, int>.of(entry.value),
+    };
+    final onlineSequences = Map<String, int>.of(_onlineSequences);
     final raw = await _invoke<List<Object?>>('getDevices') ?? <Object?>[];
     final devices = raw.whereType<Map<Object?, Object?>>().map((item) {
       final id = '${item['deviceId'] ?? item['devId'] ?? ''}';
       final latest = _snapshots[id];
-      // A DP/online event received while querying is newer than that query.
+      if (latest == null || identical(latest, queried[id])) {
+        return _device(item);
+      }
+      // 查询期间到达的推送只比清单新它自己那几项：逐个DP/在线值叠到新清单上，
+      // 其余字段仍取这次SDK清单，不因为来过一条推送就整台退回旧快照。
       return _device(
-        latest != null && !identical(latest, queried[id]) ? latest : item,
+        _overlayNewer(
+          item,
+          latest,
+          dpSequences[id] ?? const <String, int>{},
+          onlineChanged: _onlineSequences[id] != onlineSequences[id],
+          deviceId: id,
+        ),
       );
     }).toList();
     // Devices the account no longer owns leave their snapshot and decoded
@@ -741,9 +773,39 @@ class MethodChannelTuyaRepository implements TuyaRepository {
     final owned = devices.map((device) => device.id).toSet();
     _snapshots.removeWhere((id, _) => !owned.contains(id));
     _dpReportSequences.removeWhere((id, _) => !owned.contains(id));
+    _onlineSequences.removeWhere((id, _) => !owned.contains(id));
     _history.removeWhere((id, _) => !owned.contains(id));
     _historyFrames.removeWhere((id, _) => !owned.contains(id));
     return devices;
+  }
+
+  /// 新查询结果 [item] 叠上查询发起后才到达的DP（序号变了的）和在线值，值取自 [latest]。
+  Map<Object?, Object?> _overlayNewer(
+    Map<Object?, Object?> item,
+    Map<Object?, Object?> latest,
+    Map<String, int> queriedSequences, {
+    required bool onlineChanged,
+    required String deviceId,
+  }) {
+    final merged = Map<Object?, Object?>.of(item);
+    final latestDps = latest['dps'];
+    final itemDps = item['dps'];
+    final dps = <Object?, Object?>{
+      if (itemDps is Map)
+        for (final entry in itemDps.entries) '${entry.key}': entry.value,
+    };
+    if (latestDps is Map) {
+      for (final entry in (_dpReportSequences[deviceId] ?? {}).entries) {
+        if (entry.value == queriedSequences[entry.key]) continue;
+        final dp = int.tryParse(entry.key);
+        dps[entry.key] = latestDps[entry.key] ?? latestDps[dp];
+      }
+    }
+    merged['dps'] = dps;
+    if (onlineChanged && latest['online'] is bool) {
+      merged['online'] = latest['online'];
+    }
+    return merged;
   }
 
   @override
@@ -803,6 +865,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
           ...snapshot,
           'online': entry.value,
         };
+        _onlineSequences[entry.key] = ++_dpReportSequence;
       }
     }
     return states;
@@ -1070,6 +1133,27 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       }
     }
     return result;
+  }
+
+  @override
+  Future<List<String>> firmwareVersions(String deviceId) async {
+    final raw = await _invoke<Map<Object?, Object?>>('deviceSnapshot', {
+      'deviceId': deviceId,
+    });
+    if (raw == null) return const <String>[];
+    final dps = raw['dps'];
+    final productId = '${raw['productId'] ?? raw['pid'] ?? ''}'.trim();
+    final dp = productId == MowerDp.productId
+        ? MowerDp.fwVersion
+        : TuyaConfig.dp['firmware_version'];
+    final values = <Object?>[
+      if (dps is Map && dp != null) dps['$dp'] ?? dps[dp],
+      raw['firmwareVersion'],
+    ];
+    return <String>[
+      for (final value in values)
+        if (value is String && value.trim().isNotEmpty) value.trim(),
+    ];
   }
 
   @override

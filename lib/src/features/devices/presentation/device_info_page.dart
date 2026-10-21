@@ -32,7 +32,7 @@ class DeviceInfoPage extends StatefulWidget {
 class _DeviceInfoPageState extends State<DeviceInfoPage> {
   String get deviceId => widget.deviceId;
 
-  /// 涂鸦产品名称（「设备型号」）。进页面问一次，[FlowerpotState.productNameFor] 里有缓存。
+  /// 涂鸦产品名称（「设备型号」）。每次进页面现问一次，本次停留内复用这一次的结果。
   Future<String?>? _productName;
 
   @override

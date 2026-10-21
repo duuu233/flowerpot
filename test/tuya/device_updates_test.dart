@@ -1,5 +1,6 @@
 import 'dart:async';
 import '../support/mock_tuya_repository.dart';
+import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flowerpot/src/tuya/tuya_repository.dart';
@@ -401,6 +402,127 @@ void main() {
     },
   );
 
+  // 2026-10-21 用户「读取涂鸦SDK的值都及时刷新，不缓存」：清单查询期间来过一条推送，
+  // 不再整台退回旧快照，只把那条推送的DP / 在线值叠到这次SDK清单上。
+  group('清单刷新逐项合并', () {
+    Future<SmartPlanterDevice> refreshWith(
+      Map<Object?, Object?> fresh,
+      Map<Object?, Object?> midQueryEvent,
+    ) async {
+      final sub = repository.deviceUpdates.listen((_) {});
+      addTearDown(sub.cancel);
+      await repository.getDevices();
+      final response = Completer<List<Object?>>();
+      messenger.setMockMethodCallHandler(const MethodChannel(_methodChannel), (
+        call,
+      ) async {
+        return call.method == 'getDevices' ? response.future : null;
+      });
+      final loading = repository.getDevices();
+      await Future<void>.delayed(Duration.zero);
+      await emit(midQueryEvent);
+      response.complete([fresh]);
+      return (await loading).single;
+    }
+
+    Map<Object?, Object?> freshWith(
+      Map<Object?, Object?> dps, {
+      bool online = true,
+    }) {
+      final fresh = _deviceMap();
+      fresh['online'] = online;
+      fresh['dps'] = <Object?, Object?>{
+        ...(fresh['dps']! as Map<Object?, Object?>),
+        ...dps,
+      };
+      return fresh;
+    }
+
+    test('DP pushed mid-query is kept, other fresh SDK values are used', () async {
+      final device = await refreshWith(freshWith({'103': 41, '106': 70}), {
+        'deviceId': 'dev-1',
+        'dps': {'105': 92},
+      });
+      expect(device.sensors.waterLevel, 92);
+      expect(device.battery, 41);
+      expect(device.sensors.soilMoisture, 70);
+    });
+
+    test('online push mid-query only overrides online', () async {
+      final device = await refreshWith(freshWith({'105': 77}), {
+        'deviceId': 'dev-1',
+        'online': false,
+      });
+      expect(device.online, isFalse);
+      expect(device.sensors.waterLevel, 77);
+    });
+
+    test('a DP-only push mid-query keeps the fresh SDK online flag', () async {
+      final device = await refreshWith(freshWith({}, online: false), {
+        'deviceId': 'dev-1',
+        'dps': {'105': 92},
+      });
+      expect(device.online, isFalse);
+      expect(device.sensors.waterLevel, 92);
+    });
+  });
+
+  group('SDK 当前固件版本现读', () {
+    test('花盆返回 DP148 与 verSw，每次现读 SDK 模型', () async {
+      var dp148 = '1.0.13';
+      final calls = <String>[];
+      messenger.setMockMethodCallHandler(const MethodChannel(_methodChannel), (
+        call,
+      ) async {
+        calls.add(call.method);
+        if (call.method != 'deviceSnapshot') return null;
+        return <Object?, Object?>{
+          ..._deviceMap(),
+          'firmwareVersion': '2.0.0',
+          'dps': <Object?, Object?>{'112': 246, '148': dp148},
+        };
+      });
+      expect(await repository.firmwareVersions('dev-1'), ['1.0.13', '2.0.0']);
+      dp148 = 'V1.1.0';
+      expect(await repository.firmwareVersions('dev-1'), ['V1.1.0', '2.0.0']);
+      expect(calls, ['deviceSnapshot', 'deviceSnapshot']);
+    });
+
+    test('割草机取 DP112，不取花盆的 148；空值不返回', () async {
+      messenger.setMockMethodCallHandler(const MethodChannel(_methodChannel), (
+        call,
+      ) async {
+        if (call.method != 'deviceSnapshot') return null;
+        return <Object?, Object?>{
+          ..._deviceMap(),
+          'productId': MowerDp.productId,
+          'firmwareVersion': ' ',
+          'dps': <Object?, Object?>{'112': '1.1.3', '148': '9.9.9'},
+        };
+      });
+      expect(await repository.firmwareVersions('dev-1'), ['1.1.3']);
+    });
+
+    test('SDK 没有这台设备时为空', () async {
+      expect(await repository.firmwareVersions('dev-1'), isEmpty);
+    });
+  });
+
+  test('OTA 失败事件带上原生错误码', () async {
+    final events = <OtaProgress>[];
+    final sub = repository.otaUpdates.listen(events.add);
+    addTearDown(sub.cancel);
+    await emit({
+      'deviceId': 'dev-1',
+      'ota': {'status': 'failed', 'message': '信号弱', 'code': '5005'},
+    });
+    await emit({
+      'deviceId': 'dev-1',
+      'ota': {'status': 'failed'},
+    });
+    expect(events.map((event) => event.code), ['5005', null]);
+  });
+
   group('当前固件版本', () {
     Future<String> firmwareOf(Map<Object?, Object?> raw) async {
       messenger.setMockMethodCallHandler(
@@ -530,6 +652,35 @@ void main() {
       },
     );
 
+    test(
+      'a push during the SDK list query does not throw away the fresh list',
+      () async {
+        final mock = _DelayedUpdatesRepository();
+        final state = FlowerpotState(repository: mock);
+        addTearDown(state.dispose);
+        await state.initialize();
+        await state.refreshDevices();
+        final device = state.devices.single;
+        final gate = Completer<List<SmartPlanterDevice>>();
+        mock.devicesGate = gate.future;
+        final refresh = state.refreshDevices();
+        await Future<void>.delayed(Duration.zero);
+        mock.pushDeviceUpdate(
+          DeviceUpdate.changed(
+            device.copyWith(battery: 12),
+            changedDps: {103},
+            reportedDps: {103: 12},
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        // 真实仓库会把查询期间的推送逐个DP叠进新清单；其余字段是这次SDK现读的新值。
+        gate.complete([device.copyWith(battery: 12, firmwareVersion: '9.9.9')]);
+        await refresh;
+        expect(state.deviceById(device.id)!.battery, 12);
+        expect(state.deviceById(device.id)!.firmwareVersion, '9.9.9');
+      },
+    );
+
     test('a pushed unbind drops the device', () async {
       final mock = MockTuyaRepository(latency: Duration.zero);
       final state = FlowerpotState(repository: mock);
@@ -555,11 +706,16 @@ class _DelayedUpdatesRepository extends MockTuyaRepository {
   _DelayedUpdatesRepository() : super(latency: Duration.zero);
   Future<void>? publishGate;
   Future<String>? homeGate;
+  Future<List<SmartPlanterDevice>>? devicesGate;
 
   @override
   Future<void> publishDps(String deviceId, Map<int, Object> dps) async {
     await publishGate;
   }
+
+  @override
+  Future<List<SmartPlanterDevice>> getDevices() =>
+      devicesGate ?? super.getDevices();
 
   @override
   Future<String> currentHomeId() async => await homeGate ?? 'mock-home';

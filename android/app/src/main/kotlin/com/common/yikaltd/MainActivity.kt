@@ -62,6 +62,9 @@ private const val SCAN_RESULT_WAIT_MS = 5000L
 // 消息中心「按类型取一页」那步升级诊断最多打几条（见 deviceMessages）。
 private const val PEEK_LIMIT = 20
 
+// OTA 进度兜底查询间隔（getUpgradeProgress 只读，不重新下载 / 发起）。
+private const val OTA_POLL_INTERVAL_MS = 3_000L
+
 /** Request/response channel; mirrored by `TuyaConfig.channelName`. */
 private const val METHOD_CHANNEL = "com.common.yikaltd/tuya"
 
@@ -3677,7 +3680,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val onError: (String, String) -> Unit = { code, message ->
             if (current() && finished.compareAndSet(false, true)) {
                 if (started.compareAndSet(false, true)) error(result, code, message)
-                emitOta(deviceId, "failed", message = message)
+                // Dart keeps explicit refusals (5005, precheck) final and verifies the rest.
+                emitOta(deviceId, "failed", message = message, code = code)
                 activity.runOnUiThread { if (otaAttempts[deviceId] === attempt) releaseOta(deviceId) }
             }
         }
@@ -3754,7 +3758,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
     }
 
-    /** SDK snapshot query only; never downloads or restarts firmware itself. */
+    /**
+     * SDK snapshot query only; never downloads or restarts firmware itself.
+     * Every [OTA_POLL_INTERVAL_MS] (3 s since 2026-10-21, was 8 s) so a missed callback shows up promptly.
+     */
     private fun startOtaPolling(deviceId: String, attempt: Any, ota: Any, current: () -> Boolean, report: (Any?) -> Unit) {
         otaPolls.remove(deviceId)?.let(otaHandler::removeCallbacks)
         val poll = object : Runnable {
@@ -3765,11 +3772,11 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                         if (current()) report(it)
                     }, onError = { code, _ -> trace("OTA snapshot query failed: $code") })
                 }.onFailure { trace("OTA snapshot query unavailable: ${it.javaClass.simpleName}") }
-                if (current()) otaHandler.postDelayed(this, 8_000)
+                if (current()) otaHandler.postDelayed(this, OTA_POLL_INTERVAL_MS)
             }
         }
         otaPolls[deviceId] = poll
-        otaHandler.postDelayed(poll, 8_000)
+        otaHandler.postDelayed(poll, OTA_POLL_INTERVAL_MS)
     }
 
     /** Android IOtaListener 的回调映射与兼容性处理。 */
@@ -3796,6 +3803,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         percent: Int? = null,
         message: String? = null,
         stage: Int? = null,
+        code: String? = null,
     ) = emit(
         mapOf(
             "deviceId" to deviceId,
@@ -3804,6 +3812,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 "percent" to percent,
                 "message" to message,
                 "stage" to stage,
+                "code" to code,
             ),
         ),
     )

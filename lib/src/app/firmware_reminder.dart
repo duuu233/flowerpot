@@ -26,8 +26,9 @@ import 'app_route_tracker.dart';
 /// 「立刻更新」：关掉提醒弹窗，跳到这台设备的「其他设置」（割草机是切到「设置」栏），
 /// 再弹固件升级框，用户确认后才升级（2026-09-23 产品；此前是跳过去直接升级）。
 ///
-/// **只在设备页上监控**：进设备详情及其下各子页（[_isDevicePage]）时问一次涂鸦
-/// （同一台设备 [recheckInterval] 内不重复问）。设备列表、搜索 / 配网、「我的」一侧的
+/// **只在设备页上监控**：进设备详情及其下各子页（[_isDevicePage]）时现问一次涂鸦；
+/// 设备重新上线、固件版本变了也重新问，停在同一页时普通的状态刷新不重复问（2026-10-21
+/// 起不再按 1 分钟缓存上一次结论）。设备列表、搜索 / 配网、「我的」一侧的
 /// 页面都不监控。「其他设置」本身不弹——升级入口就在那一页上，而且「立刻更新」要跳去的
 /// 正是它。
 ///
@@ -50,9 +51,6 @@ class FirmwareReminderHost extends StatefulWidget {
   /// 闪屏期间为 false。
   final bool enabled;
   final Widget child;
-
-  /// 同一台设备多久之内不重复问涂鸦有没有新固件。
-  static const Duration recheckInterval = Duration(minutes: 1);
 
   /// 设备相关、但不属于「设备页」的路由。
   static const Set<String> _notDevicePages = <String>{
@@ -87,7 +85,11 @@ class FirmwareReminderHost extends StatefulWidget {
 }
 
 class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
-  final Map<String, DateTime> _checkedAt = <String, DateTime>{};
+  /// 上一次现问涂鸦时所在的设备页、设备和当时的固件版本。三者有一个变了就重新问；
+  /// 离开设备页或设备离线时清空，回来 / 重新上线后再问。
+  Object? _checkedPage;
+  String? _checkedDevice;
+  String? _checkedVersion;
 
   /// 这次进设备面板已经点过「取消」的设备。离开设备页就清掉。
   final Set<String> _remindDismissed = <String>{};
@@ -169,6 +171,9 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
     if (deviceId == null ||
         !state.authenticated ||
         !state.isDeviceOnline(deviceId)) {
+      _checkedPage = null;
+      _checkedDevice = null;
+      _checkedVersion = null;
       return;
     }
     if (name == AppRoutes.deviceOtherSettings) return;
@@ -179,11 +184,13 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
             !state.otaStalled(deviceId));
     if (running) return;
 
-    final checkedAt = _checkedAt[deviceId];
-    if (checkedAt == null ||
-        DateTime.now().difference(checkedAt) >
-            FirmwareReminderHost.recheckInterval) {
-      _checkedAt[deviceId] = DateTime.now();
+    final version = state.deviceById(deviceId)?.firmwareVersion;
+    if (!identical(_checkedPage, page) ||
+        _checkedDevice != deviceId ||
+        _checkedVersion != version) {
+      _checkedPage = page;
+      _checkedDevice = deviceId;
+      _checkedVersion = version;
       await state.refreshFirmwareUpdate(deviceId);
       // 结论没变时状态层不会通知，自己再看一遍。
       _dirty = true;

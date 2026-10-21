@@ -16,7 +16,8 @@ import 'widgets/ota_progress_dialog.dart';
 ///    「升级似乎已中断」，确认后丢掉本地进度、重新问涂鸦（不再用红点那次的旧结论）。
 ///    放在离线判断之前：升级中设备重启、短暂离线是常态，这时要看的是进度。
 /// 2. **离线**：提示「花盆 / 割草机已离线，无法检查固件」，不跳页。
-/// 3. 问涂鸦有没有新版本（红点那次已经查到就不再问），没有就提示已是最新。
+/// 3. 每次都现问涂鸦有没有新版本（不拿红点那次的旧结论，2026-10-21 用户：SDK 的值
+///    不缓存），没有就提示已是最新。
 /// 4. 弹「检查更新」确认框（当前版本 → 新版本）；[confirmed] 为 true 时跳过。
 /// 5. 发起升级：`startOta` 只代表「已发起」，之后的进度和成败从事件通道回来，
 ///    这里盖上进度弹层。
@@ -34,8 +35,9 @@ Future<void> runFirmwareUpgrade(
   final device = state.deviceById(deviceId);
   if (device == null) return;
 
-  var useKnownVersion = true;
   if (state.otaProgressFor(deviceId)?.status == OtaStatus.running) {
+    // 重新打开进度时先现读一次 SDK 当前版本：设备可能已经装好，只是结果还没推上来。
+    state.refreshOtaResult(deviceId);
     if (!state.otaStalled(deviceId) || !state.isDeviceOnline(deviceId)) {
       await showOtaProgressDialog(context, deviceId: deviceId);
       return;
@@ -55,7 +57,6 @@ Future<void> runFirmwareUpgrade(
       icon: Icons.sync_problem_outlined,
     );
     if (!retry || !context.mounted) return;
-    useKnownVersion = false;
     state.clearOtaProgress(deviceId);
   }
 
@@ -71,9 +72,8 @@ Future<void> runFirmwareUpgrade(
   state.setCheckingFirmware(deviceId, true);
   try {
     log?.call('固件 → $deviceId 检查新版本（涂鸦 OTA，非 DP）');
-    // 进页面时静默查过一次，红点就是那次的结论；只有「重新检查」时才不能拿旧结论。
-    final known = useKnownVersion ? state.availableFirmwareFor(deviceId) : null;
-    final update = known ?? await state.checkFirmware(deviceId);
+    // 每次点进来都现问涂鸦：红点那次的结论可能已经过时（例如设备其实已经升好）。
+    final update = await state.checkFirmware(deviceId);
     if (!context.mounted || !state.isDeviceOnline(deviceId)) return;
     // 「当前版本」优先用同一条 OTA 记录里的那个：设备可能有 MCU、Wi-Fi 模块几个可升级
     // 组件，拿设备上报的版本和另一个组件的新版本并排显示，两行就对不上。

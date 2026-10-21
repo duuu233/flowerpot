@@ -1,12 +1,24 @@
 # 固件升级状态监控（花盆 / 割草机）
 
+## 2026-10-21 SDK报错后的结果核验（当前口径，替代10-20「仅安装阶段」限制）
+
+用户反馈「OTA升级还是会失败，但是其实已经成功了」。10-20 版只在安装阶段（≥98% 或阶段6）把SDK失败转核验，96% 等下载段失败（iOS 无阶段码）仍直接失败；核验也只认版本号DP推送。现规则：
+
+- **何时核验**：本次有目标版本，且之前已有真实进度（displayStage 为升级中或安装中，或已在核验）时，SDK 失败/超时转 `running + verifyingVersion`，弹层「正在确认升级结果」（进度条改为动画）。准备阶段零进度的失败仍直接失败。
+- **明确拒绝不核验**：发起抛错或失败事件携带 `firmware_changed` / `firmware_component_missing` / `ota_precheck_failed` / `ota_start_failed` / `5005`，以及割草机本条 DP116=7/20，直接失败。Android 失败事件现带 `code` 字段（`emitOta(..., code)`）。
+- **成功证据**：① SDK 成功回调；② 本次实时版本号DP（花盆148 / 割草机112）= 目标；③ **现读 SDK 当前设备模型**（`TuyaRepository.firmwareVersions` → 原生 `deviceSnapshot`，版本DP + `verSw`）= 目标。正常进行中②③只在安装阶段判；核验中任何阶段都判，下载段先到的目标版本在SDK放弃时立即生效。
+- **防巧合**：发起时记录基线（设备字段 + SDK 现读版本），发起前就等于目标的来源不算数；发起前 SDK 现读失败时不使用③，只认①②。
+- **现读时机**（只读 SDK 本地模型，不发云端请求、不下发DP）：进入安装/核验、该设备任一推送（上线、DP、设备信息）、前台在线轮询（3 秒）、`runFirmwareUpgrade` 重新打开进度（`refreshOtaResult`）。单设备串行，读取期间又有事件则读完再读一次。
+- 核验 2 分钟无结果仍显示「暂未确认升级结果」、可关闭、不合成失败；之后读到目标版本仍转成功。Android `getUpgradeProgress` 兜底查询由 8 秒改 3 秒。
+- 升级入口每次现问 `checkFirmware`，不再复用红点那次的结论；设备页提醒取消 1 分钟缓存，改为进设备页 / 重新上线 / 版本变化时重查。
+
 ## 2026-10-21 涂鸦工单建议核对与优化顺序
 
 核对[官方固件升级](https://developer.tuya.com/cn/docs/app-development/otaupdate?id=Ka6ki8la8wnr9)与[批量OTA业务](https://developer.tuya.com/cn/docs/app-development/device-batch-ota?id=Kdshehm7xxwkj)：100是APP连接/下载准备，不是设备已烧录；1才可新启动，2/5只应接回任务；canUpgrade=false不可直接升级。工单另附的support帮助链接本轮读取失败，不作为额外已核验依据。
 
 ### 当前已具备，不重复改造
 
-Android已经优先使用newOTAServiceInstance、getFirmwareUpgradeInfo、startFirmwareUpgrade、registerDevOTAListener及getUpgradeProgress，按目标版本/组件筛选，防止重复发起；旧startOta只为旧SDK兼容，不是新版路径。每8秒状态查询只读，不重新下载或启动；缩短该间隔不能让设备下载/烧录更快。为避免确认期间固件信息变化，启动前重查保留，不能为节省一次请求盲目复用旧升级记录。
+Android已经优先使用newOTAServiceInstance、getFirmwareUpgradeInfo、startFirmwareUpgrade、registerDevOTAListener及getUpgradeProgress，按目标版本/组件筛选，防止重复发起；旧startOta只为旧SDK兼容，不是新版路径。每3秒（2026-10-21前为8秒）状态查询只读，不重新下载或启动；缩短该间隔只让漏掉的回调更快显示，不能让设备下载/烧录更快。为避免确认期间固件信息变化，启动前重查保留，不能为节省一次请求盲目复用旧升级记录。
 
 本App当前只传listOf(selected)，iOS只取首个待升级组件，并不是自动把upgradeModelList全量串行跑完。因此“多个固件串行导致耗时”是SDK可支持的场景，不是本App本次慢的已证实根因；要先核对现场固件模型数量、组件和源/目标版本，不能直接扩大本次升级范围，也不并行刷多个组件。
 
@@ -51,7 +63,7 @@ App 继续使用涂鸦SDK传输、安装和进度监听，没有自行切分固�
 
 > 文档类型：实现说明
 > 状态：Active
-> 最后核验：2026-10-20（满电OTA门禁、安装阶段版本核验与关闭/重开；未真机）
+> 最后核验：2026-10-21（SDK报错后核验扩展到下载段、现读SDK设备版本、入口不缓存；未真机、未运行测试）
 
 | 日期 | 更新内容 | 落点 |
 | --- | --- | --- |
@@ -75,7 +87,7 @@ App 继续使用涂鸦SDK传输、安装和进度监听，没有自行切分固�
 | 段 | 方式 | 数据来源 |
 | --- | --- | --- |
 | ① 有没有新版本 | **主动拉取**，没有推送订阅 | 涂鸦云端的 OTA 记录（SDK 查询） |
-| ② 升级中的状态 | **SDK 回调推送**；Android 每 8 秒查询 SDK 进度兜底 | 涂鸦 SDK 的 OTA 监听；割草机另有 DP116 |
+| ② 升级中的状态 | **SDK 回调推送**；Android 每 3 秒查询 SDK 进度兜底 | 涂鸦 SDK 的 OTA 监听；割草机另有 DP116 |
 
 ## 1. 新版本监控（拉取）
 
@@ -87,9 +99,9 @@ App 继续使用涂鸦SDK传输、安装和进度监听，没有自行切分固�
 
 | 触发 | 花盆 | 割草机 |
 | --- | --- | --- |
-| 停在设备页上：路由变化或状态刷新时检查，**同一台设备 1 分钟内只问一次**（`FirmwareReminderHost`） | ✓ | ✓ |
+| 停在设备页上（`FirmwareReminderHost`）：**进入设备页、设备重新上线、固件版本变化**时现问；同一页普通状态刷新不重复问（2026-10-21 起取消 1 分钟缓存） | ✓ | ✓ |
 | 进入设置页、「其他设置」页，各静默查一次 | ✓ | — |
-| 点升级入口（`runFirmwareUpgrade`）时，之前没查到新版本就当场再问 | ✓ | ✓ |
+| 点升级入口（`runFirmwareUpgrade`）时，**每次都现问**，不复用红点那次结论（2026-10-21） | ✓ | ✓ |
 | 网络异常弹窗点「重试」 | ✓ | — |
 
 **在线门禁（2026-10-14）**：离线不查询、不显示缓存红点、不弹普通/强制提醒；已有自动提醒离线关闭。手动确认和异步检查返回后重新核对SDK在线值，状态层启动OTA前再拦截；已开始升级仍保留原回调/终态维护。
@@ -104,7 +116,7 @@ App 继续使用涂鸦SDK传输、安装和进度监听，没有自行切分固�
 
 ```
 发起升级（原生层只回答「已发起」）
-  → SDK 的 OTA 监听回调（Android 另每 8 秒查询 SDK 当前进度）
+  → SDK 的 OTA 监听回调（Android 另每 3 秒查询 SDK 当前进度）
   → 原生层发事件 {deviceId, ota:{status, percent, stage, message}}（事件通道）
   → tuya_repository.otaUpdates
   → state._applyOtaProgress（合并、记录时间）
@@ -136,7 +148,7 @@ Android 现优先使用 `registerDevOTAListener` 的 `firmwareUpgradeStatus`，�
 
 ### 2.3 合并规则（`_applyOtaProgress`）
 
-- 本次升级的第一个已确认终态（成功或明确失败）生效。安装阶段SDK失败/超时先转 `running + verifyingVersion` 核验版本，不提前形成不可纠正的失败；准备/下载阶段错误仍失败。已确认结论之后，迟到进度或相反结果丢弃。
+- 本次升级的第一个已确认终态（成功或明确失败）生效。已有真实进度（升级中/安装中）后SDK失败/超时先转 `running + verifyingVersion` 核验版本，不提前形成不可纠正的失败；准备阶段零进度错误及明确拒绝码仍失败（2026-10-21，见文首）。已确认结论之后，迟到进度或相反结果丢弃。
 - 百分比和阶段码往往分开到达，缺哪个就沿用上一次的值，不会把进度条打回 0。
 - 百分比和阶段不倒退；只有状态、阶段或有效百分比实际改变才刷新「最后推进时间」。重复快照不延长停滞阈值。
 - **成功**：熄灭小红点，版本号显示为目标版本。**明确失败**：清掉目标与核验状态，弹层显示失败原因。**安装待核验**：保留目标、本次版本、真实进度与安装阶段；SDK原始错误仅作诊断，页面显示「正在确认升级结果」。
@@ -155,13 +167,13 @@ Android 现优先使用 `registerDevOTAListener` 的 `firmwareUpgradeStatus`，�
 ### 2.5 兜底
 
 - **成功判定兜底（版本号 DP）**：设备上报的版本号等于这次升级的**目标版本**（涂鸦检测升级返回的新版本号，不是设备当前版本号），就按升级完成处理，进度弹层换成「升级完成」。花盆看 DP148，割草机看 DP112。
-  - **只在「固件安装中」这一段判断**：仍在升级中，且进度 ≥98% 或涂鸦报了阶段码 6。准备中、下载中（<98%）、已失败、已成功都不判断。
+  - **正常进行中只在「固件安装中」这一段判断**：仍在升级中，且进度 ≥98% 或涂鸦报了阶段码 6。准备中、下载中（<98%）、已成功都不判断；SDK报错后的核验中任何阶段都判（2026-10-21）。
   - 和涂鸦成功回调**并存**：任何一方先满足就跳到成功页，后到的一方不再改变结论。
   - 条件：本次升级发起后真正收到版本号 DP（`changedDps` 与 `reportedDps`），并且 `_pendingOtaVersion` 有值；比较时忽略前面的 `V/v`。不从设备列表或整包历史快照认定成功。
   - 版本先到：只记录到 `_reportedOtaVersion`，准备/下载阶段仍不成功；后续 SDK 进度进入安装阶段时重验。后来的不同版本替换先前记录，空值/非字符串本条版本上报清除记录。
   - 开始、清理/重试、成败收尾、退出登录、解绑或移除设备时清除本次记录，不跨升级使用。
   - 实现：`_confirmOtaFromDeviceReport` → `_confirmOtaByReportedVersion` 记录，`_confirmOtaByPendingReport` 判断；`_applyOtaProgress` 也触发重验。
-- **安装阶段错误待核验（2026-10-20）**：SDK错误到达时，前一状态已经是安装阶段且本次目标非空，保留为 `running + verifyingVersion`。DP148/112本次真实上报匹配目标可成功，SDK成功也可成功；错DP、旧快照、空/非字符串或不同版本不判成功。DP116=7/20与明确预检失败不走此例外。启动方法答复前已进入安装而后报超时，也应进入核验进度，不能同时弹入口失败。
+- **SDK错误待核验（2026-10-20 建立，2026-10-21 扩展到下载段并增加SDK模型现读，见文首）**：SDK错误到达时，前一状态已有升级进度（10-20 版仅限安装阶段）且本次目标非空，保留为 `running + verifyingVersion`。DP148/112本次真实上报匹配目标可成功，SDK成功也可成功；错DP、旧快照、空/非字符串或不同版本不判成功。DP116=7/20与明确预检失败不走此例外。启动方法答复前已进入安装而后报超时，也应进入核验进度，不能同时弹入口失败。
 - **核验等待**：从首次安装错误算2分钟，重复错误/百分比/阶段不重置；到时仅显示「暂未确认升级结果」，不合成失败或成功。不额外启动计时器/后台网络请求，沿用进度窗口每秒重绘与状态时钟。窗口可关闭且不清目标，之后实际匹配版本仍可确认；手动确认清理重查、新任务、明确终态、退出账号或解绑清核验信息。核验期间不自动重复弹升级提醒。
 - **花盆 DP168**：当前协议为手动亮度，已不作为 OTA 结果，不参与成功/失败收尾；旧 `ota_result` 解释已移除。当前成功依据仍为 SDK 与安装阶段 DP148 版本兜底，按产品 ID 与割草机 DP 区分。
 - **停滞提示**：准备阶段 `otaPreparationTimeout` 为 2 分钟，升级/唤醒/安装 `otaStallTimeout` 为 10 分钟，均从最后一次真实推进起算。弹层每秒检查，即使 SDK 完全无回调也能提示并允许关闭。阈值不是成功延迟、设备超时或失败结论。再次进入时可确认清理本地进度、重新检查 SDK；若 SDK 返回已有任务，只挂接监听，不重复启动。
@@ -197,20 +209,20 @@ Android 现优先使用 `registerDevOTAListener` 的 `firmwareUpgradeStatus`，�
 
 ## 5. 现状缺口
 
-- **发现新版本慢 1～2 分钟**：云端 OTA 记录本身有滞后，加上 App 自己 1 分钟的节流。
-- **设备重新上线、版本号 DP（花盆 148 / 割草机 112）变化，都不会触发重查新版本**。要缩短上面的延迟，App 侧可以从这里补。
+- **发现新版本的滞后**：云端 OTA 记录本身有滞后；App 自己的 1 分钟节流已于 2026-10-21 取消。
+- 2026-10-21 起设备重新上线、设备固件版本字段变化都会在设备页触发重查新版本（原缺口已补）。
 - **App 重启后内存进度丢失**：Android 手动检查已识别 SDK 返回的 `upgradeStatus = 2 / 5` 并重新挂接；不保证 SDK 永远返回任务，也未实现启动时无条件自动恢复。iOS 保持原行为。
 - **本轮已修复**：Android 超时/文本失败回调、提前版本上报漏验和割草机 DP116 只提示这三项已修复，见 §2 及[修复记录](history/2026-10/2026-10-12-mower-ota-terminal-fixes.md)。实际 4–5 分钟耗时根因仍待真机时间线。
 
 - iOS 不转发阶段码，只有百分比和成败。
 - 涂鸦 App SDK 有没有「新版本可用」的推送接口，还没解包核对。
-- 固件方清单里的「订阅 DP112」：对**割草机**成立——DP112 `fw_version` 是它上报的当前版本，设备重新连上云端时会报一次，App 目前只拿它显示版本，还没用它触发重查新版本（即上面第二条）。花盆的 112 是空气温度，花盆对应的是 DP148。
+- 固件方清单里的「订阅 DP112」：对**割草机**成立——DP112 `fw_version` 是它上报的当前版本，设备重新连上云端时会报一次，App 拿它显示版本，版本变化时设备页会重查新版本（2026-10-21）。花盆的 112 是空气温度，花盆对应的是 DP148。
 
 ## 6. 差分 OTA 与升级耗时排查
 
 ### 6.1 手机 App 与设备固件的职责
 
-Android 当前使用 Home SDK 7.5.1，Expansion SDK 7.8.0；优先 `newOTAServiceInstance → getFirmwareUpgradeInfo → registerDevOTAListener → startFirmwareUpgrade`，SDK 回调加每 8 秒 `getUpgradeProgress` 快照兜底，旧接口仅兼容无 Service 的 SDK。查询不下载、不重启升级，待装任务通过 SDK `canUpgrade` 预检后才发起；已有任务只挂接。App 没有自写升级包下载、Flash 擦写或传输分片逻辑，`onProgress(type, progress)` 取最后一个数字作为进度，符合当前 AAR 签名。
+Android 当前使用 Home SDK 7.5.1，Expansion SDK 7.8.0；优先 `newOTAServiceInstance → getFirmwareUpgradeInfo → registerDevOTAListener → startFirmwareUpgrade`，SDK 回调加每 3 秒 `getUpgradeProgress` 快照兜底，旧接口仅兼容无 Service 的 SDK。查询不下载、不重启升级，待装任务通过 SDK `canUpgrade` 预检后才发起；已有任务只挂接。App 没有自写升级包下载、Flash 擦写或传输分片逻辑，`onProgress(type, progress)` 取最后一个数字作为进度，符合当前 AAR 签名。
 
 `tuya_iot_dev_upgd_progress_rept`、`tuya_iot_upgrade_gw_notify`、`FW_UG_S.diff_ota`、`download_buf_size` 属于设备 TuyaOS/联网模块固件接口，不是 Android Home SDK 的配置。本仓库没有割草机固件源码；在 App 源码中找不到它们，不能证明设备未启用差分或未上报进度。
 
@@ -247,7 +259,7 @@ Android 终态回调与 DP 时序处理已补齐，下一步记录真机时间�
 
 | 用户问题 | 当前App事实 | 仍需设备/平台证据 |
 | --- | --- | --- |
-| 是否调用 `tuya_iot_dev_upgd_progress_rept` 监控进度 | 未直接调用。这是设备向云端**上报**进度的C接口；App用 `registerDevOTAListener` 接收，另每8秒 `getUpgradeProgress` 查询。 | 确认所用设备SDK/OTA方案；自动上报配置，或手动上报调用与真实日志。不能要求所有方案必须手动调用同名函数。 |
+| 是否调用 `tuya_iot_dev_upgd_progress_rept` 监控进度 | 未直接调用。这是设备向云端**上报**进度的C接口；App用 `registerDevOTAListener` 接收，另每3秒 `getUpgradeProgress` 查询。 | 确认所用设备SDK/OTA方案；自动上报配置，或手动上报调用与真实日志。不能要求所有方案必须手动调用同名函数。 |
 | 是否配置 `fw->diff_ota = TRUE` | App没有此结构体/赋值，不能在手机代码开启它。设备升级回调的 `FW_UG_S.diff_ota` 描述升级信息是否为差分。 | 对应模组/MCU/Bootloader是否支持、当前→目标版本差分包与部署开关、设备实际收到的标识与包大小。 |
 
 因此本轮结论是**设备实际差分状态未知**，不是“未开启”或“已经开启”。昨天改的是进度接收、恢复和界面等待；没有替设备接入差分，也没有强制全量下载。`upgradeType` 提醒/强制/检测、`upgradeMode` 通用/PID类型均不应直接当作差分标志。
@@ -276,7 +288,7 @@ Android 终态回调与 DP 时序处理已补齐，下一步记录真机时间�
 
 ### A3. Android 发起及监听
 
-`otaInstance` 优先创建 Service，注册监听后重新查固件，按目标版本与组件筛选。仅 `upgradeStatus=1` 且预检允许时调用 `startFirmwareUpgrade(listOf(selected))`；2/5 仅监听。每 8 秒 `getUpgradeProgress` 补漏，查询失败记录原因，不重启任务。未观察到当前任务推进前不接受首个缓存终态快照；本地准备 100 不足以证明它是本次任务。回调/快照过滤设备及组件；每次尝试标识防迟到回调，首个终态生效后释放实例并取消查询。旧 SDK 保留 `setOtaListener/startOta`。
+`otaInstance` 优先创建 Service，注册监听后重新查固件，按目标版本与组件筛选。仅 `upgradeStatus=1` 且预检允许时调用 `startFirmwareUpgrade(listOf(selected))`；2/5 仅监听。每 3 秒 `getUpgradeProgress` 补漏，查询失败记录原因，不重启任务。未观察到当前任务推进前不接受首个缓存终态快照；本地准备 100 不足以证明它是本次任务。回调/快照过滤设备及组件；每次尝试标识防迟到回调，首个终态生效后释放实例并取消查询。旧 SDK 保留 `setOtaListener/startOta`。
 
 ### A4. 事件合并与界面
 

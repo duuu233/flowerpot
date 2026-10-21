@@ -225,13 +225,17 @@ class OtaProgress {
     this.message,
     this.stage,
     this.verifyingVersion = false,
+    this.code,
   });
 
   final String deviceId;
   final OtaStatus status;
 
-  /// 安装期间SDK失败后等待本次目标版本核验，不代表设备实际升级失败。
+  /// 已有升级进度后SDK报失败/超时，等待本次目标版本核验，不代表设备实际升级失败。
   final bool verifyingVersion;
+
+  /// 原生失败事件带上的错误码（如 `5005`、`ota_precheck_failed`）；没有时为 null。
+  final String? code;
 
   /// 0–100，仅 [OtaStatus.running] 时有值。
   final int? percent;

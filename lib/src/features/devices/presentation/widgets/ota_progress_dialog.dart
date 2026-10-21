@@ -150,9 +150,10 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
         : (ota?.percent ?? 0).clamp(0, 100);
     // 准备中 / 安装中 / 等待唤醒没有可信的百分比：进度条改成来回走的动画、不写数字，
     // 让人看得出在跑，而不是停在 0%（或者 2026-09-17 之后的 98%）。三段共用同一套
-    // 动效，产品口径就是「98% 之后换成最开始那个动效」。
+    // 动效，产品口径就是「98% 之后换成最开始那个动效」。核验中（SDK报错后等版本）
+    // 同样没有可信进度，不把停在 9x% 的数字当成还在下载。
     final indeterminate =
-        running && (stage != OtaStage.upgrading || percent == 0);
+        running && (verifying || stage != OtaStage.upgrading || percent == 0);
     return PopScope(
       // 升级中不许返回键关掉：关了就再也看不到进度，用户只会以为升级没在跑。
       canPop: !running || stalled || verifying,

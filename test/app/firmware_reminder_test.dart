@@ -599,6 +599,35 @@ void main() {
     expect(state.hasFirmwareUpdate(state.devices.single.id), isFalse);
   });
 
+  // 2026-10-21 用户「SDK 的值不缓存」：不再按 1 分钟缓存上一次结论。
+  testWidgets('进设备页、设备重新上线都现问涂鸦；同页普通刷新不重复问', (tester) async {
+    final repo = _UpgradeRepository(FirmwareUpgradeType.check);
+    final (state, _) = await pumpHost(
+      tester,
+      FirmwareUpgradeType.check,
+      repository: repo,
+    );
+    final id = state.devices.single.id;
+    await open(tester, AppRoutes.deviceSettings, id);
+    expect(repo.checkCalls, 1);
+    repo.pushDeviceUpdate(
+      DeviceUpdate.changed(state.deviceById(id)!.copyWith(battery: 50)),
+    );
+    await tester.pumpAndSettle();
+    expect(repo.checkCalls, 1);
+    await open(tester, AppRoutes.deviceSettings, id);
+    expect(repo.checkCalls, 2);
+    repo.pushDeviceUpdate(
+      DeviceUpdate.changed(state.deviceById(id)!.copyWith(online: false)),
+    );
+    await tester.pumpAndSettle();
+    repo.pushDeviceUpdate(
+      DeviceUpdate.changed(state.deviceById(id)!.copyWith(online: true)),
+    );
+    await tester.pumpAndSettle();
+    expect(repo.checkCalls, 3);
+  });
+
   for (final type in [FirmwareUpgradeType.remind, FirmwareUpgradeType.force]) {
     testWidgets(
       '$type verification beyond deadline never launches another reminder',

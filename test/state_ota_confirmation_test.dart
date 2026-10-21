@@ -20,7 +20,14 @@ class _Repository extends MockTuyaRepository {
   _Repository({this.productId = 'planter'}) : super(latency: Duration.zero);
   final String productId;
   int starts = 0;
+  int checks = 0;
   Future<void> Function()? onStart;
+
+  /// 涂鸦检测升级的结果；设为 null 表示云端已没有待装版本（设备其实已升好）。
+  FirmwareUpdate? available = const FirmwareUpdate(
+    version: _target,
+    currentVersion: '1.0.0',
+  );
 
   @override
   Future<List<SmartPlanterDevice>> getDevices() async => [
@@ -49,8 +56,10 @@ class _Repository extends MockTuyaRepository {
   ];
 
   @override
-  Future<FirmwareUpdate?> checkFirmware(String deviceId) async =>
-      const FirmwareUpdate(version: _target, currentVersion: '1.0.0');
+  Future<FirmwareUpdate?> checkFirmware(String deviceId) async {
+    checks++;
+    return available;
+  }
 
   @override
   Future<void> startFirmwareUpgrade(
@@ -235,18 +244,221 @@ void main() {
     }
   }
 
+  // 2026-10-21 用户：「OTA升级还是会失败，但是其实已经成功了」。下载进度已经走了
+  // （96%，没有阶段6，iOS 也只有百分比）之后SDK报失败，同样先核验版本，不直接判失败。
+  for (final product in ['planter', MowerDp.productId]) {
+    test(
+      '$product SDK failure during download progress waits for the actual version',
+      () async {
+        final repository = _Repository(productId: product);
+        final state = await _state(repository);
+        addTearDown(state.dispose);
+        await _sdk(repository, percent: 96);
+        await _sdk(repository, status: OtaStatus.failed);
+        final waiting = state.otaProgressFor(_id)!;
+        expect(waiting.status, OtaStatus.running);
+        expect(waiting.verifyingVersion, isTrue);
+        expect(waiting.percent, 96);
+        expect(otaRunningLabel(waiting, withPercent: true), '正在确认升级结果');
+        _report(repository, state);
+        await Future<void>.delayed(Duration.zero);
+        expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
+        expect(state.deviceById(_id)!.firmwareVersion, _target);
+        expect(repository.starts, 1);
+      },
+    );
+  }
+
   test(
-    'failure before installation is final; target report cannot hide a genuine failure',
+    'version reported during download confirms once the SDK gives up',
     () async {
       final repository = _Repository();
       final state = await _state(repository);
       addTearDown(state.dispose);
-      await _sdk(repository, percent: 96);
+      await _sdk(repository, percent: 60);
+      _report(repository, state);
+      await Future<void>.delayed(Duration.zero);
+      // 正常进行中仍只在安装阶段判，60% 时不提前完成。
+      expect(state.otaProgressFor(_id)!.status, OtaStatus.running);
+      await _sdk(repository, status: OtaStatus.failed);
+      expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
+    },
+  );
+
+  test(
+    'failure before any progress is final; target report cannot revive it',
+    () async {
+      final repository = _Repository();
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await _sdk(repository, stage: OtaStage.preparing);
       await _sdk(repository, status: OtaStatus.failed);
       _report(repository, state);
       await Future<void>.delayed(Duration.zero);
       expect(state.otaProgressFor(_id)!.status, OtaStatus.failed);
       expect(state.otaProgressFor(_id)!.verifyingVersion, isFalse);
+    },
+  );
+
+  test(
+    'explicit refusal code in a failure event stays final after progress',
+    () async {
+      final repository = _Repository();
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await _sdk(repository, percent: 40);
+      repository.pushOtaProgress(
+        const OtaProgress(
+          deviceId: _id,
+          status: OtaStatus.failed,
+          message: '设备信号较弱',
+          code: '5005',
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(state.otaProgressFor(_id)!.status, OtaStatus.failed);
+      expect(state.otaProgressFor(_id)!.verifyingVersion, isFalse);
+    },
+  );
+
+  group('SDK 当前设备模型现读核验', () {
+    test(
+      'reconnect after the SDK failure reads the new verSw without a version DP push',
+      () async {
+        final repository = _Repository()
+          ..firmwareVersionsByDevice[_id] = ['1.0.0'];
+        final state = await _state(repository);
+        addTearDown(state.dispose);
+        await _sdk(repository, percent: 96, stage: OtaStage.installing);
+        await _sdk(repository, status: OtaStatus.failed);
+        await Future<void>.delayed(Duration.zero);
+        expect(state.otaProgressFor(_id)!.verifyingVersion, isTrue);
+        repository.firmwareVersionsByDevice[_id] = ['1.0.0', 'V1.1.0'];
+        repository.pushDeviceUpdate(
+          DeviceUpdate.changed(state.deviceById(_id)!.copyWith(online: true)),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
+        expect(state.deviceById(_id)!.firmwareVersion, _target);
+        expect(repository.starts, 1);
+      },
+    );
+
+    test(
+      'installation stage reads the SDK model without waiting for an event',
+      () async {
+        final repository = _Repository()
+          ..firmwareVersionsByDevice[_id] = ['1.0.0'];
+        final state = await _state(repository);
+        addTearDown(state.dispose);
+        await _sdk(repository, percent: 50);
+        repository.firmwareVersionsByDevice[_id] = [_target];
+        await Future<void>.delayed(Duration.zero);
+        // 下载中不读、不判。
+        expect(state.otaProgressFor(_id)!.status, OtaStatus.running);
+        await _sdk(repository, percent: 98);
+        await Future<void>.delayed(Duration.zero);
+        expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
+      },
+    );
+
+    test('reopening the progress re-reads the SDK model immediately', () async {
+      final repository = _Repository()
+        ..firmwareVersionsByDevice[_id] = ['1.0.0'];
+      final state = await _state(repository);
+      addTearDown(state.dispose);
+      await _sdk(repository, percent: 96);
+      await _sdk(repository, status: OtaStatus.failed);
+      await Future<void>.delayed(Duration.zero);
+      repository.firmwareVersionsByDevice[_id] = [_target];
+      state.refreshOtaResult(_id);
+      await Future<void>.delayed(Duration.zero);
+      expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
+    });
+
+    test(
+      'a source that already equalled the target before the upgrade proves nothing',
+      () async {
+        final repository = _Repository()
+          // 例如另一个组件的版本号本来就是 1.1.0。
+          ..firmwareVersionsByDevice[_id] = ['1.0.0', _target];
+        final state = await _state(repository);
+        addTearDown(state.dispose);
+        await _sdk(repository, percent: 96);
+        await _sdk(repository, status: OtaStatus.failed);
+        repository.pushDeviceUpdate(
+          DeviceUpdate.changed(state.deviceById(_id)!.copyWith(online: true)),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(state.otaProgressFor(_id)!.status, OtaStatus.running);
+        expect(state.otaProgressFor(_id)!.verifyingVersion, isTrue);
+        await _sdk(repository, status: OtaStatus.success);
+        expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
+      },
+    );
+
+    test(
+      'without a baseline read the SDK model is not trusted; the version DP still is',
+      () async {
+        final repository = _Repository()..failFirmwareVersions = true;
+        final state = await _state(repository);
+        addTearDown(state.dispose);
+        repository
+          ..failFirmwareVersions = false
+          ..firmwareVersionsByDevice[_id] = [_target];
+        await _sdk(repository, percent: 96);
+        await _sdk(repository, status: OtaStatus.failed);
+        state.refreshOtaResult(_id);
+        await Future<void>.delayed(Duration.zero);
+        expect(state.otaProgressFor(_id)!.status, OtaStatus.running);
+        _report(repository, state);
+        await Future<void>.delayed(Duration.zero);
+        expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
+      },
+    );
+  });
+
+  testWidgets(
+    'upgrade entry asks Tuya again instead of reusing the red-dot result',
+    (tester) async {
+      final repository = _Repository();
+      late FlowerpotState state;
+      await tester.runAsync(() async {
+        state = await _state(repository, start: false);
+      });
+      addTearDown(state.dispose);
+      expect(state.hasFirmwareUpdate(_id), isTrue);
+      final before = repository.checks;
+      // 设备其实已经升好：云端不再给待装版本。
+      repository.available = null;
+      await tester.pumpWidget(
+        FlowerpotScope(
+          state: state,
+          child: MaterialApp(
+            theme: buildAppTheme(),
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => runFirmwareUpgrade(context, _id),
+                  child: const Text('检查升级'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('检查升级'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(repository.checks, before + 1);
+      expect(find.text('当前已是最新固件版本'), findsOneWidget);
+      expect(find.text('检查更新'), findsNothing);
+      expect(state.hasFirmwareUpdate(_id), isFalse);
+      expect(repository.starts, 0);
+      // 等提示自己消失，再拆掉页面。
+      await tester.pump(const Duration(seconds: 11));
+      await tester.pumpWidget(const SizedBox());
+      expect(tester.takeException(), isNull);
     },
   );
 
