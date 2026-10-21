@@ -94,11 +94,14 @@ void main() {
     repository.items.add(_message('推送后云端新告警', today, '严重'));
     repository.emitPushMessage({'source': '802'});
     await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    expect(repository.requests, hasLength(1));
-    await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
+    // 2026-10-21：收到推送立刻重拉，不再先等 2 秒。
     expect(repository.requests, hasLength(2));
+    expect(find.text('推送后云端新告警说明'), findsOneWidget);
+    // 云端落库可能比推送晚，2 秒后再补拉一次。
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(repository.requests, hasLength(3));
     expect(find.text('推送后云端新告警说明'), findsOneWidget);
     await tester.tap(find.byKey(const Key('mower-messages-tab-0')));
     await tester.pumpAndSettle();

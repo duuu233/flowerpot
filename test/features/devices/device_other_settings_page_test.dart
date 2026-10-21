@@ -389,32 +389,11 @@ void main() {
       ),
     );
     await tester.pump();
-    // 2026-09-18 用户：涂鸦常常从 9x 直接跳进安装中，98% 一闪而过甚至根本没露面，
-    // 看着就是「92% 之后忽然换了一句话」。所以收到 98 的**第一拍先把 98% 亮出来**，
-    // 仍然是「固件升级中」的样子：有数字、进度条是确定值。
-    expect(
-      tester.widget<Text>(find.byKey(const Key('ota-progress-title'))).data,
-      '固件升级中',
-    );
-    expect(
-      tester.widget<Text>(find.byKey(const Key('ota-progress-percent'))).data,
-      '98%',
-    );
-    expect(
-      tester
-          .widget<LinearProgressIndicator>(
-            find.byKey(const Key('ota-progress-bar')),
-          )
-          .value,
-      0.98,
-    );
-
-    // 亮够一拍（0.9s）之后才换成安装中。以下这组断言是 2026-09-17 产品定的口径，
-    // 一个字没改，只是挪到了这一拍之后：98% 之后涂鸦要停一大段等设备写固件、重启，
-    // 停在「98%」像卡死了，所以换成「固件准备中」那套不定进度动效 + 文案「固件安装中」、不写数字。
+    // 2026-10-21 用户「读取到的数据不做任何缓存、延时」：收到 98 的那一帧就按模型阶段
+    // 显示安装中，不再先停 0.9 秒「98% 亮相」。98% 之后涂鸦要停一大段等设备写固件、重启
+    // （2026-09-17 产品口径），所以是不定进度动效 + 文案「固件安装中」、不写数字。
     // 按 key 取弹层里那几个控件，不用 find.text：这一句「固件安装中」和「其他设置」
     // 功能行上那句是同一个字符串（`otaRunningLabel` 两处共用），findsOneWidget 会打架。
-    await tester.pump(const Duration(milliseconds: 900));
     expect(
       tester.widget<Text>(find.byKey(const Key('ota-progress-title'))).data,
       '固件安装中',
@@ -525,9 +504,8 @@ void main() {
         percent: 98,
       ),
     );
-    // 安装中是循环动画，不能 pumpAndSettle；多推一秒让「98% 先亮一拍」的计时器走完。
+    // 安装中是循环动画，不能 pumpAndSettle；收到 98 当帧就是安装中，不再等计时器。
     await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
     expect(
       tester.widget<Text>(find.byKey(const Key('ota-progress-title'))).data,
       '固件安装中',

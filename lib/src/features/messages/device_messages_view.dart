@@ -115,6 +115,9 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
   StreamSubscription<Map<String, Object?>>? _pushSub;
   Timer? _pushReload;
 
+  /// 每次 [_reload] 的序号：并发的几次查询只让最后发起的那次落到页面上。
+  int _reloadGeneration = 0;
+
   @override
   void initState() {
     super.initState();
@@ -123,12 +126,15 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
       final state = FlowerpotScope.of(context);
       if (widget.logsEntry) state.logPageEntry(widget.pageName);
       unawaited(_reload());
-      // 页面开着时收涂鸦实时推送：来一条就重拉（等 2 秒，消息中心落库比推送晚一点）。
+      // 页面开着时收涂鸦实时推送：来一条就立刻重拉；消息中心落库可能比推送晚一点，
+      // 2 秒后再补拉一次（2026-10-21 用户「不做任何延时」：不再先干等 2 秒）。
       // SDK 的监听整个进程只注册一次，重复进页面不会重复注册（见 FlowerpotState.startPushListen）；
       // 设备告警（warn56）的监听随设备 DP 监听一起挂在原生侧（MainActivity.registerWarnListener）。
       unawaited(state.startPushListen());
       _pushSub = state.pushMessages.listen((event) {
+        if (!mounted) return;
         if (!widget.groupByTitle) _rememberWarn(event);
+        unawaited(_reload());
         _pushReload?.cancel();
         _pushReload = Timer(const Duration(seconds: 2), () {
           if (mounted) unawaited(_reload());
@@ -173,9 +179,10 @@ class _DeviceMessagesViewState extends State<DeviceMessagesView> {
     final state = FlowerpotScope.of(context);
     final deviceId = widget.deviceId;
     if (deviceId == null) return;
+    final generation = ++_reloadGeneration;
     setState(() => _loading = true);
     final messages = await state.loadAllDeviceMessages(deviceId: deviceId);
-    if (!mounted) return;
+    if (!mounted || generation != _reloadGeneration) return;
     final buckets = <List<_Entry>>[<_Entry>[], <_Entry>[], <_Entry>[]];
     final notes = <String>[];
     var unknown = 0;

@@ -1,5 +1,7 @@
 # 项目文档导航
 
+- [2026-10-21 读取数据不缓存、不延时（简明说明）](reports/2026-10-21-读取数据不缓存不延时.md)：消息推送立即拉+2秒补拉、OTA弹层去掉98%停留、植物资料/纪念日/基础数据每次现拉，写入回显保护保留；实施记录见 [history](history/2026-10/2026-10-21-read-data-no-cache-second-pass.md)，未运行测试、未真机。
+
 - [2026-10-21 OTA结果误报与SDK值实时读取（简明说明）](reports/2026-10-21-OTA结果与SDK实时读取.md)：有进度后SDK报错先核验、现读SDK设备版本、入口/提醒/清单去缓存；实施记录见 [history](history/2026-10/2026-10-21-ota-verification-sdk-freshness.md)，未真机、未运行测试。
 
 - [2026-10-21 Android 构建缓存清理](history/2026-10/2026-10-21-android-build-cache-cleanup.md)：仅清可再生中间目录、保留安装包与映射符号，释放约 1.18 GiB。

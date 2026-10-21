@@ -37,7 +37,7 @@ class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
       state.refreshUserInfo();
       // 意见反馈那一行的邮箱来自后台「系统设置」里配的平台邮箱。**每次进页面都重拉**
       // （2026-09-21）：基础数据原来一次会话只拉一次，后台改了邮箱要重启 App 才看得到。
-      state.loadBasicData(refresh: true);
+      state.loadBasicData();
     });
   }
 
@@ -47,7 +47,7 @@ class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
     final state = FlowerpotScope.of(context);
     await Future.wait<void>(<Future<void>>[
       state.refreshUserInfo(),
-      state.loadBasicData(refresh: true),
+      state.loadBasicData(),
     ]);
   }
 

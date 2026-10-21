@@ -5,10 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/mock_tuya_repository.dart';
 
-/// 后台基础数据（2026-09-21 产品：「我的」页意见反馈要读后台配置的邮箱）：
-/// 默认拉到一次就复用；「我的」页进来带 `refresh: true`，后台改了邮箱不用重启 App。
+/// 后台基础数据（2026-09-21 产品：「我的」页意见反馈要读后台配置的邮箱）。
+/// 2026-10-21 用户「读取到的数据不做任何缓存」：每次调用都现拉，不再复用上一次的结果。
 void main() {
-  test('默认复用已拉到的那份；refresh 重新拉，平台邮箱跟着后台变', () async {
+  test('每次调用都现拉，平台邮箱跟着后台变', () async {
     final backend = _BasicDataBackend(<String>['a@b.test', 'new@b.test']);
     final state = FlowerpotState(
       repository: MockTuyaRepository(latency: Duration.zero),
@@ -17,16 +17,15 @@ void main() {
     addTearDown(state.dispose);
 
     await state.loadBasicData();
-    await state.loadBasicData();
     expect(backend.calls, 1);
     expect(state.basicData.platformEmail, 'a@b.test');
 
-    await state.loadBasicData(refresh: true);
+    await state.loadBasicData();
     expect(backend.calls, 2);
     expect(state.basicData.platformEmail, 'new@b.test');
   });
 
-  test('refresh 拉失败时保留旧的那份，邮箱不会被清掉', () async {
+  test('拉失败时保留上一次拉到的那份，邮箱不会被清掉', () async {
     final backend = _BasicDataBackend(<String>['a@b.test']);
     final state = FlowerpotState(
       repository: MockTuyaRepository(latency: Duration.zero),
@@ -36,7 +35,7 @@ void main() {
 
     await state.loadBasicData();
     backend.fails = true;
-    await state.loadBasicData(refresh: true);
+    await state.loadBasicData();
 
     expect(backend.calls, 2);
     expect(state.basicData.platformEmail, 'a@b.test');

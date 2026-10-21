@@ -137,10 +137,6 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, PlantProfile> _knownPlantsByIdentifier =
       <String, PlantProfile>{};
 
-  /// 拉过植物目录仍然对不上的 DP 116 标识符。设备每次上报都会走一遍解析，没有
-  /// 这份记录就会为同一个对不上的标识符反复打接口。
-  final Set<String> _unresolvedPlantIdentifiers = <String>{};
-
   /// Live device reports. See [_applyDeviceUpdate].
   StreamSubscription<DeviceUpdate>? _deviceUpdates;
   final Map<String, Map<int, int>> _dpReportRevisions = {};
@@ -732,7 +728,7 @@ class FlowerpotState extends ChangeNotifier {
         productPlantId: productPlantId,
         tuyaRemark: tuyaRemark,
       );
-      // 详情里也带涂鸦标识，顺手并进目录：下次按 DP 116 匹配就不用再拉一次。
+      // 详情里也带涂鸦标识，顺手并进目录：DP 116 按这次拉到的资料匹配。
       _rememberPlants(<PlantProfile>[plant]);
       return plant;
     } catch (_) {
@@ -883,8 +879,8 @@ class FlowerpotState extends ChangeNotifier {
     // 时整行不画），换来的是这一页上没有任何一项来自上一轮。设备自己扫到的 Wi-Fi 列表
     // （[_deviceWifiNetworks]）属于上一轮点过的那台，一并清掉。
     _bleOwner = owner;
-    // 后台配的产品 ID（`deviceIdList`）是 [_isOurProduct] 的第三个来源，顺手拉一次；
-    // 已经拉过就是空操作，失败不影响扫描（花盆、割草机的产品 ID 另有常量兜着）。
+    // 后台配的产品 ID（`deviceIdList`）是 [_isOurProduct] 的第三个来源，每轮扫描现拉
+    // 一次；失败不影响扫描（花盆、割草机的产品 ID 另有常量兜着）。
     unawaited(loadBasicData());
     _stopBleSweep();
     if (_bleScanning) {
@@ -2458,35 +2454,32 @@ class FlowerpotState extends ChangeNotifier {
   });
 
   /// 按 DP 116 的标识符补齐这台设备的植物静态内容（图片、别名、引导文案、环境
-  /// 需求），详情页进来时调用。
+  /// 需求）。详情页进来、设备换报 116、要弹引导窗时调用。
   ///
-  /// 走的仍然是主流程唯一那个后端调用 `getProductPlantList`；标识符已经在目录缓存
-  /// 里时不再打接口。拉不到就保留已获取的真实资料或空态，不打断详情页——光照、需水那些 DP
+  /// 走的仍然是主流程唯一那个后端调用 `getProductPlantList`。2026-10-21 用户「读取到的
+  /// 数据不做任何缓存」：每次调用都现拉，不再因为目录里已有这个标识符、或上次没对上就
+  /// 跳过。拉不到就保留页面上已有的资料或空态，不打断详情页——光照、需水那些 DP
   /// 业务数据来自设备上报，与这次请求无关。
   Future<void> ensurePlantProfile(String deviceId) async {
     final identifier = deviceById(deviceId)?.plantVariety.trim() ?? '';
     // -1 是「盆里没有植物」，不是一个查不到的标识符，不用去后端找。
     if (identifier.isEmpty || PlantVariety.isMissing(identifier)) return;
-    final normalized = _plantKey(identifier);
-    // 拉过一次目录仍然对不上的标识符不再反复拉：设备每次上报都会走到这里。
-    if (_unresolvedPlantIdentifiers.contains(normalized)) return;
-    final cached = _knownPlantsByIdentifier.containsKey(normalized);
-    if (_backend.enabled && !cached) {
+    if (_backend.enabled) {
       try {
         await loadPlantCatalog();
       } catch (_) {
-        // 后端不可用时保留本地目录兜底，详情页照常显示设备上报的数据。
+        // 后端不可用时不改页面，详情页照常显示设备上报的数据。
         return;
       }
     }
-    final plant = _plantForIdentifier(identifier);
-    if (plant == null) {
-      _unresolvedPlantIdentifiers.add(normalized);
-      return;
-    }
+    // 等接口期间设备可能已经换报了别的 116，按当前值解析。
+    final current = deviceById(deviceId)?.plantVariety.trim() ?? '';
+    final plant = _plantForIdentifier(current);
+    if (plant == null) return;
     final device = deviceById(deviceId);
+    // 同一株但后台资料（图片、名称）改过，也要换成这次拉到的。
     if (device != null &&
-        device.plant.id == plant.id &&
+        identical(device.plant, plant) &&
         _plantedDevices.contains(deviceId)) {
       return;
     }
@@ -2912,22 +2905,23 @@ class FlowerpotState extends ChangeNotifier {
   /// 时，纪念日、设备改名这些会退回接后端之前的行为，而不是直接报错。
   bool get _backendReady => _backend.enabled && _backend.hasSession;
 
+  /// 接了 APP 后端时，纪念日自定义条目以后端为准：页面要等本次拉取结果再显示。
+  bool get memorialsFromBackend => _backendReady;
+
   /// 拉一次这台设备的纪念日列表。纪念日页进来时调用。
   ///
   /// 接上后端之前这份清单只存在 [SharedPreferences] 里，换台手机就全丢、设备上
-  /// 会留下没人能命名和删除的孤儿条目；现在本地那份退化成缓存。
+  /// 会留下没人能命名和删除的孤儿条目；现在以后端为准。2026-10-21 用户「读取到的
+  /// 数据不做任何缓存」：拉不到就把错误交给页面显示失败和重试，不再拿本机存的旧列表
+  /// 顶替。没接后端时是空操作，页面沿用本机清单。
   Future<void> refreshMemorials(String deviceId) async {
     if (!_backendReady) return;
-    try {
-      final rows = await _backend.getAnniversaries(deviceId);
-      _memorials[deviceId] = rows
-          .map(_memorialFromBackend)
-          .toList(growable: true);
-      await _persistMemorials();
-      notifyListeners();
-    } catch (_) {
-      // 拉不到就继续显示本地缓存那份，不把页面变成错误页。
-    }
+    final rows = await _backend.getAnniversaries(deviceId);
+    _memorials[deviceId] = rows
+        .map(_memorialFromBackend)
+        .toList(growable: true);
+    await _persistMemorials();
+    notifyListeners();
   }
 
   /// 把一条自定义纪念日写进后端，返回换上后端 id、图片换成 URL 之后的条目。
@@ -3848,15 +3842,15 @@ class FlowerpotState extends ChangeNotifier {
     return _appVersion;
   }
 
-  /// 后台配的基础数据（用户协议、隐私政策、关于我们、平台邮箱、设备 ID 集合），默认拉到一次就复用。
+  /// 后台配的基础数据（用户协议、隐私政策、关于我们、平台邮箱、设备 ID 集合）。
   BackendBasicData _basicData = BackendBasicData.empty;
   BackendBasicData get basicData => _basicData;
 
-  /// [refresh] 为 true 时不看缓存、重新拉：「我的」页每次进来都这样拉，后台改了平台邮箱
-  /// 不用重启 App 就能看到（2026-09-21）。拉失败保留旧的那份。
-  Future<BackendBasicData> loadBasicData({bool refresh = false}) async {
+  /// 每次调用都重新拉（2026-10-21 用户「读取到的数据不做任何缓存」，原先默认拉到一次就
+  /// 复用，只有「我的」页强制重拉）：协议页、「我的」页进来和开始扫描时都现拉。拉失败
+  /// 保留本次登录上一次拉到的那份，页面不变空。
+  Future<BackendBasicData> loadBasicData() async {
     if (!_backend.enabled || !_backend.hasSession) return _basicData;
-    if (!refresh && !_basicData.isEmpty) return _basicData;
     try {
       _basicData = await _backend.getBasicData();
       notifyListeners();
@@ -4484,17 +4478,34 @@ class FlowerpotState extends ChangeNotifier {
       _plantedDevices.add(device.id);
     }
     _devices[index] = device.copyWith(
-      plant: reportedPlant ?? _plantOverrides[device.id],
+      plant: reportedPlant ?? _localPlantFor(device),
     );
     _confirmOtaFromDeviceReport(update);
     notifyListeners();
     // 设备换到了一株 App 目录里还没有的植物——用户在引导窗里点「确认」、或者换了
     // NFC 芯片之后设备重新上报 116 就是这条路径。补拉一次目录再解析，成功了由
     // ensurePlantProfile 自己刷新界面。必须放在上面这次替换之后：它读的是设备
-    // 当前的 116。
-    if (reportedPlant == null && device.plantVariety.trim().isNotEmpty) {
+    // 当前的 116。只在这条报文带了 116（或整台设备信息）时拉：其它 DP 上报与植物
+    // 无关，不为它们反复打接口。
+    final plantDp = TuyaConfig.dp['plant_variety'];
+    if (reportedPlant == null &&
+        device.plantVariety.trim().isNotEmpty &&
+        (update.changedDps.isEmpty || update.changedDps.contains(plantDp))) {
       unawaited(ensurePlantProfile(device.id));
     }
+  }
+
+  /// 本机选过的植物，只在它和设备当前 DP 116 是同一株时拿来显示。设备已经换报另一株
+  /// （目录里还对不上）时显示「植物资料暂未获取」，不拿上一株顶替；设备还没报过 116
+  /// 时沿用本机选择。
+  PlantProfile? _localPlantFor(SmartPlanterDevice device) {
+    final local = _plantOverrides[device.id];
+    if (local == null) return null;
+    final reported = _plantKey(device.plantVariety);
+    if (reported.isEmpty || reported == _plantKey(local.tuyaIdentifier)) {
+      return local;
+    }
+    return null;
   }
 
   @override
@@ -4932,7 +4943,7 @@ class FlowerpotState extends ChangeNotifier {
 
   SmartPlanterDevice _withLocalOverrides(SmartPlanterDevice device) {
     final plant =
-        _plantForIdentifier(device.plantVariety) ?? _plantOverrides[device.id];
+        _plantForIdentifier(device.plantVariety) ?? _localPlantFor(device);
     final settings = _settingsOverrides[device.id];
     if (plant != null) {
       _plantOverrides[device.id] = plant;
@@ -5059,7 +5070,6 @@ class FlowerpotState extends ChangeNotifier {
     _backendDevices.clear();
     _backendAnimations.clear();
     _knownPlantsByIdentifier.clear();
-    _unresolvedPlantIdentifiers.clear();
     _animations.clear();
     // `_memorials` deliberately survives a logout. It is the only record of
     // which DP 154 ids exist on a device — the device never reports the set

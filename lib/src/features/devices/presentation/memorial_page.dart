@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
@@ -27,6 +29,11 @@ class _MemorialPageState extends State<MemorialPage>
     with NetworkRetryAware<MemorialPage> {
   bool _requested = false;
 
+  /// 接了后端时本次进页面的拉取状态：还没拉到显示加载中，失败显示重试，不拿本机存的
+  /// 旧列表顶替（2026-10-21 用户「读取到的数据不做任何缓存」）。
+  bool _loading = false;
+  bool _loadFailed = false;
+
   String get deviceId => widget.deviceId;
 
   @override
@@ -35,13 +42,35 @@ class _MemorialPageState extends State<MemorialPage>
     if (_requested) return;
     _requested = true;
     // 自定义条目以后端为准（`/Client/UserProduct/getProductAnniversaryList`），
-    // 进页面拉一次。没接后端时这是个空操作，页面继续显示本地那份清单。
-    FlowerpotScope.of(context).refreshMemorials(deviceId);
+    // 进页面拉一次。没接后端时不拉，页面继续显示本地那份清单。
+    _loading = FlowerpotScope.of(context).memorialsFromBackend;
+    unawaited(_load());
   }
 
   @override
-  Future<void> reloadForNetworkRetry() =>
-      FlowerpotScope.of(context).refreshMemorials(deviceId);
+  Future<void> reloadForNetworkRetry() => _load();
+
+  Future<void> _load() async {
+    final state = FlowerpotScope.of(context);
+    if (!state.memorialsFromBackend) return;
+    if (!_loading || _loadFailed) {
+      setState(() {
+        _loading = true;
+        _loadFailed = false;
+      });
+    }
+    var failed = false;
+    try {
+      await state.refreshMemorials(deviceId);
+    } catch (_) {
+      failed = true;
+    }
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _loadFailed = failed;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +80,19 @@ class _MemorialPageState extends State<MemorialPage>
       return AppPageScaffold(
         appBar: const AppPageHeader(title: '纪念日', leading: AppBackButton()),
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
+      );
+    }
+    if (_loading || _loadFailed) {
+      return AppPageScaffold(
+        appBar: const AppPageHeader(title: '纪念日', leading: AppBackButton()),
+        background: AppPageBackground.standard,
+        body: AppLoadStateView(
+          key: const Key('memorial-load-state'),
+          state: _loading ? AppLoadState.loading : AppLoadState.error,
+          content: const SizedBox.shrink(),
+          errorMessage: '纪念日加载失败，请检查网络后重试',
+          onRetry: () => unawaited(_load()),
+        ),
       );
     }
     final entries = state.memorialsFor(deviceId);

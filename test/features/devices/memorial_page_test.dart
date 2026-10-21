@@ -278,6 +278,46 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('接了后端时拉取失败显示重试，不拿上次拉到的旧列表顶替', (tester) async {
+    // 2026-10-21 用户「读取到的数据不做任何缓存」。
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final backend = _AnniversaryBackend()..rows = [_anniversary('旧的纪念日')];
+    final state = FlowerpotState(
+      repository: _MemorialRepository(),
+      backendRepository: backend,
+    );
+    addTearDown(state.dispose);
+    await state.refreshDevices();
+    await state.refreshMemorials('device-01');
+    expect(state.customMemorialsFor('device-01').single.title, '旧的纪念日');
+
+    backend.fail = true;
+    await tester.pumpWidget(
+      FlowerpotScope(
+        state: state,
+        child: MaterialApp(
+          theme: buildAppTheme(),
+          home: const MemorialPage(deviceId: 'device-01'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('纪念日加载失败，请检查网络后重试'), findsOneWidget);
+    expect(find.text('旧的纪念日'), findsNothing);
+    expect(find.byKey(const Key('memorial-add')), findsNothing);
+
+    backend
+      ..fail = false
+      ..rows = [_anniversary('新的纪念日')];
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.text('新的纪念日'), findsOneWidget);
+    expect(find.text('旧的纪念日'), findsNothing);
+    expect(backend.requests, 3);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('saving the birthday writes eight ASCII bytes to DP 158', (
     tester,
   ) async {
@@ -585,4 +625,32 @@ HttpAppBackendRepository _memorialBackend(
       }),
     ),
   );
+}
+
+BackendAnniversary _anniversary(String title) => BackendAnniversary(
+  anniversaryId: 7,
+  deviceId: 'device-01',
+  title: title,
+  content: '祝福',
+  imageContent: false,
+  date: DateTime(2026, 5, 20),
+);
+
+class _AnniversaryBackend extends DisabledAppBackendRepository {
+  bool fail = false;
+  int requests = 0;
+  List<BackendAnniversary> rows = const <BackendAnniversary>[];
+
+  @override
+  bool get enabled => true;
+
+  @override
+  bool get hasSession => true;
+
+  @override
+  Future<List<BackendAnniversary>> getAnniversaries(String deviceId) async {
+    requests++;
+    if (fail) throw const ApiException('NETWORK_ERROR', '网络异常');
+    return rows;
+  }
 }

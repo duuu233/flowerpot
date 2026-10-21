@@ -4,6 +4,7 @@ import 'support/mock_tuya_repository.dart';
 import 'package:flowerpot/src/core/backend/backend.dart';
 import 'package:flowerpot/src/core/network/network.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/tuya_config.dart';
 import 'package:flowerpot/src/tuya/tuya_gallery_codec.dart';
 import 'package:flowerpot/src/tuya/tuya_memorial_codec.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
@@ -281,6 +282,61 @@ void main() {
     expect(state.deviceById(device.id)?.plant.id, 'pothos');
     expect(state.hasPlant(device.id), isTrue);
   });
+
+  test('植物资料每次现拉；设备换报目录里没有的 116 时不拿上一株顶替', () async {
+    // 2026-10-21 用户「读取到的数据不做任何缓存」。
+    final tuya = MockTuyaRepository(latency: Duration.zero);
+    final backend = _CountingPlantBackend();
+    final state = FlowerpotState(repository: tuya, backendRepository: backend);
+    addTearDown(state.dispose);
+    await state.initialize();
+    await state.login(
+      account: 'demo@example.test',
+      credential: 'demo',
+      region: LoginRegion.overseas,
+      verificationCode: false,
+    );
+    final device = state.devices.single;
+    tuya.pushDeviceUpdate(
+      DeviceUpdate.changed(device.copyWith(plantVariety: 'pothos')),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(state.deviceById(device.id)?.plant.id, 'pothos');
+
+    final before = backend.plantRequests;
+    await state.ensurePlantProfile(device.id);
+    await state.ensurePlantProfile(device.id);
+    expect(backend.plantRequests, before + 2, reason: '目录里已有这株也每次现拉');
+
+    final plantDp = TuyaConfig.dp['plant_variety']!;
+    final unknown = device.copyWith(
+      plantVariety: 'not-in-catalog',
+      plant: PlantProfile.unavailable,
+    );
+    tuya.pushDeviceUpdate(
+      DeviceUpdate.changed(unknown, changedDps: <int>{plantDp}),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(state.deviceById(device.id)?.plant.id, PlantProfile.unavailable.id);
+    expect(state.hasPlant(device.id), isTrue);
+    final afterUnknown = backend.plantRequests;
+    expect(afterUnknown, before + 3, reason: '换报 116 时现拉一次');
+
+    // 与植物无关的 DP 上报不为它打接口；之后再换报 116 仍会再拉，不记「查不到」。
+    tuya.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        unknown,
+        changedDps: <int>{TuyaConfig.dp['water_level']!},
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(backend.plantRequests, afterUnknown);
+    tuya.pushDeviceUpdate(
+      DeviceUpdate.changed(unknown, changedDps: <int>{plantDp}),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(backend.plantRequests, afterUnknown + 1);
+  });
 }
 
 const _serverPlant = PlantProfile(
@@ -480,4 +536,14 @@ class _DelayedProfileBackend extends _AuthBackend {
   final profile = Completer<BackendUserInfo>();
   @override
   Future<BackendUserInfo> getUserInfo() => profile.future;
+}
+
+class _CountingPlantBackend extends FixtureBackend {
+  int plantRequests = 0;
+
+  @override
+  Future<List<PlantProfile>> getProductPlants({String keyword = ''}) {
+    plantRequests++;
+    return super.getProductPlants(keyword: keyword);
+  }
 }

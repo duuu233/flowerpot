@@ -31,7 +31,7 @@
 ## 数据来源
 
 - 意见反馈的邮箱 = `/Client/Basic/getBasicData` 返回的 `platformEmail`（swagger `BasicDataApiOut`「平台邮箱」，后台「系统设置」里配），经 `BackendBasicData.platformEmail` 读取。2026-09-21 以前只认 `serviceEmail` / `contactEmail` / `email` 等猜的键名，接口字段对不上，这一行一直是空的。
-- 进页面（以及「网络异常」弹窗点重试）调 `loadBasicData(refresh: true)`，**每次都重拉**：后台改了邮箱不用重启 App；拉失败保留旧值。其他页面（协议、搜索页）仍用 `loadBasicData()` 复用已拉到的那份。
+- 进页面（以及「网络异常」弹窗点重试）调 `loadBasicData()`，**每次都重拉**：后台改了邮箱不用重启 App；拉失败保留旧值。2026-10-21 起协议页、搜索页同样每次现拉，不再复用已拉到的那份（PRODUCT_RULES §4.26）。
 
 ## 图片占位
 
