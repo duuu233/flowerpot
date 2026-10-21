@@ -1,12 +1,13 @@
 # 项目文档导航
 
+- [2026-10-21 显示页亮度回跳与开关闪动](history/2026-10/2026-10-21-display-brightness-echo-stability.md)：松手后的有限回显保护、开关独立忙态及切换有序下发；18项显示回归通过，未真机。
+
 - [2026-10-20 花盆APP今日改动说明](reports/2026-10-20-flowerpot-app-daily-brief.md)：面向设备方及领导的一页简报，覆盖当日屏幕、设备状态、OTA及纪念日改动和联合验收事项。
 
 - [2026-10-20 满电OTA与纪念日单选保存](history/2026-10/2026-10-20-mower-full-ota-memorial-radio.md)：充电中或已充满允许OTA提醒/升级，纪念日单选与保存后清除未选中草稿，双尺寸重进验证及既有基线边界。
 
 - [2026-10-20 OTA分段计时与对外说明](history/2026-10/2026-10-20-ota-timing-and-external-brief.md)：调试计时不改变升级节奏；一页PDF说明已完成项、设备配合和真实耗时验收。
 
-- [设备方与项目负责人用一页说明](reports/2026-10-20-ota-optimization-brief.pdf)：覆盖亮度、DP同步、OTA结果修复和分段联调。
 
 
 - [2026-10-20 OTA安装结果核验](history/2026-10/2026-10-20-ota-installation-result-confirmation.md)：安装阶段SDK错误先等待版本，迟到DP可完成；2分钟只提示结果未确认，明确拒绝仍失败。

@@ -142,6 +142,266 @@ void main() {
     },
   );
 
+  testWidgets('brightness sends keep the auto switch visually enabled', (
+    tester,
+  ) async {
+    final result = await _pumpManualDisplay(tester);
+    final gate = Completer<void>();
+    result.repository.publishGate = gate.future;
+    Slider slider() => tester.widget<Slider>(
+      find.byKey(const Key('manual-brightness-slider')),
+    );
+    Switch autoSwitch() =>
+        tester.widget<Switch>(find.byKey(const Key('auto-brightness-switch')));
+    slider().onChanged!(60);
+    await tester.pump();
+    expect(autoSwitch().onChanged, isNotNull);
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(autoSwitch().onChanged, isNotNull);
+    slider().onChangeEnd!(60);
+    await tester.pump();
+    expect(autoSwitch().onChanged, isNotNull);
+    result.repository.publishGate = null;
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(autoSwitch().onChanged, isNotNull);
+    expect(autoSwitch().value, isFalse);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('late intermediate echoes do not pull the released thumb back', (
+    tester,
+  ) async {
+    final result = await _pumpManualDisplay(tester);
+    Slider slider() => tester.widget<Slider>(
+      find.byKey(const Key('manual-brightness-slider')),
+    );
+    slider().onChanged!(70);
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump();
+    slider().onChanged!(40);
+    slider().onChangeEnd!(40);
+    await tester.pump();
+    _reportBrightness(result.repository, 70);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(slider().value, 40);
+    expect(find.text('40%'), findsOneWidget);
+    expect(result.state.deviceById('device-01')!.settings.manualBrightness, 70);
+    _reportBrightness(result.repository, 40);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(slider().value, 40);
+    _reportBrightness(result.repository, 25);
+    await tester.pump();
+    await tester.pump();
+    expect(slider().value, 25);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'old echo during SDK completion retains draft until bounded timeout',
+    (tester) async {
+      final result = await _pumpManualDisplay(tester);
+      final gate = Completer<void>();
+      result.repository.publishGate = gate.future;
+      Slider slider() => tester.widget<Slider>(
+        find.byKey(const Key('manual-brightness-slider')),
+      );
+      slider().onChanged!(40);
+      slider().onChangeEnd!(40);
+      await tester.pump();
+      _reportBrightness(result.repository, 70);
+      await tester.pump();
+      gate.complete();
+      await tester.pump();
+      expect(slider().value, 40);
+      await tester.pump(const Duration(seconds: 1));
+      expect(slider().value, 40);
+      await tester.pump(const Duration(seconds: 5));
+      expect(slider().value, 70);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'auto toggle cancels queued dimming and waits for the active write',
+    (tester) async {
+      final result = await _pumpManualDisplay(tester);
+      result.repository.sentDps.clear();
+      final gate = Completer<void>();
+      result.repository.publishGate = gate.future;
+      Slider slider() => tester.widget<Slider>(
+        find.byKey(const Key('manual-brightness-slider')),
+      );
+      slider().onChanged!(70);
+      await tester.pump(const Duration(milliseconds: 120));
+      slider().onChanged!(0);
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('auto-brightness-switch')));
+      await tester.pump();
+      expect(slider().onChanged, isNull);
+      expect(result.repository.sentDps, <Map<int, Object>>[
+        {168: 70},
+      ]);
+      result.repository.publishGate = null;
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(result.repository.sentDps, <Map<int, Object>>[
+        {168: 70},
+        {117: true},
+      ]);
+      expect(
+        result.state.deviceById('device-01')!.settings.autoBrightness,
+        isTrue,
+      );
+      expect(find.text('请等待当前操作完成'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('failed final brightness send restores the device value', (
+    tester,
+  ) async {
+    final result = await _pumpManualDisplay(tester);
+    result.repository.brightnessFailure = StateError('brightness rejected');
+    Slider slider() => tester.widget<Slider>(
+      find.byKey(const Key('manual-brightness-slider')),
+    );
+    slider().onChanged!(40);
+    slider().onChangeEnd!(40);
+    await tester.pumpAndSettle();
+    expect(slider().value, 100);
+    expect(slider().onChanged, isNotNull);
+    expect(
+      tester
+          .widget<Switch>(find.byKey(const Key('auto-brightness-switch')))
+          .onChanged,
+      isNotNull,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'real slider gesture keeps its percentage through delayed reports',
+    (tester) async {
+      final result = await _pumpManualDisplay(tester);
+      final sliderFinder = find.byKey(const Key('manual-brightness-slider'));
+      final rect = tester.getRect(sliderFinder);
+      final gesture = await tester.startGesture(
+        Offset(rect.right - 24, rect.center.dy),
+      );
+      await gesture.moveTo(Offset(rect.center.dx, rect.center.dy));
+      await tester.pump(const Duration(milliseconds: 120));
+      Slider slider() => tester.widget<Slider>(sliderFinder);
+      final selected = slider().value;
+      expect(selected, inInclusiveRange(40, 60));
+      _reportBrightness(result.repository, 100);
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      _reportBrightness(result.repository, 100);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(slider().value, selected);
+      expect(
+        tester
+            .widget<Switch>(find.byKey(const Key('auto-brightness-switch')))
+            .onChanged,
+        isNotNull,
+      );
+      _reportBrightness(result.repository, selected.round());
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('new gesture cancels the previous confirmation deadline', (
+    tester,
+  ) async {
+    final result = await _pumpManualDisplay(tester);
+    final gate = Completer<void>();
+    result.repository.publishGate = gate.future;
+    Slider slider() => tester.widget<Slider>(
+      find.byKey(const Key('manual-brightness-slider')),
+    );
+    slider().onChanged!(40);
+    slider().onChangeEnd!(40);
+    await tester.pump();
+    _reportBrightness(result.repository, 70);
+    await tester.pump();
+    result.repository.publishGate = null;
+    gate.complete();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 4));
+    slider().onChanged!(20);
+    await tester.pump(const Duration(seconds: 2));
+    expect(slider().value, 20);
+    slider().onChangeEnd!(20);
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'offline report cancels queued values and confirmation while sending',
+    (tester) async {
+      final result = await _pumpManualDisplay(tester);
+      result.repository.sentDps.clear();
+      final gate = Completer<void>();
+      result.repository.publishGate = gate.future;
+      Slider slider() => tester.widget<Slider>(
+        find.byKey(const Key('manual-brightness-slider')),
+      );
+      slider().onChanged!(70);
+      await tester.pump(const Duration(milliseconds: 120));
+      slider().onChanged!(0);
+      slider().onChangeEnd!(0);
+      result.repository.pushDeviceUpdate(
+        DeviceUpdate.changed(
+          _device.copyWith(
+            online: false,
+            settings: const DeviceControlSettings(
+              autoBrightness: false,
+              manualBrightness: 70,
+            ),
+          ),
+          changedDps: {168},
+          reportedDps: {168: 70},
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      result.repository.publishGate = null;
+      gate.complete();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 6));
+      expect(slider().value, 70);
+      expect(result.repository.sentDps, <Map<int, Object>>[
+        {168: 70},
+      ]);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'leaving display cancels confirmation timers after a successful send',
+    (tester) async {
+      final result = await _pumpManualDisplay(tester);
+      final slider = tester.widget<Slider>(
+        find.byKey(const Key('manual-brightness-slider')),
+      );
+      slider.onChanged!(40);
+      slider.onChangeEnd!(40);
+      await tester.pump();
+      final count = result.repository.sentDps.length;
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 6));
+      expect(result.repository.sentDps.length, count);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('leaving display cancels queued brightness writes', (
     tester,
   ) async {
@@ -292,6 +552,30 @@ _pumpDisplaySettings(WidgetTester tester, Size size) async {
   return (state: state, repository: repository);
 }
 
+Future<({FlowerpotState state, _DisplaySettingsRepository repository})>
+_pumpManualDisplay(WidgetTester tester) async {
+  final result = await _pumpDisplaySettings(tester, const Size(375, 812));
+  await result.state.initialize();
+  _reportBrightness(result.repository, 100);
+  await tester.pumpAndSettle();
+  return result;
+}
+
+void _reportBrightness(_DisplaySettingsRepository repository, int value) {
+  repository.pushDeviceUpdate(
+    DeviceUpdate.changed(
+      _device.copyWith(
+        settings: DeviceControlSettings(
+          autoBrightness: false,
+          manualBrightness: value,
+        ),
+      ),
+      changedDps: {117, 168},
+      reportedDps: {117: false, 168: value},
+    ),
+  );
+}
+
 SmartPlanterDevice get _device => SmartPlanterDevice(
   id: 'device-01',
   productId: 'product-01',
@@ -323,6 +607,7 @@ class _DisplaySettingsRepository extends MockTuyaRepository {
   Map<int, Object>? lastDps;
   final sentDps = <Map<int, Object>>[];
   Future<void>? publishGate;
+  Object? brightnessFailure;
 
   @override
   Future<List<SmartPlanterDevice>> getDevices() async =>
@@ -333,5 +618,6 @@ class _DisplaySettingsRepository extends MockTuyaRepository {
     lastDps = dps;
     sentDps.add(Map<int, Object>.of(dps));
     await publishGate;
+    if (brightnessFailure != null) throw brightnessFailure!;
   }
 }
