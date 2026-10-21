@@ -65,3 +65,17 @@ flutter test --no-pub --dart-define=APP_DEBUG_TOOLS=false test/user_build_test.d
 ```
 
 两种参数分别验证调试入口、日志不采集、诊断查询不发起、真实消息和计划保存。用户包是关闭调试功能的正式签名 release 构建，仍需在目标手机上验收登录、设备控制、消息、计划与升级；本次不包括商店上架或其它部署。
+
+## 构建目录清理
+
+核验日期：2026-10-21。Android 根 Gradle 配置把 app 模块构建目录指向项目的 build/app。这里同时存放编译中间文件和最终输出，目录大小不等于 APK 大小。
+
+在没有 flutter run、Flutter/Gradle 打包或相关编译任务运行时，可清理 build/app 下的 intermediates、generated、tmp、kotlin、kotlinToolingMetadata。这些目录由构建工具重建，不改变应用源码、依赖版本、签名和打包参数；首次重新打包需重新编译，耗时会增加，缓存也会再次增长。
+
+保留 build/app/outputs，尤其是 flutter-apk 中的交付 APK、mapping 中的混淆映射，以及 native-debug-symbols 中的原生符号。outputs/apk 与 outputs/flutter-apk 可能保存同一安装包的两份输出；没有另存归档前不要一并删除。
+
+不要为清理构建缓存而删除 android/key.properties、android/local.properties、签名证书、android/app/libs/security-algorithm.aar、平台资源或 SDK 安装目录。清理前核实目标绝对路径位于当前项目 build/app 内，目录不是符号链接或联接点，禁止对项目根目录使用递归删除。
+
+需要保留现有安装包时不要直接执行 flutter clean：本项目完整 clean 的目标包含 build，最终输出也需先另存。日常只清上述中间目录即可，下一次仍使用本文原来的打包命令。
+
+本次实测范围、占用和保留验证见 [构建缓存清理记录](history/2026-10/2026-10-21-android-build-cache-cleanup.md)。

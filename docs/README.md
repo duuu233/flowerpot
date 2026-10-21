@@ -1,5 +1,7 @@
 # 项目文档导航
 
+- [2026-10-21 Android 构建缓存清理](history/2026-10/2026-10-21-android-build-cache-cleanup.md)：仅清可再生中间目录、保留安装包与映射符号，释放约 1.18 GiB。
+
 - [2026-10-21 显示页亮度回跳与开关闪动](history/2026-10/2026-10-21-display-brightness-echo-stability.md)：松手后的有限回显保护、开关独立忙态及切换有序下发；18项显示回归通过，未真机。
 
 - [2026-10-21 纪念日类型回填、割草机实时DP与OTA工单核对](history/2026-10/2026-10-21-memorial-live-dp-ota-review.md)：按接口类型回填及切换清空、双端当前SDK快照与迟到响应保护、OTA现有能力及进一步取证顺序。
