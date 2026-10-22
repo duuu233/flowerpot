@@ -597,7 +597,7 @@ void main() {
     expect(_sentDps(repo), [MowerDp.operatingTime, MowerDp.mode]);
     MowerDevice.instance.resetForTest();
   });
-  // V3.0：电量 <70% 发割草被拒 54 后机器进入在桩等待充电，DP2 在这个状态下无效，停止/继续置灰。
+  // V3.0：电量 <70% 被拒 54 进入在桩等待充电、有雨被拒 35 等待雨停，DP2 在桩等待中无效，停止/继续置灰。
   for (final entry in <(String, Map<int, Object?>)>[
     (
       'DP5=wait_charge',
@@ -612,8 +612,16 @@ void main() {
         MowerDp.mode: 'wait_charge',
       },
     ),
+    (
+      'DP5=wait_rain',
+      {MowerDp.status: 'wait_rain', MowerDp.switchGo: false},
+    ),
+    (
+      'DP3=7',
+      {MowerDp.status: 'mowing', MowerDp.switchGo: true, MowerDp.mode: 7},
+    ),
   ]) {
-    testWidgets('在桩等待充电 ${entry.$1}：停止/继续置灰，点击不发指令', (tester) async {
+    testWidgets('在桩等待 ${entry.$1}：停止/继续置灰，点击不发指令', (tester) async {
       final repo = await _pumpMowerHome(tester, entry.$2);
       expect(
         tester
@@ -628,12 +636,12 @@ void main() {
       MowerDevice.instance.resetForTest();
     });
   }
-  testWidgets('在桩等待雨停不属于充电等待，继续按钮保持原规则', (tester) async {
+  testWidgets('离开在桩等待后停止/继续恢复原规则', (tester) async {
     await _pumpMowerHome(tester, {
-      MowerDp.status: 'wait_rain',
+      MowerDp.status: 'stop',
       MowerDp.switchGo: false,
+      MowerDp.mode: 'smart',
     });
-    expect(find.text('在桩等待雨停'), findsOneWidget);
     expect(
       tester
           .widget<InkWell>(find.byKey(const Key('mower-action-switch')))

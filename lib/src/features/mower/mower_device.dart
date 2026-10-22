@@ -485,17 +485,22 @@ class MowerDevice extends ChangeNotifier {
       _deviceId != null && status != MowerStatus.paused && !shutdown;
 
   /// 待机没有可恢复的工作点，不能通过 DP2 启动新任务。
-  /// 在桩等待充电（DP5=9 或 DP3=6）也置灰：机器小于 70% 电量发割草会被拒 54 并进入这个状态，
-  /// 这时 DP2=true 只是幂等回弹、DP2=false 会被拒 49（V3.0 §2.1），停止/继续都没有效果。
+  /// 在桩等待（充电 / 雨停）也置灰：机器小于 70% 电量发割草会被拒 54 并进入等待充电，有雨被拒 35；
+  /// 等待中 DP2=true 只是幂等回弹、DP2=false 会被拒 49（V3.0 §2.1），停止/继续都没有效果。
+  /// 充电等待 2026-10-22 第一轮置灰，雨停等待同日用户确认一起置灰。
   bool get switchEnabled =>
       _deviceId != null &&
       !shutdown &&
-      !waitingCharge &&
+      !waitingOnDock &&
       (switchGo || status != MowerStatus.standby);
 
-  /// 设备报的是「在桩等待充电」：DP5=wait_charge（9）或 DP3=wait_charge（6），两套枚举任一即算。
-  bool get waitingCharge =>
-      status == MowerStatus.waitCharge || mode == MowerMode.waitCharge;
+  /// 设备报的是「在桩等待」：DP5=wait_charge/wait_rain（9/10）或 DP3=wait_charge/wait_rain（6/7），
+  /// 两套枚举任一即算。
+  bool get waitingOnDock =>
+      status == MowerStatus.waitCharge ||
+      status == MowerStatus.waitRain ||
+      mode == MowerMode.waitCharge ||
+      mode == MowerMode.waitRain;
 
   bool _canWrite(FlowerpotState state) {
     final id = _deviceId;
@@ -532,7 +537,7 @@ class MowerDevice extends ChangeNotifier {
   /// 工作开关（DP2）。[on]=true 启动/继续，false 停止/暂停。
   void setSwitch(FlowerpotState state, {required bool on}) {
     if (!_canWrite(state) ||
-        waitingCharge ||
+        waitingOnDock ||
         (on && status == MowerStatus.standby)) {
       return;
     }
