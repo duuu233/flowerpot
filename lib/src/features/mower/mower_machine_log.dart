@@ -621,17 +621,11 @@ class MowerMachineLog extends ChangeNotifier {
           add('dp5.edge', 1, '开始沿边割草', 'Edge mowing started');
         case 11:
           add('dp5.secondary', 1, '开始第二区域割草', 'Secondary area mowing started');
+        // 回桩相关只记 DP5 本身（2026-10-22 用户：严格按 DP 返回显示，不擅自聚合）：
+        // 4 不再按前一状态推断「作业结束」，9/10 不再推断「已回到充电桩」——回桩原因、
+        // 是否触桩/充电看 DP111 与 DP117 各自的上报。
         case 4:
-          if (working.contains(old)) {
-            add(
-              'dp5.finish_dock',
-              1,
-              '作业结束，正在返回充电桩',
-              'Work finished, returning to dock',
-            );
-          } else {
-            add('dp5.return', 1, '正在返回充电桩', 'Returning to dock');
-          }
+          add('dp5.return', 1, '正在返回充电桩', 'Returning to dock');
         case 0:
           if (working.contains(old)) {
             add('dp5.cancel', 1, '作业已取消，机器待机', 'Work cancelled, standby');
@@ -653,14 +647,18 @@ class MowerMachineLog extends ChangeNotifier {
             group: 'estop',
           );
         case 9:
-          if (old == 4) add('dp5.docked', 1, '机器已回到充电桩', 'Machine docked');
+          add(
+            'dp5.wait_charge',
+            1,
+            '机器在桩等待充电',
+            'Waiting to charge at the dock',
+          );
         case 10:
-          if (old == 4) add('dp5.docked', 1, '机器已回到充电桩', 'Machine docked');
           add(
             'dp5.wait_rain',
             1,
-            '检测到降雨，机器等待雨停',
-            'Rain detected, waiting at dock',
+            '机器在桩等待雨停',
+            'Waiting for rain to stop at the dock',
           );
       }
     } else if (dp == MowerDp.chargingStatus) {
@@ -674,8 +672,9 @@ class MowerMachineLog extends ChangeNotifier {
         add(
           'dp13.low',
           1,
-          '电量低（$value%），即将自动回充',
-          'Battery low ($value%), returning soon',
+          // 只记电量本身；是否回桩以 DP5 上报为准，不预告。
+          '电量低（$value%）',
+          'Battery low ($value%)',
         );
       }
     } else if (dp == MowerDp.coverStatus) {
@@ -792,33 +791,35 @@ class MowerMachineLog extends ChangeNotifier {
     return MowerLogText(zh, en, zh, en);
   }
 
+  /// 英文文案照《拒绝理由与文案 V1.0》§6；26 由新鲜 DP111 另行定位。
   static String _commandEnglish(int code) => switch (code) {
-    16 => 'Machine is off, command ignored',
-    17 => 'Self-test in progress, try later',
-    18 => 'Updating, command ignored',
-    19 => 'Machine in emergency stop',
-    21 => 'Cover open, please close it',
-    22 => 'Panel locked, unlock it first',
-    23 => 'Release the emergency stop button',
-    24 => 'Machine is searching for the boundary',
+    3 => 'Operation failed, please retry',
+    16 => 'Machine is off',
+    17 => 'Self-test in progress, please wait',
+    18 => 'Firmware updating, please wait',
+    19 => 'Machine is in emergency stop',
+    21 => 'Please close the cover',
+    22 => 'Machine is locked',
+    23 => 'Please release the emergency stop button',
+    24 => 'Searching for the boundary wire',
     25 => 'Boundary signal lost, check the wire',
     26 => 'Fault not cleared; awaiting a fresh fault report',
     32 => 'Machine is on the dock',
-    33 => 'Move the machine inside the boundary',
+    33 => 'Machine is outside the boundary',
     34 => 'Battery low, charging',
     35 => 'Paused due to rain',
     48 => 'Please select a work mode first',
     49 => 'Machine is waiting at the dock',
-    52 => 'Previous task cancelled, select a mode',
-    53 => 'Device busy, try again later',
+    52 => 'Previous task was cancelled, please select again',
+    53 => 'Device busy, please try again later',
+    54 => 'Battery below 70%, waiting to charge at the dock',
     64 => 'Invalid parameter value',
     65 => 'Invalid data length',
     66 => 'Invalid data format',
-    67 => 'Invalid command type',
-    68 => 'This function is read only',
-    69 => 'Enable automatic time sync first',
-    70 => 'Device does not support this function',
-    255 => 'Command not applied',
+    67 => 'Data type mismatch',
+    68 => 'This parameter is read-only',
+    69 => 'Please enable auto time sync first',
+    70 => 'Unsupported feature',
     _ => 'Command not applied (code $code)',
   };
 

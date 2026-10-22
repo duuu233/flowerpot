@@ -485,10 +485,17 @@ class MowerDevice extends ChangeNotifier {
       _deviceId != null && status != MowerStatus.paused && !shutdown;
 
   /// 待机没有可恢复的工作点，不能通过 DP2 启动新任务。
+  /// 在桩等待充电（DP5=9 或 DP3=6）也置灰：机器小于 70% 电量发割草会被拒 54 并进入这个状态，
+  /// 这时 DP2=true 只是幂等回弹、DP2=false 会被拒 49（V3.0 §2.1），停止/继续都没有效果。
   bool get switchEnabled =>
       _deviceId != null &&
       !shutdown &&
+      !waitingCharge &&
       (switchGo || status != MowerStatus.standby);
+
+  /// 设备报的是「在桩等待充电」：DP5=wait_charge（9）或 DP3=wait_charge（6），两套枚举任一即算。
+  bool get waitingCharge =>
+      status == MowerStatus.waitCharge || mode == MowerMode.waitCharge;
 
   bool _canWrite(FlowerpotState state) {
     final id = _deviceId;
@@ -524,7 +531,11 @@ class MowerDevice extends ChangeNotifier {
 
   /// 工作开关（DP2）。[on]=true 启动/继续，false 停止/暂停。
   void setSwitch(FlowerpotState state, {required bool on}) {
-    if (!_canWrite(state) || (on && status == MowerStatus.standby)) return;
+    if (!_canWrite(state) ||
+        waitingCharge ||
+        (on && status == MowerStatus.standby)) {
+      return;
+    }
     _deliver(state, MowerDp.switchGo, on, action: on ? '继续/启动' : '停止');
     switchGo = on;
     // DP3 / DP5 以设备上报为准（启动后设备按最后一次 DP3 跑，会自己报上来）。
@@ -853,7 +864,7 @@ class MowerDevice extends ChangeNotifier {
     _pendingCommands.remove(result.dp);
     if (result.dp == MowerDp.mowSchedule) {
       scheduleCommandResult = result;
-      if (result.code >= 16) {
+      if (result.rejectionMessage != null) {
         _awaitingEcho.remove(MowerDp.mowSchedule);
         _failures.add('割草计划未生效：${result.rejectionMessage}');
       }

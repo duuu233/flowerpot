@@ -3,8 +3,9 @@ import 'dart:typed_data';
 
 /// 割草机的功能点表与编解码。
 ///
-/// 来源：`docs/割草机YUSEN Robot Mower(mz7g3yzaufvoh4ls)_09_18.xlsx`（平台导出）
-/// 与 `docs/割草机Grass_Master_Automower_Tuya_DP协议_V2.2.md`（设备端 2026-09-17 逐项核对）。
+/// 当前依据（2026-10-22 起）：`docs/Grass_Master_Automower_DP协议对接_V3.0.md`（25 个 DP，
+/// 固件基线 2026-10-22）与 `docs/Grass_Master_Automower_拒绝理由与文案_V1.0.md`。
+/// 早期来源：平台导出的功能点表与 V2.2 协议（已移入 `docs/history/other/`）。
 ///
 /// ⚠️ **两份文档在 DP3 上对不上，本文件按"枚举值列表 + V2.2 协议"取**：
 /// xlsx 的**说明列**写着「0 standby / 1 random(弃用) / 2 smart / 3 spot / 4 goto_charge」，
@@ -43,8 +44,12 @@ abstract final class MowerDp {
   /// enum ro：充电状态，见 [MowerChargingStatus]。
   static const int chargingStatus = 117;
 
-  /// bool ro：盖子状态。true=合盖（可启动），false=开盖（启动前预检要拦）。
+  /// bool ro：盖子状态（V3.0 标识符 cover_status）。true=合盖（可启动），false=开盖（启动前预检要拦）。
   static const int coverStatus = 118;
+
+  /// value ro：事件码（V3.0 §3.6）。发生码 N（1~99）、恢复码 N+100，只在位翻转时报、无兜底重报；
+  /// 只承载「发生了什么」，状态仍以 DP18 / DP111 为准，App 只记日志。
+  static const int alarmEvent = 120;
 
   /// bool ro：关机上报（V2.5 §4.7 / §9.9）。true = **非在桩**关机，设备连发约 9 次（100 ms 间隔）
   /// 后约 1 秒断电离线——这次离线是预期的，不按异常离线处理；在桩关机不上报；下次开机连云后
@@ -62,7 +67,8 @@ abstract final class MowerDp {
   static const int zoneConfig = 103;
 
   /// bool rw：恢复默认割草计划（V2.3 新增，**动作型、自复位**）。下发 true → 设备写入默认计划
-  /// （每天 09:00–11:30 + 13:30–17:30，组 0「全部设置」）→ **DP101 自动上报**新计划 → 回写 false。
+  /// （V3.0 §2.3：每天 08:30–12:00 + 14:00–18:00、仅周一/三/五绕边，按天设置）→ **DP101 自动上报**
+  /// 新计划 → 回写 false。
   /// 执行结果看 DP101，不看这条回写的 false。旧「110 割草高度」已下架，编号复用。
   static const int scheduleReset = 110;
 
@@ -125,11 +131,12 @@ abstract final class MowerDp {
     deviceTime: 'device_time',
     otaStatus: 'ota_status',
     fwVersion: 'fw_version',
-    chargingStatus: 'charging_status',
+    chargingStatus: 'charging',
     coverStatus: 'cover_status',
+    alarmEvent: 'alarm_event',
     shutdownReport: 'shutdown_report',
     commandResults: 'command_results',
-    operatingTime: 'opearting_time',
+    operatingTime: 'operating_time',
   };
 
   /// 设备上报的枚举值 → 枚举项；认不出返回 null。
@@ -163,8 +170,8 @@ enum MowerMode {
   gotoCharge('goto_charge', '回桩'),
   edgeMowing('edge_mowing', '沿边割草'),
   secondary('secondary', '第二区域'),
-  waitCharge('wait_charge', '等待充电'),
-  waitRain('wait_rain', '等待雨停');
+  waitCharge('wait_charge', '在桩等待充电'),
+  waitRain('wait_rain', '在桩等待雨停');
 
   const MowerMode(this.code, this.label);
 
@@ -180,18 +187,22 @@ enum MowerMode {
 }
 
 /// DP5 工作状态（只上报，12 值）。⚠️ 与 [MowerMode] 的序**不同**。
+///
+/// 首页状态胶囊**只显示 DP5 本身**，一值一词（V3.0 §4.2）：回桩中（4，回充行驶）、在桩等待充电（9）、
+/// 在桩等待雨停（10）各显示各的，不合并成「已回桩」，也不拿 DP117 充电状态推断（2026-10-22 用户）。
+/// 2 = sleep 是**关机**（V3.0），不是休眠。
 enum MowerStatus {
   standby('standby', '待机'),
   mowing('mowing', '割草中'),
-  sleep('sleep', '休眠'),
+  sleep('sleep', '关机'),
   spotMowing('spot_mowing', '定点割草'),
   gotoCharge('goto_charge', '回桩中'),
   paused('paused', '已暂停'),
   fault('fault', '故障'),
   stop('stop', '急停'),
   edgeMowing('edge_mowing', '沿边割草'),
-  waitCharge('wait_charge', '等待充电'),
-  waitRain('wait_rain', '等待雨停'),
+  waitCharge('wait_charge', '在桩等待充电'),
+  waitRain('wait_rain', '在桩等待雨停'),
   secondary('secondary', '第二区域');
 
   const MowerStatus(this.code, this.label);

@@ -290,7 +290,7 @@ void main() {
     await _pumpMowerHome(tester, {13: 100, 5: 'wait_rain', 117: 'charging'});
     await tester.pumpAndSettle();
     expect(find.text('充电中 100%', findRichText: true), findsOneWidget);
-    expect(find.text('等待雨停'), findsOneWidget);
+    expect(find.text('在桩等待雨停'), findsOneWidget);
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
@@ -597,6 +597,51 @@ void main() {
     expect(_sentDps(repo), [MowerDp.operatingTime, MowerDp.mode]);
     MowerDevice.instance.resetForTest();
   });
+  // V3.0：电量 <70% 发割草被拒 54 后机器进入在桩等待充电，DP2 在这个状态下无效，停止/继续置灰。
+  for (final entry in <(String, Map<int, Object?>)>[
+    (
+      'DP5=wait_charge',
+      {MowerDp.status: 'wait_charge', MowerDp.switchGo: false},
+    ),
+    ('DP5=9且DP2=true', {MowerDp.status: 9, MowerDp.switchGo: true}),
+    (
+      'DP3=wait_charge',
+      {
+        MowerDp.status: 'mowing',
+        MowerDp.switchGo: true,
+        MowerDp.mode: 'wait_charge',
+      },
+    ),
+  ]) {
+    testWidgets('在桩等待充电 ${entry.$1}：停止/继续置灰，点击不发指令', (tester) async {
+      final repo = await _pumpMowerHome(tester, entry.$2);
+      expect(
+        tester
+            .widget<InkWell>(find.byKey(const Key('mower-action-switch')))
+            .onTap,
+        isNull,
+      );
+      await tester.tap(find.byKey(const Key('mower-action-switch')));
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsNothing);
+      expect(repo.publishedDps, isEmpty);
+      MowerDevice.instance.resetForTest();
+    });
+  }
+  testWidgets('在桩等待雨停不属于充电等待，继续按钮保持原规则', (tester) async {
+    await _pumpMowerHome(tester, {
+      MowerDp.status: 'wait_rain',
+      MowerDp.switchGo: false,
+    });
+    expect(find.text('在桩等待雨停'), findsOneWidget);
+    expect(
+      tester
+          .widget<InkWell>(find.byKey(const Key('mower-action-switch')))
+          .onTap,
+      isNotNull,
+    );
+    MowerDevice.instance.resetForTest();
+  });
   testWidgets('安全确认期间离线：继续不发送，弹窗提示但按钮仍可点', (tester) async {
     final repo = await _pumpMowerHome(tester, {
       MowerDp.status: 'stop',
@@ -720,19 +765,22 @@ void main() {
     });
   }
 
-  for (final code in <int>[0, 3, 15, 16, 31, 32, 255]) {
-    testWidgets('DP115 门槛 $code：小于16不弹，其余异常有提示', (tester) async {
+  for (final code in <int>[0, 3, 15, 16, 31, 32, 35, 54, 255]) {
+    testWidgets('DP115 门槛 $code：内部失败3及16以上有提示，其余小于16不弹', (tester) async {
       final repository = _ResultMowerRepository()..code = code;
       await _pumpMowerHome(tester, {}, repositoryOverride: repository);
       await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
       await tester.pumpAndSettle();
-      expect(find.text('设备异常'), code < 16 ? findsNothing : findsOneWidget);
-      if (code >= 16) {
+      final shown = code == 3 || code >= 16;
+      expect(find.text('设备异常'), shown ? findsOneWidget : findsNothing);
+      if (shown) {
         expect(
           find.text(switch (code) {
+            3 => '操作未生效，请重试',
             16 => '机器已关机',
-            32 => '机器在充电桩上',
-            255 => '操作未生效',
+            32 => '机器已在充电桩上',
+            35 => '雨天暂停中，雨停后自动继续',
+            54 => '机器电量小于70%，已进入充电等待',
             _ => '操作未生效（码 $code）',
           }),
           findsOneWidget,
@@ -763,7 +811,7 @@ void main() {
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     expect(find.text('设备异常'), findsOneWidget);
-    expect(find.text('机器正在找线，请稍候或放回线内'), findsOneWidget);
+    expect(find.text('机器正在寻找边界线，请稍候'), findsOneWidget);
     expect(repository.publishedDps, hasLength(1));
     await tester.tap(find.text('我已处理'));
     await tester.pumpAndSettle();
@@ -816,7 +864,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
     await tester.pumpAndSettle();
-    expect(find.text('机器正在找线，请稍候或放回线内'), findsOneWidget);
+    expect(find.text('机器正在寻找边界线，请稍候'), findsOneWidget);
     expect(find.text('我已处理'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('我已处理'));

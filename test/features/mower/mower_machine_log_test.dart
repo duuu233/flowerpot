@@ -150,23 +150,24 @@ void main() {
     expect(many, isNot(contains('机器被抬起')));
     expect(many, contains('手动重试原操作'));
   });
-  test('DP115 32–70 定义码有具体文案，255 无内部码，小于16不弹', () {
+  test('DP115 32–70 定义码有具体文案，255 带码，小于16仅内部失败3提示', () {
     const expected = {
       32: '充电桩',
-      33: '边界线内',
+      33: '界内',
       34: '充电',
       35: '雨天',
       48: '工作模式',
       49: '等待',
       52: '取消',
       53: '正忙',
+      54: '充电等待',
       64: '范围',
       65: '长度',
       66: '格式',
       67: '类型',
-      68: '读取',
-      69: '自动时间同步',
-      70: '固件版本',
+      68: '不支持设置',
+      69: '自动同步',
+      70: '不支持',
     };
     for (final item in expected.entries) {
       expect(
@@ -176,12 +177,12 @@ void main() {
     }
     expect(
       const MowerCommandResult(code: 255, seq: 0, dp: 3).rejectionMessage,
-      '操作未生效',
+      '操作未生效（码 255）',
     );
     for (var code = 0; code < 16; code++) {
       expect(
         MowerCommandResult(code: code, seq: 0, dp: 3).rejectionMessage,
-        isNull,
+        code == 3 ? '操作未生效，请重试' : isNull,
       );
     }
   });
@@ -384,18 +385,25 @@ void main() {
       containsAll(['机器盖子被打开', '机器盖子已关闭', '设备已关机', '设备已开机', '充电完成', '机器已离开充电桩']),
     );
   });
-  test('正常作业边沿、回充、在桩等待不刷屏，DP5休眠不是关机', () {
+  test('正常作业边沿、回充、在桩等待不刷屏，DP5 sleep 不充当关机', () {
     final log = MowerMachineLog();
     addTearDown(log.dispose);
     log.apply({5: 0}, snapshot: true, receivedAt: _time);
     for (final status in [1, 4, 9, 9, 2]) {
       log.apply({5: status}, receivedAt: _time);
     }
+    // 回桩相关只记 DP5 本身：4 不推断「作业结束」，9 不推断「已回到充电桩」。
     expect(log.entries.map((e) => e.message(false)), [
-      '机器已回到充电桩',
-      '作业结束，正在返回充电桩',
+      '机器在桩等待充电',
+      '正在返回充电桩',
       '开始割草',
     ]);
+    log.apply({5: 10}, receivedAt: _time);
+    expect(log.entries.first.message(false), '机器在桩等待雨停');
+    expect(
+      log.entries.map((e) => e.message(false)),
+      isNot(contains('机器已回到充电桩')),
+    );
   });
   test('DP115 seq重复去重，回绕合法，成功不记，26等新鲜111定位', () {
     final log = MowerMachineLog();
@@ -417,7 +425,7 @@ void main() {
     expect(rejection.message(false), isNot(contains('电池异常')));
     expect(rejection.message(true), contains('Boundary signal'));
     command(255, 0);
-    expect(log.entries.first.message(false), '操作未生效');
+    expect(log.entries.first.message(false), '操作未生效（码 255）');
     final count = log.entries.length;
     command(0, 1);
     expect(log.entries, hasLength(count));
