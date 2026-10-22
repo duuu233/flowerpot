@@ -21,8 +21,8 @@ import 'widgets/mower_start_dialog.dart';
 /// | 元素 | DP |
 /// | --- | --- |
 /// | 电量环 | DP13 battery_percentage（充电态看 DP117） |
-/// | 状态胶囊 | DP5 status |
-/// | 黄色提醒 | DP18 fault（位图 → 文案，见 [MowerFault.messages]） |
+/// | 状态胶囊 | DP5 status；设置过工作时间时后面跟本机倒计时（[MowerDevice.workEndsAt]） |
+/// | 黄色提醒 | DP18 fault（位图 → 文案，见 [MowerFault.messages]）；没有故障时显示实时提醒：DP111 抬起位 / DP120 事件码 44·144·41·141（[MowerDevice.liveNotice]） |
 /// | 今日计划 | DP101 mow_schedule 解析出来的今天那一组（**不存数据库**） |
 /// | 停止 / 继续 | DP2 switch_go |
 /// | 自动 / 定点 / 回归 | DP3 mode = smart / spot / goto_charge |
@@ -430,9 +430,11 @@ class _MowerControlPageState extends State<MowerControlPage> {
             builder: (context, constraints) {
               // DP18 = 0（正常）或没报过：整条隐藏（协议 V2.3 位图口径，2026-09-23 产品）。
               // 已关机（DP113）时这一条换成关机提示，顶掉故障文案。
+              // 没有故障时显示实时提醒（设备已抬起 / 已落地、正在脱困，2026-10-22）；
+              // 故障照旧优先，抬起超时报的 DP18 抬起故障按原规则显示并弹框。
               final notice = _device.shutdown
                   ? _shutdownNotice
-                  : _device.faultMessage;
+                  : _device.faultMessage ?? _device.liveNotice;
               final lower = <Widget>[
                 if (notice != null) ...<Widget>[
                   _NoticeBar(fault: notice),
@@ -456,6 +458,8 @@ class _MowerControlPageState extends State<MowerControlPage> {
                   statusLabel: _device.shutdown ? '已关机' : _device.status.label,
                   wifiLinked: _device.wifiLinked,
                   bleLinked: _device.bleLinked,
+                  workEndsAt: _device.workEndsAt,
+                  now: widget.now,
                 ),
               );
               final fits =
@@ -513,7 +517,7 @@ const double _cardWidth = 335;
 /// 电量环缩到 80% 时整页需要的最小高度（环 292×0.8 + 提醒 38 + 计划 110 + 按钮面板 104 + 间距 / 边距）。
 const double _minFittedHeight = 520;
 
-/// 黄色提醒条：只在 DP18 有故障位时出现，画那条故障文案（位序最低的一条）。
+/// 黄色提醒条：DP18 有故障位时画那条故障文案（位序最低的一条）；没有故障时画实时提醒。
 /// DP18 = 0（正常）或没报过时整条不画（协议 V2.3，2026-09-23 产品）——原来那句稿子上的
 /// 安全提示「开始割草前，请清理草坪中的障碍物」不再显示。
 class _NoticeBar extends StatelessWidget {

@@ -8,6 +8,8 @@ import '../../tuya/tuya_raw.dart';
 import 'mower_dp.dart';
 import 'mower_command_result.dart';
 import 'mower_fault_alarm.dart';
+import 'mower_live_notice.dart';
+import 'mower_work_countdown.dart';
 
 /// 割草机这一台设备的当前 DP 值 + 下发/上报的唯一入口。
 ///
@@ -69,6 +71,14 @@ class MowerDevice extends ChangeNotifier {
   /// DP119：设备最后上报的工作时长（整数小时），未上报为 null。
   int? operatingTimeHours;
 
+  /// 工作时间倒计时的终点：本机最后一次 DP119 下发成功的时刻 + 下发的小时数（[MowerWorkCountdown]）。
+  /// 本机没设置过为 null，首页不显示倒计时。
+  DateTime? workEndsAt;
+
+  /// 记倒计时起点用的时钟，用例里换成假时间。
+  @visibleForTesting
+  DateTime Function() clock = DateTime.now;
+
   /// DP3：当前工作模式。
   late MowerMode mode;
 
@@ -106,6 +116,12 @@ class MowerDevice extends ChangeNotifier {
 
   /// DP118：盖子。true=合盖（可启动）。
   late bool coverClosed;
+
+  /// 首页黄条的实时提醒（抬起 / 落地、陷坑脱困），见 [MowerLiveNotice]。
+  late final MowerLiveNotice _liveNotice = MowerLiveNotice(notifyListeners);
+
+  /// 黄条该显示的实时提醒；没有为 null。
+  String? get liveNotice => _liveNotice.message;
 
   // ── 设置类 ──────────────────────────────────────────────
   /// DP104 / DP105 / DP102：雨淋检测、雨后延迟（分钟）、雨滴延时开关。
@@ -212,6 +228,15 @@ class MowerDevice extends ChangeNotifier {
     _lastOnline = state.deviceById(deviceId)?.online;
     _lastShutdown = state.isMowerShutdown(deviceId);
     state.addListener(_onStateChanged);
+    unawaited(
+      MowerWorkCountdown.load(deviceId).then((endsAt) {
+        // 本会话里已经重新设置过就以新的为准，不拿存储里的旧终点盖掉。
+        if (!_isCurrent(deviceId, generation) || workEndsAt != null) return;
+        if (endsAt == null) return;
+        workEndsAt = endsAt;
+        notifyListeners();
+      }),
+    );
     _reportSub = state.mowerReports
         .where((report) => _isCurrent(report.deviceId, generation))
         .listen(
@@ -292,6 +317,7 @@ class MowerDevice extends ChangeNotifier {
     }
     _freshFaultWaiter = null;
     _commandFaultRead = null;
+    _liveNotice.reset();
     _deviceId = null;
   }
 
@@ -300,6 +326,7 @@ class MowerDevice extends ChangeNotifier {
     _owner = null;
     _releaseLive();
     _queue = Future<void>.value();
+    clock = DateTime.now;
     _loadLiveDefaults();
     notifyListeners();
   }
@@ -311,6 +338,7 @@ class MowerDevice extends ChangeNotifier {
   /// - 时区按手机当前时区（DP107 没报时时间同步页的默认选中项）。
   void _loadLiveDefaults() {
     operatingTimeHours = null;
+    workEndsAt = null;
     switchGo = false;
     mode = MowerMode.standby;
     lastCommandedMode = null;
@@ -522,17 +550,46 @@ class MowerDevice extends ChangeNotifier {
   // ── 下发 ────────────────────────────────────────────────
 
   /// 工作时长（DP119）：下发成功后才允许页面继续启动，不改变每次弹窗的默认值。
+  ///
+  /// 下发成功即按「此刻 + [hours]」重设本机倒计时终点（重设即重跑，旧终点作废）；失败不动。
   Future<bool> setOperatingTime(FlowerpotState state, int hours) {
     if (!_canWrite(state)) return Future<bool>.value(false);
     if (hours < 1 || hours > 24) {
       throw RangeError.range(hours, 1, 24, 'hours');
     }
+    final id = _deviceId;
+    final generation = _bindingGeneration;
     final identifier = MowerDp.identifiers[MowerDp.operatingTime];
     state.logMowerInteraction('下发 → 割草机 DP119 $identifier=$hours（割草时长）');
     return _publish(state, <int, Object>{
       MowerDp.operatingTime: hours,
-    }, label: 'DP119 $identifier=$hours');
+    }, label: 'DP119 $identifier=$hours').then((sent) {
+      _restartCountdown(state, id, generation, sent: sent, hours: hours);
+      return sent;
+    });
   }
+
+  void _restartCountdown(
+    FlowerpotState state,
+    String? id,
+    int generation, {
+    required bool sent,
+    required int hours,
+  }) {
+    if (sent && id != null && _isCurrent(id, generation)) {
+      final endsAt = clock().add(Duration(hours: hours));
+      workEndsAt = endsAt;
+      state.logMowerInteraction(
+        '倒计时 · 割草机工作时间 $hours 小时，本机计到 ${_clockText(endsAt)}',
+      );
+      notifyListeners();
+      unawaited(MowerWorkCountdown.save(id, endsAt));
+    }
+  }
+
+  static String _clockText(DateTime time) =>
+      '${time.hour.toString().padLeft(2, '0')}:'
+      '${time.minute.toString().padLeft(2, '0')}';
 
   /// 工作开关（DP2）。[on]=true 启动/继续，false 停止/暂停。
   void setSwitch(FlowerpotState state, {required bool on}) {
@@ -798,6 +855,7 @@ class MowerDevice extends ChangeNotifier {
         state.logMowerInteraction('上报 ← 割草机 DP$dp $identifier=${dps[dp]}$note');
       }
     }
+    _updateLiveNotice(state, changed, dps);
     if (changed == null && dps.containsKey(MowerDp.commandResults)) {
       _lastCommandResult = MowerCommandResult.parse(
         dps[MowerDp.commandResults],
@@ -848,6 +906,34 @@ class MowerDevice extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  /// 黄条实时提醒：刚绑定按快照同步抬起状态；之后只认带了 DP111 / DP120 的实时上报，
+  /// 整包快照（changed 为空）里的旧事件码与 DP111 不触发提示。DP18 陷坑位任何来源都收起脱困提示。
+  void _updateLiveNotice(
+    FlowerpotState state,
+    Set<int>? changed,
+    Map<int, Object?> dps,
+  ) {
+    final bitmap = faultBitmap;
+    if (bitmap != null) _liveNotice.onFaultBitmap(bitmap);
+    if (changed == null) {
+      _liveNotice.baseline(faultAlarm);
+      return;
+    }
+    if (changed.contains(MowerDp.faultAlarm)) {
+      final alarm = MowerFaultAlarm.parse(dps[MowerDp.faultAlarm]);
+      if (alarm != null) _liveNotice.onFaultAlarm(alarm);
+    }
+    if (changed.contains(MowerDp.alarmEvent)) {
+      final code = _asInt(dps[MowerDp.alarmEvent]);
+      if (code != null && _liveNotice.onEvent(code)) {
+        state.logMowerInteraction(
+          '黄条 · 割草机 DP${MowerDp.alarmEvent}=$code → '
+          '「${_liveNotice.message ?? '收起'}」',
+        );
+      }
+    }
   }
 
   void _acceptCommandResult(
