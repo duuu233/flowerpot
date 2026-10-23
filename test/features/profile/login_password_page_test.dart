@@ -14,7 +14,7 @@ void main() {
 
     expect(find.text('登录密码'), findsOneWidget);
     expect(find.byKey(const Key('app-page-background-image')), findsOneWidget);
-    expect(find.text('设置登录密码后，可使用“手机号+密码”\n登录YSplanter账号'), findsOneWidget);
+    expect(find.text('设置登录密码后，可使用“手机号+密码”\n登录东方金穗账号'), findsOneWidget);
     expect(find.text('当前账号： 138****5678'), findsOneWidget);
     expect(find.text('密码'), findsOneWidget);
     expect(find.text('请输入密码'), findsOneWidget);

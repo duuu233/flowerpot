@@ -21,7 +21,7 @@ class HearingSettingsPageModel {
   String get status => soundInteractionEnabled ? '已开启' : '已关闭';
 
   List<String> get descriptionLines => const <String>[
-    'YSplanter可以听到声音与振动，并产生多种多样的独',
+    '东方金穗可以听到声音与振动，并产生多种多样的独',
     '特反馈。',
   ];
 

@@ -138,7 +138,7 @@ class _PlantHeroImage extends StatelessWidget {
     height: _height,
     fit: BoxFit.contain,
     filterQuality: FilterQuality.high,
-    semanticLabel: '未种植物的 YSplanter',
+    semanticLabel: '未种植物的东方金穗',
   );
 
   /// 有植物但后台没配图：**留空位**，不画图。位置照占，免得下面的内容跳动。

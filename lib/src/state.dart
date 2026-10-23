@@ -4064,7 +4064,7 @@ class FlowerpotState extends ChangeNotifier {
   BackendAppVersion? _appVersion;
   BackendAppVersion? get appVersion => _appVersion;
 
-  /// 后端说有新版本：「我的 → 关于YSplanter」那一行点红点用它。
+  /// 后端说有新版本：「我的 → 关于东方金穗」那一行点红点用它。
   bool get hasAppUpdate => _appVersion?.hasUpdate ?? false;
 
   /// 有新版本且是强制升级（`compulsory == 1`）：App 一打开就要弹不可取消的弹窗。

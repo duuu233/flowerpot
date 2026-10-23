@@ -833,7 +833,7 @@ class _BrandLogo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       image: true,
-      label: 'YSplanter 品牌图标',
+      label: '东方金穗品牌图标',
       child: Image.asset(
         AppAssets.appLogo,
         key: const Key('auth-app-logo'),

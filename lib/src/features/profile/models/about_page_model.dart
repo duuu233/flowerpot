@@ -9,7 +9,7 @@ class AboutPageModel {
 
   factory AboutPageModel.current() {
     return const AboutPageModel(
-      appName: 'YSplanter',
+      appName: '东方金穗',
       tagline: '您的智能设备贴心伴侣',
       version: '1.0.0',
       updateStatus: '已是最新版本',

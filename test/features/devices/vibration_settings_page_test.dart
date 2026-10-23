@@ -22,7 +22,7 @@ void main() {
     expect(find.text('震动设置'), findsOneWidget);
     expect(find.text('启动震动'), findsOneWidget);
     expect(find.text('已禁用'), findsOneWidget);
-    expect(find.text('开启后，YSplanter将在触摸操作、缺水警报提醒'), findsOneWidget);
+    expect(find.text('开启后，东方金穗将在触摸操作、缺水警报提醒'), findsOneWidget);
     expect(find.text('等情况自动触发振动。'), findsOneWidget);
     expect(findAssetImage(AppAssets.vibrationSymbol), findsOneWidget);
     final card = find.byType(VibrationSettingsCard);

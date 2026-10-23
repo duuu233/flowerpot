@@ -107,10 +107,10 @@ class AppL10n {
 
   String get plantDetectionDescription => t(const {
     AppLanguage.zh:
-        '开启后，YSplanter 发现盆里的植物和当前记录不一致时会主动提醒，\n'
+        '开启后，东方金穗发现盆里的植物和当前记录不一致时会主动提醒，\n'
         '由你确认换成新植物还是保持原样。',
     AppLanguage.en:
-        'When on, YSplanter asks you to confirm whenever the plant it '
+        'When on, 东方金穗 asks you to confirm whenever the plant it '
         'detects differs from the one on record.',
   });
 

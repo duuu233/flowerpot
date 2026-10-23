@@ -25,7 +25,7 @@ class MineMenuItem {
   final String label;
   final String? trailingValue;
 
-  /// 行尾的小红点。目前只有「关于YSplanter」用：后端说有新版本时点亮。
+  /// 行尾的小红点。目前只有「关于东方金穗」用：后端说有新版本时点亮。
   final bool badge;
 }
 
@@ -65,7 +65,7 @@ class MinePageModel {
         const MineMenuItem(kind: MineMenuKind.userAgreement, label: '用户协议'),
         MineMenuItem(
           kind: MineMenuKind.about,
-          label: '关于YSplanter',
+          label: '关于东方金穗',
           badge: hasAppUpdate,
         ),
       ],

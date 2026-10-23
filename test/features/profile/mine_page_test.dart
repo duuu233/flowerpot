@@ -23,7 +23,7 @@ void main() {
     expect(find.text('service@example.test'), findsOneWidget);
     // 帮助中心已搬到设备设置页。
     expect(find.text('帮助中心'), findsNothing);
-    expect(find.text('关于YSplanter'), findsOneWidget);
+    expect(find.text('关于东方金穗'), findsOneWidget);
 
     await tester.tap(find.text('个人信息'));
     expect(selected, <MineMenuKind>[MineMenuKind.personalInfo]);
@@ -42,7 +42,7 @@ void main() {
       '意见反馈',
       '隐私政策',
       '用户协议',
-      '关于YSplanter',
+      '关于东方金穗',
     ]);
     final feedback = model.menuItems.firstWhere(
       (item) => item.kind == MineMenuKind.feedback,
@@ -61,7 +61,7 @@ void main() {
   testWidgets('mine menu remains scrollable at 320x568', (tester) async {
     await _pumpMineWidgets(tester, const Size(320, 568));
 
-    final about = find.text('关于YSplanter');
+    final about = find.text('关于东方金穗');
     await tester.ensureVisible(about);
     await tester.pump();
 
@@ -90,7 +90,7 @@ Future<void> _pumpMineWidgets(
       ),
       MineMenuItem(kind: MineMenuKind.privacyPolicy, label: '隐私政策'),
       MineMenuItem(kind: MineMenuKind.userAgreement, label: '用户协议'),
-      MineMenuItem(kind: MineMenuKind.about, label: '关于YSplanter'),
+      MineMenuItem(kind: MineMenuKind.about, label: '关于东方金穗'),
     ],
   );
   await tester.pumpWidget(

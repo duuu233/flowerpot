@@ -9,7 +9,7 @@ import '../../../../design_system/design_system.dart';
 /// 两种形态共用这一个弹窗，差别只在能不能关：
 /// - **强制升级**（`/Client/Basic/getLastVersion` 的 `compulsory == 1`）：App 打开
 ///   后检测到就弹，没有取消、返回键也关不掉，升级完是新装的包，重进自然不再命中；
-/// - **提示升级**：用户在「关于YSplanter → 检查更新」里点出来的，可以「稍后再说」。
+/// - **提示升级**：用户在「关于东方金穗 → 检查更新」里点出来的，可以「稍后再说」。
 ///
 /// 「立即更新」目前把下载地址复制到剪贴板——项目还没有 `url_launcher` 依赖，加它
 /// 需要跑一次 `flutter pub get`；接上之后把 [_copyDownloadUrl] 换成打开链接即可。

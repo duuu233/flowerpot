@@ -20,7 +20,7 @@ class AboutBrandLockup extends StatelessWidget {
           height: 60,
           fit: BoxFit.contain,
           filterQuality: FilterQuality.high,
-          semanticLabel: 'YSplanter 应用图标',
+          semanticLabel: '东方金穗应用图标',
         ),
         const SizedBox(height: AppSpacing.xl),
         Image.asset(

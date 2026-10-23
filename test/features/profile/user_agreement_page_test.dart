@@ -10,12 +10,12 @@ void main() {
     await _pumpAgreementPage(tester, const Size(375, 812));
 
     expect(find.text('用户协议'), findsOneWidget);
-    expect(find.text('《YSplanter 用户协议》'), findsOneWidget);
+    expect(find.text('《东方金穗用户协议》'), findsOneWidget);
     expect(find.text('更新日期：2026-6-13'), findsOneWidget);
     expect(find.text('生效日期：2026-6-13'), findsOneWidget);
     expect(find.text('前言'), findsOneWidget);
     expect(find.text('一、服务说明'), findsOneWidget);
-    expect(find.textContaining('本协议是您与 YSplanter 服务提供方之间'), findsOneWidget);
+    expect(find.textContaining('本协议是您与东方金穗服务提供方之间'), findsOneWidget);
     expect(find.textContaining('本应用为智能花盆设备提供移动端管理服务'), findsOneWidget);
     expect(find.byKey(const Key('legal-document-card')), findsOneWidget);
     expect(tester.takeException(), isNull);

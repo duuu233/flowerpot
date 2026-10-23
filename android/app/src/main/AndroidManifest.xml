@@ -32,7 +32,7 @@
          android.app.Application, which is what that placeholder resolves to for
          the v2 embedding. -->
     <application
-        android:label="智能花盆"
+        android:label="东方金穗"
         android:name=".FlowerpotApplication"
         android:usesCleartextTraffic="false"
         android:icon="@mipmap/ic_launcher">

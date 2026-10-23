@@ -16,7 +16,7 @@ class AppDevicePlaceholder extends StatelessWidget {
   Widget build(BuildContext context) {
     final height = hasPlant ? width * 1.29 : width;
     return Semantics(
-      label: hasPlant ? '带植物的 YSplanter' : 'YSplanter 设备',
+      label: hasPlant ? '带植物的东方金穗' : '东方金穗设备',
       image: true,
       child: SizedBox(
         width: width,

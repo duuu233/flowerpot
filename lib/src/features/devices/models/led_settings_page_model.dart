@@ -17,7 +17,7 @@ class LedSettingsPageModel {
 
   /// 2026-09-28 产品改文案（背后已是 DP166 双色 LED，不再是屏幕指示灯）。
   List<String> get descriptionLines => const <String>[
-    '关闭后，YSplanter的双色 LED 灯效将不再亮起',
+    '关闭后，东方金穗的双色 LED 灯效将不再亮起',
   ];
 
   String get description => descriptionLines.join('\n');

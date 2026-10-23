@@ -24,7 +24,7 @@ void main() {
     expect(find.text('显示'), findsOneWidget);
     expect(find.text('自动屏幕亮度'), findsOneWidget);
     expect(find.text('已开启'), findsOneWidget);
-    expect(find.text('自动屏幕亮度开启后，YSplanter会根据检测到的环境'), findsOneWidget);
+    expect(find.text('自动屏幕亮度开启后，东方金穗会根据检测到的环境'), findsOneWidget);
     expect(find.text('光强度自动调节屏幕亮度；关闭后可手动调节亮度。'), findsOneWidget);
     expect(findAssetImage(AppAssets.brightnessSymbol), findsOneWidget);
     final card = find.byType(DisplaySettingsCard);

@@ -19,7 +19,7 @@ class TouchSettingsPageModel {
   String get status => touchInteractionEnabled ? '已启用' : '已禁用';
 
   List<String> get descriptionLines => const <String>[
-    'YSplanter可以通过它的植物与身体感知人类触摸。',
+    '东方金穗可以通过它的植物与身体感知人类触摸。',
   ];
 
   String get description => descriptionLines.join('\n');

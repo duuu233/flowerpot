@@ -10,14 +10,14 @@ class LegalDocumentPageModel {
   factory LegalDocumentPageModel.privacy() {
     return const LegalDocumentPageModel(
       pageTitle: '隐私政策',
-      documentTitle: '《YSplanter 隐私政策》',
+      documentTitle: '《东方金穗隐私政策》',
       updatedAt: '2026-6-13',
       effectiveAt: '2026-6-13',
       sections: <LegalDocumentSection>[
         LegalDocumentSection(
           heading: '前言',
           body:
-              '欢迎使用 YSplanter（以下简称“本应用”）。\n'
+              '欢迎使用东方金穗（以下简称“本应用”）。\n'
               '我们深知个人信息对您的重要性，并将尽力保护您的个人信息安全可靠。本隐私政策旨在向您说明，我们会如何收集、使用、存储、共享和保护您的个人信息，以及您享有的相关权利。\n'
               '使用本应用前，请您仔细阅读并理解本隐私政策。您使用本应用，即表示您已充分理解并同意本隐私政策所述内容。',
         ),
@@ -83,15 +83,15 @@ class LegalDocumentPageModel {
   factory LegalDocumentPageModel.agreement() {
     return const LegalDocumentPageModel(
       pageTitle: '用户协议',
-      documentTitle: '《YSplanter 用户协议》',
+      documentTitle: '《东方金穗用户协议》',
       updatedAt: '2026-6-13',
       effectiveAt: '2026-6-13',
       sections: <LegalDocumentSection>[
         LegalDocumentSection(
           heading: '前言',
           body:
-              '欢迎使用 YSplanter（以下简称“本应用”）。\n'
-              '本协议是您与 YSplanter 服务提供方之间，就您下载、安装、注册、登录和使用本应用及相关智能设备服务所订立的协议。\n'
+              '欢迎使用东方金穗（以下简称“本应用”）。\n'
+              '本协议是您与东方金穗服务提供方之间，就您下载、安装、注册、登录和使用本应用及相关智能设备服务所订立的协议。\n'
               '在使用本应用前，请您仔细阅读并充分理解本协议全部内容。您使用本应用，即表示您已阅读、理解并同意接受本协议的约束。',
         ),
         LegalDocumentSection(

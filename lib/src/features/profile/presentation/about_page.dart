@@ -62,7 +62,7 @@ class _AboutPageState extends State<AboutPage>
 
     return AppPageScaffold(
       appBar: const AppPageHeader(
-        title: '关于YSplanter',
+        title: '关于东方金穗',
         leading: AppBackButton(),
       ),
       background: AppPageBackground.standard,

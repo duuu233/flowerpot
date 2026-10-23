@@ -197,7 +197,7 @@ class _FlowerpotAppState extends State<FlowerpotApp>
         return FlowerpotScope(
           state: state,
           child: MaterialApp(
-            title: '智能花盆',
+            title: '东方金穗',
             debugShowCheckedModeBanner: false,
             theme: buildAppTheme(),
             locale: state.language.locale,

@@ -1,4 +1,6 @@
-# 智能花盆 App
+# 东方金穗 App
+
+应用名 2026-10-23 由「智能花盆」改为「东方金穗」（包名、Bundle ID 不变）。
 
 Flutter 智能花盆客户端，技术架构沿用 `D:\Work\learn\flutter`：feature-first 业务分层、统一命名路由、全局 `ChangeNotifier` 状态、公共 UI 组件和原生 MethodChannel 桥接。
 

@@ -22,7 +22,7 @@ void main() {
     expect(find.text('听觉感知'), findsOneWidget);
     expect(find.text('声音互动'), findsOneWidget);
     expect(find.text('已开启'), findsOneWidget);
-    expect(find.text('YSplanter可以听到声音与振动，并产生多种多样的独'), findsOneWidget);
+    expect(find.text('东方金穗可以听到声音与振动，并产生多种多样的独'), findsOneWidget);
     expect(find.text('特反馈。'), findsOneWidget);
     expect(find.text('传感器灵敏度'), findsOneWidget);
     expect(find.text('80%'), findsOneWidget);

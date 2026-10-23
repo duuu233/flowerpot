@@ -9,7 +9,7 @@ void main() {
   testWidgets('about page matches the 375x812 Figma content', (tester) async {
     await _pumpAboutPage(tester, const Size(375, 812));
 
-    expect(find.text('关于YSplanter'), findsOneWidget);
+    expect(find.text('关于东方金穗'), findsOneWidget);
     expect(findAssetImage(AppAssets.appLogo), findsOneWidget);
     expect(findAssetImage(AppAssets.ysplanterWordmark), findsOneWidget);
     // 2026-09-21 产品：「智能花盆」改为「智能设备」，logo 与字标不变。

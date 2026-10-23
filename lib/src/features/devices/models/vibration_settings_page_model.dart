@@ -27,7 +27,7 @@ class VibrationSettingsPageModel {
   String get status => vibrationEnabled ? '已启用' : '已禁用';
 
   List<String> get descriptionLines => const <String>[
-    '开启后，YSplanter将在触摸操作、缺水警报提醒',
+    '开启后，东方金穗将在触摸操作、缺水警报提醒',
     '等情况自动触发振动。',
   ];
 

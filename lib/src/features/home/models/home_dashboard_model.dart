@@ -142,8 +142,8 @@ class HomeDashboardModel {
       ],
       helpTopics: const <String>[
         '首次使用指南',
-        '如何设定YSplanter的表情',
-        '如何将YSplanter重新连接到Wi-Fi?',
+        '如何设定东方金穗的表情',
+        '如何将东方金穗重新连接到Wi-Fi?',
       ],
       scene: scene,
     );

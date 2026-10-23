@@ -36,7 +36,7 @@ void main() {
     expect(find.text('启用LED'), findsOneWidget);
     // DP166 固件默认关（2026-09-28），没报过也按关画
     expect(find.text('已关闭'), findsOneWidget);
-    expect(find.text('关闭后，YSplanter的双色 LED 灯效将不再亮起'), findsOneWidget);
+    expect(find.text('关闭后，东方金穗的双色 LED 灯效将不再亮起'), findsOneWidget);
     expect(find.byKey(const Key('led-switch')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

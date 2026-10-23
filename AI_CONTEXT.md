@@ -25,7 +25,7 @@ Android OTA 当前优先 Service API，回调与每3秒SDK状态查询共用映�
 
 ## 1. 项目定位
 
-`flowerpot` 是 YSplanter 智能花盆的 Flutter iOS/Android 客户端，覆盖账号、设备配网、设备与植物状态、报表、设备设置、固件升级、动画资源和个人中心。PC 管理后台与服务端是独立项目，不应把管理端页面或部署规则写进本仓库。
+`flowerpot` 是 YSplanter 智能花盆的 Flutter iOS/Android 客户端（2026-10-23 起应用名与页面文案中的品牌为「东方金穗」，YSplanter 字标图片未换，见 `docs/history/other/PRODUCT_RULES.md` §4.27），覆盖账号、设备配网、设备与植物状态、报表、设备设置、固件升级、动画资源和个人中心。PC 管理后台与服务端是独立项目，不应把管理端页面或部署规则写进本仓库。
 
 项目可在没有涂鸦密钥和安全组件时以 Mock/静态预览方式运行；真实设备能力通过原生 Smart Life App SDK 与 Flutter `MethodChannel` 桥接。
 

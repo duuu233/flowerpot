@@ -27,9 +27,9 @@ void main() {
     expect(find.text('13:30'), findsOneWidget);
     expect(find.text('22:00'), findsOneWidget);
     expect(find.text('次日07:30'), findsOneWidget);
-    expect(find.text('让 YSplanter 在正午稍作休息，可自定义她的小憩时'), findsOneWidget);
+    expect(find.text('让东方金穗在正午稍作休息，可自定义她的小憩时'), findsOneWidget);
     expect(find.text('间。'), findsOneWidget);
-    expect(find.text('设定 YSplanter 的夜间作息选择她的入睡与醒来时间。'), findsOneWidget);
+    expect(find.text('设定东方金穗的夜间作息选择她的入睡与醒来时间。'), findsOneWidget);
 
     final cards = find.byType(BehaviorScheduleCard);
     expect(cards, findsNWidgets(2));

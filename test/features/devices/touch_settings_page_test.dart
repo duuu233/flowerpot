@@ -22,7 +22,7 @@ void main() {
     expect(find.text('触觉感知'), findsOneWidget);
     expect(find.text('触摸交互'), findsOneWidget);
     expect(find.text('已禁用'), findsOneWidget);
-    expect(find.text('YSplanter可以通过它的植物与身体感知人类触摸。'), findsOneWidget);
+    expect(find.text('东方金穗可以通过它的植物与身体感知人类触摸。'), findsOneWidget);
     expect(find.text('传感器灵敏度'), findsOneWidget);
     expect(find.text('80%'), findsOneWidget);
     expect(findAssetImage(AppAssets.touchGestureSymbol), findsOneWidget);

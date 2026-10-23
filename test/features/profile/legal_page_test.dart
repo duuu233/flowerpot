@@ -10,7 +10,7 @@ void main() {
     await _pumpLegalPage(tester, const Size(375, 812));
 
     expect(find.text('隐私政策'), findsOneWidget);
-    expect(find.text('《YSplanter 隐私政策》'), findsOneWidget);
+    expect(find.text('《东方金穗隐私政策》'), findsOneWidget);
     expect(find.text('更新日期：2026-6-13'), findsOneWidget);
     expect(find.text('生效日期：2026-6-13'), findsOneWidget);
     expect(find.text('前言'), findsOneWidget);
@@ -38,9 +38,9 @@ void main() {
     await _pumpLegalPage(tester, const Size(375, 812), privacy: false);
 
     expect(find.text('用户协议'), findsOneWidget);
-    expect(find.text('《YSplanter 用户协议》'), findsOneWidget);
+    expect(find.text('《东方金穗用户协议》'), findsOneWidget);
     expect(find.text('一、服务说明'), findsOneWidget);
-    expect(find.text('《YSplanter 隐私政策》'), findsNothing);
+    expect(find.text('《东方金穗隐私政策》'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
