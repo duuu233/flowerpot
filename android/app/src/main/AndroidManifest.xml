@@ -76,5 +76,11 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- App 升级「立即更新」用 url_launcher 以 https VIEW 意图打开下载地址。Android 11+
+             的包可见性限制下不声明这一条，部分机型解析不到浏览器，表现为点了没反应。 -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

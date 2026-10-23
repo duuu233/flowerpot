@@ -49,6 +49,7 @@ class _AboutPageState extends State<AboutPage>
     return model.copyWith(
       updateStatus: latest.hasUpdate ? '发现新版本 V${latest.versionNo}' : '已是最新版本',
       releaseNotes: latest.releaseNotes.isEmpty ? null : latest.releaseNotes,
+      hasUpdate: latest.hasUpdate,
     );
   }
 
@@ -104,7 +105,8 @@ class _AboutPageState extends State<AboutPage>
     await showAppUpdateDialog(
       context,
       version: latest,
-      force: latest.forceUpdate,
+      // 与启动时一致：后台没配下载地址就不按强制弹，否则关不掉又打不开下载页。
+      force: latest.forceUpdate && latest.downloadUrl.trim().isNotEmpty,
     );
   }
 }

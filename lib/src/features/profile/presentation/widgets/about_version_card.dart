@@ -34,6 +34,7 @@ class AboutVersionCard extends StatelessWidget {
           label: '检查更新',
           value: model.updateStatus,
           onTap: onCheckUpdate,
+          badge: model.hasUpdate,
         ),
       ],
     );
@@ -47,6 +48,7 @@ class _AboutVersionTile extends StatelessWidget {
     required this.label,
     this.value,
     this.onTap,
+    this.badge = false,
   });
 
   final Key tileKey;
@@ -54,6 +56,9 @@ class _AboutVersionTile extends StatelessWidget {
   final String label;
   final String? value;
   final VoidCallback? onTap;
+
+  /// 有新版本时行尾点红点，排在状态文字前面。
+  final bool badge;
 
   @override
   Widget build(BuildContext context) {
@@ -69,6 +74,20 @@ class _AboutVersionTile extends StatelessWidget {
       ),
       title: label,
       value: value,
+      trailing: badge
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const AppNoticeDot(semanticLabel: '有新版本'),
+                const SizedBox(width: AppSpacing.xs),
+                if (value != null) ...<Widget>[
+                  Text(value!, style: Theme.of(context).textTheme.bodyMedium),
+                  const SizedBox(width: AppSpacing.xs),
+                ],
+                if (onTap != null) const AppTrailingChevron(),
+              ],
+            )
+          : null,
       onTap: onTap,
       minTileHeight: 56,
       titleStyle: AppTypography.sectionTitle.copyWith(

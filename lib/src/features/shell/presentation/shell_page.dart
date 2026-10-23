@@ -38,7 +38,9 @@ class _AppShellState extends State<AppShell> {
     await state.checkAppVersion(AboutPageModel.current().version);
     if (!mounted || _updateDialogShown || !state.mustUpdateApp) return;
     final version = state.appVersion;
-    if (version == null) return;
+    // 后台没配下载地址时不弹：弹窗关不掉、按钮又打不开下载页，用户就彻底卡死了。
+    // 红点照常亮，用户仍可从「关于 → 检查更新」看到新版本。
+    if (version == null || version.downloadUrl.trim().isEmpty) return;
     _updateDialogShown = true;
     await showAppUpdateDialog(context, version: version, force: true);
   }

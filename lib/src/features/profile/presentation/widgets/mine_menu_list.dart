@@ -48,8 +48,19 @@ class MineMenuList extends StatelessWidget {
                 semanticLabel: item.label,
               ),
               titleStyle: AppTypography.status.copyWith(fontSize: 16),
-              // 意见反馈点了是复制邮箱，不是跳页，所以行尾画复制图标而不是箭头。
+              // 有新版本的那一行（关于）在箭头前点红点；意见反馈点了是复制邮箱，
+              // 不是跳页，所以有邮箱时行尾画复制图标而不是箭头。
               trailing: item.badge
+                  ? const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        AppNoticeDot(semanticLabel: '有新版本'),
+                        SizedBox(width: AppSpacing.xs),
+                        AppTrailingChevron(),
+                      ],
+                    )
+                  : item.kind == MineMenuKind.feedback &&
+                        item.trailingValue != null
                   ? const Icon(Icons.copy_rounded, size: 18,
                       color: AppColors.textSecondary, semanticLabel: '复制邮箱')
                   : null,

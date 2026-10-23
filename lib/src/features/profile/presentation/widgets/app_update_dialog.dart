@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/backend/backend.dart';
 import '../../../../design_system/design_system.dart';
@@ -11,8 +11,7 @@ import '../../../../design_system/design_system.dart';
 ///   后检测到就弹，没有取消、返回键也关不掉，升级完是新装的包，重进自然不再命中；
 /// - **提示升级**：用户在「关于东方金穗 → 检查更新」里点出来的，可以「稍后再说」。
 ///
-/// 「立即更新」目前把下载地址复制到剪贴板——项目还没有 `url_launcher` 依赖，加它
-/// 需要跑一次 `flutter pub get`；接上之后把 [_copyDownloadUrl] 换成打开链接即可。
+/// 「立即更新」用外部浏览器 / 应用商店打开后台配置的下载地址（`downloadPath`）。
 Future<void> showAppUpdateDialog(
   BuildContext context, {
   required BackendAppVersion version,
@@ -68,7 +67,7 @@ Future<void> showAppUpdateDialog(
             ),
           FilledButton(
             key: const Key('app-update-now'),
-            onPressed: () => _copyDownloadUrl(dialogContext, version, force),
+            onPressed: () => _openDownloadUrl(dialogContext, version, force),
             child: const Text('立即更新'),
           ),
         ],
@@ -77,7 +76,11 @@ Future<void> showAppUpdateDialog(
   );
 }
 
-Future<void> _copyDownloadUrl(
+/// 下载地址来自后台，只放行 https 与两家应用商店的 scheme：被配成 intent://、tel://
+/// 之类时，外部打开会直接拉起任意应用。
+const Set<String> _allowedDownloadSchemes = <String>{'https', 'market', 'itms-apps'};
+
+Future<void> _openDownloadUrl(
   BuildContext context,
   BackendAppVersion version,
   bool force,
@@ -87,9 +90,22 @@ Future<void> _copyDownloadUrl(
     showAppMessage(context, '后台还没有配置下载地址', tone: AppMessageTone.error);
     return;
   }
-  await Clipboard.setData(ClipboardData(text: url));
+  final uri = Uri.tryParse(url);
+  if (uri == null || !_allowedDownloadSchemes.contains(uri.scheme)) {
+    showAppMessage(context, '下载地址无效，请稍后再试', tone: AppMessageTone.error);
+    return;
+  }
+  var opened = false;
+  try {
+    opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    // 没有应用商店的 ROM 上 market:// 会抛 PlatformException，不能冒泡崩掉 App。
+  }
   if (!context.mounted) return;
-  showAppMessage(context, '下载地址已复制，请在浏览器中打开');
-  // 强制升级不关弹窗：用户拿到地址去更新，回来仍然被挡着。
+  if (!opened) {
+    showAppMessage(context, '无法打开下载地址，请稍后再试', tone: AppMessageTone.error);
+    return;
+  }
+  // 强制升级不关弹窗：用户从下载页回来若没真的升级，仍然被挡着。
   if (!force) Navigator.of(context).pop();
 }

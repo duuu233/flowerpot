@@ -4070,9 +4070,11 @@ class FlowerpotState extends ChangeNotifier {
   /// 有新版本且是强制升级（`compulsory == 1`）：App 一打开就要弹不可取消的弹窗。
   bool get mustUpdateApp => hasAppUpdate && (_appVersion?.forceUpdate ?? false);
 
-  /// 查一次 App 版本更新状态。[currentVersion] 传本机版本号，例如 `1.0.0`。
+  /// 查一次 App 版本更新状态。[currentVersion] 传本机版本号（`AppBuildInfo.version`），
+  /// 例如 `1.0.0`；读不到（空串）就不查——拿空版本号去比，后端只会回「有新版本」。
   Future<BackendAppVersion?> checkAppVersion(String currentVersion) async {
     if (!_backend.enabled || !_backend.hasSession) return null;
+    if (currentVersion.trim().isEmpty) return null;
     try {
       _appVersion = await _backend.getLastVersion(currentVersion);
       notifyListeners();

@@ -1,4 +1,5 @@
 import 'package:flowerpot/src/design_system/design_system.dart';
+import 'package:flowerpot/src/features/profile/models/about_page_model.dart';
 import 'package:flowerpot/src/features/profile/presentation/about_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +40,25 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('有新版本时「检查更新」那一行点红点', (tester) async {
+    final base = AboutPageModel.current();
+    await _pumpAboutPage(
+      tester,
+      const Size(375, 812),
+      pageModel: base.copyWith(updateStatus: '发现新版本 V1.0.1', hasUpdate: true),
+    );
+
+    final checkUpdate = find.byKey(const Key('about-check-update'));
+    expect(
+      find.descendant(of: checkUpdate, matching: find.byType(AppNoticeDot)),
+      findsOneWidget,
+    );
+    expect(find.text('发现新版本 V1.0.1'), findsOneWidget);
+
+    await _pumpAboutPage(tester, const Size(375, 812), pageModel: base);
+    expect(find.byType(AppNoticeDot), findsNothing);
+  });
+
   testWidgets('版本说明整行已下线', (tester) async {
     await _pumpAboutPage(tester, const Size(375, 812));
 
@@ -59,11 +79,18 @@ void main() {
   });
 }
 
-Future<void> _pumpAboutPage(WidgetTester tester, Size size) async {
+Future<void> _pumpAboutPage(
+  WidgetTester tester,
+  Size size, {
+  AboutPageModel? pageModel,
+}) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(
-    MaterialApp(theme: buildAppTheme(), home: const AboutPage()),
+    MaterialApp(
+      theme: buildAppTheme(),
+      home: AboutPage(pageModel: pageModel),
+    ),
   );
   await tester.pump();
 }

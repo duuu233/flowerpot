@@ -58,6 +58,52 @@ void main() {
     );
   });
 
+  testWidgets('有新版本时「关于东方金穗」点红点，意见反馈仍是复制图标', (tester) async {
+    Future<void> pumpMenu({required bool hasAppUpdate}) async {
+      final model = MinePageModel.fromUser(
+        null,
+        feedbackEmail: 'service@example.test',
+        hasAppUpdate: hasAppUpdate,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: MineMenuList(
+                items: model.menuItems,
+                height: 440,
+                onItemTap: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    await pumpMenu(hasAppUpdate: true);
+    final aboutRow = find.ancestor(
+      of: find.text('关于东方金穗'),
+      matching: find.byType(ListTile),
+    );
+    expect(
+      find.descendant(of: aboutRow, matching: find.byType(AppNoticeDot)),
+      findsOneWidget,
+    );
+    expect(find.byType(AppNoticeDot), findsOneWidget);
+    // 红点不能顶掉意见反馈的复制图标，也不能画成复制图标。
+    expect(find.byIcon(Icons.copy_rounded), findsOneWidget);
+    expect(
+      find.descendant(of: aboutRow, matching: find.byIcon(Icons.copy_rounded)),
+      findsNothing,
+    );
+
+    await pumpMenu(hasAppUpdate: false);
+    expect(find.byType(AppNoticeDot), findsNothing);
+    expect(find.byIcon(Icons.copy_rounded), findsOneWidget);
+  });
+
   testWidgets('mine menu remains scrollable at 320x568', (tester) async {
     await _pumpMineWidgets(tester, const Size(320, 568));
 

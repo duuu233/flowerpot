@@ -43,7 +43,10 @@ dependencies:
   # dart:ui 只能编 PNG，所以编码这一步得靠它。
   image: ^4.10.1
   image_picker: ^1.1.2
+  # App 升级：本机版本号从系统读（不写死），「立即更新」用外部浏览器 / 应用商店打开下载地址。
+  package_info_plus: ^10.2.1
   shared_preferences: ^2.3.2
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:
