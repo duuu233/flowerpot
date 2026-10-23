@@ -3498,10 +3498,10 @@ class FlowerpotState extends ChangeNotifier {
   // 只是「重新问 SDK → 还在升级就挂回监听」，**绝不重新下发升级**（原生层对 2/5 只挂监听）。
 
   /// SDK 失败/超时收尾后，多久之内还会尝试接回。
-  static const Duration otaResumeWindow = Duration(minutes: 30);
+  static const Duration otaResumeWindow = Duration(minutes: 120);
 
   /// 前台轮询里为同一台设备问 SDK 的最短间隔。回前台那一次不受它限制。
-  static const Duration otaResumeCheckInterval = Duration(seconds: 30);
+  static const Duration otaResumeCheckInterval = Duration(seconds: 10);
 
   /// 回前台 / 网络恢复（前台轮询）时，哪些设备值得重新问 SDK。
   ///
@@ -5085,7 +5085,7 @@ class FlowerpotState extends ChangeNotifier {
       _scheduleOtaProbe(id);
     }
     // 网络恢复没有单独的监听：断网期间这一拍照样在跑，问 SDK 失败就等下一拍
-    // （同一台最多 30 秒问一次），网一通就接回中断的升级。
+    // （同一台最多 10 秒问一次），网一通就接回中断的升级。
     _resumeOtaTasks(afterBackground: false);
     final epoch = _sessionEpoch;
     final queried = {for (final device in _devices) device.id: device};

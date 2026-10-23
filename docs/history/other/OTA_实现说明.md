@@ -7,8 +7,8 @@
 | 场景 | 现在的行为 |
 | --- | --- |
 | 关掉 App 重开 | 进设备页（`FirmwareReminderHost`）、花盆「其他设置」页的静默检查，以及点升级入口，都经 `FlowerpotState.checkFirmware`；SDK 报升级中（2/5）即 `_reattachOta`：建好「升级中」状态并调原生启动接口（原生对 2/5 只挂监听），那一行直接显示「升级中 N%」，点入口直接打开进度弹层。 |
-| 息屏 / 切后台回来 | `resumeDeviceWatch` 立即 `_resumeOtaTasks(afterBackground: true)`：SDK 非明确失败 30 分钟内、核验中、停滞的设备重新问 SDK；**iOS 另含所有进行中的**（iOS 无进度查询兜底，挂起期间回调会丢）。Android 进度正常在走的不重挂（每 3 秒查询兜底）。 |
-| 断网恢复 | 无常驻网络监听；前台在线轮询（3 秒）每拍调 `_resumeOtaTasks`，同一台最多 30 秒问一次，断网期间问不到就等下一拍，网通后接回。 |
+| 息屏 / 切后台回来 | `resumeDeviceWatch` 立即 `_resumeOtaTasks(afterBackground: true)`：SDK 非明确失败 120 分钟内、核验中、停滞的设备重新问 SDK；**iOS 另含所有进行中的**（iOS 无进度查询兜底，挂起期间回调会丢）。Android 进度正常在走的不重挂（每 3 秒查询兜底）。 |
+| 断网恢复 | 无常驻网络监听；前台在线轮询（3 秒）每拍调 `_resumeOtaTasks`，同一台最多 10 秒问一次，断网期间问不到就等下一拍，网通后接回。 |
 | 接回之后 | 同一目标版本保留原百分比（只增不减），清掉核验/停滞，弹层与那一行接着走；`_otaInterruptedAt` 清除。 |
 | SDK 已查不到这次升级 | 回来后 SDK 返回无可升级固件：仍在等结果的这次转核验（`_verifyOtaAfterResume`），现读 SDK 设备版本 / 本次版本 DP，对上目标即完成；2 分钟无结果显示「暂未确认升级结果」可关闭。SDK 仍报待装（1）则不下结论，照旧等事件与停滞提示。 |
 

@@ -398,14 +398,14 @@ void main() {
       expect(repository.starts, 1);
     });
 
-    test('超过 30 分钟的中断不再接回', () async {
+    test('超过 120 分钟的中断不再接回', () async {
       final repository = _Repository();
       var now = DateTime(2026);
       final state = await _signedIn(repository, () => now);
       addTearDown(state.dispose);
       await state.upgradeFirmware('mower-test', '1.1.0');
       await _progress(repository, status: OtaStatus.failed);
-      now = now.add(const Duration(minutes: 31));
+      now = now.add(const Duration(minutes: 121));
 
       repository.inProgress = true;
       state.resumeDeviceWatch();
