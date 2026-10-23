@@ -59,7 +59,7 @@ class _MinePageState extends State<MinePage> with NetworkRetryAware<MinePage> {
         MinePageModel.fromUser(
           state.user,
           feedbackEmail: state.basicData.platformEmail,
-          hasAppUpdate: state.hasAppUpdate,
+          hasAppUpdate: state.showAppUpdateBadge,
         );
 
     return AppPageScaffold(

@@ -72,6 +72,46 @@ void main() {
     repository.close();
   });
 
+  test('App 版本：compulsory 1 强制、4 不提示（有新版本也不点红点）', () async {
+    Future<BackendAppVersion?> lastVersion(int compulsory) async {
+      final repository = HttpAppBackendRepository(
+        client: ApiClient(
+          baseUrl: 'https://example.test',
+          session: ApiSession(storageKey: 'backend.version.token')
+            ..setToken('api-token'),
+          httpClient: MockClient(
+            (_) async => _response(<String, Object?>{
+              'appVersionNo': '1.0.1',
+              'isUpdate': 1,
+              'compulsory': compulsory,
+              'downloadPath': 'https://example.test/app.apk',
+              'upgradeTips': '修复问题',
+            }),
+          ),
+        ),
+      );
+      final version = await repository.getLastVersion('1.0.0');
+      repository.close();
+      return version;
+    }
+
+    final forced = await lastVersion(1);
+    expect(forced!.hasUpdate, isTrue);
+    expect(forced.forceUpdate, isTrue);
+    expect(forced.showsBadge, isTrue);
+
+    for (final compulsory in <int>[2, 3]) {
+      final prompt = await lastVersion(compulsory);
+      expect(prompt!.forceUpdate, isFalse);
+      expect(prompt.showsBadge, isTrue);
+    }
+
+    final silent = await lastVersion(4);
+    expect(silent!.hasUpdate, isTrue);
+    expect(silent.forceUpdate, isFalse);
+    expect(silent.showsBadge, isFalse);
+  });
+
   test('verification login registers an unknown mobile', () async {
     final requests = <http.Request>[];
     final session = ApiSession(storageKey: 'backend.code-login.token');

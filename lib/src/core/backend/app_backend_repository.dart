@@ -713,6 +713,7 @@ class HttpAppBackendRepository implements AppBackendRepository {
       forceUpdate: compulsory == null
           ? _boolean(row['isForce'] ?? row['forceUpdate'] ?? row['isCoerce'])
           : compulsory == 1,
+      silent: compulsory == 4,
       downloadUrl: _text(
         row,
         'downloadPath',

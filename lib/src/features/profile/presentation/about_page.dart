@@ -49,7 +49,8 @@ class _AboutPageState extends State<AboutPage>
     return model.copyWith(
       updateStatus: latest.hasUpdate ? '发现新版本 V${latest.versionNo}' : '已是最新版本',
       releaseNotes: latest.releaseNotes.isEmpty ? null : latest.releaseNotes,
-      hasUpdate: latest.hasUpdate,
+      // 「不提示升级」的版本：文字照样写发现新版本（用户自己点进来看的），只是不点红点。
+      hasUpdate: latest.showsBadge,
     );
   }
 

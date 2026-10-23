@@ -29,10 +29,13 @@
 
 ## 未改 / 待定
 
-- `compulsory`=4（不提示）有新版本时仍点红点（红点不算打扰）；如需「不提示」连红点也不亮，改 `FlowerpotState.hasAppUpdate` 一处即可。
 - 后台没配下载地址时不回退调 `getAndroidDownload`：该接口返回结构未核实，且 iOS 不适用。
 - `lib/src/features/profile/presentation/app_settings_page.dart` 里的「App 升级」行是未接入路由的旧页面，未动。
 - 弹窗文案仍为中文。
+
+## 同日追加：「不提示升级」不点红点
+
+用户确认「“不提示”的意思是连红点也不要」。`BackendAppVersion` 新增 `silent`（`compulsory == 4`）与 `showsBadge`（有新版本且非 silent）；「我的」菜单取 `FlowerpotState.showAppUpdateBadge`，关于页「检查更新」红点取 `showsBadge`，状态文字与点击弹框不变；`hasAppUpdate` / 强制判定不变。新增 `app_backend_repository_test` 用例覆盖 compulsory 1–4 的解析。
 
 ## 验证
 

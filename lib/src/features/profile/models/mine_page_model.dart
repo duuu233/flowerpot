@@ -25,7 +25,7 @@ class MineMenuItem {
   final String label;
   final String? trailingValue;
 
-  /// 行尾的小红点。目前只有「关于东方金穗」用：后端说有新版本时点亮。
+  /// 行尾的小红点。目前只有「关于东方金穗」用：后端说有新版本、且没配成「不提示」时点亮。
   final bool badge;
 }
 

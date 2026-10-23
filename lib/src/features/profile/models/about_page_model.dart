@@ -33,7 +33,7 @@ class AboutPageModel {
   final String updateStatus;
   final List<String> releaseNotes;
 
-  /// 后端说有新版本：「检查更新」那一行点红点。
+  /// 「检查更新」那一行点红点：有新版本且后台没配成「不提示」（`compulsory == 4`）。
   final bool hasUpdate;
 
   AboutPageModel copyWith({

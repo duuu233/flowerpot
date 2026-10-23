@@ -133,6 +133,7 @@ class BackendAppVersion {
     required this.versionNo,
     required this.hasUpdate,
     this.forceUpdate = false,
+    this.silent = false,
     this.downloadUrl = '',
     this.releaseNotes = const <String>[],
   });
@@ -140,8 +141,14 @@ class BackendAppVersion {
   final String versionNo;
   final bool hasUpdate;
   final bool forceUpdate;
+
+  /// 后台把这一版配成「不提示升级」（`compulsory == 4`）：有新版本也不点红点。
+  final bool silent;
   final String downloadUrl;
   final List<String> releaseNotes;
+
+  /// 升级入口要不要点红点：有新版本，且后台没配成「不提示」。
+  bool get showsBadge => hasUpdate && !silent;
 }
 
 /// `/Client/Basic/getBasicData` 的结果。
