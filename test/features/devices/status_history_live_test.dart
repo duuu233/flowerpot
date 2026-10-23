@@ -94,6 +94,56 @@ void main() {
     expect(state.chartSeries(id, SensorMetric.waterLevel, ReportRange.day), next);
   });
 
+  test('月曲线最多 180 点，不按日视图的 96 截掉', () async {
+    final (state, repository) = await _session();
+    final id = state.devices.single.id;
+    final month = List<double>.generate(180, (index) => index.toDouble());
+
+    await _push(
+      repository,
+      state,
+      <int>{133},
+      history: DeviceHistory(<String, List<double>>{
+        DeviceHistory.key(SensorMetric.waterLevel, ReportRange.month): month,
+      }),
+    );
+
+    expect(
+      state.chartSeries(id, SensorMetric.waterLevel, ReportRange.month),
+      month,
+    );
+  });
+
+  test('日视图每个点带时刻：日包按 15 分钟一格，实时点接在后面不倒退', () async {
+    final (state, repository) = await _session();
+    final id = state.devices.single.id;
+
+    await _push(
+      repository,
+      state,
+      <int>{131},
+      history: DeviceHistory(<String, List<double>>{
+        DeviceHistory.key(SensorMetric.waterLevel, ReportRange.day): <double>[
+          10,
+          20,
+          30,
+        ],
+      }),
+    );
+    await _push(repository, state, <int>{105}, waterLevel: 40);
+
+    final chart = state.chartData(id, SensorMetric.waterLevel, ReportRange.day);
+    expect(chart.values, <double>[10, 20, 30, 40]);
+    expect(chart.minutes.sublist(0, 3), <int>[0, 15, 30]);
+    expect(chart.minutes.last, greaterThanOrEqualTo(30));
+    expect(chart.gaps, <bool>[false, false, false, false]);
+    // 周 / 月不带时刻。
+    expect(
+      state.chartData(id, SensorMetric.waterLevel, ReportRange.week).minutes,
+      isEmpty,
+    );
+  });
+
   testWidgets('设备还没推 164 日包时：推一次 112 曲线就出来，再推往前走', (tester) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));

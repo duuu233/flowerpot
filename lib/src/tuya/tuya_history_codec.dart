@@ -50,6 +50,9 @@ abstract final class TuyaHistoryCodec {
   static const maxDailyWindow = 7;
 
   /// 解一个日帧。帧长对不上、日期不合法或是未对时帧时返回 null（丢弃）。
+  ///
+  /// 单帧看不出自己是不是「今天」，所以过去日帧必须满 96 点这条在
+  /// [HistoryFrameBuffer.addDay] 里按最新日期核。
   static HistoryDayFrame? decodeDayFrame(
     Object? value, {
     required int sampleBytes,
@@ -225,7 +228,8 @@ class HistoryMonthSegment {
 ///
 /// - 日：按**帧头日期**归档（不自行修正日期），同一天再来一帧就整块替换（今天那帧随
 ///   时间变长，跨 0 点后新一天从 1 个点开始）；只留最新那天往前
-///   [TuyaHistoryCodec.maxDailyWindow] 天。
+///   [TuyaHistoryCodec.maxDailyWindow] 天。过去的日帧是**定长 96 点**，比最新日期早两天
+///   及以上却不足 96 点的帧与帧头矛盾，丢弃（见 [addDay]）。
 /// - 周：单帧，新帧直接替换。
 /// - 月：按段号拼。帧头日期或总段数一变就是新的一期，旧段清掉重攒；没收齐时先用
 ///   已收到的段，不等第 2 段。
@@ -249,7 +253,15 @@ class HistoryFrameBuffer {
       newest.month,
       newest.day - (TuyaHistoryCodec.maxDailyWindow - 1),
     );
-    days.removeWhere((date, _) => date.isBefore(oldest));
+    // 只有今天那帧是变长的。昨天放宽一天：跨 0 点时手里那份「昨天」是它还是今天
+    // 时收到的（可能差最后几个点），0 点全量上报会马上补来 96 点的那份。
+    final yesterday = DateTime(newest.year, newest.month, newest.day - 1);
+    days.removeWhere(
+      (date, samples) =>
+          date.isBefore(oldest) ||
+          (date.isBefore(yesterday) &&
+              samples.length != TuyaHistoryCodec.dailySamples),
+    );
   }
 
   void addWeek(String identifier, HistoryWindowFrame frame) {

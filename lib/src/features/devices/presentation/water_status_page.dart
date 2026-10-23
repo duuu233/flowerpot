@@ -77,7 +77,7 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
       language: FlowerpotScope.of(context).languageCode,
     );
     // 和上面的读数一样现读：涂鸦一推送，页面重建，曲线跟着往前走。
-    final values = FlowerpotScope.of(context).chartSeries(
+    final chart = FlowerpotScope.of(context).chartData(
       widget.deviceId,
       metric.sensorMetric,
       range,
@@ -86,6 +86,8 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
       // 标签翻了、曲线还是今天那条，看着像「翻了没反应」。
       date: HistoryPeriod.dayFor(periodOffset),
     );
+    final values = chart.values;
+    final ticks = _chartTicks(chart);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '需水状态', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -131,7 +133,9 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
                     WaterTrendChartCard(
                       metric: metric,
                       values: values,
-                      labels: _chartLabels(values.length),
+                      gaps: chart.gaps,
+                      labels: ticks.labels,
+                      labelPositions: ticks.positions,
                       onMetricChanged: _changeMetric,
                     ),
                   const SizedBox(height: AppSpacing.lg),
@@ -177,15 +181,15 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
 
   String _formatDay(DateTime date) => '${date.month}月${date.day}日';
 
-  List<String> _chartLabels(int count) => switch (range) {
-    ReportRange.day => const <String>[
-      '00:00',
-      '05:00',
-      '10:00',
-      '15:00',
-      '20:00',
-      '00:00',
-    ],
-    _ => HistoryPeriod.relativeTicks(count),
+  /// 日视图按点的真实时刻标整点（今天那条只到现在，不能拉满 00:00–24:00）；
+  /// 周 / 月等距标相对天数。
+  ({List<String> labels, List<double>? positions}) _chartTicks(
+    HistoryChart chart,
+  ) => switch (range) {
+    ReportRange.day => HistoryPeriod.timeTicks(chart.minutes),
+    _ => (
+      labels: HistoryPeriod.relativeTicks(chart.values.length),
+      positions: null,
+    ),
   };
 }

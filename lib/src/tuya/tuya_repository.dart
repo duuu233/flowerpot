@@ -1508,6 +1508,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       );
       final series = <String, List<double>>{};
       final daily = <String, Map<String, List<double>>>{};
+      final latestDays = <String, String>{};
       TuyaConfig.history.forEach((metricKey, ranges) {
         final metric = _historyMetric(metricKey);
         final sampleBytes = TuyaConfig.historySampleBytes[metricKey] ?? 1;
@@ -1539,6 +1540,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
               series[DeviceHistory.key(metric, range)] = restore(
                 days.last.samples,
               );
+              latestDays[metric.name] = days.last.dayKey;
             case ReportRange.week:
               final frame = TuyaHistoryCodec.decodeWeekFrame(
                 value,
@@ -1565,7 +1567,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         });
       });
       if (series.isEmpty && daily.isEmpty) return DeviceHistory.empty;
-      return DeviceHistory(series, daily);
+      return DeviceHistory(series, daily, latestDays);
     }
 
     final batteryStatus =

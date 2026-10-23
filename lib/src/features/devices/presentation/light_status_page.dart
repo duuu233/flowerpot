@@ -29,18 +29,6 @@ class _LightStatusPageState extends State<LightStatusPage> {
   int periodOffset = 0;
   bool initialized = false;
 
-  /// 日视图横轴上的那几个时间点。和需水 / 温度 / 湿度页一样是**均分在轴上**的几个
-  /// 刻度，不是一点一个标签——[WaterTrendLineChart] 按标签个数均分，96 个点配 6 个
-  /// 刻度。
-  static const _dayLabels = <String>[
-    '00:00',
-    '05:00',
-    '10:00',
-    '15:00',
-    '20:00',
-    '00:00',
-  ];
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -84,7 +72,7 @@ class _LightStatusPageState extends State<LightStatusPage> {
     //
     // ⚠️ 2026-09-15 以前这里读的是 [SensorMetric.dli]，而仓库把 137–139 解出来存在
     // [SensorMetric.light] 名下——功能点表里压根没有 DLI 历史 DP，真机上永远空态。
-    final values = FlowerpotScope.of(context).chartSeries(
+    final chart = FlowerpotScope.of(context).chartData(
       widget.deviceId,
       SensorMetric.light,
       range,
@@ -93,6 +81,9 @@ class _LightStatusPageState extends State<LightStatusPage> {
       // 标签翻了、曲线还是今天那条，看着像「翻了没反应」。
       date: HistoryPeriod.dayFor(periodOffset),
     );
+    final values = chart.values;
+    // 日视图横轴按点的真实时刻标整点：今天那条只到现在，不能拉满 00:00–24:00。
+    final dayTicks = HistoryPeriod.timeTicks(chart.minutes);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '光照状态', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -159,7 +150,9 @@ class _LightStatusPageState extends State<LightStatusPage> {
                       chart: range == ReportRange.day
                           ? WaterTrendLineChart(
                               values: values,
-                              labels: _dayLabels,
+                              gaps: chart.gaps,
+                              labels: dayTicks.labels,
+                              labelPositions: dayTicks.positions,
                               unit: 'lux',
                               maxValue: _axisMax(values),
                               semanticsName: '光照强度趋势图',
@@ -207,9 +200,10 @@ class _LightStatusPageState extends State<LightStatusPage> {
   String _formatDay(DateTime date) => '${date.month}月${date.day}日';
 
   /// 柱状图的标签是**一根柱子一个**（[LightDliBarChart] 按下标取），所以要按点数
-  /// 生成。日视图已经改画折线、走 [_dayLabels]，这里只剩周和月：只标相对天数。
+  /// 生成。日视图已经改画折线、按时刻标（[HistoryPeriod.timeTicks]），这里只剩周和
+  /// 月：只标相对天数。
   List<String> _chartLabels(int count) => switch (range) {
-    ReportRange.day => _dayLabels,
+    ReportRange.day => const <String>[],
     ReportRange.week => HistoryPeriod.relativeBarLabels(count),
     ReportRange.month => HistoryPeriod.relativeBarLabels(count, every: 30),
   };

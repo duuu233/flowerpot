@@ -128,6 +128,7 @@ class DeviceHistory {
   const DeviceHistory(
     this._series, [
     this._daily = const <String, Map<String, List<double>>>{},
+    this._latestDays = const <String, String>{},
   ]);
 
   static const empty = DeviceHistory(<String, List<double>>{});
@@ -140,6 +141,9 @@ class DeviceHistory {
   /// 取其中一天，所以日包除了进 [_series]（那份是最新那天，给状态页那条曲线）还
   /// 另存一份按天的。周 / 月包不进这里——它们本来就是「每天一个平均值」的一整段。
   final Map<String, Map<String, List<double>>> _daily;
+
+  /// 每个指标日视图那条（[series] 的日）是哪一天：`metric.name` → `MM-DD`。
+  final Map<String, String> _latestDays;
 
   static String key(SensorMetric metric, ReportRange range) =>
       '${metric.name}.${range.name}';
@@ -171,6 +175,60 @@ class DeviceHistory {
   /// 指标压根没有历史 DP」用。
   Set<String> reportedDays(SensorMetric metric) =>
       _daily[metric.name]?.keys.toSet() ?? const <String>{};
+
+  /// 日视图那条（最新那天）的「没采到」标记，和 [series] 的日一一对应。
+  List<bool> latestDayGaps(SensorMetric metric) {
+    final day = _latestDays[metric.name];
+    return day == null ? const <bool>[] : _gaps(metric, day);
+  }
+
+  /// [date] 那天的「没采到」标记，和 [daySeries] 一一对应。
+  List<bool> dayGaps(SensorMetric metric, DateTime date) =>
+      _gaps(metric, dayKeyOf(date));
+
+  /// 设备没采到的一刻钟以 0 补齐（`app_DP_问题修正说明.md` §4.5 第 2 条），单看一个
+  /// 指标分不出「没采到」和「真是 0」：夜里光照是 0、水箱空了水位也是 0。
+  ///
+  /// 设备每一刻钟是 5 个指标一起采的，没采到就 5 个一起补 0；真实读数里空气湿度
+  /// 不会是 0，5 个同时为 0 只能是没采到。所以：那一刻**这天所有有数据的指标都是 0**
+  /// 才算没采到。今天那几帧是先后到的，某个指标还没到这一格就只看已到的；只有一个
+  /// 指标到了的那一格不下结论（一个 0 分不出来），照常画。
+  List<bool> _gaps(SensorMetric metric, String day) {
+    final values = _daily[metric.name]?[day];
+    if (values == null) return const <bool>[];
+    final sameDay = <List<double>>[
+      for (final byDay in _daily.values)
+        if (byDay[day] case final points?) points,
+    ];
+    return <bool>[
+      for (var i = 0; i < values.length; i++) _missingAt(sameDay, i),
+    ];
+  }
+
+  static bool _missingAt(List<List<double>> sameDay, int index) {
+    final known = sameDay.where((points) => index < points.length);
+    return known.length >= 2 && known.every((points) => points[index] == 0);
+  }
+}
+
+/// 状态页的一条曲线：点，加上画图要的两样旁注。
+class HistoryChart {
+  const HistoryChart(
+    this.values, {
+    this.minutes = const <int>[],
+    this.gaps = const <bool>[],
+  });
+
+  static const empty = HistoryChart(<double>[]);
+
+  final List<double> values;
+
+  /// 日视图每个点的时刻，距那天 00:00 的分钟数，和 [values] 一一对应：日包第 k 个点是
+  /// k × 15，实时点是收到它的时刻；跨过 0 点的接着往上加（≥ 1440）。周 / 月为空。
+  final List<int> minutes;
+
+  /// 设备没采到、以 0 补齐的点，和 [values] 一一对应；为空表示没有。
+  final List<bool> gaps;
 }
 
 /// A change the planter pushed on its own, rather than an answer to a call the

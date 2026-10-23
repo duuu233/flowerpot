@@ -39,6 +39,64 @@ abstract final class HistoryPeriod {
     return DateTime(now.year, now.month, now.day + offset);
   }
 
+  // ── 日：按点的真实时刻标整点 ──
+  //
+  // 日包第 k 个点是那天 00:00 + k × 15 分钟，但今天那帧只到「现在」（N = 当前槽 + 1），
+  // 后面还接着实时推送的点、满 96 个往前挤。所以横轴不能写死 00:00…24:00（上午十点
+  // 只有 41 个点，会被拉满整条轴），要按每个点的时刻（[HistoryChart.minutes]）标。
+
+  /// 刻度间隔候选（分钟）：取第一个能让刻度不超过 [timeTicks] 的 maxTicks 个的。
+  static const _tickSteps = <int>[15, 30, 60, 120, 180, 240, 300, 360];
+
+  /// 日视图横轴：整点（或整刻）刻度的文字，和它落在第几个点上（可带小数，按相邻
+  /// 两点的时刻插值）。[minutes] 必须是不减的。
+  static ({List<String> labels, List<double> positions}) timeTicks(
+    List<int> minutes, {
+    int maxTicks = 6,
+  }) {
+    if (minutes.isEmpty) {
+      return (labels: const <String>[], positions: const <double>[]);
+    }
+    final first = minutes.first;
+    final last = minutes.last;
+    if (last == first) {
+      return (labels: <String>[clockLabel(first)], positions: const <double>[0]);
+    }
+    final span = last - first;
+    final step = _tickSteps.firstWhere(
+      (step) => span ~/ step + 1 <= maxTicks,
+      orElse: () => _tickSteps.last,
+    );
+    final labels = <String>[];
+    final positions = <double>[];
+    for (var minute = (first + step - 1) ~/ step * step;
+        minute <= last;
+        minute += step) {
+      labels.add(clockLabel(minute));
+      positions.add(_indexAt(minutes, minute));
+    }
+    return (labels: labels, positions: positions);
+  }
+
+  /// `HH:mm`；跨过 0 点的（≥ 1440）按第二天的钟点写。
+  static String clockLabel(int minute) {
+    final ofDay = minute % 1440;
+    final hour = (ofDay ~/ 60).toString().padLeft(2, '0');
+    final rest = (ofDay % 60).toString().padLeft(2, '0');
+    return '$hour:$rest';
+  }
+
+  static double _indexAt(List<int> minutes, int minute) {
+    for (var index = 0; index < minutes.length - 1; index++) {
+      final from = minutes[index];
+      final to = minutes[index + 1];
+      if (minute > to) continue;
+      if (to == from) return index.toDouble();
+      return index + (minute - from) / (to - from);
+    }
+    return (minutes.length - 1).toDouble();
+  }
+
   // ── 周 / 月：只标相对刻度（docs/app_DP_问题修正说明.md §4.5 第 3 条）──
   //
   // 周包 / 月包的点数是「已聚合天数」，设备断过电就会缺天；**右端对齐**，最后一个点是

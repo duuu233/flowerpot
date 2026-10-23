@@ -8,12 +8,20 @@ class TemperatureTrendChartCard extends StatelessWidget {
     required this.values,
     required this.labels,
     super.key,
+    this.gaps = const <bool>[],
+    this.labelPositions,
     this.unit = '°C',
     this.maxValue = 50,
   });
 
   final List<double> values;
   final List<String> labels;
+
+  /// 设备没采到的点，见 [WaterTrendLineChart.gaps]。
+  final List<bool> gaps;
+
+  /// 横轴标签落在第几个点上，见 [WaterTrendLineChart.labelPositions]。
+  final List<double>? labelPositions;
 
   /// Follows `temp_unit_convert`: the device reports in the unit it is set to,
   /// so the axis only changes its label and its ceiling.
@@ -38,7 +46,9 @@ class TemperatureTrendChartCard extends StatelessWidget {
       unitStyle: AppTypography.body.copyWith(color: AppColors.textSecondary),
       chart: WaterTrendLineChart(
         values: values,
+        gaps: gaps,
         labels: labels,
+        labelPositions: labelPositions,
         unit: unit,
         maxValue: maxValue,
         fractionDigits: 1,

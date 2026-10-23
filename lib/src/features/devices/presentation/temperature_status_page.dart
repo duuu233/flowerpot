@@ -64,7 +64,7 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
     );
     // 温度日历史读 164（`temp_daily_hist`），解出来是十分之一度、已经在仓库里还原过；
     // 后面再接上 112 的实时推送。和上面的读数一样现读，涂鸦一推送曲线就往前走一格。
-    final values = FlowerpotScope.of(context).chartSeries(
+    final chart = FlowerpotScope.of(context).chartData(
       widget.deviceId,
       SensorMetric.temperature,
       ReportRange.day,
@@ -73,6 +73,9 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
       // 还是今天那条，看着像「翻了没反应」。
       date: HistoryPeriod.dayFor(periodOffset),
     );
+    final values = chart.values;
+    // 横轴按点的真实时刻标：今天那条只到现在，不能拉满 00:00–24:00。
+    final ticks = HistoryPeriod.timeTicks(chart.minutes);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '空气温度', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -113,14 +116,9 @@ class _TemperatureStatusPageState extends State<TemperatureStatusPage> {
                       // The axis follows the unit the device reports in.
                       maxValue: device.settings.temperatureFromCelsius(50),
                       values: values,
-                      labels: const <String>[
-                        '00:00',
-                        '05:00',
-                        '10:00',
-                        '15:00',
-                        '20:00',
-                        '00:00',
-                      ],
+                      gaps: chart.gaps,
+                      labels: ticks.labels,
+                      labelPositions: ticks.positions,
                     ),
                   const SizedBox(height: AppSpacing.xl),
                   CareAdviceCard(

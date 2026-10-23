@@ -11,11 +11,19 @@ class WaterTrendChartCard extends StatelessWidget {
     required this.labels,
     required this.onMetricChanged,
     super.key,
+    this.gaps = const <bool>[],
+    this.labelPositions,
   });
 
   final WaterStatusMetric metric;
   final List<double> values;
   final List<String> labels;
+
+  /// 设备没采到的点，见 [WaterTrendLineChart.gaps]。
+  final List<bool> gaps;
+
+  /// 横轴标签落在第几个点上，见 [WaterTrendLineChart.labelPositions]。
+  final List<double>? labelPositions;
   final ValueChanged<WaterStatusMetric> onMetricChanged;
 
   @override
@@ -75,7 +83,9 @@ class WaterTrendChartCard extends StatelessWidget {
             height: 188,
             child: WaterTrendLineChart(
               values: values,
+              gaps: gaps,
               labels: labels,
+              labelPositions: labelPositions,
               unit: metric.unit,
               maxValue: metric.chartMax,
             ),

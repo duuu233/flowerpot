@@ -8,10 +8,18 @@ class HumidityTrendChartCard extends StatelessWidget {
     required this.values,
     required this.labels,
     super.key,
+    this.gaps = const <bool>[],
+    this.labelPositions,
   });
 
   final List<double> values;
   final List<String> labels;
+
+  /// 设备没采到的点，见 [WaterTrendLineChart.gaps]。
+  final List<bool> gaps;
+
+  /// 横轴标签落在第几个点上，见 [WaterTrendLineChart.labelPositions]。
+  final List<double>? labelPositions;
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +39,9 @@ class HumidityTrendChartCard extends StatelessWidget {
       unitStyle: AppTypography.body.copyWith(color: AppColors.textSecondary),
       chart: WaterTrendLineChart(
         values: values,
+        gaps: gaps,
         labels: labels,
+        labelPositions: labelPositions,
         unit: '%',
         semanticsName: '相对湿度趋势图',
       ),

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' show Random;
+import 'dart:math' show Random, max;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -2683,9 +2683,18 @@ class FlowerpotState extends ChangeNotifier {
     SensorMetric metric,
     ReportRange range, {
     DateTime? date,
+  }) => chartData(deviceId, metric, range, date: date).values;
+
+  /// [chartSeries] 连同画图要的旁注：日视图每个点的时刻（横轴标签按它取），以及
+  /// 哪些点是设备没采到、以 0 补齐的（画成断线 + 灰底，见 [DeviceHistory.dayGaps]）。
+  HistoryChart chartData(
+    String deviceId,
+    SensorMetric metric,
+    ReportRange range, {
+    DateTime? date,
   }) {
     final device = deviceById(deviceId);
-    if (device == null) return const <double>[];
+    if (device == null) return HistoryChart.empty;
     // **翻到过去某一天**：给那天的日包（2026-09-17 起日包一次带 7 天）。
     // `null` 表示看的是当期——今天 / 本周 / 本月，走原来那条路。
     //
@@ -2707,24 +2716,55 @@ class FlowerpotState extends ChangeNotifier {
         cached.$2 == _liveSampleRevision) {
       return cached.$3;
     }
+    final history = device.history;
     final packet = past == null
-        ? device.history.series(metric, range)
-        : device.history.daySeries(metric, past);
+        ? history.series(metric, range)
+        : history.daySeries(metric, past);
+    if (range != ReportRange.day) {
+      // 周 / 月：点数以帧头为准（周 ≤ 28、月 ≤ 180），不截——下面那个 96 只管日视图。
+      final chart = HistoryChart(List<double>.unmodifiable(packet));
+      _chartSeriesCache[key] = (history, _liveSampleRevision, chart);
+      return chart;
+    }
+    final packetGaps = past == null
+        ? history.latestDayGaps(metric)
+        : history.dayGaps(metric, past);
     // ⚠️ 别写成 `cond ? map[a]?[b] ?? x : y`：三元分支里的 `?[` 会被解析器当成嵌套三元的
     // `?`，release 打包直接编译失败（2026-09-15 打包报 Expected ':' before this）。
     final liveByMetric = _liveSamples[deviceId];
-    final live =
-        past == null && range == ReportRange.day && liveByMetric != null
-        ? liveByMetric[metric] ?? const <double>[]
-        : const <double>[];
-    final merged = <double>[...packet, ...live];
-    final series = List<double>.unmodifiable(
-      merged.length > liveChartWindow
-          ? merged.sublist(merged.length - liveChartWindow)
-          : merged,
+    final live = past == null && liveByMetric != null
+        ? liveByMetric[metric] ?? const <(double, int)>[]
+        : const <(double, int)>[];
+    final values = <double>[...packet];
+    final gaps = <bool>[
+      for (var i = 0; i < packet.length; i++)
+        i < packetGaps.length && packetGaps[i],
+    ];
+    // 日包第 k 个点就是那天 00:00 + k × 15 分钟。
+    final minutes = <int>[for (var i = 0; i < packet.length; i++) i * 15];
+    for (final (value, minute) in live) {
+      values.add(value);
+      gaps.add(false);
+      minutes.add(_nextChartMinute(minutes, minute));
+    }
+    final drop = max(0, values.length - liveChartWindow);
+    final chart = HistoryChart(
+      List<double>.unmodifiable(values.sublist(drop)),
+      minutes: List<int>.unmodifiable(minutes.sublist(drop)),
+      gaps: List<bool>.unmodifiable(gaps.sublist(drop)),
     );
-    _chartSeriesCache[key] = (device.history, _liveSampleRevision, series);
-    return series;
+    _chartSeriesCache[key] = (history, _liveSampleRevision, chart);
+    return chart;
+  }
+
+  /// 实时点的时刻接在前一个点后面：手机和设备的钟差几分钟时不倒退；跨了 0 点
+  /// （比前一个点小了半天以上）就是第二天，往上加 24 小时。
+  static int _nextChartMinute(List<int> minutes, int minute) {
+    if (minutes.isEmpty) return minute;
+    final last = minutes.last;
+    var next = minute + last ~/ 1440 * 1440;
+    if (next < last - 720) next += 1440;
+    return max(next, last);
   }
 
   /// 日视图最多画多少个点：和设备日包一样多（96 个，一刻钟一个）。
@@ -2752,11 +2792,13 @@ class FlowerpotState extends ChangeNotifier {
       };
 
   /// 本次登录以来设备推来的实时值，按设备、指标存，给 [chartSeries] 的日视图接在历史包后面。
-  final Map<String, Map<SensorMetric, List<double>>> _liveSamples =
-      <String, Map<SensorMetric, List<double>>>{};
+  ///
+  /// 每个点带上收到时是当天第几分钟：日视图横轴按点的真实时刻标。
+  final Map<String, Map<SensorMetric, List<(double, int)>>> _liveSamples =
+      <String, Map<SensorMetric, List<(double, int)>>>{};
   int _liveSampleRevision = 0;
-  final Map<String, (DeviceHistory, int, List<double>)> _chartSeriesCache =
-      <String, (DeviceHistory, int, List<double>)>{};
+  final Map<String, (DeviceHistory, int, HistoryChart)> _chartSeriesCache =
+      <String, (DeviceHistory, int, HistoryChart)>{};
 
   /// 一条推送进来：带了哪个指标的实时 DP，就往那条曲线后面接一个点。
   ///
@@ -2767,8 +2809,10 @@ class FlowerpotState extends ChangeNotifier {
     if (changedDps.isEmpty) return;
     final samples = _liveSamples.putIfAbsent(
       device.id,
-      () => <SensorMetric, List<double>>{},
+      () => <SensorMetric, List<(double, int)>>{},
     );
+    final now = DateTime.now();
+    final minute = now.hour * 60 + now.minute;
     var changed = false;
     _liveChartDps.forEach((metric, dps) {
       final (realtime, dayPacket) = dps;
@@ -2778,8 +2822,8 @@ class FlowerpotState extends ChangeNotifier {
         changed = true;
       }
       if (changedDps.contains(TuyaConfig.dp[realtime])) {
-        final points = samples.putIfAbsent(metric, () => <double>[]);
-        points.add(device.sensors.valueFor(metric));
+        final points = samples.putIfAbsent(metric, () => <(double, int)>[]);
+        points.add((device.sensors.valueFor(metric), minute));
         if (points.length > liveChartWindow) {
           points.removeRange(0, points.length - liveChartWindow);
         }

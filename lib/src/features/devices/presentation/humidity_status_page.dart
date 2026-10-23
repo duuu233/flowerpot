@@ -65,7 +65,7 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
     // 湿度日历史读 165（`humi_daily_hist`）：固件 1.0.12 起每点是 2 字节大端 ×10
     // （与 164 对称，此前是 1 字节整数 %），解出来的十分之一个百分点已经在仓库里
     // 还原过；后面再接上 114 的实时推送。和上面的读数一样现读，推送一到就往前走一格。
-    final values = FlowerpotScope.of(context).chartSeries(
+    final chart = FlowerpotScope.of(context).chartData(
       widget.deviceId,
       SensorMetric.humidity,
       ReportRange.day,
@@ -74,6 +74,9 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
       // 还是今天那条，看着像「翻了没反应」。
       date: HistoryPeriod.dayFor(periodOffset),
     );
+    final values = chart.values;
+    // 横轴按点的真实时刻标：今天那条只到现在，不能拉满 00:00–24:00。
+    final ticks = HistoryPeriod.timeTicks(chart.minutes);
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '相对湿度', leading: AppBackButton()),
       background: AppPageBackground.standard,
@@ -111,14 +114,9 @@ class _HumidityStatusPageState extends State<HumidityStatusPage> {
                   else
                     HumidityTrendChartCard(
                       values: values,
-                      labels: const <String>[
-                        '00:00',
-                        '05:00',
-                        '10:00',
-                        '15:00',
-                        '20:00',
-                        '00:00',
-                      ],
+                      gaps: chart.gaps,
+                      labels: ticks.labels,
+                      labelPositions: ticks.positions,
                     ),
                   const SizedBox(height: AppSpacing.xl),
                   CareAdviceCard(
