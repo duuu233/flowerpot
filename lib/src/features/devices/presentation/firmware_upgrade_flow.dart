@@ -87,14 +87,17 @@ Future<void> runFirmwareUpgrade(
       return;
     }
     if (update.inProgress) {
-      // Reattach to the SDK-confirmed task; this is not a new upgrade request.
-      final result = await state.upgradeFirmware(deviceId, update.version);
-      if (!context.mounted) return;
-      if (result.success) {
-        await showOtaProgressDialog(context, deviceId: deviceId);
-      } else {
-        showDeviceActionResult(context, result);
+      // SDK 说这台正在升级（例如升级中途关掉 App 后重开）：`checkFirmware` 已经接回了
+      // 这次任务（只挂监听、不重新下发），这里直接打开进度弹层接着走。
+      if (state.otaProgressFor(deviceId)?.status != OtaStatus.running) {
+        final result = await state.upgradeFirmware(deviceId, update.version);
+        if (!context.mounted) return;
+        if (!result.success) {
+          showDeviceActionResult(context, result);
+          return;
+        }
       }
+      await showOtaProgressDialog(context, deviceId: deviceId);
       return;
     }
     if (!confirmed) {

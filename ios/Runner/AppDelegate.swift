@@ -609,14 +609,20 @@ final class FlowerpotTuyaBridge: NSObject {
     // ARC 释放，结果既不 success 也不 failure。
     device.getFirmwareUpgradeInfo({ [device] models in
       // One model per upgradable component; upgradeStatus 1 is "an update is
-      // waiting". Anything else means there is nothing to offer.
+      // waiting", 2 is "upgrading" and 5 is "waiting for the device to wake".
+      // 2/5 是已经在跑的升级（例如升级中途关掉 App 后重开）：报 inProgress，Dart 只
+      // 接回、不重新发起，与 Android 一致。此前只认 1，升级中会被当成「已是最新」。
       // 新版本和当前版本都从同一条记录取，避免把两个组件的版本号并排显示。
-      if let pending = models?.first(where: { $0.upgradeStatus == 1 }) {
+      let pending = models?.first(where: { $0.upgradeStatus == 1 })
+      let running = models?.first(where: { $0.upgradeStatus == 2 || $0.upgradeStatus == 5 })
+      if let model = pending ?? running {
         result([
-          "version": pending.version,
-          "currentVersion": pending.currentVersion,
+          "version": model.version,
+          "currentVersion": model.currentVersion,
+          "componentType": model.type,
+          "inProgress": pending == nil,
           // 平台配的升级方式：0 提醒 / 2 强制 / 3 检测，与 Android 一致。
-          "upgradeType": pending.upgradeType,
+          "upgradeType": model.upgradeType,
         ])
       } else {
         result(nil)
@@ -631,9 +637,24 @@ final class FlowerpotTuyaBridge: NSObject {
     }
     // The upgrade is started per component, and the component type only comes
     // from the upgrade info, so it is read first.
+    let targetVersion = (args["targetVersion"] as? String)?
+      .trimmingCharacters(in: .whitespaces) ?? ""
+    let expectedComponent = (args["componentType"] as? NSNumber)?.intValue
     device.getFirmwareUpgradeInfo({ [weak self] models in
       guard let self else { return }
-      guard let pending = models?.first(where: { $0.upgradeStatus == 1 }) else {
+      let matching = (models ?? []).filter {
+        (targetVersion.isEmpty || $0.version == targetVersion) &&
+          (expectedComponent == nil || $0.type == expectedComponent)
+      }
+      if matching.first(where: { $0.upgradeStatus == 1 }) == nil,
+        matching.contains(where: { $0.upgradeStatus == 2 || $0.upgradeStatus == 5 })
+      {
+        // 接回已经在跑的升级：留住实例和 delegate 收进度，绝不重新下发。
+        result(nil)
+        self.emitOta(id, "running")
+        return
+      }
+      guard let pending = matching.first(where: { $0.upgradeStatus == 1 }) else {
         self.releaseOta(id)
         self.sdkError(result, code: "firmware_up_to_date", message: "当前固件已是最新版本")
         return

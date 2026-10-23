@@ -1,5 +1,21 @@
 # 固件升级状态监控（花盆 / 割草机）
 
+## 2026-10-23 中断后接回（关 App、息屏、断网恢复）
+
+产品口径：OTA 中途用户关闭 App、手机息屏、网络中断，恢复后要继续。设备对接涂鸦 SDK，手机断开不影响设备自己下载、安装；App 只需**重新问 SDK → 仍在升级就挂回监听**，**绝不重新下发**。
+
+| 场景 | 现在的行为 |
+| --- | --- |
+| 关掉 App 重开 | 进设备页（`FirmwareReminderHost`）、花盆「其他设置」页的静默检查，以及点升级入口，都经 `FlowerpotState.checkFirmware`；SDK 报升级中（2/5）即 `_reattachOta`：建好「升级中」状态并调原生启动接口（原生对 2/5 只挂监听），那一行直接显示「升级中 N%」，点入口直接打开进度弹层。 |
+| 息屏 / 切后台回来 | `resumeDeviceWatch` 立即 `_resumeOtaTasks(afterBackground: true)`：SDK 非明确失败 30 分钟内、核验中、停滞的设备重新问 SDK；**iOS 另含所有进行中的**（iOS 无进度查询兜底，挂起期间回调会丢）。Android 进度正常在走的不重挂（每 3 秒查询兜底）。 |
+| 断网恢复 | 无常驻网络监听；前台在线轮询（3 秒）每拍调 `_resumeOtaTasks`，同一台最多 30 秒问一次，断网期间问不到就等下一拍，网通后接回。 |
+| 接回之后 | 同一目标版本保留原百分比（只增不减），清掉核验/停滞，弹层与那一行接着走；`_otaInterruptedAt` 清除。 |
+| SDK 已查不到这次升级 | 回来后 SDK 返回无可升级固件：仍在等结果的这次转核验（`_verifyOtaAfterResume`），现读 SDK 设备版本 / 本次版本 DP，对上目标即完成；2 分钟无结果显示「暂未确认升级结果」可关闭。SDK 仍报待装（1）则不下结论，照旧等事件与停滞提示。 |
+
+- 明确拒绝（`firmware_changed` / `firmware_component_missing` / `ota_precheck_failed` / `ota_start_failed` / `5005`、割草机 DP116=7/20）不接回；SDK 只要不报 2/5 就不会接回。
+- iOS 原生：`checkFirmware` 先取 1、否则取 2/5 并带 `componentType`、`inProgress`；`startFirmwareUpgrade` 按目标版本 / 组件筛选，只有 2/5 时只留实例与 delegate 并回一条 running，不调用 `upgradeFirmware`。iOS 仍无阶段码与进度查询。
+- 未覆盖：重开 App 时设备正处于安装重启而离线，入口仍先提示离线（重新上线后设备页会自动再查、接回）。
+
 ## 2026-10-21 SDK报错后的结果核验（当前口径，替代10-20「仅安装阶段」限制）
 
 用户反馈「OTA升级还是会失败，但是其实已经成功了」。10-20 版只在安装阶段（≥98% 或阶段6）把SDK失败转核验，96% 等下载段失败（iOS 无阶段码）仍直接失败；核验也只认版本号DP推送。现规则：

@@ -6,6 +6,7 @@ import 'package:flowerpot/src/features/devices/presentation/firmware_upgrade_flo
 import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'support/mock_tuya_repository.dart';
@@ -16,14 +17,18 @@ class _Repository extends MockTuyaRepository {
   int starts = 0;
   bool inProgress = false;
   int? requestedComponent;
+
+  /// SDK 已经查不到可升级固件（例如设备在 App 收不到回调时装好了）。
+  bool noUpdate = false;
   @override
-  Future<FirmwareUpdate?> checkFirmware(String deviceId) async =>
-      FirmwareUpdate(
-        version: '1.1.0',
-        currentVersion: '1.0.0',
-        componentType: 9,
-        inProgress: inProgress,
-      );
+  Future<FirmwareUpdate?> checkFirmware(String deviceId) async => noUpdate
+      ? null
+      : FirmwareUpdate(
+          version: '1.1.0',
+          currentVersion: '1.0.0',
+          componentType: 9,
+          inProgress: inProgress,
+        );
   String? requestedVersion;
   Completer<void>? startReply;
   @override
@@ -73,6 +78,29 @@ Future<FlowerpotState> _state(
   await state.refreshDevices();
   state.pauseDeviceWatch();
   return state;
+}
+
+/// 登录后的会话：回前台接回升级只对已登录账号做。
+Future<FlowerpotState> _signedIn(
+  _Repository repository,
+  DateTime Function() now,
+) async {
+  final state = await _state(repository, now);
+  await state.login(
+    account: '13800138000',
+    credential: 'demo',
+    region: LoginRegion.domestic,
+    verificationCode: false,
+  );
+  state.pauseDeviceWatch();
+  return state;
+}
+
+/// 让 unawaited 的接回 / 现读跑完。
+Future<void> _settle() async {
+  for (var i = 0; i < 10; i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
 }
 
 Future<void> _progress(
@@ -279,4 +307,154 @@ void main() {
       await tester.pump();
     },
   );
+
+  group('中断后接回升级（关 App、息屏、断网恢复）', () {
+    test('进设备页 / 其他设置页的静默检查查到 SDK 在升级：直接接回，不重新下发', () async {
+      final repository = _Repository()..inProgress = true;
+      final now = DateTime(2026);
+      final state = await _state(repository, () => now);
+      addTearDown(state.dispose);
+
+      await state.refreshFirmwareUpdate('mower-test');
+      await _settle();
+
+      expect(state.otaProgressFor('mower-test')?.status, OtaStatus.running);
+      expect(repository.starts, 1);
+      expect(repository.requestedComponent, 9);
+      expect(state.hasFirmwareUpdate('mower-test'), isFalse);
+
+      // 已经接回、进度在走：再进一次页面不重复挂。
+      await state.refreshFirmwareUpdate('mower-test');
+      await _settle();
+      expect(repository.starts, 1);
+
+      await _progress(repository, percent: 37, stage: OtaStage.upgrading);
+      expect(state.otaProgressFor('mower-test')?.percent, 37);
+    });
+
+    test('升级中 SDK 超时（断网）：回前台问到仍在升级就接回，百分比接着走', () async {
+      final repository = _Repository();
+      final now = DateTime(2026);
+      final state = await _signedIn(repository, () => now);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('mower-test', '1.1.0');
+      await _progress(repository, percent: 40, stage: OtaStage.upgrading);
+      await _progress(repository, status: OtaStatus.failed);
+      expect(state.otaProgressFor('mower-test')?.verifyingVersion, isTrue);
+
+      repository.inProgress = true;
+      state.resumeDeviceWatch();
+      state.pauseDeviceWatch();
+      await _settle();
+
+      final resumed = state.otaProgressFor('mower-test');
+      expect(resumed?.status, OtaStatus.running);
+      expect(resumed?.verifyingVersion, isFalse);
+      expect(resumed?.percent, 40);
+      expect(repository.starts, 2);
+      await _progress(repository, percent: 60);
+      expect(state.otaProgressFor('mower-test')?.percent, 60);
+    });
+
+    test('准备阶段就被 SDK 判失败的，恢复后 SDK 仍在升级也接回', () async {
+      final repository = _Repository();
+      final now = DateTime(2026);
+      final state = await _signedIn(repository, () => now);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('mower-test', '1.1.0');
+      await _progress(repository, status: OtaStatus.failed);
+      expect(state.otaProgressFor('mower-test')?.status, OtaStatus.failed);
+
+      repository.inProgress = true;
+      state.resumeDeviceWatch();
+      state.pauseDeviceWatch();
+      await _settle();
+
+      expect(state.otaProgressFor('mower-test')?.status, OtaStatus.running);
+      expect(repository.starts, 2);
+    });
+
+    test('明确拒绝（5005 等）不接回', () async {
+      final repository = _Repository();
+      final now = DateTime(2026);
+      final state = await _signedIn(repository, () => now);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('mower-test', '1.1.0');
+      repository.pushOtaProgress(
+        const OtaProgress(
+          deviceId: 'mower-test',
+          status: OtaStatus.failed,
+          code: '5005',
+        ),
+      );
+      await _settle();
+
+      repository.inProgress = true;
+      state.resumeDeviceWatch();
+      state.pauseDeviceWatch();
+      await _settle();
+
+      expect(state.otaProgressFor('mower-test')?.status, OtaStatus.failed);
+      expect(repository.starts, 1);
+    });
+
+    test('超过 30 分钟的中断不再接回', () async {
+      final repository = _Repository();
+      var now = DateTime(2026);
+      final state = await _signedIn(repository, () => now);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('mower-test', '1.1.0');
+      await _progress(repository, status: OtaStatus.failed);
+      now = now.add(const Duration(minutes: 31));
+
+      repository.inProgress = true;
+      state.resumeDeviceWatch();
+      state.pauseDeviceWatch();
+      await _settle();
+
+      expect(state.otaProgressFor('mower-test')?.status, OtaStatus.failed);
+      expect(repository.starts, 1);
+    });
+
+    test('iOS 回前台：SDK 已查不到这次升级时现读设备版本，对上目标就完成', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final repository = _Repository()
+        ..firmwareVersionsByDevice['mower-test'] = <String>['1.0.0'];
+      final now = DateTime(2026);
+      final state = await _signedIn(repository, () => now);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('mower-test', '1.1.0');
+      await _progress(repository, percent: 50);
+      await _settle();
+
+      // 挂起期间设备装好了，成功回调丢了；SDK 不再有可升级固件。
+      repository
+        ..noUpdate = true
+        ..firmwareVersionsByDevice['mower-test'] = <String>['1.1.0'];
+      state.resumeDeviceWatch();
+      state.pauseDeviceWatch();
+      await _settle();
+
+      expect(state.otaProgressFor('mower-test')?.status, OtaStatus.success);
+      expect(repository.starts, 1);
+    });
+
+    test('Android 进度正常在走时回前台不重挂（有 3 秒查询兜底）', () async {
+      final repository = _Repository()..inProgress = false;
+      final now = DateTime(2026);
+      final state = await _signedIn(repository, () => now);
+      addTearDown(state.dispose);
+      await state.upgradeFirmware('mower-test', '1.1.0');
+      await _progress(repository, percent: 30);
+
+      repository.inProgress = true;
+      state.resumeDeviceWatch();
+      state.pauseDeviceWatch();
+      await _settle();
+
+      expect(repository.starts, 1);
+      expect(state.otaProgressFor('mower-test')?.percent, 30);
+    });
+  });
 }
