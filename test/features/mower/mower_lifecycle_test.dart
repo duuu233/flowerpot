@@ -202,7 +202,7 @@ void main() {
       deviceId: _id,
       changedDps: {MowerDp.commandResults, MowerDp.faultAlarm},
       reportedDps: {
-        MowerDp.commandResults: '{"code":26,"seq":1,"dp":3,"val":2}',
+        MowerDp.commandResults: '{"code":26,"seq":1,"dp":3,"val":1}',
         MowerDp.faultAlarm:
             '{"device":1,"error":16386,"function":0,"circularize":0}',
       },
@@ -234,7 +234,7 @@ void main() {
       deviceId: _id,
       changedDps: {MowerDp.commandResults},
       reportedDps: {
-        MowerDp.commandResults: '{"code":26,"seq":1,"dp":3,"val":4}',
+        MowerDp.commandResults: '{"code":26,"seq":1,"dp":3,"val":3}',
       },
     ));
     await tester.pump();

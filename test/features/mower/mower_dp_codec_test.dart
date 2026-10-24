@@ -216,21 +216,18 @@ void main() {
   });
 
   group('枚举', () {
-    test('DP3 random 已弃用不下发，其余四个能下发', () {
-      expect(MowerMode.standby.sendable, isTrue);
+    test('DP3 只有前四个能下发', () {
       expect(MowerMode.smart.sendable, isTrue);
-      expect(MowerMode.spot.sendable, isTrue);
       expect(MowerMode.gotoCharge.sendable, isTrue);
-      expect(MowerMode.random.sendable, isFalse);
+      expect(MowerMode.edgeMowing.sendable, isFalse);
+      expect(MowerMode.waitRain.sendable, isFalse);
     });
 
-    test('DP3 的枚举序：standby=0 / random=1 / smart=2 / spot=3 / goto_charge=4', () {
-      expect(MowerMode.values, hasLength(5));
+    test('DP3 的枚举序：smart=1 / spot=2 / goto_charge=3（按枚举值列表，不是 xlsx 说明列）', () {
       expect(MowerMode.standby.value, 0);
-      expect(MowerMode.random.value, 1);
-      expect(MowerMode.smart.value, 2);
-      expect(MowerMode.spot.value, 3);
-      expect(MowerMode.gotoCharge.value, 4);
+      expect(MowerMode.smart.value, 1);
+      expect(MowerMode.spot.value, 2);
+      expect(MowerMode.gotoCharge.value, 3);
     });
 
     test('DP5 共 15 值：12 脱困 / 13 低电回充 / 14 雨滴回充，名称与序号都认', () {
@@ -323,15 +320,13 @@ void main() {
     test('枚举型 DP：认字符串，也认序号；认不出返回 null', () {
       String code(MowerMode mode) => mode.code;
       expect(MowerDp.enumOf(MowerMode.values, code, 'spot'), MowerMode.spot);
-      expect(MowerDp.enumOf(MowerMode.values, code, 4), MowerMode.gotoCharge);
-      expect(MowerDp.enumOf(MowerMode.values, code, '4'), MowerMode.gotoCharge);
-      expect(MowerDp.enumOf(MowerMode.values, code, ' 2 '), MowerMode.smart);
+      expect(MowerDp.enumOf(MowerMode.values, code, 3), MowerMode.gotoCharge);
+      expect(MowerDp.enumOf(MowerMode.values, code, '3'), MowerMode.gotoCharge);
+      expect(MowerDp.enumOf(MowerMode.values, code, ' 1 '), MowerMode.smart);
       for (final invalid in [null, true, -1, '99', 1.5, '1.5']) {
         expect(MowerDp.enumOf(MowerMode.values, code, invalid), isNull);
       }
-      expect(MowerDp.enumOf(MowerMode.values, code, 'random'), MowerMode.random);
-      expect(MowerDp.enumOf(MowerMode.values, code, 'wait_rain'), isNull);
-      expect(MowerDp.enumOf(MowerMode.values, code, 7), isNull);
+      expect(MowerDp.enumOf(MowerMode.values, code, 'random'), isNull);
       expect(MowerDp.enumOf(MowerMode.values, code, 99), isNull);
     });
   });

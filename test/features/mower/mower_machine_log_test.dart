@@ -429,7 +429,7 @@ void main() {
     final log = MowerMachineLog();
     addTearDown(log.dispose);
     void command(int code, int seq) => log.apply({
-      115: jsonEncode({'code': code, 'seq': seq, 'dp': 3, 'val': 2}),
+      115: jsonEncode({'code': code, 'seq': seq, 'dp': 3, 'val': 1}),
     }, receivedAt: _time);
     log.apply(_fault(_alarm(device: 1)), snapshot: true, receivedAt: _time);
     command(26, 255);

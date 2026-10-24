@@ -1,5 +1,7 @@
 # 本地操作更新记录
 
+- [2026-10-24 割草机DP改以平台「功能点属性」为准](2026-10/2026-10-24-mower-dp-platform-attributes.md)：产品更正以xlsx功能点属性为准，DP3还原为0 standby/1 smart/2 spot/3 goto_charge/4~7只上报（取代下一条），DP18第10位标识符按平台spot_out_boundaty；DP116清单为故障清除与APP用途不一致待确认；未运行测试。
+
 - [2026-10-24 割草机DP3工作模式改为5值枚举](2026-10/2026-10-24-mower-dp3-mode-enum.md)：0 standby / 1 random弃用 / 2 smart / 3 spot / 4 goto_charge，DP115回执val按新序号匹配，在桩等待只看DP5；拒绝条件对照拒绝码已有文案未改；未运行测试。
 
 - [2026-10-24 割草机DP5状态名称与DP18黄条文案改为平台名称](2026-10/2026-10-24-mower-status-fault-platform-names.md)：DP5十五个状态显示名（随机割草、休眠、回桩、脱困中、低电回充等）与DP18十三位黄条/告警弹窗文案（左电机故障、机器陷坑等）按平台名称，第10位标识符改spot_out_boundary；DP3与本机日志文字未改；未运行测试。
