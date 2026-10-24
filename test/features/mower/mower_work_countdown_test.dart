@@ -14,7 +14,8 @@ import '../../support/mock_tuya_repository.dart';
 import '../../support/plant_catalog.dart';
 
 /// 工作时间倒计时（2026-10-22 产品定稿）：APP 本机按「DP119 下发成功时刻 + 小时数」计算，
-/// 状态胶囊里「图标 + 剩余时间」按分钟递减；不暂停、不隐藏，到 0 停在「0分」；重设即重跑。
+/// 状态胶囊里「图标 + 剩余时间」按分钟递减；不暂停，到 0 停在「0分」；重设即重跑。
+/// 待机、休眠、已关机、离线时首页隐藏（2026-10-24 产品），终点保留。
 void main() {
   setUp(MowerDevice.instance.resetForTest);
 
@@ -136,6 +137,75 @@ void main() {
     await device.bind(state, owner: _owner, deviceId: _mowerId);
     expect(await _sent(tester, device.setOperatingTime(state, 3)), isFalse);
     expect(device.workEndsAt, isNull);
+    device.resetForTest();
+  });
+
+  testWidgets('待机、休眠、已关机时首页隐藏倒计时，终点保留，回到其它状态接着显示', (tester) async {
+    final repository = _MowerRepository()
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{};
+    final state = await _state(repository);
+    final device = MowerDevice.instance;
+    await device.bind(state, owner: _owner, deviceId: _mowerId);
+    final end = DateTime(2026, 10, 24, 12);
+    device.workEndsAt = end;
+
+    for (final shown in <MowerStatus>[
+      MowerStatus.mowing,
+      MowerStatus.paused,
+      MowerStatus.gotoCharge,
+      MowerStatus.waitCharge,
+      MowerStatus.fault,
+      MowerStatus.stop,
+    ]) {
+      device.status = shown;
+      expect(device.visibleWorkEndsAt, end, reason: shown.code);
+    }
+    for (final hidden in <MowerStatus>[
+      MowerStatus.standby,
+      MowerStatus.sleep,
+    ]) {
+      device.status = hidden;
+      expect(device.visibleWorkEndsAt, isNull, reason: hidden.code);
+      expect(device.workEndsAt, end, reason: '只隐藏，不清终点');
+    }
+
+    device.status = MowerStatus.mowing;
+    repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = true;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: <int>{MowerDp.shutdownReport},
+      ),
+    );
+    await tester.pump();
+    expect(device.shutdown, isTrue);
+    expect(device.visibleWorkEndsAt, isNull, reason: 'DP113 已关机');
+
+    repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = false;
+    repository.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: <int>{MowerDp.shutdownReport},
+      ),
+    );
+    await tester.pump();
+    expect(device.shutdown, isFalse);
+    device.status = MowerStatus.mowing;
+    expect(device.visibleWorkEndsAt, end);
+    device.resetForTest();
+  });
+
+  testWidgets('离线时首页隐藏倒计时', (tester) async {
+    final repository = _MowerRepository(online: false)
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{};
+    final state = await _state(repository);
+    final device = MowerDevice.instance;
+    await device.bind(state, owner: _owner, deviceId: _mowerId);
+    device
+      ..workEndsAt = DateTime(2026, 10, 24, 12)
+      ..status = MowerStatus.mowing;
+    expect(device.online, isFalse);
+    expect(device.visibleWorkEndsAt, isNull);
     device.resetForTest();
   });
 

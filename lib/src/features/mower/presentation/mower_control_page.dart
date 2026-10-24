@@ -21,7 +21,7 @@ import 'widgets/mower_start_dialog.dart';
 /// | 元素 | DP |
 /// | --- | --- |
 /// | 电量环 | DP13 battery_percentage（充电态看 DP117） |
-/// | 状态胶囊 | DP5 status；设置过工作时间时后面跟本机倒计时（[MowerDevice.workEndsAt]） |
+/// | 状态胶囊 | DP5 status；设置过工作时间时后面跟本机倒计时，待机 / 休眠 / 已关机 / 离线时隐藏（[MowerDevice.visibleWorkEndsAt]） |
 /// | 黄色提醒 | DP18 fault（位图 → 文案，见 [MowerFault.messages]）；没有故障时显示实时提醒：DP111 抬起位 / DP120 事件码 44·144 → 已抬起 / 已落地，DP5=12 → 正在脱困（[MowerDevice.liveNotice]） |
 /// | 今日计划 | DP101 mow_schedule 解析出来的今天那一组（**不存数据库**） |
 /// | 停止 / 继续 | DP2 switch_go |
@@ -458,7 +458,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
                   statusLabel: _device.shutdown ? '已关机' : _device.status.label,
                   wifiLinked: _device.wifiLinked,
                   bleLinked: _device.bleLinked,
-                  workEndsAt: _device.workEndsAt,
+                  workEndsAt: _device.visibleWorkEndsAt,
                   now: widget.now,
                 ),
               );

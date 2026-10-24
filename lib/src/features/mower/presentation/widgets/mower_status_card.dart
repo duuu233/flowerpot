@@ -396,7 +396,8 @@ const TextStyle _chipTextStyle = TextStyle(
 
 /// 状态胶囊里的工作时间倒计时：「⏱ 1小时59分」，按分钟递减，到 0 停在「0分」。
 ///
-/// 不暂停、不隐藏（定稿）：只按终点和当前时间算，设备停下、回充都照常走。
+/// 不暂停：只按终点和当前时间算，设备停下、回充都照常走。待机 / 休眠 / 已关机 / 离线时由页面传 null 隐藏
+/// （[MowerStatusCard.workEndsAt]），这里不判断设备状态。
 /// 每次只排一个计时器，到下一次显示值变化的那一刻再刷新。
 class _WorkCountdown extends StatefulWidget {
   const _WorkCountdown({required this.endsAt, required this.now});

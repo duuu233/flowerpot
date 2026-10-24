@@ -75,6 +75,19 @@ class MowerDevice extends ChangeNotifier {
   /// 本机没设置过为 null，首页不显示倒计时。
   DateTime? workEndsAt;
 
+  /// 首页状态胶囊实际显示的倒计时终点：待机（DP5=0）、休眠（DP5=2）、已关机（[shutdown]）或离线时
+  /// 隐藏为 null（2026-10-24 产品）。只是不显示，[workEndsAt] 照常保留、照常走，离开这几种状态后
+  /// 按原终点接着显示。
+  DateTime? get visibleWorkEndsAt {
+    if (status == MowerStatus.standby ||
+        status == MowerStatus.sleep ||
+        shutdown ||
+        !online) {
+      return null;
+    }
+    return workEndsAt;
+  }
+
   /// 记倒计时起点用的时钟，用例里换成假时间。
   @visibleForTesting
   DateTime Function() clock = DateTime.now;
