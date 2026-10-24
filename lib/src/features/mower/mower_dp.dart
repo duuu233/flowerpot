@@ -49,6 +49,8 @@ abstract final class MowerDp {
 
   /// value ro：事件码（V3.0 §3.6）。发生码 N（1~99）、恢复码 N+100，只在位翻转时报、无兜底重报；
   /// 只承载「发生了什么」，状态仍以 DP18 / DP111 为准，App 只记日志。
+  /// 2026-10-24 新增 51 / 52 / 53 = 开始普通 / 低电 / 雨滴回充（151~153 回充结束）；
+  /// 回充原因以 DP5 的 4 / 13 / 14 为准，45 / 46 只是积水 / 低电告警通知。
   static const int alarmEvent = 120;
 
   /// bool ro：关机上报（V2.5 §4.7 / §9.9）。true = **非在桩**关机，设备连发约 9 次（100 ms 间隔）
@@ -186,11 +188,13 @@ enum MowerMode {
   bool get sendable => index <= MowerMode.gotoCharge.index;
 }
 
-/// DP5 工作状态（只上报，12 值）。⚠️ 与 [MowerMode] 的序**不同**。
+/// DP5 工作状态（只上报，15 值）。⚠️ 与 [MowerMode] 的序**不同**。
 ///
 /// 首页状态胶囊**只显示 DP5 本身**，一值一词（V3.0 §4.2）：回桩中（4，回充行驶）、在桩等待充电（9）、
 /// 在桩等待雨停（10）各显示各的，不合并成「已回桩」，也不拿 DP117 充电状态推断（2026-10-22 用户）。
 /// 2 = sleep 是**关机**（V3.0），不是休眠。
+/// 12~14 为 2026-10-24 平台追加（0~11 不变）：12 陷坑脱困中（失败转 6 fault）、13 低电回充、
+/// 14 雨滴回充；普通回充仍是 4，到桩后仍按原因报 9 / 10。
 enum MowerStatus {
   standby('standby', '待机'),
   mowing('mowing', '割草中'),
@@ -203,7 +207,10 @@ enum MowerStatus {
   edgeMowing('edge_mowing', '沿边割草'),
   waitCharge('wait_charge', '在桩等待充电'),
   waitRain('wait_rain', '在桩等待雨停'),
-  secondary('secondary', '第二区域');
+  secondary('secondary', '第二区域'),
+  escaping('escaping', '陷坑脱困中'),
+  gotoChargeLowPower('goto_charge_low_pwr', '低电回充中'),
+  gotoChargeRain('goto_charge_rain', '雨滴回充中');
 
   const MowerStatus(this.code, this.label);
 

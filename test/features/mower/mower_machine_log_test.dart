@@ -405,6 +405,26 @@ void main() {
       isNot(contains('机器已回到充电桩')),
     );
   });
+  test('DP5 新增 12/13/14：脱困、低电回充、雨滴回充各记一条，脱困中取消算作业取消', () {
+    final log = MowerMachineLog();
+    addTearDown(log.dispose);
+    log.apply({5: 0}, snapshot: true, receivedAt: _time);
+    for (final status in ['mowing', 'escaping', 'goto_charge_low_pwr', 9]) {
+      log.apply({5: status}, receivedAt: _time);
+    }
+    log.apply({5: 14}, receivedAt: _time);
+    log.apply({5: 12}, receivedAt: _time);
+    log.apply({5: 0}, receivedAt: _time);
+    expect(log.entries.map((e) => e.message(false)), [
+      '作业已取消，机器待机',
+      '机器陷入坑洼，正在脱困',
+      '检测到下雨，正在返回充电桩',
+      '机器在桩等待充电',
+      '电量低，正在返回充电桩',
+      '机器陷入坑洼，正在脱困',
+      '开始割草',
+    ]);
+  });
   test('DP115 seq重复去重，回绕合法，成功不记，26等新鲜111定位', () {
     final log = MowerMachineLog();
     addTearDown(log.dispose);

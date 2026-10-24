@@ -230,6 +230,31 @@ void main() {
       expect(MowerMode.gotoCharge.value, 3);
     });
 
+    test('DP5 共 15 值：12 脱困 / 13 低电回充 / 14 雨滴回充，名称与序号都认', () {
+      expect(MowerStatus.values, hasLength(15));
+      expect(MowerStatus.secondary.value, 11, reason: '0~11 索引不变');
+      for (final (raw, status, label) in <(Object, MowerStatus, String)>[
+        ('escaping', MowerStatus.escaping, '陷坑脱困中'),
+        (12, MowerStatus.escaping, '陷坑脱困中'),
+        ('goto_charge_low_pwr', MowerStatus.gotoChargeLowPower, '低电回充中'),
+        ('13', MowerStatus.gotoChargeLowPower, '低电回充中'),
+        ('goto_charge_rain', MowerStatus.gotoChargeRain, '雨滴回充中'),
+        (14, MowerStatus.gotoChargeRain, '雨滴回充中'),
+      ]) {
+        final parsed = MowerDp.enumOf(
+          MowerStatus.values,
+          (item) => item.code,
+          raw,
+        );
+        expect(parsed, status, reason: '$raw');
+        expect(parsed!.label, label);
+      }
+      expect(
+        MowerDp.enumOf(MowerStatus.values, (item) => item.code, 15),
+        isNull,
+      );
+    });
+
     test('DP107 时区：20 = UTC+8', () {
       expect(MowerTimezone.codeOf(20), 'UTCB8');
       expect(MowerTimezone.codeOf(12), 'UTCB0');

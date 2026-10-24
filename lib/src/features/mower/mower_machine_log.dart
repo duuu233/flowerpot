@@ -609,7 +609,7 @@ class MowerMachineLog extends ChangeNotifier {
       String group = 'notice',
     }) => _add({id: MowerLogText(zh, en, zh, en)}, level, group, at);
     if (dp == MowerDp.status) {
-      const working = [1, 3, 8, 11];
+      const working = [1, 3, 8, 11, 12];
       if (old == 6 && value != 6) _recover('dp5.fault', at);
       if (old == 7 && value != 7) _recover('dp5.estop', at);
       switch (value) {
@@ -626,6 +626,28 @@ class MowerMachineLog extends ChangeNotifier {
         // 是否触桩/充电看 DP111 与 DP117 各自的上报。
         case 4:
           add('dp5.return', 1, '正在返回充电桩', 'Returning to dock');
+        // 12~14 为 2026-10-24 协议追加：回充原因由 DP5 本身给出，不再从 DP111 / DP120 推断。
+        case 13:
+          add(
+            'dp5.return_low_power',
+            1,
+            '电量低，正在返回充电桩',
+            'Low battery, returning to dock',
+          );
+        case 14:
+          add(
+            'dp5.return_rain',
+            1,
+            '检测到下雨，正在返回充电桩',
+            'Rain detected, returning to dock',
+          );
+        case 12:
+          add(
+            'dp5.escaping',
+            2,
+            '机器陷入坑洼，正在脱困',
+            'Machine stuck in a hole, escaping',
+          );
         case 0:
           if (working.contains(old)) {
             add('dp5.cancel', 1, '作业已取消，机器待机', 'Work cancelled, standby');

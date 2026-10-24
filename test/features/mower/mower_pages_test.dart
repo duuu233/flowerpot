@@ -295,6 +295,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final entry in <(Object, String)>[
+    ('escaping', '陷坑脱困中'),
+    ('goto_charge_low_pwr', '低电回充中'),
+    (14, '雨滴回充中'),
+  ]) {
+    testWidgets('DP5=${entry.$1} 状态胶囊显示「${entry.$2}」', (tester) async {
+      await _pumpMowerHome(tester, {13: 80, 5: entry.$1});
+      await tester.pumpAndSettle();
+      expect(find.text(entry.$2), findsOneWidget);
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('计划图只显示设备DP，点击修边等实际回读，复制诊断含收发两份', (tester) async {
     final repo = _MowerRepository()..echoSchedules = false;
     final incoming = Uint8List(88);
