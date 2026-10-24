@@ -190,27 +190,27 @@ enum MowerMode {
 
 /// DP5 工作状态（只上报，15 值）。⚠️ 与 [MowerMode] 的序**不同**。
 ///
-/// 首页状态胶囊**只显示 DP5 本身**，一值一词（V3.0 §4.2）：回桩中（4，回充行驶）、在桩等待充电（9）、
-/// 在桩等待雨停（10）各显示各的，不合并成「已回桩」，也不拿 DP117 充电状态推断（2026-10-22 用户）。
-/// 2 = sleep 是**关机**（V3.0），不是休眠。
-/// 12~14 为 2026-10-24 平台追加（0~11 不变）：12 陷坑脱困中（失败转 6 fault）、13 低电回充、
+/// 首页状态胶囊**只显示 DP5 本身**，一值一词：回桩（4，正常回桩）、等待充电（9）、
+/// 等待雨停（10）各显示各的，不合并成「已回桩」，也不拿 DP117 充电状态推断（2026-10-22 用户）。
+/// 显示名按 2026-10-24 产品给的平台名称（2 = sleep 显示「休眠」，不再沿用协议文字「关机」）。
+/// 12~14 为 2026-10-24 平台追加（0~11 不变）：12 脱困中（失败转 6 fault）、13 低电回充、
 /// 14 雨滴回充；普通回充仍是 4，到桩后仍按原因报 9 / 10。
 enum MowerStatus {
   standby('standby', '待机'),
-  mowing('mowing', '割草中'),
-  sleep('sleep', '关机'),
+  mowing('mowing', '随机割草'),
+  sleep('sleep', '休眠'),
   spotMowing('spot_mowing', '定点割草'),
-  gotoCharge('goto_charge', '回桩中'),
-  paused('paused', '已暂停'),
+  gotoCharge('goto_charge', '回桩'),
+  paused('paused', '暂停'),
   fault('fault', '故障'),
   stop('stop', '急停'),
-  edgeMowing('edge_mowing', '沿边割草'),
-  waitCharge('wait_charge', '在桩等待充电'),
-  waitRain('wait_rain', '在桩等待雨停'),
-  secondary('secondary', '第二区域'),
-  escaping('escaping', '陷坑脱困中'),
-  gotoChargeLowPower('goto_charge_low_pwr', '低电回充中'),
-  gotoChargeRain('goto_charge_rain', '雨滴回充中');
+  edgeMowing('edge_mowing', '绕边割草'),
+  waitCharge('wait_charge', '等待充电'),
+  waitRain('wait_rain', '等待雨停'),
+  secondary('secondary', '去第二区域'),
+  escaping('escaping', '脱困中'),
+  gotoChargeLowPower('goto_charge_low_pwr', '低电回充'),
+  gotoChargeRain('goto_charge_rain', '雨滴回充');
 
   const MowerStatus(this.code, this.label);
 
@@ -248,21 +248,21 @@ abstract final class MowerFault {
     return value != null && value >= 0 && value <= 0xffffffff ? value : null;
   }
 
-  /// 位 → 首页那条黄色提醒的文案（2026-09-18 产品给的原文，一字未改）。
+  /// 位 → 首页那条黄色提醒（及「设备告警」弹窗）的文案：2026-10-24 产品给的平台名称，原样显示。
   static const Map<int, String> messages = <int, String>{
-    0: '左轮异常，请清理异物并重启。',
-    1: '右轮异常，请清理异物并重启。',
-    2: '电池故障，请检查连接或报修。',
-    3: '机器翻倒，请将其扶正放平。',
-    4: '机器被悬空，请放回地面。',
-    5: '无边界信号，请检查边界线。',
-    6: '刀盘负载过大，请清理缠绕物。',
-    7: '刀盘过热，请暂停待冷却。',
-    8: '刀盘卡死，请关机并清理。',
-    9: '机器出界，请搬回边界内。',
-    10: '目标点无效，请重新设置。',
-    11: '机器被困，请移至平坦区域。',
-    12: '刀盘电机故障，请重启或报修。',
+    0: '左电机故障',
+    1: '右电机故障',
+    2: '电池故障',
+    3: '机器翻转',
+    4: '机器抬起',
+    5: '信号丢失',
+    6: '刀盘电机过流',
+    7: '刀盘电机过温',
+    8: '刀盘电机堵转',
+    9: '机器在边界外',
+    10: '定点割草不在区域内',
+    11: '机器陷坑',
+    12: '刀盘电机故障',
   };
 
   /// 位 → 标识符，只用于日志。
@@ -277,7 +277,7 @@ abstract final class MowerFault {
     7: 'blade_otmp',
     8: 'blade_stall',
     9: 'outside',
-    10: 'spot_out_boundaty',
+    10: 'spot_out_boundary',
     11: 'trap',
     12: 'blade_motor',
   };

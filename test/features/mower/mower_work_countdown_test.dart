@@ -61,7 +61,7 @@ void main() {
             child: MowerStatusCard(
               tone: MowerPowerState.idle,
               percent: 80,
-              statusLabel: '回桩中',
+              statusLabel: '回桩',
               workEndsAt: end,
               now: () => now,
             ),
@@ -70,7 +70,7 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('回桩中'), findsOneWidget);
+    expect(find.text('回桩'), findsOneWidget);
     expect(find.byIcon(Icons.timer_outlined), findsOneWidget);
     expect(find.text('2小时0分'), findsOneWidget);
 

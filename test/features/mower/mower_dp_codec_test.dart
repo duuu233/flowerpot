@@ -234,12 +234,12 @@ void main() {
       expect(MowerStatus.values, hasLength(15));
       expect(MowerStatus.secondary.value, 11, reason: '0~11 索引不变');
       for (final (raw, status, label) in <(Object, MowerStatus, String)>[
-        ('escaping', MowerStatus.escaping, '陷坑脱困中'),
-        (12, MowerStatus.escaping, '陷坑脱困中'),
-        ('goto_charge_low_pwr', MowerStatus.gotoChargeLowPower, '低电回充中'),
-        ('13', MowerStatus.gotoChargeLowPower, '低电回充中'),
-        ('goto_charge_rain', MowerStatus.gotoChargeRain, '雨滴回充中'),
-        (14, MowerStatus.gotoChargeRain, '雨滴回充中'),
+        ('escaping', MowerStatus.escaping, '脱困中'),
+        (12, MowerStatus.escaping, '脱困中'),
+        ('goto_charge_low_pwr', MowerStatus.gotoChargeLowPower, '低电回充'),
+        ('13', MowerStatus.gotoChargeLowPower, '低电回充'),
+        ('goto_charge_rain', MowerStatus.gotoChargeRain, '雨滴回充'),
+        (14, MowerStatus.gotoChargeRain, '雨滴回充'),
       ]) {
         final parsed = MowerDp.enumOf(
           MowerStatus.values,
@@ -270,10 +270,10 @@ void main() {
 
     test('DP18 位图取最低位那条文案', () {
       expect(MowerFault.firstMessage(0), isNull);
-      expect(MowerFault.firstMessage(1 << 3), '机器翻倒，请将其扶正放平。');
+      expect(MowerFault.firstMessage(1 << 3), '机器翻转');
       expect(
         MowerFault.firstMessage((1 << 3) | (1 << 1)),
-        '右轮异常，请清理异物并重启。',
+        '右电机故障',
         reason: '多个故障同时置位时按位序取第一个',
       );
       expect(MowerFault.activeIdentifiers((1 << 0) | (1 << 12)), <String>[

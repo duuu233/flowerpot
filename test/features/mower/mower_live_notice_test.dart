@@ -142,7 +142,7 @@ void main() {
     state.report({MowerDp.status: 'fault', MowerDp.fault: 1 << 11});
     await tester.pump();
     expect(device.liveNotice, isNull);
-    expect(device.faultMessage, '机器被困，请移至平坦区域。');
+    expect(device.faultMessage, '机器陷坑');
 
     state.report({MowerDp.fault: 0, MowerDp.status: 'escaping'});
     await tester.pump();

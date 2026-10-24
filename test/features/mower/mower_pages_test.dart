@@ -290,15 +290,15 @@ void main() {
     await _pumpMowerHome(tester, {13: 100, 5: 'wait_rain', 117: 'charging'});
     await tester.pumpAndSettle();
     expect(find.text('充电中 100%', findRichText: true), findsOneWidget);
-    expect(find.text('在桩等待雨停'), findsOneWidget);
+    expect(find.text('等待雨停'), findsOneWidget);
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
 
   for (final entry in <(Object, String)>[
-    ('escaping', '陷坑脱困中'),
-    ('goto_charge_low_pwr', '低电回充中'),
-    (14, '雨滴回充中'),
+    ('escaping', '脱困中'),
+    ('goto_charge_low_pwr', '低电回充'),
+    (14, '雨滴回充'),
   ]) {
     testWidgets('DP5=${entry.$1} 状态胶囊显示「${entry.$2}」', (tester) async {
       await _pumpMowerHome(tester, {13: 80, 5: entry.$1});
@@ -1194,14 +1194,14 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const Key('mower-safety-notice')),
-        matching: find.text('左轮异常，请清理异物并重启。'),
+        matching: find.text('左电机故障'),
       ),
       findsOneWidget,
     );
 
     // 2026-09-28：控制页捕捉到新的故障位 → 弹「设备告警」，内容是该位的文案，按钮「我知道了」
     expect(find.text('设备告警'), findsOneWidget);
-    expect(find.text('左轮异常，请清理异物并重启。'), findsNWidgets(2));
+    expect(find.text('左电机故障'), findsNWidgets(2));
     await tester.tap(find.text('我知道了'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
@@ -1221,7 +1221,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('设备告警'), findsOneWidget);
-    expect(find.textContaining('机器被悬空，请放回地面。'), findsOneWidget);
+    expect(find.textContaining('机器抬起'), findsOneWidget);
     await tester.tap(find.text('我知道了'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));

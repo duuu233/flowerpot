@@ -303,7 +303,7 @@ class _BoltPainter extends CustomPainter {
 
 /// 状态胶囊 + 两颗连接图标。稿子上它们压在环的下沿上。
 ///
-/// 胶囊里的字是 **DP5 工作状态**（待机 / 割草中 / 已暂停 / 回桩中…），不是写死的「待机」。
+/// 胶囊里的字是 **DP5 工作状态**（待机 / 随机割草 / 暂停 / 回桩…），不是写死的「待机」。
 /// 设置过工作时间时，状态后面紧跟「图标 + 剩余时间」（2026-10-22 定稿备选 B）。
 class _StatusChips extends StatelessWidget {
   const _StatusChips({
