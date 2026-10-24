@@ -164,16 +164,16 @@ abstract final class MowerDp {
   }
 }
 
-/// DP3 工作模式。**枚举序 = 传输值**，顺序不可重排。
+/// DP3 工作模式。**枚举序 = 传输值**，顺序不可重排（2026-10-24 产品口径，5 值）：
+/// 0 standby 取消任务回待机 / 1 random 弃用 / 2 smart 随机割草 / 3 spot 定点割草 / 4 goto_charge 回充。
+/// 下发按标识符，但 DP115 回执的 `val` 和个别桥接的上报是序号，所以序号必须与设备一致。
+/// 原 V3.0 的 4~7（edge_mowing / secondary / wait_charge / wait_rain）已不在 DP3 里，在桩等待只看 DP5。
 enum MowerMode {
   standby('standby', '待机'),
+  random('random', '随机（弃用）'),
   smart('smart', '随机割草'),
   spot('spot', '定点割草'),
-  gotoCharge('goto_charge', '回桩'),
-  edgeMowing('edge_mowing', '沿边割草'),
-  secondary('secondary', '第二区域'),
-  waitCharge('wait_charge', '在桩等待充电'),
-  waitRain('wait_rain', '在桩等待雨停');
+  gotoCharge('goto_charge', '回充');
 
   const MowerMode(this.code, this.label);
 
@@ -184,8 +184,8 @@ enum MowerMode {
   /// 传输值（枚举序）。
   int get value => index;
 
-  /// App 能下发的只有前四个，其余是设备自己的状态，下发会被拒。
-  bool get sendable => index <= MowerMode.gotoCharge.index;
+  /// App 能下发的是 standby / smart / spot / goto_charge；random 已弃用，不下发。
+  bool get sendable => this != MowerMode.random;
 }
 
 /// DP5 工作状态（只上报，15 值）。⚠️ 与 [MowerMode] 的序**不同**。

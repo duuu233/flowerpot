@@ -535,13 +535,10 @@ class MowerDevice extends ChangeNotifier {
       !waitingOnDock &&
       (switchGo || status != MowerStatus.standby);
 
-  /// 设备报的是「在桩等待」：DP5=wait_charge/wait_rain（9/10）或 DP3=wait_charge/wait_rain（6/7），
-  /// 两套枚举任一即算。
+  /// 设备报的是「在桩等待」：DP5=wait_charge/wait_rain（9/10）。
+  /// DP3 自 2026-10-24 起只有 0~4，不再带等待值。
   bool get waitingOnDock =>
-      status == MowerStatus.waitCharge ||
-      status == MowerStatus.waitRain ||
-      mode == MowerMode.waitCharge ||
-      mode == MowerMode.waitRain;
+      status == MowerStatus.waitCharge || status == MowerStatus.waitRain;
 
   bool _canWrite(FlowerpotState state) {
     final id = _deviceId;
@@ -617,12 +614,12 @@ class MowerDevice extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 工作模式（DP3）。只允许 [MowerMode.sendable] 的四个。
+  /// 工作模式（DP3）。只允许 [MowerMode.sendable] 的四个（random 已弃用）。
   void setMode(FlowerpotState state, MowerMode target) {
     if (!_canWrite(state)) return;
     if (!target.sendable) {
       state.logMowerInteraction(
-        '下发被拦 ✗ 割草机 DP${MowerDp.mode} mode=${target.code} 是设备自有状态，App 不可下发',
+        '下发被拦 ✗ 割草机 DP${MowerDp.mode} mode=${target.code} 已弃用，App 不下发',
       );
       return;
     }
