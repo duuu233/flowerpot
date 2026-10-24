@@ -1059,6 +1059,7 @@ void main() {
         await tester.tap(find.text('取消'));
         await tester.pumpAndSettle();
         expect(repository.publishedDps, isEmpty);
+        expect(find.byKey(const Key('mower-work-countdown')), findsNothing);
       }
       await tester.tap(find.byKey(Key('mower-action-$action')));
       await tester.pumpAndSettle();
@@ -1069,6 +1070,29 @@ void main() {
       MowerDevice.instance.resetForTest();
     });
   }
+
+  testWidgets('确认时间设置即显示倒计时，再次确认按新时长重新计数', (tester) async {
+    var now = DateTime(2026, 10, 10, 12, 30);
+    await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.switchGo: false,
+      MowerDp.mode: 'standby',
+      MowerDp.coverStatus: true,
+    }, now: () => now);
+    MowerDevice.instance.clock = () => now;
+    expect(find.byKey(const Key('mower-work-countdown')), findsNothing);
+    await tester.tap(find.byKey(const Key('mower-action-smart')));
+    await _confirmStart(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('5小时0分'), findsOneWidget);
+
+    now = DateTime(2026, 10, 10, 13, 30);
+    await tester.tap(find.byKey(const Key('mower-action-spot')));
+    await _confirmStart(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('4小时0分'), findsOneWidget, reason: '重设即重跑');
+    expect(tester.takeException(), isNull);
+    MowerDevice.instance.resetForTest();
+  });
 
   for (final hour in <int>[17, 18, 22]) {
     testWidgets('$hour:30 剩余不足整小时或已过18点不启动，给出友好提示', (tester) async {
@@ -1096,6 +1120,7 @@ void main() {
       <int, Object?>{},
       now: () => now,
     );
+    MowerDevice.instance.clock = () => now;
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('我已确认，周围安全'));
@@ -1105,6 +1130,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('暂时无法启动'), findsOneWidget);
     expect(repository.publishedDps, isEmpty);
+    // 时间设置已确认：照样按选的 1 小时计时（2026-10-24 产品）。
+    expect(find.text('1小时0分'), findsOneWidget);
     MowerDevice.instance.resetForTest();
   });
 
@@ -1170,11 +1197,14 @@ void main() {
         repo.publishError = const TuyaException('reject', '设置失败');
       },
     );
+    MowerDevice.instance.clock = () => DateTime(2026, 10, 10, 12, 30);
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await _confirmStart(tester);
     expect(_sentDps(repository), <int>[MowerDp.operatingTime]);
     expect(find.text('指令没有发出去：设置失败'), findsOneWidget);
     expect(MowerDevice.instance.switchGo, isFalse);
+    // 2026-10-24：弹过时间设置并确认就计时，DP119 没发出去也不撤销。
+    expect(find.text('5小时0分'), findsOneWidget);
     MowerDevice.instance.resetForTest();
   });
 
@@ -1617,11 +1647,14 @@ void main() {
       MowerDp.coverStatus: false,
     });
 
+    MowerDevice.instance.clock = () => DateTime(2026, 10, 10, 12, 30);
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await _confirmStart(tester);
 
     expect(find.text('盖子未合上'), findsOneWidget);
     expect(_sentDps(repository), isNot(contains(MowerDp.mode)));
+    // 盖子没合没启动，但时间设置已确认：照样计时（2026-10-24 产品）。
+    expect(find.text('5小时0分'), findsOneWidget);
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });

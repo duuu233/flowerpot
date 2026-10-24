@@ -334,6 +334,9 @@ class _MowerControlPageState extends State<MowerControlPage> {
     }
     final hours = await showMowerDurationDialog(context, maxHours);
     if (!mounted || hours == null || !current()) return;
+    // 2026-10-24 产品：弹出时间设置窗口并确认就一定显示倒计时、重新计数，
+    // 不等下面的时段 / 盖子 / DP119 下发结果，后面任一步没走通也不撤销。
+    _device.restartWorkCountdown(state, hours);
     if (!await _validStartHours(hours) || !mounted || !current()) return;
     if (checkCover && !_device.coverClosed) {
       await _showCoverNotice();
