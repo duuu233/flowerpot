@@ -164,8 +164,7 @@ abstract final class MowerDp {
   }
 }
 
-/// DP3 工作模式。**枚举序 = 传输值**，顺序不可重排；以平台功能点属性为准（2026-10-24 产品确认，
-/// 清单备注里的「1 random 弃用 / 2 smart …」不采用）。
+/// DP3 工作模式。**枚举序 = 传输值**，顺序不可重排。
 enum MowerMode {
   standby('standby', '待机'),
   smart('smart', '随机割草'),
