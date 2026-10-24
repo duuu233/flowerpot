@@ -303,7 +303,7 @@ class _BoltPainter extends CustomPainter {
 
 /// 状态胶囊 + 两颗连接图标。稿子上它们压在环的下沿上。
 ///
-/// 胶囊里的字是 **DP5 工作状态**（待机 / 割草中 / 已暂停 / 回桩中…），不是写死的「待机」。
+/// 胶囊里的字是 **DP5 工作状态**（待机 / 随机割草 / 暂停 / 回桩…），不是写死的「待机」。
 /// 设置过工作时间时，状态后面紧跟「图标 + 剩余时间」（2026-10-22 定稿备选 B）。
 class _StatusChips extends StatelessWidget {
   const _StatusChips({
@@ -396,7 +396,8 @@ const TextStyle _chipTextStyle = TextStyle(
 
 /// 状态胶囊里的工作时间倒计时：「⏱ 1小时59分」，按分钟递减，到 0 停在「0分」。
 ///
-/// 不暂停、不隐藏（定稿）：只按终点和当前时间算，设备停下、回充都照常走。
+/// 不暂停：只按终点和当前时间算，设备停下、回充都照常走。待机 / 休眠 / 已关机 / 离线时由页面传 null 隐藏
+/// （[MowerStatusCard.workEndsAt]），这里不判断设备状态。
 /// 每次只排一个计时器，到下一次显示值变化的那一刻再刷新。
 class _WorkCountdown extends StatefulWidget {
   const _WorkCountdown({required this.endsAt, required this.now});

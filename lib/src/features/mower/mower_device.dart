@@ -71,9 +71,22 @@ class MowerDevice extends ChangeNotifier {
   /// DP119：设备最后上报的工作时长（整数小时），未上报为 null。
   int? operatingTimeHours;
 
-  /// 工作时间倒计时的终点：本机最后一次在「割草时间设置」弹窗点确认的时刻 + 选的小时数
-  /// （[MowerWorkCountdown]、[restartWorkCountdown]）。本机没设置过为 null，首页不显示倒计时。
+  /// 工作时间倒计时的终点：本机最后一次 DP119 下发成功的时刻 + 下发的小时数（[MowerWorkCountdown]）。
+  /// 本机没设置过为 null，首页不显示倒计时。
   DateTime? workEndsAt;
+
+  /// 首页状态胶囊实际显示的倒计时终点：待机（DP5=0）、休眠（DP5=2）、已关机（[shutdown]）或离线时
+  /// 隐藏为 null（2026-10-24 产品）。只是不显示，[workEndsAt] 照常保留、照常走，离开这几种状态后
+  /// 按原终点接着显示。
+  DateTime? get visibleWorkEndsAt {
+    if (status == MowerStatus.standby ||
+        status == MowerStatus.sleep ||
+        shutdown ||
+        !online) {
+      return null;
+    }
+    return workEndsAt;
+  }
 
   /// 记倒计时起点用的时钟，用例里换成假时间。
   @visibleForTesting
@@ -522,13 +535,10 @@ class MowerDevice extends ChangeNotifier {
       !waitingOnDock &&
       (switchGo || status != MowerStatus.standby);
 
-  /// 设备报的是「在桩等待」：DP5=wait_charge/wait_rain（9/10）或 DP3=wait_charge/wait_rain（6/7），
-  /// 两套枚举任一即算。
+  /// 设备报的是「在桩等待」：DP5=wait_charge/wait_rain（9/10）。
+  /// DP3 自 2026-10-24 起只有 0~4，不再带等待值。
   bool get waitingOnDock =>
-      status == MowerStatus.waitCharge ||
-      status == MowerStatus.waitRain ||
-      mode == MowerMode.waitCharge ||
-      mode == MowerMode.waitRain;
+      status == MowerStatus.waitCharge || status == MowerStatus.waitRain;
 
   bool _canWrite(FlowerpotState state) {
     final id = _deviceId;
@@ -551,33 +561,40 @@ class MowerDevice extends ChangeNotifier {
 
   /// 工作时长（DP119）：下发成功后才允许页面继续启动，不改变每次弹窗的默认值。
   ///
-  /// 只管下发；倒计时由页面在弹窗确认时调 [restartWorkCountdown]，与这里成败无关。
+  /// 下发成功即按「此刻 + [hours]」重设本机倒计时终点（重设即重跑，旧终点作废）；失败不动。
   Future<bool> setOperatingTime(FlowerpotState state, int hours) {
     if (!_canWrite(state)) return Future<bool>.value(false);
     if (hours < 1 || hours > 24) {
       throw RangeError.range(hours, 1, 24, 'hours');
     }
+    final id = _deviceId;
+    final generation = _bindingGeneration;
     final identifier = MowerDp.identifiers[MowerDp.operatingTime];
     state.logMowerInteraction('下发 → 割草机 DP119 $identifier=$hours（割草时长）');
     return _publish(state, <int, Object>{
       MowerDp.operatingTime: hours,
-    }, label: 'DP119 $identifier=$hours');
+    }, label: 'DP119 $identifier=$hours').then((sent) {
+      _restartCountdown(state, id, generation, sent: sent, hours: hours);
+      return sent;
+    });
   }
 
-  /// 「割草时间设置」弹窗点了确认：按「此刻 + [hours]」重设本机倒计时终点（重设即重跑，旧终点作废）。
-  ///
-  /// 2026-10-24 产品：只要弹出了时间设置窗口并确认，就一定显示倒计时、重新计数——
-  /// 之后盖子没合、时段失效、DP119 没发出去或设备没回显、最终没启动，都不撤销；取消则不动。
-  void restartWorkCountdown(FlowerpotState state, int hours) {
-    final id = _deviceId;
-    if (id == null || hours < 1) return;
-    final endsAt = clock().add(Duration(hours: hours));
-    workEndsAt = endsAt;
-    state.logMowerInteraction(
-      '倒计时 · 割草机工作时间 $hours 小时，本机计到 ${_clockText(endsAt)}',
-    );
-    notifyListeners();
-    unawaited(MowerWorkCountdown.save(id, endsAt));
+  void _restartCountdown(
+    FlowerpotState state,
+    String? id,
+    int generation, {
+    required bool sent,
+    required int hours,
+  }) {
+    if (sent && id != null && _isCurrent(id, generation)) {
+      final endsAt = clock().add(Duration(hours: hours));
+      workEndsAt = endsAt;
+      state.logMowerInteraction(
+        '倒计时 · 割草机工作时间 $hours 小时，本机计到 ${_clockText(endsAt)}',
+      );
+      notifyListeners();
+      unawaited(MowerWorkCountdown.save(id, endsAt));
+    }
   }
 
   static String _clockText(DateTime time) =>
@@ -597,12 +614,12 @@ class MowerDevice extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 工作模式（DP3）。只允许 [MowerMode.sendable] 的四个。
+  /// 工作模式（DP3）。只允许 [MowerMode.sendable] 的四个（random 已弃用）。
   void setMode(FlowerpotState state, MowerMode target) {
     if (!_canWrite(state)) return;
     if (!target.sendable) {
       state.logMowerInteraction(
-        '下发被拦 ✗ 割草机 DP${MowerDp.mode} mode=${target.code} 是设备自有状态，App 不可下发',
+        '下发被拦 ✗ 割草机 DP${MowerDp.mode} mode=${target.code} 已弃用，App 不下发',
       );
       return;
     }

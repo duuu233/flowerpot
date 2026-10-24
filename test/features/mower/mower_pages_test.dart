@@ -290,15 +290,15 @@ void main() {
     await _pumpMowerHome(tester, {13: 100, 5: 'wait_rain', 117: 'charging'});
     await tester.pumpAndSettle();
     expect(find.text('充电中 100%', findRichText: true), findsOneWidget);
-    expect(find.text('在桩等待雨停'), findsOneWidget);
+    expect(find.text('等待雨停'), findsOneWidget);
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
 
   for (final entry in <(Object, String)>[
-    ('escaping', '陷坑脱困中'),
-    ('goto_charge_low_pwr', '低电回充中'),
-    (14, '雨滴回充中'),
+    ('escaping', '脱困中'),
+    ('goto_charge_low_pwr', '低电回充'),
+    (14, '雨滴回充'),
   ]) {
     testWidgets('DP5=${entry.$1} 状态胶囊显示「${entry.$2}」', (tester) async {
       await _pumpMowerHome(tester, {13: 80, 5: entry.$1});
@@ -619,20 +619,8 @@ void main() {
     ),
     ('DP5=9且DP2=true', {MowerDp.status: 9, MowerDp.switchGo: true}),
     (
-      'DP3=wait_charge',
-      {
-        MowerDp.status: 'mowing',
-        MowerDp.switchGo: true,
-        MowerDp.mode: 'wait_charge',
-      },
-    ),
-    (
       'DP5=wait_rain',
       {MowerDp.status: 'wait_rain', MowerDp.switchGo: false},
-    ),
-    (
-      'DP3=7',
-      {MowerDp.status: 'mowing', MowerDp.switchGo: true, MowerDp.mode: 7},
     ),
   ]) {
     testWidgets('在桩等待 ${entry.$1}：停止/继续置灰，点击不发指令', (tester) async {
@@ -746,7 +734,7 @@ void main() {
         MowerDp.switchGo: action == 'pause',
         MowerDp.status: action == 'start' ? 'stop' : 'mowing',
         MowerDp.mode: 'standby',
-        MowerDp.commandResults: '{"code":26,"seq":255,"dp":3,"val":1}',
+        MowerDp.commandResults: '{"code":26,"seq":255,"dp":3,"val":2}',
       }, repositoryOverride: repository);
       expect(find.text('设备异常'), findsNothing, reason: '快照旧回执不弹');
       final starts = action == 'smart' || action == 'spot' || action == 'start';
@@ -843,20 +831,20 @@ void main() {
   testWidgets('DP115无关DP、旧序号、错误val和畸形帧不误弹，本次匹配回执可弹', (tester) async {
     final repository = _ResultMowerRepository()..autoResult = false;
     await _pumpMowerHome(tester, {
-      MowerDp.commandResults: '{"code":26,"seq":9,"dp":3,"val":3}',
+      MowerDp.commandResults: '{"code":26,"seq":9,"dp":3,"val":4}',
     }, repositoryOverride: repository);
     await tester.tap(find.byKey(const Key('mower-action-gotoCharge')));
     await tester.pumpAndSettle();
-    repository.pushResult(26, MowerDp.mode, 3, seq: 9);
+    repository.pushResult(26, MowerDp.mode, 4, seq: 9);
     await tester.pumpAndSettle();
     repository.pushResult(26, MowerDp.operatingTime, 5, seq: 10);
     await tester.pumpAndSettle();
-    repository.pushResult(26, MowerDp.mode, 1, seq: 11);
+    repository.pushResult(26, MowerDp.mode, 2, seq: 11);
     await tester.pumpAndSettle();
     repository.pushRaw('broken');
     await tester.pumpAndSettle();
     expect(find.text('设备异常'), findsNothing);
-    repository.pushResult(26, MowerDp.mode, 3, seq: 12);
+    repository.pushResult(26, MowerDp.mode, 4, seq: 12);
     await tester.pumpAndSettle();
     expect(find.text('设备异常'), findsOneWidget);
     await tester.tap(find.text('我已处理'));
@@ -1059,7 +1047,6 @@ void main() {
         await tester.tap(find.text('取消'));
         await tester.pumpAndSettle();
         expect(repository.publishedDps, isEmpty);
-        expect(find.byKey(const Key('mower-work-countdown')), findsNothing);
       }
       await tester.tap(find.byKey(Key('mower-action-$action')));
       await tester.pumpAndSettle();
@@ -1070,29 +1057,6 @@ void main() {
       MowerDevice.instance.resetForTest();
     });
   }
-
-  testWidgets('确认时间设置即显示倒计时，再次确认按新时长重新计数', (tester) async {
-    var now = DateTime(2026, 10, 10, 12, 30);
-    await _pumpMowerHome(tester, <int, Object?>{
-      MowerDp.switchGo: false,
-      MowerDp.mode: 'standby',
-      MowerDp.coverStatus: true,
-    }, now: () => now);
-    MowerDevice.instance.clock = () => now;
-    expect(find.byKey(const Key('mower-work-countdown')), findsNothing);
-    await tester.tap(find.byKey(const Key('mower-action-smart')));
-    await _confirmStart(tester);
-    await tester.pumpAndSettle();
-    expect(find.text('5小时0分'), findsOneWidget);
-
-    now = DateTime(2026, 10, 10, 13, 30);
-    await tester.tap(find.byKey(const Key('mower-action-spot')));
-    await _confirmStart(tester);
-    await tester.pumpAndSettle();
-    expect(find.text('4小时0分'), findsOneWidget, reason: '重设即重跑');
-    expect(tester.takeException(), isNull);
-    MowerDevice.instance.resetForTest();
-  });
 
   for (final hour in <int>[17, 18, 22]) {
     testWidgets('$hour:30 剩余不足整小时或已过18点不启动，给出友好提示', (tester) async {
@@ -1120,7 +1084,6 @@ void main() {
       <int, Object?>{},
       now: () => now,
     );
-    MowerDevice.instance.clock = () => now;
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('我已确认，周围安全'));
@@ -1130,8 +1093,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('暂时无法启动'), findsOneWidget);
     expect(repository.publishedDps, isEmpty);
-    // 时间设置已确认：照样按选的 1 小时计时（2026-10-24 产品）。
-    expect(find.text('1小时0分'), findsOneWidget);
     MowerDevice.instance.resetForTest();
   });
 
@@ -1197,14 +1158,11 @@ void main() {
         repo.publishError = const TuyaException('reject', '设置失败');
       },
     );
-    MowerDevice.instance.clock = () => DateTime(2026, 10, 10, 12, 30);
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await _confirmStart(tester);
     expect(_sentDps(repository), <int>[MowerDp.operatingTime]);
     expect(find.text('指令没有发出去：设置失败'), findsOneWidget);
     expect(MowerDevice.instance.switchGo, isFalse);
-    // 2026-10-24：弹过时间设置并确认就计时，DP119 没发出去也不撤销。
-    expect(find.text('5小时0分'), findsOneWidget);
     MowerDevice.instance.resetForTest();
   });
 
@@ -1224,14 +1182,14 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const Key('mower-safety-notice')),
-        matching: find.text('左轮异常，请清理异物并重启。'),
+        matching: find.text('左电机故障'),
       ),
       findsOneWidget,
     );
 
     // 2026-09-28：控制页捕捉到新的故障位 → 弹「设备告警」，内容是该位的文案，按钮「我知道了」
     expect(find.text('设备告警'), findsOneWidget);
-    expect(find.text('左轮异常，请清理异物并重启。'), findsNWidgets(2));
+    expect(find.text('左电机故障'), findsNWidgets(2));
     await tester.tap(find.text('我知道了'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
@@ -1251,7 +1209,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('设备告警'), findsOneWidget);
-    expect(find.textContaining('机器被悬空，请放回地面。'), findsOneWidget);
+    expect(find.textContaining('机器抬起'), findsOneWidget);
     await tester.tap(find.text('我知道了'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
@@ -1647,14 +1605,11 @@ void main() {
       MowerDp.coverStatus: false,
     });
 
-    MowerDevice.instance.clock = () => DateTime(2026, 10, 10, 12, 30);
     await tester.tap(find.byKey(const Key('mower-action-smart')));
     await _confirmStart(tester);
 
     expect(find.text('盖子未合上'), findsOneWidget);
     expect(_sentDps(repository), isNot(contains(MowerDp.mode)));
-    // 盖子没合没启动，但时间设置已确认：照样计时（2026-10-24 产品）。
-    expect(find.text('5小时0分'), findsOneWidget);
     MowerDevice.instance.resetForTest();
     expect(tester.takeException(), isNull);
   });
