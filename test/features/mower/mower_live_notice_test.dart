@@ -16,7 +16,7 @@ String _alarm({int circularize = 0}) =>
 
 /// 首页黄条实时提醒（2026-10-22 检查报告第 5、6 节）：
 /// DP111 circularize 实时抬起位 + DP120 事件码 44/144 → 设备已抬起 / 设备已落地；
-/// DP120 41/141 → 机器陷入坑洼，正在脱困。
+/// DP5 = 12 escaping → 机器陷入坑洼，正在脱困（2026-10-24 起只跟 DP5，DP120 41/141 只记日志）。
 void main() {
   setUp(MowerDevice.instance.resetForTest);
 
@@ -86,43 +86,87 @@ void main() {
     expect(device.liveNotice, isNull, reason: '不补「已落地」，旧41不算脱困');
   });
 
-  testWidgets('41提示正在脱困，141收起；收不到141时超时收起', (tester) async {
+  testWidgets('脱困途中才进页面：快照 DP5=12 直接显示正在脱困', (tester) async {
+    final state = _state()
+      ..snapshot = () async => {MowerDp.status: 'escaping'};
+    final device = MowerDevice.instance;
+    await device.bind(state, owner: Object(), deviceId: _id);
+    expect(device.liveNotice, '机器陷入坑洼，正在脱困');
+  });
+
+  testWidgets('DP5=12 显示正在脱困，回到割草收起；超过 2 分钟仍在脱困照常显示', (tester) async {
+    final state = _state();
+    final device = MowerDevice.instance;
+    await device.bind(state, owner: Object(), deviceId: _id);
+
+    state.report({MowerDp.status: 'escaping'});
+    await tester.pump();
+    expect(device.liveNotice, '机器陷入坑洼，正在脱困');
+    await tester.pump(const Duration(minutes: 3));
+    state.report({MowerDp.status: 12});
+    await tester.pump();
+    expect(device.liveNotice, '机器陷入坑洼，正在脱困', reason: '没有超时收起');
+
+    state.report({MowerDp.status: 'mowing'});
+    await tester.pump();
+    expect(device.liveNotice, isNull);
+  });
+
+  testWidgets('DP120 41/141 不再驱动黄条：丢 41 照样靠 DP5 显示，丢 141 靠 DP5 收起', (tester) async {
     final state = _state();
     final device = MowerDevice.instance;
     await device.bind(state, owner: Object(), deviceId: _id);
 
     state.report({MowerDp.alarmEvent: 41});
+    await tester.pump();
+    expect(device.liveNotice, isNull, reason: '只有 41、DP5 不是 12');
+
+    state.report({MowerDp.status: 'escaping'});
     await tester.pump();
     expect(device.liveNotice, '机器陷入坑洼，正在脱困');
     state.report({MowerDp.alarmEvent: 141});
     await tester.pump();
-    expect(device.liveNotice, isNull);
-
-    state.report({MowerDp.alarmEvent: 41});
+    expect(device.liveNotice, '机器陷入坑洼，正在脱困', reason: 'DP5 仍是 12');
+    state.report({MowerDp.status: 'mowing'});
     await tester.pump();
-    expect(device.liveNotice, '机器陷入坑洼，正在脱困');
-    await tester.pump(MowerLiveNotice.trapTimeout);
     expect(device.liveNotice, isNull);
   });
 
-  testWidgets('脱困失败报陷坑故障（DP18 bit11 或事件31）：收起脱困提示，交给故障文案', (tester) async {
+  testWidgets('脱困失败 DP5 转故障：收起脱困提示，交给 DP18 故障文案；急停同样收起', (tester) async {
     final state = _state();
     final device = MowerDevice.instance;
     await device.bind(state, owner: Object(), deviceId: _id);
 
-    state.report({MowerDp.alarmEvent: 41});
+    state.report({MowerDp.status: 'escaping'});
     await tester.pump();
-    state.report({MowerDp.fault: 1 << 11});
+    state.report({MowerDp.status: 'fault', MowerDp.fault: 1 << 11});
     await tester.pump();
     expect(device.liveNotice, isNull);
     expect(device.faultMessage, '机器被困，请移至平坦区域。');
 
-    state.report({MowerDp.fault: 0});
-    state.report({MowerDp.alarmEvent: 41});
+    state.report({MowerDp.fault: 0, MowerDp.status: 'escaping'});
     await tester.pump();
-    state.report({MowerDp.alarmEvent: 31});
+    expect(device.liveNotice, '机器陷入坑洼，正在脱困');
+    state.report({MowerDp.status: 'stop'});
     await tester.pump();
     expect(device.liveNotice, isNull);
+  });
+
+  testWidgets('抬起优先于脱困，放下后回到脱困提示', (tester) async {
+    final state = _state();
+    final device = MowerDevice.instance;
+    await device.bind(state, owner: Object(), deviceId: _id);
+
+    state.report({MowerDp.status: 'escaping'});
+    await tester.pump();
+    state.report({MowerDp.alarmEvent: 44});
+    await tester.pump();
+    expect(device.liveNotice, '设备已抬起');
+    state.report({MowerDp.alarmEvent: 144});
+    await tester.pump();
+    expect(device.liveNotice, '设备已落地');
+    await tester.pump(MowerLiveNotice.landedVisible);
+    expect(device.liveNotice, '机器陷入坑洼，正在脱困');
   });
 
   testWidgets('退出页面清掉提示和计时器', (tester) async {
@@ -130,7 +174,7 @@ void main() {
     final device = MowerDevice.instance;
     final owner = Object();
     await device.bind(state, owner: owner, deviceId: _id);
-    state.report({MowerDp.alarmEvent: 41});
+    state.report({MowerDp.status: 'escaping'});
     await tester.pump();
     expect(device.liveNotice, isNotNull);
     device.release(owner);

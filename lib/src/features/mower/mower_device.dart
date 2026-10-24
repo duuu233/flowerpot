@@ -908,15 +908,19 @@ class MowerDevice extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 黄条实时提醒：刚绑定按快照同步抬起状态；之后只认带了 DP111 / DP120 的实时上报，
-  /// 整包快照（changed 为空）里的旧事件码与 DP111 不触发提示。DP18 陷坑位任何来源都收起脱困提示。
+  /// 黄条实时提醒：脱困跟当前 DP5（快照与实时都算，DP5=12 显示、其它收起）；抬起刚绑定按快照同步，
+  /// 之后只认带了 DP111 / DP120 的实时上报，整包快照（changed 为空）里的旧事件码与 DP111 不触发提示。
   void _updateLiveNotice(
     FlowerpotState state,
     Set<int>? changed,
     Map<int, Object?> dps,
   ) {
-    final bitmap = faultBitmap;
-    if (bitmap != null) _liveNotice.onFaultBitmap(bitmap);
+    if (_liveNotice.onStatus(status)) {
+      state.logMowerInteraction(
+        '黄条 · 割草机 DP${MowerDp.status}=${status.code} → '
+        '「${_liveNotice.message ?? '收起'}」',
+      );
+    }
     if (changed == null) {
       _liveNotice.baseline(faultAlarm);
       return;
