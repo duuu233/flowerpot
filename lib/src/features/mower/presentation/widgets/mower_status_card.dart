@@ -25,7 +25,7 @@ class MowerStatusCard extends StatelessWidget {
     this.now = DateTime.now,
   });
 
-  /// 工作时间倒计时终点（APP 本机计算，见 [MowerWorkCountdown]）；null 时胶囊里不显示倒计时。
+  /// 工作时间倒计时终点（按设备 DP121 当前计划算，见 [MowerWorkCountdown]）；null 时胶囊里不显示倒计时。
   final DateTime? workEndsAt;
 
   /// 倒计时读的时钟，用例里换成假时间。

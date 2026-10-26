@@ -1,45 +1,21 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'mower_current_plan.dart';
 
-/// 工作时间倒计时（2026-10-22 产品定稿，见 `docs/reports/2026-10-22-割草机倒计时与雨滴陷坑抬起检查.md`）。
+/// 工作时间倒计时（2026-10-26 起以设备 DP121 为准，V3.0 §3.8）。
 ///
-/// 设备没有「剩余作业时间」DP，倒计时完全由 APP 按「DP119 下发成功的时刻 + 下发的小时数」计算，
-/// 与设备实际是否还在割草无关：
-/// - 不暂停：停止、急停、故障、回充、在桩等待都照常递减；
-/// - 只在待机（DP5=0）、休眠（DP5=2）、已关机（DP113）或离线时隐藏（2026-10-24 产品，
-///   `MowerDevice.visibleWorkEndsAt`），隐藏期间终点不动、照常走；其余时候一直显示，减到 0 停在「0分」；
-/// - 重设即重跑：再次下发 DP119 成功就用新的终点，旧的作废；「继续」不重写 DP119，不重计。
-///
-/// 终点只记在本机（按设备 ID 存 [SharedPreferences]）：换手机、重装或别的手机设置的时间无从得知，
-/// 这时 [load] 返回 null，首页不显示倒计时，不编时间。
+/// 终点 = 收到 DP121 新帧时的本机时刻 + 该帧 `et − now`，之后按本机时钟逐分钟递减；收到新帧才
+/// 重设基准（机器校时、计划变化、60s 兜底都会重发）。用的是设备给的相对差值，手机时钟快慢、
+/// 换手机、重装或另一台手机启动都不影响；不再按「DP119 下发成功」在本机计时，也不在本机存终点。
+/// - 无计划（st/et=0）不显示；减到 0 停在「0分」，等设备报无计划才收起；
+/// - 待机（DP5=0）、休眠（DP5=2）、已关机（DP113）或离线时只隐藏（2026-10-24 产品，
+///   `MowerDevice.visibleWorkEndsAt`），终点照常走。
 class MowerWorkCountdown {
   const MowerWorkCountdown._();
 
-  static String _key(String deviceId) => 'mower_work_ends_at_$deviceId';
-
-  /// 本机记过的终点；没记过或读失败为 null。
-  static Future<DateTime?> load(String deviceId) async {
-    try {
-      final preferences = await SharedPreferences.getInstance();
-      final millis = preferences.getInt(_key(deviceId));
-      return millis == null
-          ? null
-          : DateTime.fromMillisecondsSinceEpoch(millis);
-    } on Object {
-      return null;
-    }
-  }
-
-  static Future<void> save(String deviceId, DateTime endsAt) async {
-    try {
-      final preferences = await SharedPreferences.getInstance();
-      await preferences.setInt(
-        _key(deviceId),
-        endsAt.millisecondsSinceEpoch,
-      );
-    } on Object {
-      // 存不下只影响重进页面后的显示，本次会话仍按内存里的终点显示。
-    }
-  }
+  /// 按一帧 DP121 和收到它的本机时刻算终点；无计划为 null。
+  static DateTime? endsAt(MowerCurrentPlan plan, DateTime receivedAt) =>
+      plan.active
+      ? receivedAt.add(Duration(seconds: plan.remainingSeconds))
+      : null;
 
   /// 剩余整分钟，向上取整：刚设置 2 小时显示「2小时0分」，最后不足 1 分钟仍显示「1分」，
   /// 到点才是 0；过了终点停在 0。

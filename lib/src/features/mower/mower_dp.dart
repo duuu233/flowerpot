@@ -3,8 +3,8 @@ import 'dart:typed_data';
 
 /// 割草机的功能点表与编解码。
 ///
-/// 当前依据（2026-10-22 起）：`docs/Grass_Master_Automower_DP协议对接_V3.0.md`（25 个 DP，
-/// 固件基线 2026-10-22）与 `docs/Grass_Master_Automower_拒绝理由与文案_V1.0.md`。
+/// 当前依据（2026-10-22 起）：`docs/Grass_Master_Automower_DP协议对接_V3.0.md`（26 个 DP，
+/// 固件基线 2026-10-26）与 `docs/Grass_Master_Automower_拒绝理由与文案_V1.0.md`。
 /// 早期来源：平台导出的功能点表与 V2.2 协议（已移入 `docs/history/other/`）。
 ///
 /// ⚠️ **两份文档在 DP3 上对不上，本文件按"枚举值列表 + V2.2 协议"取**：
@@ -52,6 +52,10 @@ abstract final class MowerDp {
   /// 2026-10-24 新增 51 / 52 / 53 = 开始普通 / 低电 / 雨滴回充（151~153 回充结束）；
   /// 回充原因以 DP5 的 4 / 13 / 14 为准，45 / 46 只是积水 / 低电告警通知。
   static const int alarmEvent = 120;
+
+  /// string ro：机器当前计划 JSON `{"st","et","now"}`（V3.0 §3.8，2026-10-26 新增），
+  /// 工作时间倒计时的唯一来源，解析见 `MowerCurrentPlan`。
+  static const int scheduleCurrent = 121;
 
   /// bool ro：关机上报（V2.5 §4.7 / §9.9）。true = **非在桩**关机，设备连发约 9 次（100 ms 间隔）
   /// 后约 1 秒断电离线——这次离线是预期的，不按异常离线处理；在桩关机不上报；下次开机连云后
@@ -136,6 +140,7 @@ abstract final class MowerDp {
     chargingStatus: 'charging',
     coverStatus: 'cover_status',
     alarmEvent: 'alarm_event',
+    scheduleCurrent: 'schedule_current',
     shutdownReport: 'shutdown_report',
     commandResults: 'command_results',
     operatingTime: 'operating_time',

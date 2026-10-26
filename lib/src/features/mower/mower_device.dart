@@ -7,6 +7,7 @@ import '../../state.dart';
 import '../../tuya/tuya_raw.dart';
 import 'mower_dp.dart';
 import 'mower_command_result.dart';
+import 'mower_current_plan.dart';
 import 'mower_fault_alarm.dart';
 import 'mower_live_notice.dart';
 import 'mower_work_countdown.dart';
@@ -71,9 +72,15 @@ class MowerDevice extends ChangeNotifier {
   /// DP119：设备最后上报的工作时长（整数小时），未上报为 null。
   int? operatingTimeHours;
 
-  /// 工作时间倒计时的终点：本机最后一次 DP119 下发成功的时刻 + 下发的小时数（[MowerWorkCountdown]）。
-  /// 本机没设置过为 null，首页不显示倒计时。
+  /// DP121 最后一帧机器当前计划；设备没报过或认不出为 null。
+  MowerCurrentPlan? currentPlan;
+
+  /// 工作时间倒计时的终点：收到 DP121 新帧时的本机时刻 + 该帧 `et − now`（[MowerWorkCountdown]）。
+  /// 设备无计划或没报过 DP121 为 null，首页不显示倒计时。
   DateTime? workEndsAt;
+
+  /// 这次 [_applyReported] 里 DP121 的计划身份（st, et）变了，等有 state 时记一行日志。
+  bool _currentPlanChanged = false;
 
   /// 首页状态胶囊实际显示的倒计时终点：待机（DP5=0）、休眠（DP5=2）、已关机（[shutdown]）或离线时
   /// 隐藏为 null（2026-10-24 产品）。只是不显示，[workEndsAt] 照常保留、照常走，离开这几种状态后
@@ -241,15 +248,6 @@ class MowerDevice extends ChangeNotifier {
     _lastOnline = state.deviceById(deviceId)?.online;
     _lastShutdown = state.isMowerShutdown(deviceId);
     state.addListener(_onStateChanged);
-    unawaited(
-      MowerWorkCountdown.load(deviceId).then((endsAt) {
-        // 本会话里已经重新设置过就以新的为准，不拿存储里的旧终点盖掉。
-        if (!_isCurrent(deviceId, generation) || workEndsAt != null) return;
-        if (endsAt == null) return;
-        workEndsAt = endsAt;
-        notifyListeners();
-      }),
-    );
     _reportSub = state.mowerReports
         .where((report) => _isCurrent(report.deviceId, generation))
         .listen(
@@ -351,7 +349,9 @@ class MowerDevice extends ChangeNotifier {
   /// - 时区按手机当前时区（DP107 没报时时间同步页的默认选中项）。
   void _loadLiveDefaults() {
     operatingTimeHours = null;
+    currentPlan = null;
     workEndsAt = null;
+    _currentPlanChanged = false;
     switchGo = false;
     mode = MowerMode.standby;
     lastCommandedMode = null;
@@ -564,40 +564,47 @@ class MowerDevice extends ChangeNotifier {
 
   /// 工作时长（DP119）：下发成功后才允许页面继续启动，不改变每次弹窗的默认值。
   ///
-  /// 下发成功即按「此刻 + [hours]」重设本机倒计时终点（重设即重跑，旧终点作废）；失败不动。
+  /// 不再据此计时：倒计时以设备启动后上报的 DP121 当前计划为准。
   Future<bool> setOperatingTime(FlowerpotState state, int hours) {
     if (!_canWrite(state)) return Future<bool>.value(false);
     if (hours < 1 || hours > 24) {
       throw RangeError.range(hours, 1, 24, 'hours');
     }
-    final id = _deviceId;
-    final generation = _bindingGeneration;
     final identifier = MowerDp.identifiers[MowerDp.operatingTime];
     state.logMowerInteraction('下发 → 割草机 DP119 $identifier=$hours（割草时长）');
     return _publish(state, <int, Object>{
       MowerDp.operatingTime: hours,
-    }, label: 'DP119 $identifier=$hours').then((sent) {
-      _restartCountdown(state, id, generation, sent: sent, hours: hours);
-      return sent;
-    });
+    }, label: 'DP119 $identifier=$hours');
   }
 
-  void _restartCountdown(
-    FlowerpotState state,
-    String? id,
-    int generation, {
-    required bool sent,
-    required int hours,
-  }) {
-    if (sent && id != null && _isCurrent(id, generation)) {
-      final endsAt = clock().add(Duration(hours: hours));
-      workEndsAt = endsAt;
-      state.logMowerInteraction(
-        '倒计时 · 割草机工作时间 $hours 小时，本机计到 ${_clockText(endsAt)}',
-      );
-      notifyListeners();
-      unawaited(MowerWorkCountdown.save(id, endsAt));
+  /// DP121 新帧重设倒计时基准。快照反复刷进来的同一帧不动，免得拿旧的 `now` 把终点往后推。
+  void _applyCurrentPlan(Object? raw) {
+    final plan = MowerCurrentPlan.parse(raw);
+    if (plan == null || plan.sameFrame(currentPlan)) return;
+    if (!plan.samePlan(currentPlan)) _currentPlanChanged = true;
+    currentPlan = plan;
+    workEndsAt = MowerWorkCountdown.endsAt(plan, clock());
+  }
+
+  void _logCurrentPlan(FlowerpotState state) {
+    if (!_currentPlanChanged) return;
+    _currentPlanChanged = false;
+    final plan = currentPlan;
+    final endsAt = workEndsAt;
+    if (plan == null) return;
+    final id = MowerDp.identifiers[MowerDp.scheduleCurrent];
+    if (endsAt == null) {
+      state.logMowerInteraction('倒计时 · 割草机 DP121 $id 无当前计划，不显示倒计时');
+      return;
     }
+    String at(int seconds) => _clockText(
+      DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
+    );
+    state.logMowerInteraction(
+      '倒计时 · 割草机 DP121 $id 计划 ${at(plan.startSeconds)}–${at(plan.endSeconds)}，'
+      '剩余 ${MowerWorkCountdown.label(MowerWorkCountdown.remainingMinutes(endsAt, clock()))}，'
+      '本机计到 ${_clockText(endsAt)}',
+    );
   }
 
   static String _clockText(DateTime time) =>
@@ -869,6 +876,7 @@ class MowerDevice extends ChangeNotifier {
       }
     }
     _updateLiveNotice(state, changed, dps);
+    _logCurrentPlan(state);
     if (changed == null && dps.containsKey(MowerDp.commandResults)) {
       _lastCommandResult = MowerCommandResult.parse(
         dps[MowerDp.commandResults],
@@ -1111,6 +1119,8 @@ class MowerDevice extends ChangeNotifier {
           timezoneIndex = MowerTimezone.indexOfCode(value) ?? timezoneIndex;
         case MowerDp.dstEnable:
           dstEnable = _asBool(value) ?? dstEnable;
+        case MowerDp.scheduleCurrent:
+          _applyCurrentPlan(value);
         case MowerDp.deviceTime:
           final timeText = '${value ?? ''}'.trim();
           if (timeText.isNotEmpty) deviceTimeUtcSeconds = timeText;

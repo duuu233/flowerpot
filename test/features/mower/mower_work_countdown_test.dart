@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flowerpot/src/features/mower/mower_current_plan.dart';
 import 'package:flowerpot/src/features/mower/mower_device.dart';
 import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/features/mower/mower_ui.dart';
@@ -13,9 +14,9 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../support/mock_tuya_repository.dart';
 import '../../support/plant_catalog.dart';
 
-/// 工作时间倒计时（2026-10-22 产品定稿）：APP 本机按「DP119 下发成功时刻 + 小时数」计算，
-/// 状态胶囊里「图标 + 剩余时间」按分钟递减；不暂停，到 0 停在「0分」；重设即重跑。
-/// 待机、休眠、已关机、离线时首页隐藏（2026-10-24 产品），终点保留。
+/// 工作时间倒计时（2026-10-26 起以设备 DP121 schedule_current 为准）：终点 = 收到新帧的本机时刻 +
+/// `et − now`，状态胶囊里「图标 + 剩余时间」按分钟递减，到 0 停在「0分」；新帧重设基准，同一帧不动；
+/// 无计划不显示；DP119 下发不再计时。待机、休眠、已关机、离线时首页隐藏（2026-10-24 产品），终点保留。
 void main() {
   setUp(MowerDevice.instance.resetForTest);
 
@@ -104,39 +105,109 @@ void main() {
     expect(find.byKey(const Key('mower-work-countdown')), findsNothing);
   });
 
-  testWidgets('DP119下发成功即开始计时，重设按新时长重跑，重进页面从本机读回', (tester) async {
+  test('DP121 解析：u32 三字段齐全才认，剩余 max(0, et−now)，计划身份只看 st/et', () {
+    final plan = MowerCurrentPlan.parse(
+      '{"st":1761451200,"et":1761465600,"now":1761454500}',
+    )!;
+    expect(plan.active, isTrue);
+    expect(plan.remainingSeconds, 1761465600 - 1761454500);
+    expect(
+      MowerCurrentPlan.parse(<String, Object?>{'st': 1, 'et': 100, 'now': 50})
+          ?.remainingSeconds,
+      50,
+      reason: '平台也可能直接给 Map',
+    );
+
+    final idle = MowerCurrentPlan.parse('{"st":0,"et":0,"now":1761454500}')!;
+    expect(idle.active, isFalse);
+    expect(idle.remainingSeconds, 0);
+    expect(MowerWorkCountdown.endsAt(idle, DateTime(2026, 10, 26)), isNull);
+
+    final over = MowerCurrentPlan.parse('{"st":100,"et":200,"now":500}')!;
+    expect(over.remainingSeconds, 0, reason: '过了结束时间停在 0');
+
+    for (final bad in <Object?>[
+      null,
+      '',
+      'not json',
+      '[1,2,3]',
+      '{"st":1,"et":2}',
+      '{"st":-1,"et":2,"now":1}',
+      '{"st":1,"et":"2","now":1}',
+      '{"st":1,"et":2.5,"now":1}',
+      '{"st":1,"et":4294967296,"now":1}',
+    ]) {
+      expect(MowerCurrentPlan.parse(bad), isNull, reason: '$bad');
+    }
+
+    final next = MowerCurrentPlan.parse(
+      '{"st":1761451200,"et":1761465600,"now":1761454560}',
+    )!;
+    expect(next.samePlan(plan), isTrue, reason: 'now 变了不算计划变');
+    expect(next.sameFrame(plan), isFalse);
+  });
+
+  testWidgets('DP121：按收到时刻+et−now计时，新帧重设基准，同一帧快照不动，无计划收起', (
+    tester,
+  ) async {
+    final repository = _MowerRepository()
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{
+        MowerDp.scheduleCurrent: '{"st":1000,"et":8200,"now":1000}',
+      };
+    final state = await _state(repository);
+    final device = MowerDevice.instance;
+    var now = DateTime(2026, 10, 26, 9);
+    device.clock = () => now;
+    await device.bind(state, owner: _owner, deviceId: _mowerId);
+    await tester.pump();
+    expect(device.currentPlan?.endSeconds, 8200);
+    expect(device.workEndsAt, DateTime(2026, 10, 26, 11), reason: '剩余 2 小时');
+
+    // 同一帧被整包快照反复刷进来：不能拿旧的 now 把终点往后推。
+    now = DateTime(2026, 10, 26, 9, 10);
+    repository.pushDeviceUpdate(DeviceUpdate.changed(_mower()));
+    await tester.pump();
+    await tester.pump();
+    expect(device.workEndsAt, DateTime(2026, 10, 26, 11));
+
+    // 兜底新帧：机器时间走了 30 分钟（手机只走了 10 分钟），按机器的剩余 1.5 小时重设。
+    _report(repository, '{"st":1000,"et":8200,"now":2800}');
+    await tester.pump();
+    await tester.pump();
+    expect(device.workEndsAt, DateTime(2026, 10, 26, 10, 40));
+
+    // 换了计划（重新启动 1 小时）：按新计划重算。
+    now = DateTime(2026, 10, 26, 9, 20);
+    _report(repository, '{"st":3400,"et":7000,"now":3400}');
+    await tester.pump();
+    await tester.pump();
+    expect(device.workEndsAt, DateTime(2026, 10, 26, 10, 20));
+
+    // 认不出的帧丢掉，保留上一帧。
+    _report(repository, '{"st":3400}');
+    await tester.pump();
+    await tester.pump();
+    expect(device.workEndsAt, DateTime(2026, 10, 26, 10, 20));
+
+    // 任务结束 / 取消：设备报无计划，倒计时收起。
+    _report(repository, '{"st":0,"et":0,"now":3500}');
+    await tester.pump();
+    await tester.pump();
+    expect(device.currentPlan?.active, isFalse);
+    expect(device.workEndsAt, isNull);
+    expect(device.visibleWorkEndsAt, isNull);
+    device.resetForTest();
+  });
+
+  testWidgets('DP119下发成功不再开始计时；设备没报DP121不显示', (tester) async {
     final repository = _MowerRepository()
       ..rawDpsByDevice[_mowerId] = <int, Object?>{};
     final state = await _state(repository);
     final device = MowerDevice.instance;
     await device.bind(state, owner: _owner, deviceId: _mowerId);
-    expect(device.workEndsAt, isNull);
-
-    var now = DateTime(2026, 10, 22, 9);
-    device.clock = () => now;
     expect(await _sent(tester, device.setOperatingTime(state, 3)), isTrue);
-    expect(device.workEndsAt, DateTime(2026, 10, 22, 12));
-
-    now = DateTime(2026, 10, 22, 10, 30);
-    expect(await _sent(tester, device.setOperatingTime(state, 2)), isTrue);
-    expect(device.workEndsAt, DateTime(2026, 10, 22, 12, 30), reason: '重设即重跑');
-
-    // 「继续」只发 DP2，不重写 DP119，倒计时不变。
-    device.release(_owner);
-    await device.bind(state, owner: _owner, deviceId: _mowerId);
-    await tester.pump();
-    expect(device.workEndsAt, DateTime(2026, 10, 22, 12, 30));
-    device.resetForTest();
-  });
-
-  testWidgets('DP119没发出去（离线）不开始计时', (tester) async {
-    final repository = _MowerRepository(online: false)
-      ..rawDpsByDevice[_mowerId] = <int, Object?>{};
-    final state = await _state(repository);
-    final device = MowerDevice.instance;
-    await device.bind(state, owner: _owner, deviceId: _mowerId);
-    expect(await _sent(tester, device.setOperatingTime(state, 3)), isFalse);
     expect(device.workEndsAt, isNull);
+    expect(device.currentPlan, isNull);
     device.resetForTest();
   });
 
@@ -208,18 +279,6 @@ void main() {
     expect(device.visibleWorkEndsAt, isNull);
     device.resetForTest();
   });
-
-  testWidgets('另一台设备没在本机设置过：不显示，不借用别的设备的终点', (tester) async {
-    final repository = _MowerRepository()
-      ..rawDpsByDevice[_mowerId] = <int, Object?>{};
-    final state = await _state(repository);
-    final device = MowerDevice.instance;
-    await MowerWorkCountdown.save('other-mower', DateTime(2026, 10, 22, 12));
-    await device.bind(state, owner: _owner, deviceId: _mowerId);
-    await tester.pump();
-    expect(device.workEndsAt, isNull);
-    device.resetForTest();
-  });
 }
 
 /// 下发要经过 Mock 的零延时计时器，假时钟下得 pump 才会走完。
@@ -229,6 +288,18 @@ Future<bool?> _sent(WidgetTester tester, Future<bool> pending) async {
   await tester.pump();
   await tester.pump();
   return value;
+}
+
+/// 模拟一条只带 DP121 的实时上报。
+void _report(_MowerRepository repository, String raw) {
+  repository.rawDpsByDevice[_mowerId]![MowerDp.scheduleCurrent] = raw;
+  repository.pushDeviceUpdate(
+    DeviceUpdate.changed(
+      _mower(),
+      changedDps: <int>{MowerDp.scheduleCurrent},
+      reportedDps: <int, Object?>{MowerDp.scheduleCurrent: raw},
+    ),
+  );
 }
 
 const String _mowerId = 'mower-countdown';
