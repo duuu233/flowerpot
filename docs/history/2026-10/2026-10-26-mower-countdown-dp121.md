@@ -6,7 +6,7 @@
 
 ## 依据与范围
 
-协议 V3.0 固件基线 2026-10-26 新增 DP121 `schedule_current`（string/ro，JSON `{st,et,now}`，UTC 秒）。用户要求据此完善倒计时整个逻辑。产品报告：`docs/reports/2026-10-26-割草机倒计时改用DP121说明.md`。
+协议 V3.0 固件基线 2026-10-26 新增 DP121 `schedule_current`（string/ro，JSON `{st,et,now}`，UTC 秒）。用户要求据此完善倒计时整个逻辑。产品报告：`docs/reports/2026-10-26-割草机倒计时与OTA改动说明.md`（原「割草机倒计时改用DP121说明」，同日合并）。
 
 ## 改动
 
