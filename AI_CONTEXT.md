@@ -1,6 +1,6 @@
 # AI 项目上下文
 
-OTA调试日志文件（2026-10-26）：调试构建（APP_DEBUG_TOOLS 未关）把一次OTA全过程写到手机文件 `ota_logs/ota-YYYY-MM-DD.log`（Android 应用外部文件目录 `Android/data/<包名>/files/`，iOS 文档目录且已开 UIFileSharingEnabled，「文件」App可见），保留7天，`OtaDebugLog`（core/logging）。来源：`native`=原生桥 `otaLog` 事件转来的SDK原始字段（升级信息列表、服务回调/3秒轮询bean、旧版监听原始回调、错误码文案、发起/接回/释放）、`sdk`=Dart收到的原生OTA事件原样、`app`=状态层判定（发起/返回/报错、进度合并前后、终态忽略、核验现读、版本DP/DP116上报、前后台切换、`[ota-timing]`及所有「OTA」开头联调日志）、`ui`=进度弹层显示内容、升级提醒弹出与用户选择、升级入口各分支。联调日志框「OTA日志」按钮复制本次运行日志并提示文件路径。设置页OTA进度弹层开着时（`OtaProgressLayer`）升级提醒不弹、割草机DP116拒绝/失败提示不另弹。新增依赖 path_provider（pubspec.lock 需 `flutter pub get` 更新）。
+OTA调试日志文件（2026-10-26）：调试构建（APP_DEBUG_TOOLS 未关）把一次OTA全过程写到手机文件 `ota_logs/ota-YYYY-MM-DD.log`（Android 应用外部文件目录 `Android/data/<包名>/files/`，iOS 文档目录且已开 UIFileSharingEnabled，「文件」App可见），保留7天，`OtaDebugLog`（core/logging）。来源：`native`=原生桥 `otaLog` 事件转来的SDK原始字段（升级信息列表、服务回调/3秒轮询bean、旧版监听原始回调、错误码文案、发起/接回/释放）、`sdk`=Dart收到的原生OTA事件原样、`app`=状态层判定（发起/返回/报错、进度合并前后、终态忽略、核验现读、版本DP/DP116上报、前后台切换、`[ota-timing]`及所有「OTA」开头联调日志）、`ui`=进度弹层显示内容、升级提醒弹出与用户选择、升级入口各分支。联调日志框「OTA日志」按钮调 `OtaDebugLog.exportForShare` 把保留日志按日期合并成一个 `ota_logs/share/ota-log-<时间>.txt`（带导出时间/App版本/包含文件头），经 share_plus 系统分享当附件发送（不走剪贴板，无长度限制）。设置页OTA进度弹层开着时（`OtaProgressLayer`）升级提醒不弹、割草机DP116拒绝/失败提示不另弹。新增依赖 path_provider、share_plus（pubspec.lock 需 `flutter pub get` 更新）。
 
 OTA分段诊断：调试构建新增 `[ota-timing]` 首次里程碑与累计/间隔时间；不改变SDK传输、重试及等待。用户包关闭调试不采集。实际差分和提速仍待设备及平台联合取证，取证步骤与边界见 [OTA实现说明](docs/OTA_实现说明.md)。
 

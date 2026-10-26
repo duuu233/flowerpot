@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../config/app_build_info.dart';
 import '../config/debug_log_gate.dart';
 
 /// OTA 完整调试日志，逐行追加到手机文件（2026-10-26 产品：OTA 失败反复出现，要精确定位是哪一环）。
@@ -18,6 +19,9 @@ import '../config/debug_log_gate.dart';
 /// 位置：Android 为应用外部文件目录 `Android/data/<包名>/files/ota_logs/`（USB / adb 可取），
 /// 取不到时退到应用文档目录；iOS 为应用文档目录 `ota_logs/`（Info.plist 已开文件共享，「文件」App
 /// 可见）。每天一个 `ota-YYYY-MM-DD.log`，保留 [keepDays] 天。
+///
+/// 取日志：联调日志框「OTA日志」调 [exportForShare] 合并成一个 `.txt` 交给系统分享（微信 / QQ / 邮件，
+/// 手机上可直接打开，也可发到电脑端），不受剪贴板与聊天消息长度限制。
 ///
 /// 与其它联调能力同一个总闸：用户包（`APP_DEBUG_TOOLS=false`）不写。只记设备 ID 末 6 位，不记账号、
 /// 令牌和地址。写文件失败只影响日志本身，不影响升级。
@@ -77,6 +81,50 @@ abstract final class OtaDebugLog {
   static Future<String?> currentPath() async {
     await _queue;
     return _lastPath ?? (await _fileFor(clock()))?.path;
+  }
+
+  /// 把保留的全部日志（最多 [keepDays] 天，按日期从旧到新）合并成一个 `.txt` 供分享，返回其路径；
+  /// 还没有任何日志文件时为 null。导出文件放在 `ota_logs/share/`，每次导出先删掉上一次的。
+  /// 用 `.txt` 而不用 `.log`：微信、QQ 等在手机上能直接预览。
+  static Future<File?> exportForShare() async {
+    await _queue;
+    final now = clock();
+    final today = await _fileFor(now);
+    if (today == null) return null;
+    final dir = today.parent;
+    final logs = <File>[
+      await for (final entry in dir.list())
+        if (entry is File &&
+            RegExp(r'^ota-\d{4}-\d{2}-\d{2}\.log$')
+                .hasMatch(entry.uri.pathSegments.last))
+          entry,
+    ]..sort((a, b) => a.path.compareTo(b.path));
+    if (logs.isEmpty) return null;
+    final shareDir = Directory('${dir.path}${Platform.pathSeparator}share');
+    if (await shareDir.exists()) await shareDir.delete(recursive: true);
+    await shareDir.create(recursive: true);
+    final stamp =
+        '${_date(now)}_${_two(now.hour)}${_two(now.minute)}${_two(now.second)}';
+    final out = File('${shareDir.path}${Platform.pathSeparator}ota-log-$stamp.txt');
+    final sink = out.openWrite();
+    try {
+      sink.writeln('OTA 调试日志导出 ${_timestamp(now)}');
+      sink.writeln(
+        'App 版本：${AppBuildInfo.version.isEmpty ? '未知' : AppBuildInfo.version}'
+        '　平台：${kIsWeb ? 'web' : Platform.operatingSystem}',
+      );
+      sink.writeln(
+        '包含：${logs.map((file) => file.uri.pathSegments.last).join('、')}',
+      );
+      for (final file in logs) {
+        sink.writeln();
+        sink.writeln('===== ${file.uri.pathSegments.last} =====');
+        sink.write(await file.readAsString());
+      }
+    } finally {
+      await sink.close();
+    }
+    return out;
   }
 
   /// 等排队中的写入落盘（用例用）。

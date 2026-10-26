@@ -68,6 +68,37 @@ void main() {
     expect(OtaDebugLog.recentText(), contains('没有目录'));
   });
 
+  test('分享导出：保留的日志按日期从旧到新合并成一个txt，旧导出删掉，没有日志为null', () async {
+    final dir = await Directory.systemTemp.createTemp('ota_log_share');
+    addTearDown(() => dir.delete(recursive: true));
+    OtaDebugLog.enabledForTest = true;
+    OtaDebugLog.directoryProvider = () async => dir;
+    OtaDebugLog.clock = () => DateTime(2026, 10, 26, 9, 5, 7);
+    final sep = Platform.pathSeparator;
+
+    expect(await OtaDebugLog.exportForShare(), isNull);
+
+    final logs = Directory('${dir.path}${sep}ota_logs');
+    File('${logs.path}${sep}ota-2026-10-25.log').writeAsStringSync('昨天\n');
+    final stale = File('${logs.path}${sep}share${sep}ota-log-old.txt')
+      ..createSync(recursive: true);
+    OtaDebugLog.app('今天');
+    await OtaDebugLog.flush();
+
+    final out = (await OtaDebugLog.exportForShare())!;
+    expect(out.path, endsWith('${sep}share${sep}ota-log-2026-10-26_090507.txt'));
+    expect(stale.existsSync(), isFalse);
+    final text = out.readAsStringSync();
+    expect(text, startsWith('OTA 调试日志导出 2026-10-26 09:05:07.000'));
+    expect(text, contains('包含：ota-2026-10-25.log、ota-2026-10-26.log'));
+    expect(
+      text.indexOf('===== ota-2026-10-25.log ====='),
+      lessThan(text.indexOf('===== ota-2026-10-26.log =====')),
+    );
+    expect(text, contains('昨天'));
+    expect(text, contains('[app] 今天'));
+  });
+
   test('进度层按设备计数，全部关掉才算关闭', () {
     addTearDown(OtaProgressLayer.resetForTest);
     expect(OtaProgressLayer.anyOpen, isFalse);

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../../app/flowerpot_app.dart';
 import '../../../../core/logging/ota_debug_log.dart';
@@ -26,17 +26,37 @@ class InteractionLogPanel extends StatefulWidget {
 class _InteractionLogPanelState extends State<InteractionLogPanel> {
   bool _expanded = true;
 
-  /// 「OTA日志」：把本次运行的 OTA 调试日志复制到剪贴板，并提示手机上的文件位置。
-  Future<void> _copyOtaLog() async {
-    final path = await OtaDebugLog.currentPath();
-    final text = OtaDebugLog.recentText();
-    await Clipboard.setData(ClipboardData(text: text));
-    if (!mounted) return;
-    showAppMessage(
-      context,
-      '${text.isEmpty ? '本次运行还没有 OTA 日志' : '已复制本次运行的 OTA 日志'}'
-      '\n文件：${path ?? '目录不可用'}',
-    );
+  /// 「OTA日志」：把保留的 OTA 调试日志合并成一个 `.txt`，调起系统分享当附件发出去
+  /// （微信 / QQ / 邮件；手机上可直接打开，也可发到电脑端）。不走剪贴板，没有长度限制。
+  Future<void> _shareOtaLog() async {
+    final box = context.findRenderObject() as RenderBox?;
+    try {
+      final file = await OtaDebugLog.exportForShare();
+      if (!mounted) return;
+      if (file == null) {
+        showAppMessage(context, '还没有 OTA 日志，做一次固件升级后再分享');
+        return;
+      }
+      await SharePlus.instance.share(
+        ShareParams(
+          files: <XFile>[XFile(file.path, mimeType: 'text/plain')],
+          subject: 'OTA调试日志',
+          // iPad 的分享面板需要锚点；手机上忽略。
+          sharePositionOrigin: box == null
+              ? null
+              : box.localToGlobal(Offset.zero) & box.size,
+        ),
+      );
+    } on Object catch (error) {
+      if (!mounted) return;
+      final path = await OtaDebugLog.currentPath();
+      if (!mounted) return;
+      showAppMessage(
+        context,
+        '分享失败：$error\n日志文件：${path ?? '目录不可用'}',
+        tone: AppMessageTone.error,
+      );
+    }
   }
 
   @override
@@ -71,7 +91,7 @@ class _InteractionLogPanelState extends State<InteractionLogPanel> {
               if (OtaDebugLog.enabled)
                 TextButton(
                   key: const Key('interaction-log-ota'),
-                  onPressed: _copyOtaLog,
+                  onPressed: _shareOtaLog,
                   child: const Text('OTA日志', style: TextStyle(fontSize: 12)),
                 ),
               TextButton(

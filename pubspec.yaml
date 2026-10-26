@@ -47,6 +47,8 @@ dependencies:
   package_info_plus: ^10.2.1
   # OTA 调试日志写手机文件：取应用外部文件目录（Android）/ 文档目录（iOS），见 core/logging/ota_debug_log.dart。
   path_provider: ^2.1.4
+  # OTA 调试日志「分享文件」：调起系统分享，把日志当附件发到微信 / QQ / 邮件（11 起为 SharePlus API）。
+  share_plus: '>=11.0.0 <14.0.0'
   shared_preferences: ^2.3.2
   url_launcher: ^6.3.0
 
