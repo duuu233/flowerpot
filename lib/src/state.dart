@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/backend/backend.dart';
 import 'core/config/debug_log_gate.dart';
+import 'core/logging/ota_debug_log.dart';
 import 'core/cache/image_cache_cleanup.dart';
 import 'core/network/api_exception.dart';
 import 'core/network/network_status.dart';
@@ -1192,6 +1193,8 @@ class FlowerpotState extends ChangeNotifier {
   /// ⚠️ **2026-09-19 起默认不记**（[DebugLogGate.interactionLog]）：调试日志整块屏蔽了。
   /// 在这里断而不是只藏浮层——只藏界面的话日志还在后台一条条攒，白占内存也白发通知。
   void _logInteraction(String line) {
+    // OTA 相关的联调日志同时落到 OTA 调试文件（运行时关掉联调日志框也照写）。
+    if (line.startsWith('OTA')) OtaDebugLog.app(line);
     if (!DebugLogGate.interactionLog) return;
     final now = DateTime.now();
     String two(int value) => value.toString().padLeft(2, '0');
@@ -1446,9 +1449,18 @@ class FlowerpotState extends ChangeNotifier {
       (item) => item.code,
       dps?[MowerDp.chargingStatus],
     );
-    return isDeviceOnline(deviceId) &&
+    final allowed =
+        isDeviceOnline(deviceId) &&
         (charging == MowerChargingStatus.charging ||
             charging == MowerChargingStatus.full);
+    if (!allowed) {
+      OtaDebugLog.app(
+        '割草机升级前置不满足：DP117=${dps?[MowerDp.chargingStatus]} '
+        'online=${isDeviceOnline(deviceId)}',
+        deviceId: deviceId,
+      );
+    }
+    return allowed;
   }
 
   final Map<String, Future<MowerMachineLog>> _mowerLogLoads = {};
@@ -3249,7 +3261,21 @@ class FlowerpotState extends ChangeNotifier {
   /// 终不和设备直接说话：问版本、发起升级、收进度，三步都是对着 SDK。
   Future<FirmwareUpdate?> checkFirmware(String id) async {
     _requireDeviceOnline(id);
-    final update = await _repository.checkFirmware(id);
+    final FirmwareUpdate? update;
+    try {
+      update = await _repository.checkFirmware(id);
+    } catch (error) {
+      OtaDebugLog.app('检查固件失败：${_otaError(error)}', deviceId: id);
+      rethrow;
+    }
+    OtaDebugLog.app(
+      update == null
+          ? '检查固件：无新版本'
+          : '检查固件：version=${update.version} current=${update.currentVersion} '
+                'component=${update.componentType} upgradeType=${update.upgradeType.name} '
+                'inProgress=${update.inProgress} 设备列表版本=${deviceById(id)?.firmwareVersion}',
+      deviceId: id,
+    );
     _requireDeviceOnline(id);
     _rememberFirmwareUpdate(id, update);
     // SDK 说这台正在升级（App 被关掉重开、或断网时 App 这边已经放弃了）：设备页、
@@ -3333,6 +3359,11 @@ class FlowerpotState extends ChangeNotifier {
       return const ActionResult(true, '升级正在进行，请查看当前进度');
     }
     final epoch = _sessionEpoch;
+    OtaDebugLog.app(
+      '发起升级 → 目标 $version component=${_availableFirmware[id]?.componentType} '
+      '当前 ${deviceById(id)?.firmwareVersion}',
+      deviceId: id,
+    );
     _reportedOtaVersion.remove(id);
     _otaVerificationStartedAt.remove(id);
     _otaInterruptedAt.remove(id);
@@ -3343,7 +3374,7 @@ class FlowerpotState extends ChangeNotifier {
           OtaTimingTrace(
             attempt: ++_otaAttempt,
             clock: _otaNow,
-            emit: DebugLogGate.log,
+            emit: (line) => _otaTimingEmit(id, line),
           )..mark(
             'start',
             detail:
@@ -3377,6 +3408,7 @@ class FlowerpotState extends ChangeNotifier {
             },
           );
     } catch (error) {
+      OtaDebugLog.app('startFirmwareUpgrade 报错：${_otaError(error)}', deviceId: id);
       if (epoch == _sessionEpoch) {
         if (error is TuyaException && error.code == 'firmware_changed') {
           _availableFirmware.remove(id);
@@ -3403,6 +3435,10 @@ class FlowerpotState extends ChangeNotifier {
       return const ActionResult(false, '会话已变化，请重新检查设备升级');
     }
     final progress = _otaProgress[id];
+    OtaDebugLog.app(
+      'startFirmwareUpgrade 返回，当前 ${_otaDescribe(progress)}',
+      deviceId: id,
+    );
     if (progress?.status == OtaStatus.failed) {
       return ActionResult(false, progress?.message ?? '固件升级未能开始');
     }
@@ -3411,6 +3447,22 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 某台设备最近一次的升级进度，没有发起过升级时为 null。
   OtaProgress? otaProgressFor(String deviceId) => _otaProgress[deviceId];
+
+  void _otaTimingEmit(String deviceId, String line) {
+    DebugLogGate.log(line);
+    OtaDebugLog.app(line, deviceId: deviceId);
+  }
+
+  static String _otaError(Object error) => error is TuyaException
+      ? 'code=${error.code} message=${error.message}'
+      : '$error';
+
+  static String _otaDescribe(OtaProgress? progress) => progress == null
+      ? '无进度'
+      : 'status=${progress.status.name} percent=${progress.percent} '
+            'stage=${progress.stage?.name} display=${progress.displayStage.name} '
+            'verifying=${progress.verifyingVersion} code=${progress.code} '
+            'message=${progress.message}';
 
   /// 明确的发起/预检拒绝：设备没有开始这次升级，直接按失败收尾，不进入版本核验。
   static const Set<String> _definitiveOtaCodes = <String>{
@@ -3478,6 +3530,7 @@ class FlowerpotState extends ChangeNotifier {
   ///
   /// 只动 App 这边：设备那头是不是真的还在升级，只有它自己知道。
   void clearOtaProgress(String deviceId) {
+    OtaDebugLog.app('本地清除升级状态（${_otaDescribe(_otaProgress[deviceId])}）', deviceId: deviceId);
     _otaInterruptedAt.remove(deviceId);
     _otaResumeCheckedAt.remove(deviceId);
     if (_otaProgress.remove(deviceId) == null) return;
@@ -3610,7 +3663,7 @@ class FlowerpotState extends ChangeNotifier {
       _otaTiming[id] = OtaTimingTrace(
         attempt: ++_otaAttempt,
         clock: _otaNow,
-        emit: DebugLogGate.log,
+        emit: (line) => _otaTimingEmit(id, line),
       )..mark('start', detail: 'reattach');
     }
     final kept = sameTask ? previous : null;
@@ -4390,8 +4443,16 @@ class FlowerpotState extends ChangeNotifier {
     bool definitiveFailure = false,
   }) {
     final previous = _otaProgress[incoming.deviceId];
+    OtaDebugLog.app(
+      '进度 ← ${_otaDescribe(incoming)}${definitiveFailure ? '（明确失败）' : ''}；'
+      '之前 ${_otaDescribe(previous)}',
+      deviceId: incoming.deviceId,
+    );
     // 已确认的终态保持；有升级进度后SDK报错先核验版本，不提前锁死失败。
-    if (previous != null && previous.status != OtaStatus.running) return;
+    if (previous != null && previous.status != OtaStatus.running) {
+      OtaDebugLog.app('已是终态 ${previous.status.name}，忽略这条', deviceId: incoming.deviceId);
+      return;
+    }
     final timing = _otaTiming[incoming.deviceId];
     if (incoming.status != OtaStatus.running) {
       timing?.mark('signal_${incoming.status.name}');
@@ -4448,6 +4509,7 @@ class FlowerpotState extends ChangeNotifier {
       );
     }
     _otaProgress[progress.deviceId] = progress;
+    OtaDebugLog.app('合并后 ${_otaDescribe(progress)}', deviceId: progress.deviceId);
     if (progress.status == OtaStatus.running &&
         progress.displayStage == OtaStage.installing) {
       timing?.mark(
@@ -4544,6 +4606,10 @@ class FlowerpotState extends ChangeNotifier {
       // 发起前没读到 SDK 版本基线：分不清现读到的值是不是另一个组件原本就有的，不拿它判。
       if (baselineRead == null || !await baselineRead) return true;
       final versions = await _repository.firmwareVersions(deviceId);
+      OtaDebugLog.app(
+        '核验现读 SDK 版本 $versions，目标 $target，发起前基线 ${_otaBaseline[deviceId]}',
+        deviceId: deviceId,
+      );
       if (epoch != _sessionEpoch) return true;
       if (_pendingOtaVersion[deviceId] != target ||
           !_otaProbeWanted(deviceId)) {
@@ -4558,8 +4624,9 @@ class FlowerpotState extends ChangeNotifier {
         );
         return true;
       }
-    } catch (_) {
+    } catch (error) {
       // 读不到就等下一条事件或轮询再读：读失败不是升级失败。
+      OtaDebugLog.app('核验现读 SDK 版本失败：${_otaError(error)}', deviceId: deviceId);
     }
     return false;
   }
@@ -4600,6 +4667,11 @@ class FlowerpotState extends ChangeNotifier {
       return;
     }
     _otaTiming[device.id]?.mark('fresh_version_report');
+    OtaDebugLog.app(
+      '设备上报版本 DP$dpId=$raw，目标 ${_pendingOtaVersion[device.id]}，'
+      '当前 ${_otaDescribe(_otaProgress[device.id])}',
+      deviceId: device.id,
+    );
     _reportedOtaVersion[device.id] = raw is String
         ? raw
         : device.firmwareVersion;
@@ -4636,6 +4708,7 @@ class FlowerpotState extends ChangeNotifier {
         _otaProgress[device.id]?.status == OtaStatus.running &&
         _pendingOtaVersion.containsKey(device.id)) {
       final code = '${update.reportedDps[MowerDp.otaStatus] ?? ''}'.trim();
+      OtaDebugLog.app('设备上报 DP${MowerDp.otaStatus} ota_status=$code', deviceId: device.id);
       final message = switch (code) {
         '7' => '割草机当前状态不允许升级，请让机器待机后重试。',
         '20' => '割草机升级包校验失败，请重新发起升级。',
@@ -5057,6 +5130,9 @@ class FlowerpotState extends ChangeNotifier {
   /// App 回到前台：立刻对一次在线状态，再把设备清单整体刷一遍，然后开始轮询。
   void resumeDeviceWatch() {
     if (!authenticated) return;
+    for (final entry in _otaProgress.entries) {
+      OtaDebugLog.app('App 回到前台，本地 ${_otaDescribe(entry.value)}', deviceId: entry.key);
+    }
     // 切后台期间升级回调可能丢了、涂鸦也可能先放弃了：马上问一次 SDK，还在升级就接回。
     _resumeOtaTasks(afterBackground: true);
     unawaited(_pollOnlineStates());
@@ -5066,6 +5142,11 @@ class FlowerpotState extends ChangeNotifier {
 
   /// App 进后台：停轮询。后台读缓存没意义，回前台时会立刻补一次。
   void pauseDeviceWatch() {
+    for (final entry in _otaProgress.entries) {
+      if (entry.value.status == OtaStatus.running) {
+        OtaDebugLog.app('App 进入后台，升级进行中 ${_otaDescribe(entry.value)}', deviceId: entry.key);
+      }
+    }
     _onlinePoll?.cancel();
     _onlinePoll = null;
   }

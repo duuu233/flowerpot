@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../../state.dart';
+import '../../tuya/ota_progress_layer.dart';
 import '../../tuya/tuya_raw.dart';
 import 'mower_dp.dart';
 import 'mower_command_result.dart';
@@ -82,18 +83,22 @@ class MowerDevice extends ChangeNotifier {
   /// 这次 [_applyReported] 里 DP121 的计划身份（st, et）变了，等有 state 时记一行日志。
   bool _currentPlanChanged = false;
 
-  /// 首页状态胶囊实际显示的倒计时终点：待机（DP5=0）、休眠（DP5=2）、已关机（[shutdown]）或离线时
-  /// 隐藏为 null（2026-10-24 产品）。只是不显示，[workEndsAt] 照常保留、照常走，离开这几种状态后
-  /// 按原终点接着显示。
+  /// 首页状态胶囊实际显示的倒计时终点：只看 DP121 算出的剩余（2026-10-26 产品），无计划或剩余为 0
+  /// 返回 null 隐藏；与 DP5 状态、关机、在线无关。显示中减到 0 由状态卡自己收起。
   DateTime? get visibleWorkEndsAt {
-    if (status == MowerStatus.standby ||
-        status == MowerStatus.sleep ||
-        shutdown ||
-        !online) {
-      return null;
-    }
-    return workEndsAt;
+    final endsAt = workEndsAt;
+    if (endsAt == null || !endsAt.isAfter(clock())) return null;
+    return endsAt;
   }
+
+  /// APP 刚下发 DP119 成功、还没等到设备新的 DP121 计划：状态胶囊先显示倒计时图标，时间处转圈
+  /// （2026-10-26 产品）。收到与下发时不同的计划（含无计划）或 [workPlanWait] 到点即结束等待。
+  bool awaitingWorkPlan = false;
+
+  /// 等 DP121 的上限：设备拒绝启动时计划不变、不会立刻重报，不能一直转圈。
+  static const Duration workPlanWait = Duration(seconds: 60);
+  Timer? _workPlanTimer;
+  MowerCurrentPlan? _planAtOperatingTime;
 
   /// 记倒计时起点用的时钟，用例里换成假时间。
   @visibleForTesting
@@ -304,6 +309,7 @@ class MowerDevice extends ChangeNotifier {
 
   void _releaseLive() {
     _bindingGeneration++;
+    _stopAwaitingWorkPlan();
     _linkRefresh = null;
     _queue = Future<void>.value();
     _watchedState?.removeListener(_onStateChanged);
@@ -352,6 +358,7 @@ class MowerDevice extends ChangeNotifier {
     currentPlan = null;
     workEndsAt = null;
     _currentPlanChanged = false;
+    _stopAwaitingWorkPlan();
     switchGo = false;
     mode = MowerMode.standby;
     lastCommandedMode = null;
@@ -564,17 +571,47 @@ class MowerDevice extends ChangeNotifier {
 
   /// 工作时长（DP119）：下发成功后才允许页面继续启动，不改变每次弹窗的默认值。
   ///
-  /// 不再据此计时：倒计时以设备启动后上报的 DP121 当前计划为准。
+  /// 不据此计时：倒计时以设备启动后上报的 DP121 当前计划为准；下发成功后进入「等计划」转圈。
   Future<bool> setOperatingTime(FlowerpotState state, int hours) {
     if (!_canWrite(state)) return Future<bool>.value(false);
     if (hours < 1 || hours > 24) {
       throw RangeError.range(hours, 1, 24, 'hours');
     }
+    final id = _deviceId;
+    final generation = _bindingGeneration;
     final identifier = MowerDp.identifiers[MowerDp.operatingTime];
     state.logMowerInteraction('下发 → 割草机 DP119 $identifier=$hours（割草时长）');
     return _publish(state, <int, Object>{
       MowerDp.operatingTime: hours,
-    }, label: 'DP119 $identifier=$hours');
+    }, label: 'DP119 $identifier=$hours').then((sent) {
+      if (sent && id != null && _isCurrent(id, generation)) {
+        _startAwaitingWorkPlan(state, id, generation);
+      }
+      return sent;
+    });
+  }
+
+  void _startAwaitingWorkPlan(FlowerpotState state, String id, int generation) {
+    _workPlanTimer?.cancel();
+    awaitingWorkPlan = true;
+    _planAtOperatingTime = currentPlan;
+    _workPlanTimer = Timer(workPlanWait, () {
+      if (!_isCurrent(id, generation) || !awaitingWorkPlan) return;
+      _stopAwaitingWorkPlan();
+      state.logMowerInteraction(
+        '倒计时 · ${workPlanWait.inSeconds} 秒内没等到新的 DP121 计划，结束等待（按设备现有计划显示）',
+      );
+      notifyListeners();
+    });
+    state.logMowerInteraction('倒计时 · DP119 已下发，等待设备 DP121 计划上报');
+    notifyListeners();
+  }
+
+  void _stopAwaitingWorkPlan() {
+    _workPlanTimer?.cancel();
+    _workPlanTimer = null;
+    awaitingWorkPlan = false;
+    _planAtOperatingTime = null;
   }
 
   /// DP121 新帧重设倒计时基准。快照反复刷进来的同一帧不动，免得拿旧的 `now` 把终点往后推。
@@ -582,6 +619,9 @@ class MowerDevice extends ChangeNotifier {
     final plan = MowerCurrentPlan.parse(raw);
     if (plan == null || plan.sameFrame(currentPlan)) return;
     if (!plan.samePlan(currentPlan)) _currentPlanChanged = true;
+    if (awaitingWorkPlan && !plan.samePlan(_planAtOperatingTime)) {
+      _stopAwaitingWorkPlan();
+    }
     currentPlan = plan;
     workEndsAt = MowerWorkCountdown.endsAt(plan, clock());
   }
@@ -908,7 +948,12 @@ class MowerDevice extends ChangeNotifier {
         '20' => '割草机固件升级失败',
         _ => null,
       };
-      if (message != null && !_failures.isClosed) _failures.add(message);
+      // 设置页 OTA 进度弹层开着时不另弹提示：进度层自己显示失败结果（2026-10-26 产品）。
+      if (message != null &&
+          !_failures.isClosed &&
+          !OtaProgressLayer.isOpenFor(_deviceId)) {
+        _failures.add(message);
+      }
     }
     if (scheduleTouched && dps.containsKey(MowerDp.mowSchedule)) {
       final bytes = TuyaRaw.bytes(dps[MowerDp.mowSchedule]);

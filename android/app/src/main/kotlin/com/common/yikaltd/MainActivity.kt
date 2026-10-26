@@ -364,8 +364,23 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         otaAttempts.remove(deviceId)
         otaPolls.remove(deviceId)?.let(otaHandler::removeCallbacks)
         val ota = otaInstances.remove(deviceId) ?: return
+        otaLog(deviceId, "释放 OTA 实例（停止轮询、onDestroy）")
         runCatching { invoke(ota, "onDestroy") }
     }
+
+    /**
+     * OTA 原始日志：转给 Dart 写进手机上的 OTA 调试文件（`OtaDebugLog`，2026-10-26）。
+     * 只记录 SDK 给了什么、桥接据此做了什么，不改任何升级逻辑；用户包（APP_DEBUG_TOOLS=false）不发。
+     */
+    private fun otaLog(deviceId: String, line: String) {
+        if (!BuildConfig.APP_DEBUG_TOOLS) return
+        AppLog.i(TUYA_LOG_TAG, "[ota] $line")
+        emit(mapOf("type" to "otaLog", "deviceId" to deviceId, "line" to line))
+    }
+
+    /** SDK bean 的全部无参 getter，原样字段名；dump 不了就 toString。 */
+    private fun otaBean(bean: Any?): String =
+        if (bean == null) "null" else runCatching { beanMap(bean).toString() }.getOrElse { bean.toString() }
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
@@ -3623,6 +3638,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             method,
             onSuccess = { value ->
                 val list = (value as? List<*>).orEmpty().filterNotNull()
+                otaLog(deviceId, "checkFirmware $method → ${list.size} 条：${list.joinToString { otaBean(it) }}")
                 // One entry per upgradable component. upgradeStatus 1 is "an
                 // update is waiting"; 0 is up to date and 2 is mid-upgrade, so
                 // reporting the first entry's version regardless would offer an
@@ -3655,7 +3671,10 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     },
                 )
             },
-            onError = { code, message -> error(result, code, message) },
+            onError = { code, message ->
+                otaLog(deviceId, "checkFirmware $method 失败 code=$code message=$message")
+                error(result, code, message)
+            },
         )
     }
 
@@ -3670,7 +3689,9 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         val finished = AtomicBoolean(false)
         fun current() = otaAttempts[deviceId] === attempt && otaInstances[deviceId] === ota && !finished.get()
         val answerStarted = { if (started.compareAndSet(false, true)) success(result, null) }
-        val onSuccess: (Any?) -> Unit = {
+        otaLog(deviceId, "startFirmwareUpgrade target=$targetVersion component=$expectedComponent")
+        val onSuccess: (Any?) -> Unit = { value ->
+            otaLog(deviceId, "终态回调 success value=$value current=${current()} finished=${finished.get()}")
             if (current() && finished.compareAndSet(false, true)) {
                 answerStarted()
                 emitOta(deviceId, "success")
@@ -3678,6 +3699,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
             }
         }
         val onError: (String, String) -> Unit = { code, message ->
+            otaLog(deviceId, "终态回调 failed code=$code message=$message current=${current()} finished=${finished.get()} started=${started.get()}")
             if (current() && finished.compareAndSet(false, true)) {
                 if (started.compareAndSet(false, true)) error(result, code, message)
                 // Dart keeps explicit refusals (5005, precheck) final and verifies the rest.
@@ -3687,14 +3709,27 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         }
         val serviceListener = optionalCallbackMethod(ota.javaClass, "registerDevOTAListener", emptyArray<Any?>())
         if (serviceListener != null) {
+            otaLog(deviceId, "走 Service API（registerDevOTAListener + getFirmwareUpgradeInfo + 3 秒轮询）")
             val component = java.util.concurrent.atomic.AtomicReference<Int?>()
             val observedRunning = AtomicBoolean(false)
             fun report(bean: Any?, snapshot: Boolean) {
-                if (!current()) return
-                val type = component.get() ?: return
+                val source = if (snapshot) "轮询快照" else "服务回调"
+                if (!current()) {
+                    otaLog(deviceId, "$source（已不是本次尝试，忽略）${otaBean(bean)}")
+                    return
+                }
+                val type = component.get()
+                if (type == null) {
+                    otaLog(deviceId, "$source（组件未确定，忽略）${otaBean(bean)}")
+                    return
+                }
                 val stage = TuyaOtaServiceBridge.status(bean)
+                otaLog(deviceId, "$source status=$stage component=$type observedRunning=${observedRunning.get()} ${otaBean(bean)}")
                 // The first query can still contain the preceding upgrade's terminal snapshot.
-                if (snapshot && stage in setOf(3, 4, 7) && !observedRunning.get()) return
+                if (snapshot && stage in setOf(3, 4, 7) && !observedRunning.get()) {
+                    otaLog(deviceId, "轮询快照是终态但本次还没见过进行中，按上一次升级的残留忽略")
+                    return
+                }
                 TuyaOtaServiceBridge.report(bean, deviceId, type,
                     onRunning = { percent, status ->
                         if ((percent ?: 0) > 0 || status in setOf(2, 5, 6, 13, 14)) observedRunning.set(true)
@@ -3709,6 +3744,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 try {
                   if (current()) {
                     val versions = (value as? List<*>).orEmpty().filterNotNull()
+                    otaLog(deviceId, "getFirmwareUpgradeInfo → ${versions.size} 条：${versions.joinToString { otaBean(it) }}")
                     val matching = versions.filter {
                         (targetVersion.isEmpty() || optionalGetter(it, "getVersion")?.toString()?.trim() == targetVersion) &&
                             (expectedComponent == null || (optionalGetter(it, "getType") as? Number)?.toInt() == expectedComponent)
@@ -3716,6 +3752,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     val pending = matching.firstOrNull { (optionalGetter(it, "getUpgradeStatus") as? Number)?.toInt() == 1 }
                     val running = matching.firstOrNull { (optionalGetter(it, "getUpgradeStatus") as? Number)?.toInt() in setOf(2, 5) }
                     val selected = pending ?: running
+                    otaLog(deviceId, "匹配 ${matching.size} 条，待升级=${pending != null}，进行中=${running != null}，" +
+                        "canUpgrade=${selected?.let { optionalGetter(it, "getCanUpgrade") }}，remind=${selected?.let { optionalGetter(it, "getRemind") }}")
                     if (selected == null) {
                         onError("firmware_changed", "待升级固件已变化，请重新检查固件版本后再试。")
                     } else {
@@ -3729,9 +3767,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                             if (running != null && pending == null) {
                                 // Reattach to the current task. Never submit the same upgrade again.
                                 observedRunning.set(true)
+                                otaLog(deviceId, "接回进行中的升级，不重新下发")
                                 emitOta(deviceId, "running", stage = (optionalGetter(running, "getUpgradeStatus") as Number).toInt())
                             } else {
+                                otaLog(deviceId, "调用 SDK startFirmwareUpgrade（component=${component.get()}）")
                                 invoke(ota, "startFirmwareUpgrade", listOf(selected))
+                                otaLog(deviceId, "SDK startFirmwareUpgrade 已返回")
                             }
                             if (current()) {
                                 answerStarted()
@@ -3741,6 +3782,8 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     }
                   }
                 } catch (cause: Throwable) {
+                    val root = (cause as? java.lang.reflect.InvocationTargetException)?.targetException ?: cause
+                    otaLog(deviceId, "发起过程异常 ${root.javaClass.name}: ${root.message}")
                     onError("ota_start_failed", "无法启动固件升级，请保持设备通电并重新检查。")
                 }
             }, onError = onError)
@@ -3750,10 +3793,12 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         // fallback after a service has already accepted an upgrade.
         val listener = optionalCallbackMethod(ota.javaClass, "setOtaListener", emptyArray<Any?>())
         if (listener != null) {
+            otaLog(deviceId, "走旧版 setOtaListener + startOta")
             listener.invoke(ota, otaListenerProxy(listener.parameterTypes.last(), deviceId, onSuccess, onError, ::current))
             invoke(ota, "startOta")
             answerStarted()
         } else {
+            otaLog(deviceId, "走 startOta 回调")
             invokeWithCallback(ota, "startOta", onSuccess = onSuccess, onError = onError)
         }
     }
@@ -3770,8 +3815,14 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                 runCatching {
                     invokeWithCallback(ota, "getUpgradeProgress", onSuccess = {
                         if (current()) report(it)
-                    }, onError = { code, _ -> trace("OTA snapshot query failed: $code") })
-                }.onFailure { trace("OTA snapshot query unavailable: ${it.javaClass.simpleName}") }
+                    }, onError = { code, message ->
+                        trace("OTA snapshot query failed: $code")
+                        otaLog(deviceId, "轮询 getUpgradeProgress 失败 code=$code message=$message")
+                    })
+                }.onFailure {
+                    trace("OTA snapshot query unavailable: ${it.javaClass.simpleName}")
+                    otaLog(deviceId, "轮询 getUpgradeProgress 不可用 ${it.javaClass.name}: ${it.message}")
+                }
                 if (current()) otaHandler.postDelayed(this, OTA_POLL_INTERVAL_MS)
             }
         }
@@ -3789,6 +3840,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
     ): Any = TuyaOtaListenerBridge.create(
         listenerType,
         listenerType.classLoader ?: activity.classLoader,
+        trace = { line -> otaLog(deviceId, "旧版监听 $line") },
         onRunning = { percent, stage ->
             if (current()) emitOta(deviceId, "running", percent = percent, stage = stage)
         },

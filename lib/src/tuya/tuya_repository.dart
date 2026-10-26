@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 import '../features/mower/mower_dp.dart' show MowerDp;
+import '../core/logging/ota_debug_log.dart';
 import 'tuya_config.dart';
 import 'tuya_history_codec.dart';
 import 'tuya_memorial_codec.dart';
@@ -530,12 +531,23 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   }
 
   /// 解析原生的 OTA 事件：`{deviceId, ota: {status, percent?, message?, stage?}}`。
+  ///
+  /// 顺带把原生转来的 OTA 原始日志（`{type: otaLog, deviceId, line}`）写进 [OtaDebugLog]：
+  /// 状态层启动时就订阅了 [otaUpdates]，事件都会经过这里。
   OtaProgress? _otaUpdate(Object? event) {
     if (event is! Map) return null;
+    if ('${event['type'] ?? ''}' == 'otaLog') {
+      OtaDebugLog.native(
+        '${event['line'] ?? ''}',
+        deviceId: event['deviceId']?.toString(),
+      );
+      return null;
+    }
     final ota = event['ota'];
     if (ota is! Map) return null;
     final deviceId = '${event['deviceId'] ?? ''}';
     if (deviceId.isEmpty) return null;
+    OtaDebugLog.sdk('事件 $ota', deviceId: deviceId);
     final status = switch ('${ota['status'] ?? ''}') {
       'success' => OtaStatus.success,
       'failed' => OtaStatus.failed,

@@ -607,7 +607,8 @@ final class FlowerpotTuyaBridge: NSObject {
     }
     // 闭包显式捕获 device：回调是异步的，不捕获的话实例可能在云端回话之前就被
     // ARC 释放，结果既不 success 也不 failure。
-    device.getFirmwareUpgradeInfo({ [device] models in
+    device.getFirmwareUpgradeInfo({ [weak self, device] models in
+      self?.otaLog(id, "checkFirmware → \(models?.count ?? 0) 条：\(FlowerpotTuyaBridge.otaModels(models))")
       // One model per upgradable component; upgradeStatus 1 is "an update is
       // waiting", 2 is "upgrading" and 5 is "waiting for the device to wake".
       // 2/5 是已经在跑的升级（例如升级中途关掉 App 后重开）：报 inProgress，Dart 只
@@ -627,7 +628,10 @@ final class FlowerpotTuyaBridge: NSObject {
       } else {
         result(nil)
       }
-    }, failure: { [weak self, device] error in self?.fail(result, error) })
+    }, failure: { [weak self, device] error in
+      self?.otaLog(id, "checkFirmware 失败 \(FlowerpotTuyaBridge.otaError(error))")
+      self?.fail(result, error)
+    })
   }
 
   private func startFirmwareUpgrade(_ args: [String: Any], _ result: @escaping FlutterResult) {
@@ -640,8 +644,10 @@ final class FlowerpotTuyaBridge: NSObject {
     let targetVersion = (args["targetVersion"] as? String)?
       .trimmingCharacters(in: .whitespaces) ?? ""
     let expectedComponent = (args["componentType"] as? NSNumber)?.intValue
+    otaLog(id, "startFirmwareUpgrade target=\(targetVersion) component=\(expectedComponent.map { String($0) } ?? "nil")")
     device.getFirmwareUpgradeInfo({ [weak self] models in
       guard let self else { return }
+      self.otaLog(id, "getFirmwareUpgradeInfo → \(models?.count ?? 0) 条：\(FlowerpotTuyaBridge.otaModels(models))")
       let matching = (models ?? []).filter {
         (targetVersion.isEmpty || $0.version == targetVersion) &&
           (expectedComponent == nil || $0.type == expectedComponent)
@@ -650,26 +656,34 @@ final class FlowerpotTuyaBridge: NSObject {
         matching.contains(where: { $0.upgradeStatus == 2 || $0.upgradeStatus == 5 })
       {
         // 接回已经在跑的升级：留住实例和 delegate 收进度，绝不重新下发。
+        self.otaLog(id, "接回进行中的升级，不重新下发")
         result(nil)
         self.emitOta(id, "running")
         return
       }
       guard let pending = matching.first(where: { $0.upgradeStatus == 1 }) else {
+        self.otaLog(id, "匹配 \(matching.count) 条，没有待升级的，按已是最新返回")
         self.releaseOta(id)
         self.sdkError(result, code: "firmware_up_to_date", message: "当前固件已是最新版本")
         return
       }
+      self.otaLog(id, "调用 SDK upgradeFirmware(type=\(pending.type))")
       device.upgradeFirmware(
         pending.type,
         // 只回答"已发起"：下载和烧录之后几分钟的进度、成败都从 delegate 走
         // 事件通道，和 Android 一致。
-        success: { result(nil) },
+        success: {
+          self.otaLog(id, "upgradeFirmware 已受理")
+          result(nil)
+        },
         failure: { error in
+          self.otaLog(id, "upgradeFirmware 失败 \(FlowerpotTuyaBridge.otaError(error))")
           self.releaseOta(id)
           self.fail(result, error)
         }
       )
     }, failure: { [weak self] error in
+      self?.otaLog(id, "getFirmwareUpgradeInfo 失败 \(FlowerpotTuyaBridge.otaError(error))")
       self?.releaseOta(id)
       self?.fail(result, error)
     })
@@ -690,7 +704,26 @@ final class FlowerpotTuyaBridge: NSObject {
   /// 放掉升级用的实例。[watched] 里那台不归这里管：它还要继续收 DP 上报。
   private func releaseOta(_ deviceId: String) {
     guard let device = upgrading.removeValue(forKey: deviceId) else { return }
+    otaLog(deviceId, "释放升级用设备实例")
     device.delegate = nil
+  }
+
+  /// OTA 原始日志：转给 Dart 写进手机上的 OTA 调试文件（`OtaDebugLog`，2026-10-26）。
+  /// 只记录 SDK 给了什么、桥接据此做了什么，不改升级逻辑；用户包由 Dart 侧总闸丢弃。
+  fileprivate func otaLog(_ deviceId: String, _ line: String) {
+    emit(["type": "otaLog", "deviceId": deviceId, "line": line])
+  }
+
+  fileprivate static func otaModels(_ models: [ThingSmartFirmwareUpgradeModel]?) -> String {
+    (models ?? []).map {
+      "{type=\($0.type) version=\($0.version ?? "nil") current=\($0.currentVersion ?? "nil") " +
+        "upgradeStatus=\($0.upgradeStatus) upgradeType=\($0.upgradeType)}"
+    }.joined(separator: ", ")
+  }
+
+  fileprivate static func otaError(_ error: Error?) -> String {
+    guard let nsError = error as NSError? else { return "error=nil" }
+    return "domain=\(nsError.domain) code=\(nsError.code) message=\(nsError.localizedDescription) userInfo=\(nsError.userInfo)"
   }
 
   /// Keeps a delegate registered for exactly [deviceIds].
@@ -816,11 +849,13 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
   // 只会静默不回调，不会编译失败，届时版本号仍由 deviceInfoUpdate 兜底刷新。
   func device(_ device: ThingSmartDevice, firmwareUpgradeProgress type: Int, progress: Double) {
     guard let id = device.deviceModel?.devId else { return }
+    otaLog(id, "delegate firmwareUpgradeProgress type=\(type) progress=\(progress)")
     emitOta(id, "running", percent: Int((progress * 100).rounded()))
   }
 
   func deviceFirmwareUpgradeSuccess(_ device: ThingSmartDevice, type: Int) {
     guard let id = device.deviceModel?.devId else { return }
+    otaLog(id, "delegate deviceFirmwareUpgradeSuccess type=\(type)")
     emitOta(id, "success")
     // 升级结束，实例可以放了；下次检查会重新建。
     DispatchQueue.main.async { [weak self] in self?.releaseOta(id) }
@@ -828,6 +863,7 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
 
   func deviceFirmwareUpgradeFailure(_ device: ThingSmartDevice, type: Int) {
     guard let id = device.deviceModel?.devId else { return }
+    otaLog(id, "delegate deviceFirmwareUpgradeFailure type=\(type)")
     emitOta(id, "failed", message: "固件升级失败")
     DispatchQueue.main.async { [weak self] in self?.releaseOta(id) }
   }

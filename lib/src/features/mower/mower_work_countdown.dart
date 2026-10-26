@@ -5,9 +5,9 @@ import 'mower_current_plan.dart';
 /// 终点 = 收到 DP121 新帧时的本机时刻 + 该帧 `et − now`，之后按本机时钟逐分钟递减；收到新帧才
 /// 重设基准（机器校时、计划变化、60s 兜底都会重发）。用的是设备给的相对差值，手机时钟快慢、
 /// 换手机、重装或另一台手机启动都不影响；不再按「DP119 下发成功」在本机计时，也不在本机存终点。
-/// - 无计划（st/et=0）不显示；减到 0 停在「0分」，等设备报无计划才收起；
-/// - 待机（DP5=0）、休眠（DP5=2）、已关机（DP113）或离线时只隐藏（2026-10-24 产品，
-///   `MowerDevice.visibleWorkEndsAt`），终点照常走。
+/// - 显示与否只看 DP121 算出的剩余（2026-10-26 产品）：无计划（st/et=0）或剩余为 0 隐藏，与 DP5 状态、
+///   关机、在线无关（`MowerDevice.visibleWorkEndsAt`）；
+/// - APP 下发 DP119 成功后先显示图标 + 转圈，等到新的 DP121 计划再显示时间（`MowerDevice.awaitingWorkPlan`）。
 class MowerWorkCountdown {
   const MowerWorkCountdown._();
 

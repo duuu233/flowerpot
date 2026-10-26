@@ -22,11 +22,15 @@ class MowerStatusCard extends StatelessWidget {
     this.wifiLinked = false,
     this.bleLinked = false,
     this.workEndsAt,
+    this.workLoading = false,
     this.now = DateTime.now,
   });
 
   /// 工作时间倒计时终点（按设备 DP121 当前计划算，见 [MowerWorkCountdown]）；null 时胶囊里不显示倒计时。
   final DateTime? workEndsAt;
+
+  /// DP119 刚下发、等设备 DP121 计划：显示倒计时图标，时间处转圈（优先于 [workEndsAt]）。
+  final bool workLoading;
 
   /// 倒计时读的时钟，用例里换成假时间。
   final DateTime Function() now;
@@ -113,6 +117,7 @@ class MowerStatusCard extends StatelessWidget {
               wifiLinked: wifiLinked,
               bleLinked: bleLinked,
               workEndsAt: workEndsAt,
+              workLoading: workLoading,
               now: now,
             ),
           ),
@@ -304,13 +309,14 @@ class _BoltPainter extends CustomPainter {
 /// 状态胶囊 + 两颗连接图标。稿子上它们压在环的下沿上。
 ///
 /// 胶囊里的字是 **DP5 工作状态**（待机 / 随机割草 / 暂停 / 回桩…），不是写死的「待机」。
-/// 设置过工作时间时，状态后面紧跟「图标 + 剩余时间」（2026-10-22 定稿备选 B）。
+/// 有倒计时时，状态后面紧跟「图标 + 剩余时间」（2026-10-22 定稿备选 B），等 DP121 时图标 + 转圈。
 class _StatusChips extends StatelessWidget {
   const _StatusChips({
     required this.label,
     required this.wifiLinked,
     required this.bleLinked,
     required this.workEndsAt,
+    required this.workLoading,
     required this.now,
   });
 
@@ -318,6 +324,7 @@ class _StatusChips extends StatelessWidget {
   final bool wifiLinked;
   final bool bleLinked;
   final DateTime? workEndsAt;
+  final bool workLoading;
   final DateTime Function() now;
 
   /// 未连接时按原来的 30% 透明度淡显，连接后显示原图。
@@ -364,10 +371,12 @@ class _StatusChips extends StatelessWidget {
                 key: const Key('mower-status-chip'),
                 style: _chipTextStyle,
               ),
-              if (workEndsAt != null) ...<Widget>[
-                const SizedBox(width: 8),
-                _WorkCountdown(endsAt: workEndsAt!, now: now),
-              ],
+              if (workLoading || workEndsAt != null)
+                _WorkCountdown(
+                  endsAt: workEndsAt,
+                  loading: workLoading,
+                  now: now,
+                ),
             ],
           ),
         ),
@@ -394,15 +403,19 @@ const TextStyle _chipTextStyle = TextStyle(
   fontWeight: FontWeight.w500,
 );
 
-/// 状态胶囊里的工作时间倒计时：「⏱ 1小时59分」，按分钟递减，到 0 停在「0分」。
+/// 状态胶囊里的工作时间倒计时：「⏱ 1小时59分」，按分钟递减，减到 0 整块收起（2026-10-26 产品）。
 ///
-/// 不暂停：只按终点和当前时间算，设备停下、回充都照常走。待机 / 休眠 / 已关机 / 离线时由页面传 null 隐藏
-/// （[MowerStatusCard.workEndsAt]），这里不判断设备状态。
+/// 只按终点和当前时间算，不判断设备状态。[loading] 时显示图标 + 转圈，等 DP121 计划。
 /// 每次只排一个计时器，到下一次显示值变化的那一刻再刷新。
 class _WorkCountdown extends StatefulWidget {
-  const _WorkCountdown({required this.endsAt, required this.now});
+  const _WorkCountdown({
+    required this.endsAt,
+    required this.loading,
+    required this.now,
+  });
 
-  final DateTime endsAt;
+  final DateTime? endsAt;
+  final bool loading;
   final DateTime Function() now;
 
   @override
@@ -421,12 +434,18 @@ class _WorkCountdownState extends State<_WorkCountdown> {
   @override
   void didUpdateWidget(_WorkCountdown oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.endsAt != widget.endsAt) _schedule();
+    if (oldWidget.endsAt != widget.endsAt ||
+        oldWidget.loading != widget.loading) {
+      _schedule();
+    }
   }
 
   void _schedule() {
     _tick?.cancel();
-    final wait = MowerWorkCountdown.untilNextTick(widget.endsAt, widget.now());
+    final endsAt = widget.endsAt;
+    final wait = widget.loading || endsAt == null
+        ? null
+        : MowerWorkCountdown.untilNextTick(endsAt, widget.now());
     _tick = wait == null
         ? null
         : Timer(wait, () {
@@ -443,21 +462,36 @@ class _WorkCountdownState extends State<_WorkCountdown> {
 
   @override
   Widget build(BuildContext context) {
-    final minutes = MowerWorkCountdown.remainingMinutes(
-      widget.endsAt,
-      widget.now(),
-    );
+    final endsAt = widget.endsAt;
+    final Widget value;
+    if (widget.loading) {
+      value = const SizedBox.square(
+        key: Key('mower-work-countdown-loading'),
+        dimension: 10,
+        child: CircularProgressIndicator(
+          strokeWidth: 1.5,
+          color: MowerColors.brand,
+        ),
+      );
+    } else {
+      final minutes = endsAt == null
+          ? 0
+          : MowerWorkCountdown.remainingMinutes(endsAt, widget.now());
+      if (minutes == 0) return const SizedBox.shrink();
+      value = Text(
+        MowerWorkCountdown.label(minutes),
+        key: const Key('mower-work-countdown-text'),
+        style: _chipTextStyle,
+      );
+    }
     return Row(
       key: const Key('mower-work-countdown'),
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
+        const SizedBox(width: 8),
         const Icon(Icons.timer_outlined, size: 13, color: MowerColors.brand),
         const SizedBox(width: 2),
-        Text(
-          MowerWorkCountdown.label(minutes),
-          key: const Key('mower-work-countdown-text'),
-          style: _chipTextStyle,
-        ),
+        value,
       ],
     );
   }

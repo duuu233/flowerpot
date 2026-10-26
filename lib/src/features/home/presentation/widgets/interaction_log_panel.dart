@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../app/flowerpot_app.dart';
+import '../../../../core/logging/ota_debug_log.dart';
 import '../../../../design_system/design_system.dart';
 
 /// **联调日志框（临时）。**
@@ -23,6 +25,19 @@ class InteractionLogPanel extends StatefulWidget {
 
 class _InteractionLogPanelState extends State<InteractionLogPanel> {
   bool _expanded = true;
+
+  /// 「OTA日志」：把本次运行的 OTA 调试日志复制到剪贴板，并提示手机上的文件位置。
+  Future<void> _copyOtaLog() async {
+    final path = await OtaDebugLog.currentPath();
+    final text = OtaDebugLog.recentText();
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    showAppMessage(
+      context,
+      '${text.isEmpty ? '本次运行还没有 OTA 日志' : '已复制本次运行的 OTA 日志'}'
+      '\n文件：${path ?? '目录不可用'}',
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +68,12 @@ class _InteractionLogPanelState extends State<InteractionLogPanel> {
                   ),
                 ),
               ),
+              if (OtaDebugLog.enabled)
+                TextButton(
+                  key: const Key('interaction-log-ota'),
+                  onPressed: _copyOtaLog,
+                  child: const Text('OTA日志', style: TextStyle(fontSize: 12)),
+                ),
               TextButton(
                 onPressed: state.clearInteractionLog,
                 child: const Text('清空', style: TextStyle(fontSize: 12)),

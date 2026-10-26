@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../app/flowerpot_app.dart';
+import '../../../../core/logging/ota_debug_log.dart';
 import '../../../../design_system/design_system.dart';
+import '../../../../tuya/ota_progress_layer.dart';
 import '../../../../tuya/tuya_models.dart';
 
 /// 固件升级进度弹层：点「立即更新」之后贴在页面**底部**，一条进度条加百分比。
@@ -84,9 +86,15 @@ class _OtaProgressDialog extends StatefulWidget {
 class _OtaProgressDialogState extends State<_OtaProgressDialog> {
   Timer? _stallTimer;
 
+  /// 上一次写进 OTA 调试日志的显示内容；变了才记，避免每秒重建刷屏。
+  String? _lastShown;
+
   @override
   void initState() {
     super.initState();
+    // 进度层开着时不弹任何 OTA 提醒（2026-10-26 产品）。
+    OtaProgressLayer.opened(widget.deviceId);
+    OtaDebugLog.ui('打开升级进度弹层', deviceId: widget.deviceId);
     // A stalled SDK may never send another event to rebuild this dialog.
     _stallTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
@@ -96,6 +104,8 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
   @override
   void dispose() {
     _stallTimer?.cancel();
+    OtaProgressLayer.closed(widget.deviceId);
+    OtaDebugLog.ui('关闭升级进度弹层，最后显示：$_lastShown', deviceId: widget.deviceId);
     super.dispose();
   }
 
@@ -116,6 +126,13 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
     // 同样没有可信进度，不把停在 9x% 的数字当成还在下载。
     final indeterminate =
         running && (verifying || stage != OtaStage.upgrading || percent == 0);
+    final shown =
+        'status=${status.name} stage=${stage.name} percent=$percent '
+        'verifying=$verifying stalled=$stalled message=${ota?.message}';
+    if (shown != _lastShown) {
+      _lastShown = shown;
+      OtaDebugLog.ui('进度弹层显示 $shown', deviceId: widget.deviceId);
+    }
     return PopScope(
       // 升级中不许返回键关掉：关了就再也看不到进度，用户只会以为升级没在跑。
       canPop: !running || stalled || verifying,

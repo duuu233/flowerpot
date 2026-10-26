@@ -16,7 +16,7 @@ import '../../support/plant_catalog.dart';
 
 /// 工作时间倒计时（2026-10-26 起以设备 DP121 schedule_current 为准）：终点 = 收到新帧的本机时刻 +
 /// `et − now`，状态胶囊里「图标 + 剩余时间」按分钟递减，到 0 停在「0分」；新帧重设基准，同一帧不动；
-/// 无计划不显示；DP119 下发不再计时。待机、休眠、已关机、离线时首页隐藏（2026-10-24 产品），终点保留。
+/// 无计划或剩余为 0 隐藏，与 DP5 状态、关机、在线无关（2026-10-26 产品）；DP119 下发成功后先转圈等 DP121。
 void main() {
   setUp(MowerDevice.instance.resetForTest);
 
@@ -52,7 +52,7 @@ void main() {
     expect(MowerWorkCountdown.untilNextTick(end, end), isNull);
   });
 
-  testWidgets('状态胶囊跟在工作状态后面按分钟递减，到点停在0分不隐藏', (tester) async {
+  testWidgets('状态胶囊跟在工作状态后面按分钟递减，减到0整块收起', (tester) async {
     var now = DateTime(2026, 10, 22, 10);
     final end = now.add(const Duration(hours: 2));
     await tester.pumpWidget(
@@ -85,9 +85,38 @@ void main() {
 
     now = end.add(const Duration(hours: 3));
     await tester.pump(const Duration(minutes: 1));
-    expect(find.text('0分'), findsOneWidget);
-    expect(find.byKey(const Key('mower-work-countdown')), findsOneWidget);
+    expect(find.text('0分'), findsNothing);
+    expect(find.byKey(const Key('mower-work-countdown')), findsNothing);
+    expect(find.text('回桩'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('等DP121时显示图标+转圈，优先于时间；收到后换成剩余时间', (tester) async {
+    final now = DateTime(2026, 10, 26, 10);
+    Widget card({required bool loading, DateTime? endsAt}) => MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: MowerStatusCard(
+            tone: MowerPowerState.idle,
+            percent: 80,
+            statusLabel: '待机',
+            workEndsAt: endsAt,
+            workLoading: loading,
+            now: () => now,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(card(loading: true));
+    expect(find.byIcon(Icons.timer_outlined), findsOneWidget);
+    expect(find.byKey(const Key('mower-work-countdown-loading')), findsOneWidget);
+    expect(find.byKey(const Key('mower-work-countdown-text')), findsNothing);
+
+    await tester.pumpWidget(
+      card(loading: false, endsAt: now.add(const Duration(minutes: 90))),
+    );
+    expect(find.byKey(const Key('mower-work-countdown-loading')), findsNothing);
+    expect(find.text('1小时30分'), findsOneWidget);
   });
 
   testWidgets('没设置过工作时间：胶囊里不显示倒计时', (tester) async {
@@ -199,95 +228,80 @@ void main() {
     device.resetForTest();
   });
 
-  testWidgets('DP119下发成功不再开始计时；设备没报DP121不显示', (tester) async {
+  testWidgets('DP119下发成功先转圈不计时，收到新计划结束等待并显示', (tester) async {
+    final repository = _MowerRepository()
+      ..rawDpsByDevice[_mowerId] = <int, Object?>{
+        MowerDp.scheduleCurrent: '{"st":0,"et":0,"now":1000}',
+      };
+    final state = await _state(repository);
+    final device = MowerDevice.instance;
+    final now = DateTime(2026, 10, 26, 9);
+    device.clock = () => now;
+    await device.bind(state, owner: _owner, deviceId: _mowerId);
+    await tester.pump();
+    expect(device.awaitingWorkPlan, isFalse);
+    expect(await _sent(tester, device.setOperatingTime(state, 3)), isTrue);
+    expect(device.awaitingWorkPlan, isTrue);
+    expect(device.workEndsAt, isNull, reason: 'DP119 不计时');
+
+    // 无计划的兜底帧（计划没变）不结束等待。
+    _report(repository, '{"st":0,"et":0,"now":1060}');
+    await tester.pump();
+    await tester.pump();
+    expect(device.awaitingWorkPlan, isTrue);
+
+    _report(repository, '{"st":1100,"et":11900,"now":1100}');
+    await tester.pump();
+    await tester.pump();
+    expect(device.awaitingWorkPlan, isFalse);
+    expect(device.visibleWorkEndsAt, DateTime(2026, 10, 26, 12));
+    device.resetForTest();
+  });
+
+  testWidgets('DP119下发后设备一直不报新计划：等待到点结束，DP119没发出去不转圈', (tester) async {
     final repository = _MowerRepository()
       ..rawDpsByDevice[_mowerId] = <int, Object?>{};
     final state = await _state(repository);
     final device = MowerDevice.instance;
     await device.bind(state, owner: _owner, deviceId: _mowerId);
     expect(await _sent(tester, device.setOperatingTime(state, 3)), isTrue);
+    expect(device.awaitingWorkPlan, isTrue);
+    await tester.pump(MowerDevice.workPlanWait);
+    expect(device.awaitingWorkPlan, isFalse);
     expect(device.workEndsAt, isNull);
-    expect(device.currentPlan, isNull);
     device.resetForTest();
-  });
 
-  testWidgets('待机、休眠、已关机时首页隐藏倒计时，终点保留，回到其它状态接着显示', (tester) async {
-    final repository = _MowerRepository()
+    final offline = _MowerRepository(online: false)
       ..rawDpsByDevice[_mowerId] = <int, Object?>{};
-    final state = await _state(repository);
-    final device = MowerDevice.instance;
-    await device.bind(state, owner: _owner, deviceId: _mowerId);
-    final end = DateTime(2026, 10, 24, 12);
-    device.workEndsAt = end;
-
-    for (final shown in <MowerStatus>[
-      MowerStatus.mowing,
-      MowerStatus.paused,
-      MowerStatus.gotoCharge,
-      MowerStatus.waitCharge,
-      MowerStatus.fault,
-      MowerStatus.stop,
-    ]) {
-      device.status = shown;
-      expect(device.visibleWorkEndsAt, end, reason: shown.code);
-    }
-    for (final hidden in <MowerStatus>[
-      MowerStatus.standby,
-      MowerStatus.sleep,
-    ]) {
-      device.status = hidden;
-      expect(device.visibleWorkEndsAt, isNull, reason: hidden.code);
-      expect(device.workEndsAt, end, reason: '只隐藏，不清终点');
-    }
-
-    device.status = MowerStatus.mowing;
-    repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = true;
-    repository.pushDeviceUpdate(
-      DeviceUpdate.changed(
-        _mower(),
-        changedDps: <int>{MowerDp.shutdownReport},
-      ),
-    );
-    await tester.pump();
-    expect(device.shutdown, isTrue);
-    expect(device.visibleWorkEndsAt, isNull, reason: 'DP113 已关机');
-
-    repository.rawDpsByDevice[_mowerId]![MowerDp.shutdownReport] = false;
-    repository.pushDeviceUpdate(
-      DeviceUpdate.changed(
-        _mower(),
-        changedDps: <int>{MowerDp.shutdownReport},
-      ),
-    );
-    await tester.pump();
-    expect(device.shutdown, isFalse);
-    device.status = MowerStatus.mowing;
-    expect(device.visibleWorkEndsAt, end);
+    final offlineState = await _state(offline);
+    await device.bind(offlineState, owner: _owner, deviceId: _mowerId);
+    expect(await _sent(tester, device.setOperatingTime(offlineState, 3)), isFalse);
+    expect(device.awaitingWorkPlan, isFalse);
     device.resetForTest();
   });
 
-  testWidgets('离线时首页隐藏倒计时', (tester) async {
+  testWidgets('隐藏只看DP121剩余：待机、休眠、已关机、离线都照常显示，剩余为0隐藏', (tester) async {
     final repository = _MowerRepository(online: false)
       ..rawDpsByDevice[_mowerId] = <int, Object?>{};
     final state = await _state(repository);
     final device = MowerDevice.instance;
+    var now = DateTime(2026, 10, 24, 10);
+    device.clock = () => now;
     await device.bind(state, owner: _owner, deviceId: _mowerId);
-    device
-      ..workEndsAt = DateTime(2026, 10, 24, 12)
-      ..status = MowerStatus.mowing;
+    final end = DateTime(2026, 10, 24, 12);
+    device.workEndsAt = end;
     expect(device.online, isFalse);
-    expect(device.visibleWorkEndsAt, isNull);
+    for (final status in MowerStatus.values) {
+      device.status = status;
+      expect(device.visibleWorkEndsAt, end, reason: status.code);
+    }
+    now = end;
+    expect(device.visibleWorkEndsAt, isNull, reason: '剩余为 0');
+    device.workEndsAt = null;
+    now = DateTime(2026, 10, 24, 10);
+    expect(device.visibleWorkEndsAt, isNull, reason: '无计划');
     device.resetForTest();
   });
-}
-
-/// 下发要经过 Mock 的零延时计时器，假时钟下得 pump 才会走完。
-Future<bool?> _sent(WidgetTester tester, Future<bool> pending) async {
-  bool? value;
-  unawaited(pending.then((sent) => value = sent));
-  await tester.pump();
-  await tester.pump();
-  return value;
 }
 
 /// 模拟一条只带 DP121 的实时上报。

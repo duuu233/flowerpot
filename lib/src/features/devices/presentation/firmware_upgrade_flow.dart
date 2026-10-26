@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../core/logging/ota_debug_log.dart';
 import '../../../design_system/design_system.dart';
 import '../../../tuya/tuya_models.dart';
 import '../../../tuya/tuya_repository.dart' show TuyaException;
@@ -31,9 +32,21 @@ Future<void> runFirmwareUpgrade(
   void Function(String line)? log,
 }) async {
   final state = FlowerpotScope.of(context);
+  // 每一步同时写进 OTA 调试文件；割草机另外进联调日志。
+  void note(String line) {
+    log?.call(line);
+    OtaDebugLog.ui(line, deviceId: deviceId);
+  }
+
   if (state.isCheckingFirmware(deviceId)) return;
   final device = state.deviceById(deviceId);
   if (device == null) return;
+  final local = state.otaProgressFor(deviceId);
+  final localText = local == null
+      ? '无'
+      : '${local.status.name} ${local.displayStage.name} ${local.percent ?? '-'}% '
+            'verifying=${local.verifyingVersion} stalled=${state.otaStalled(deviceId)}';
+  note('固件 · 进入升级入口，本地进度 $localText，online=${state.isDeviceOnline(deviceId)}');
 
   if (state.otaProgressFor(deviceId)?.status == OtaStatus.running) {
     // 重新打开进度时先现读一次 SDK 当前版本：设备可能已经装好，只是结果还没推上来。
@@ -56,6 +69,7 @@ Future<void> runFirmwareUpgrade(
       confirmLabel: '重新检查',
       icon: Icons.sync_problem_outlined,
     );
+    note('固件 · 停滞/待确认提示，用户选择：${retry ? '重新检查' : '取消'}');
     if (!retry || !context.mounted) return;
     state.clearOtaProgress(deviceId);
   }
@@ -71,14 +85,14 @@ Future<void> runFirmwareUpgrade(
 
   state.setCheckingFirmware(deviceId, true);
   try {
-    log?.call('固件 → $deviceId 检查新版本（涂鸦 OTA，非 DP）');
+    note('固件 → $deviceId 检查新版本（涂鸦 OTA，非 DP）');
     // 每次点进来都现问涂鸦：红点那次的结论可能已经过时（例如设备其实已经升好）。
     final update = await state.checkFirmware(deviceId);
     if (!context.mounted || !state.isDeviceOnline(deviceId)) return;
     // 「当前版本」优先用同一条 OTA 记录里的那个：设备可能有 MCU、Wi-Fi 模块几个可升级
     // 组件，拿设备上报的版本和另一个组件的新版本并排显示，两行就对不上。
     final currentVersion = update?.currentVersion ?? device.firmwareVersion;
-    log?.call(
+    note(
       '固件 ← 当前 $currentVersion，可升级 ${update?.version ?? '无'}'
       '${update == null ? '' : '（升级方式 ${update.upgradeType.name}）'}',
     );
@@ -108,6 +122,7 @@ Future<void> runFirmwareUpgrade(
         currentVersion: currentVersion,
         availableVersion: update.version,
       );
+      note('固件 · 检查更新确认框，用户选择：${accepted ? '立即更新' : '取消'}');
       if (!accepted || !context.mounted) return;
       state.setCheckingFirmware(deviceId, true);
     }
@@ -120,6 +135,7 @@ Future<void> runFirmwareUpgrade(
       final allowed = await state.canStartFirmwareUpgrade(deviceId);
       if (!context.mounted) return;
       if (!allowed) {
+        note('固件 ✗ 割草机未在桩充电，不发起升级');
         showAppMessage(
           context,
           state.isDeviceOnline(deviceId) ? '请回桩进行ota升级' : deviceOfflineMessage,
@@ -129,7 +145,7 @@ Future<void> runFirmwareUpgrade(
       }
     }
     final result = await state.upgradeFirmware(deviceId, update.version);
-    log?.call(
+    note(
       result.success
           ? '固件 → 已发起升级到 ${update.version}'
           : '固件 ✗ 发起失败：${result.message}',
@@ -142,7 +158,7 @@ Future<void> runFirmwareUpgrade(
     await showOtaProgressDialog(context, deviceId: deviceId);
   } on TuyaException catch (error) {
     // SDK 的原始码对用户没有意义，message 才是能照着做的那句。
-    log?.call('固件 ✗ 检查失败：${error.code} ${error.message}');
+    note('固件 ✗ 检查失败：${error.code} ${error.message}');
     if (context.mounted) {
       showAppMessage(
         context,
@@ -151,7 +167,7 @@ Future<void> runFirmwareUpgrade(
       );
     }
   } catch (error) {
-    log?.call('固件 ✗ 检查失败：$error');
+    note('固件 ✗ 检查失败：$error');
     if (context.mounted) {
       showAppMessage(context, '固件检查失败：$error', tone: AppMessageTone.error);
     }

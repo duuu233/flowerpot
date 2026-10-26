@@ -45,6 +45,8 @@ dependencies:
   image_picker: ^1.1.2
   # App 升级：本机版本号从系统读（不写死），「立即更新」用外部浏览器 / 应用商店打开下载地址。
   package_info_plus: ^10.2.1
+  # OTA 调试日志写手机文件：取应用外部文件目录（Android）/ 文档目录（iOS），见 core/logging/ota_debug_log.dart。
+  path_provider: ^2.1.4
   shared_preferences: ^2.3.2
   url_launcher: ^6.3.0
 

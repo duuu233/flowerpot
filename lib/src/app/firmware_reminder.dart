@@ -1,4 +1,5 @@
 import '../core/config/debug_log_gate.dart';
+import '../core/logging/ota_debug_log.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import '../features/mower/presentation/mower_home_page.dart';
 import '../features/mower/presentation/widgets/mower_bottom_nav.dart';
 import '../routes/app_routes.dart';
 import '../state.dart';
+import '../tuya/ota_progress_layer.dart';
 import '../tuya/tuya_models.dart';
 import 'app_route_tracker.dart';
 
@@ -36,6 +38,8 @@ import 'app_route_tracker.dart';
 ///   之后再进来会重新提醒——对应平台说明「用户进入设备面板主动提醒」。
 /// - 强制升级只要还有新版本、没在升级，每次回到设备页都会弹。
 /// - 正在升级（且没超时卡住）时不弹；最上面盖着别的弹框时先不弹，关掉后路由栈一变再看。
+/// - 设置页的 OTA 进度弹层开着（[OtaProgressLayer]，不论升级结果如何）时一律不弹
+///   （2026-10-26 产品）；进度层关掉后再看。
 class FirmwareReminderHost extends StatefulWidget {
   const FirmwareReminderHost({
     required this.state,
@@ -103,6 +107,7 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
     super.initState();
     widget.routes.addListener(_schedule);
     widget.state.addListener(_schedule);
+    OtaProgressLayer.open.addListener(_schedule);
     if (widget.enabled) _schedule();
   }
 
@@ -124,6 +129,7 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
   void dispose() {
     widget.routes.removeListener(_schedule);
     widget.state.removeListener(_schedule);
+    OtaProgressLayer.open.removeListener(_schedule);
     super.dispose();
   }
 
@@ -177,6 +183,7 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
       return;
     }
     if (name == AppRoutes.deviceOtherSettings) return;
+    if (OtaProgressLayer.anyOpen) return;
     if (widget.routes.popupOnTop) return;
     final running =
         state.otaProgressFor(deviceId)?.status == OtaStatus.running &&
@@ -205,6 +212,7 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
         !state.authenticated ||
         !state.isDeviceOnline(deviceId) ||
         widget.routes.currentPage != page ||
+        OtaProgressLayer.anyOpen ||
         widget.routes.popupOnTop ||
         (state.otaProgressFor(deviceId)?.status == OtaStatus.running &&
             (state.otaProgressFor(deviceId)?.verifyingVersion == true ||
@@ -232,12 +240,17 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
     DebugLogGate.log(
       '[ota] 升级提醒（${force ? '强制' : '提醒'}）$deviceId → ${update.version}',
     );
+    OtaDebugLog.ui(
+      '弹升级提醒（${force ? '强制' : '提醒'}）→ ${update.version}',
+      deviceId: deviceId,
+    );
     final upgrade = await _showUpgradeDialog(
       dialogContext,
       deviceId,
       update.version,
       force: force,
     );
+    OtaDebugLog.ui('升级提醒用户选择：${upgrade ? '立刻更新' : '取消/关闭'}', deviceId: deviceId);
     if (!mounted) return;
     if (!upgrade) {
       if (!widget.state.isDeviceOnline(deviceId)) return;

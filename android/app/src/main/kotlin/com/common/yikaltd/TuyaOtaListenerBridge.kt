@@ -7,11 +7,16 @@ internal object TuyaOtaListenerBridge {
     fun create(
         listenerType: Class<*>,
         loader: ClassLoader,
+        trace: (String) -> Unit = {},
         onRunning: (Int?, Int?) -> Unit,
         onSuccess: (Any?) -> Unit,
         onError: (String, String) -> Unit,
         defaultValue: (Class<*>) -> Any?,
     ): Any = Proxy.newProxyInstance(loader, arrayOf(listenerType)) { proxy, method, args ->
+        if (method.name !in setOf("equals", "hashCode", "toString")) {
+            // SDK 原始回调与参数，供 OTA 调试日志定位（不影响下面的映射）。
+            trace("${method.name}(${args?.joinToString { it?.toString() ?: "null" }.orEmpty()})")
+        }
         when (method.name) {
             "equals" -> proxy === args?.firstOrNull()
             "hashCode" -> System.identityHashCode(proxy)

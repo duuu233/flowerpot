@@ -10,6 +10,7 @@ import 'package:flowerpot/src/features/mower/mower_device.dart';
 import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/routes/app_routes.dart';
 import 'package:flowerpot/src/state.dart';
+import 'package:flowerpot/src/tuya/ota_progress_layer.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -375,6 +376,21 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+  testWidgets('设置页OTA进度弹层开着时不弹升级提醒，关掉后再弹', (tester) async {
+    addTearDown(OtaProgressLayer.resetForTest);
+    final (state, _) = await pumpHost(tester, FirmwareUpgradeType.force);
+    final id = state.devices.single.id;
+
+    OtaProgressLayer.opened(id);
+    await open(tester, AppRoutes.deviceSettings, id);
+    expect(find.text(force), findsNothing);
+
+    OtaProgressLayer.closed(id);
+    await tester.pumpAndSettle();
+    expect(find.text(force), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('检测升级不弹框', (tester) async {
     final (state, _) = await pumpHost(tester, FirmwareUpgradeType.check);
     final id = state.devices.single.id;
