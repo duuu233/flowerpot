@@ -646,7 +646,7 @@ class MowerDevice extends ChangeNotifier {
       return;
     }
     for (final day in week) {
-      if (day.overlapMessage != null) {
+      if (day.overlaps) {
         _failures.add('割草时段不能重叠，未下发');
         return;
       }

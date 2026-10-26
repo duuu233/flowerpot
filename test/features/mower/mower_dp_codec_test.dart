@@ -183,18 +183,38 @@ void main() {
       }
     });
 
-    test('两个时段相交算重叠，端点相接不算', () {
+    test('两个时段相交算重叠；端点相接只是间隔不足，下发底线不拦', () {
       const overlap = MowerScheduleDay(
         slotOne: MowerScheduleSlot(startMinutes: 540, endMinutes: 690),
         slotTwo: MowerScheduleSlot(startMinutes: 600, endMinutes: 720),
       );
-      expect(overlap.overlapMessage, isNotNull);
+      expect(overlap.overlaps, isTrue);
+      expect(overlap.overlapMessage, contains('重叠'));
 
       const touching = MowerScheduleDay(
         slotOne: MowerScheduleSlot(startMinutes: 540, endMinutes: 690),
         slotTwo: MowerScheduleSlot(startMinutes: 690, endMinutes: 720),
       );
-      expect(touching.overlapMessage, isNull, reason: '前一段结束＝后一段开始是「接着干」，不该拦');
+      expect(touching.overlaps, isFalse, reason: '设备里已有的首尾相接旧计划不拦整周下发');
+      expect(touching.overlapMessage, contains('间隔至少 10 分钟'));
+    });
+
+    test('两个时段至少间隔 10 分钟：08:00–12:00 之后最早 12:10', () {
+      MowerScheduleDay day(int twoStart, int twoEnd) => MowerScheduleDay(
+        slotOne: const MowerScheduleSlot(startMinutes: 480, endMinutes: 720),
+        slotTwo: MowerScheduleSlot(startMinutes: twoStart, endMinutes: twoEnd),
+      );
+      expect(day(720, 1080).overlapMessage, isNotNull, reason: '12:00 开始不行');
+      expect(day(729, 1080).overlapMessage, isNotNull, reason: '12:09 开始不行');
+      expect(day(730, 1080).overlapMessage, isNull, reason: '12:10 开始可以');
+      expect(day(300, 471).overlapMessage, isNotNull, reason: '时段 2 在前，07:51 结束不行');
+      expect(day(300, 470).overlapMessage, isNull, reason: '时段 2 在前，07:50 结束可以');
+
+      const oneDisabled = MowerScheduleDay(
+        slotOne: MowerScheduleSlot(startMinutes: 480, endMinutes: 720, enabled: false),
+        slotTwo: MowerScheduleSlot(startMinutes: 720, endMinutes: 1080),
+      );
+      expect(oneDisabled.overlapMessage, isNull, reason: '关掉的时段不参与间隔判断');
     });
   });
 

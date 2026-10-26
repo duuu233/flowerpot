@@ -86,7 +86,7 @@ class MowerPlanDraft {
       slot.startMinutes == fallback.startMinutes &&
       slot.endMinutes == fallback.endMinutes;
 
-  /// 两个时段都开着且相交时给出提示；端点相接不算重叠。
+  /// 两个时段都开着且相交、或间隔不足 10 分钟时给出提示（08:00–12:00 之后最早 12:10）。
   String? get overlapMessage => day0.overlapMessage;
 
   MowerPlanDraft copyWith({

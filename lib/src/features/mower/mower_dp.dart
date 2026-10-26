@@ -472,14 +472,30 @@ class MowerScheduleDay {
       !(slotOne?.validForDevice ?? false) &&
       !(slotTwo?.validForDevice ?? false);
 
-  /// 两个时段重叠了就返回那句提示（端点相接不算重叠）。
+  /// 两个启用时段之间至少要隔开的分钟数（2026-10-26 产品：上午 08:00–12:00，
+  /// 下午最早 12:10 开始，不能接着 12:00）。
+  static const int minGapMinutes = 10;
+
+  /// 两个启用时段真正相交（端点相接不算）。下发前的底线检查只看这个：
+  /// 设备里已有的首尾相接旧计划不因间隔规则把整周下发拦下。
+  bool get overlaps {
+    final one = slotOne;
+    final two = slotTwo;
+    if (one == null || two == null || !one.enabled || !two.enabled) return false;
+    return one.startMinutes < two.endMinutes &&
+        two.startMinutes < one.endMinutes;
+  }
+
+  /// 编辑保存时的提示：两个时段重叠，或间隔不足 [minGapMinutes] 分钟。
   String? get overlapMessage {
     final one = slotOne;
     final two = slotTwo;
     if (one == null || two == null || !one.enabled || !two.enabled) return null;
-    if (one.startMinutes < two.endMinutes &&
-        two.startMinutes < one.endMinutes) {
-      return '时段 2 与时段 1（${_hhmm(one.startMinutes)}–${_hhmm(one.endMinutes)}）重叠';
+    final range = '${_hhmm(one.startMinutes)}–${_hhmm(one.endMinutes)}';
+    if (overlaps) return '时段 2 与时段 1（$range）重叠';
+    if (one.startMinutes < two.endMinutes + minGapMinutes &&
+        two.startMinutes < one.endMinutes + minGapMinutes) {
+      return '时段 2 与时段 1（$range）需间隔至少 $minGapMinutes 分钟';
     }
     return null;
   }

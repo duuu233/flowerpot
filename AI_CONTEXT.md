@@ -301,3 +301,5 @@ REST 公共能力位于 `lib/src/core/network/`，业务契约位于 `lib/src/co
 ### DP101显示来源（2026-10-14核查）
 
 `MowerDevice.schedule`只由有效88字节涂鸦返回更新；setSchedule不再乐观改计划，独立保留下发草稿和设备返回。计划页等待回读时禁止重复编辑；DP115仅受理/拒绝，不能替代DP101。默认停用时间通过来源标记保留，非法时段/非七天在SDK前拦截。具体字节、初始快照与真机诊断见docs/MOWER_SCHEDULE_DP.md。
+
+两时段间隔（2026-10-26 产品）：编辑周X保存时两个启用时段须至少间隔10分钟（`MowerScheduleDay.minGapMinutes`），08:00–12:00之后最早12:10，端点相接也弹「时间段重叠」并说明间隔不足；`setSchedule`下发底线仍只拦真正相交（`overlaps`），设备已有的首尾相接旧计划不阻断整周下发。
