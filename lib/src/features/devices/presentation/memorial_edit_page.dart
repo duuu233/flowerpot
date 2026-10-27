@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/flowerpot_app.dart';
+import '../../../app/network_alert.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../design_system/design_system.dart';
 import '../../../shared/l10n/app_l10n.dart';
 import '../../../shared/media/upload_image.dart';
@@ -42,26 +45,95 @@ class MemorialEditPage extends StatefulWidget {
   State<MemorialEditPage> createState() => _MemorialEditPageState();
 }
 
-class _MemorialEditPageState extends State<MemorialEditPage> {
-  late MemorialEntry _entry = widget.arguments.entry;
+class _MemorialEditPageState extends State<MemorialEditPage>
+    with NetworkRetryAware<MemorialEditPage> {
+  /// 回填来源。已有的自定义条目在接了后端时换成进页现拉的详情
+  /// （[FlowerpotState.loadMemorialDetail]）；新增、固定两条、没接后端时就是路由
+  /// 带进来的条目。「类型二选一」只认它：选中与它同类型才显示它的 content，另一
+  /// 类型为空。
+  late MemorialEntry _source = widget.arguments.entry;
+  late MemorialEntry _entry = _source;
   late final TextEditingController _titleController = TextEditingController(
-    text: _entry.title,
+    text: _source.title,
   );
   late final TextEditingController _textController = TextEditingController(
-    text: widget.arguments.entry.type == MemorialContentType.text
-        ? widget.arguments.entry.content
-        : '',
+    text: _sourceContent(MemorialContentType.text),
   );
 
   /// Local path of a freshly picked image, before it is uploaded. The DP wants
   /// a URL, so this is only what the page previews.
   String? _pickedImagePath;
 
-  late String _imageContent =
-      widget.arguments.entry.type == MemorialContentType.image
-      ? widget.arguments.entry.content
-      : '';
+  late String _imageContent = _sourceContent(MemorialContentType.image);
   bool _saving = false;
+
+  bool _requested = false;
+
+  /// 详情还没拉到时显示加载中，失败显示重试；这两种状态下没有保存按钮，不拿列表
+  /// 那一行顶替回填。
+  bool _loading = false;
+  String? _loadError;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_requested) return;
+    _requested = true;
+    final arguments = widget.arguments;
+    if (!arguments.creating &&
+        !arguments.entry.isFixed &&
+        FlowerpotScope.of(context).memorialsFromBackend) {
+      _loading = true;
+      unawaited(_loadDetail());
+    }
+  }
+
+  /// 只在详情没拉成功时重拉：已经回填过再拉一次会冲掉用户正在改的内容。
+  @override
+  Future<void> reloadForNetworkRetry() async {
+    if (_loadError != null) await _loadDetail();
+  }
+
+  Future<void> _loadDetail() async {
+    if (!_loading) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
+    final arguments = widget.arguments;
+    MemorialEntry? detail;
+    String? error;
+    try {
+      detail = await FlowerpotScope.of(
+        context,
+      ).loadMemorialDetail(arguments.deviceId, arguments.entry.id);
+    } on ApiException catch (failure) {
+      error = failure.code == 'ANNIVERSARY_NOT_FOUND'
+          ? failure.message
+          : '纪念日加载失败，请检查网络后重试';
+    } catch (_) {
+      error = '纪念日加载失败，请检查网络后重试';
+    }
+    if (!mounted) return;
+    final loaded = detail;
+    setState(() {
+      _loading = false;
+      _loadError = error;
+      if (loaded != null) {
+        _source = loaded;
+        _entry = loaded;
+        _titleController.text = loaded.title;
+        _textController.text = _sourceContent(MemorialContentType.text);
+        _imageContent = _sourceContent(MemorialContentType.image);
+        _pickedImagePath = null;
+      }
+    });
+  }
+
+  /// [_source] 在 [type] 下的内容：类型对得上才是它的 content，否则为空。
+  String _sourceContent(MemorialContentType type) =>
+      type == _source.type ? _source.content : '';
 
   @override
   void dispose() {
@@ -72,17 +144,17 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
 
   bool get _fixed => _entry.isFixed;
 
+  /// 每次换类型都按 [_source] 重新回填：切回原类型恢复接口值，切到另一类型为空，
+  /// 刚才没保存的文字和本地选图一律丢掉，页面上始终只有一份内容。
   void _selectContentType(MemorialContentType type) {
     if (type == _entry.type) return;
-    final saved = widget.arguments.entry;
     setState(() {
       _entry = _entry.copyWith(type: type);
-      _textController.text =
-          type == saved.type && type == MemorialContentType.text
-          ? saved.content
+      _textController.text = type == MemorialContentType.text
+          ? _sourceContent(type)
           : '';
-      _imageContent = type == saved.type && type == MemorialContentType.image
-          ? saved.content
+      _imageContent = type == MemorialContentType.image
+          ? _sourceContent(type)
           : '';
       _pickedImagePath = null;
     });
@@ -141,7 +213,8 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
       return;
     }
     final content = _content();
-    if (_entry.enabled && !_fixed && content.isEmpty) {
+    // 停用也走同一个保存接口，所选类型同样必须有内容（2026-10-27 用户）。
+    if (!_fixed && content.isEmpty) {
       showAppMessage(
         context,
         _entry.type == MemorialContentType.text ? '请输入纪念日文字内容' : '请先上传图片',
@@ -177,19 +250,8 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
       context,
     ).saveMemorial(widget.arguments.deviceId, savedEntry);
     if (!mounted) return;
-    setState(() {
-      _saving = false;
-      if (result.success) {
-        _entry = savedEntry;
-        // 仅保存成功后丢弃另一类型草稿；失败仍允许切回继续编辑。
-        if (savedEntry.type == MemorialContentType.text) {
-          _imageContent = '';
-          _pickedImagePath = null;
-        } else {
-          _textController.clear();
-        }
-      }
-    });
+    // 失败不动当前输入；成功直接关页，状态里只留下所选类型和内容。
+    setState(() => _saving = false);
     showDeviceActionResult(context, result, announceSuccess: true);
     if (result.success) Navigator.pop(context);
   }
@@ -210,111 +272,123 @@ class _MemorialEditPageState extends State<MemorialEditPage> {
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '编辑纪念日', leading: AppBackButton()),
       background: AppPageBackground.standard,
-      body: Stack(
-        children: <Widget>[
-          SingleChildScrollView(
-            key: const Key('memorial-edit-scroll-view'),
-            // 96 = 底部那颗浮着的保存按钮的占位（bottom: 12 + 高 50 + 余量）。
-            // 输入框的 scrollPadding 用的是同一个数，见下面那行注释。
-            padding: const EdgeInsets.only(bottom: 96),
-            child: ResponsiveContent(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.pageMargin,
-                28,
-                AppSpacing.pageMargin,
-                24,
-              ),
-              child: AppSurfaceCard(
-                // 左右 24 是设计稿量的（卡片 335 宽、字段 286 宽，两边各 24.5）。
-                // 稿子 513:2155 卡片内边距约 22/15/22/16（原 24/20/24/24，整卡比稿子高约 50）。
-                padding: const EdgeInsets.fromLTRB(22, 15, 22, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    _EnableRow(
-                      enabled: _entry.enabled,
-                      onChanged: (value) => setState(
-                        () => _entry = _entry.copyWith(enabled: value),
-                      ),
+      body: _loading || _loadError != null
+          ? AppLoadStateView(
+              key: const Key('memorial-edit-load-state'),
+              state: _loading ? AppLoadState.loading : AppLoadState.error,
+              content: const SizedBox.shrink(),
+              errorMessage: _loadError ?? '',
+              onRetry: () => unawaited(_loadDetail()),
+            )
+          : _form(),
+    );
+  }
+
+  Widget _form() {
+    return Stack(
+      children: <Widget>[
+        SingleChildScrollView(
+          key: const Key('memorial-edit-scroll-view'),
+          // 96 = 底部那颗浮着的保存按钮的占位（bottom: 12 + 高 50 + 余量）。
+          // 输入框的 scrollPadding 用的是同一个数，见下面那行注释。
+          padding: const EdgeInsets.only(bottom: 96),
+          child: ResponsiveContent(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.pageMargin,
+              28,
+              AppSpacing.pageMargin,
+              24,
+            ),
+            child: AppSurfaceCard(
+              // 左右 24 是设计稿量的（卡片 335 宽、字段 286 宽，两边各 24.5）。
+              // 稿子 513:2155 卡片内边距约 22/15/22/16（原 24/20/24/24，整卡比稿子高约 50）。
+              padding: const EdgeInsets.fromLTRB(22, 15, 22, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  _EnableRow(
+                    enabled: _entry.enabled,
+                    onChanged: (value) => setState(
+                      () => _entry = _entry.copyWith(enabled: value),
                     ),
-                    const Divider(height: 40),
-                    const _FieldLabel('标题'),
-                    const SizedBox(height: 10),
-                    if (_fixed)
-                      Text(
-                        _entry.title,
-                        key: const Key('memorial-fixed-title'),
+                  ),
+                  const Divider(height: 40),
+                  const _FieldLabel('标题'),
+                  const SizedBox(height: 10),
+                  if (_fixed)
+                    Text(
+                      _entry.title,
+                      key: const Key('memorial-fixed-title'),
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 19,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    )
+                  else
+                    _FilledField(
+                      child: TextField(
+                        key: const Key('memorial-title-field'),
+                        controller: _titleController,
+                        maxLength: 20,
+                        // 和「连接 Wi-Fi」页同一个坑：Scaffold 默认会按键盘把
+                        // body 缩矮、框架也会把光标滚进视口，但默认只留 20px，
+                        // 而那 20px 正好被浮在底部的保存按钮（bottom: 12 + 高 50）
+                        // 占着。把按钮的占位算进来，获焦时页面就多往上滚一点。
+                        scrollPadding: const EdgeInsets.fromLTRB(
+                          20,
+                          20,
+                          20,
+                          96,
+                        ),
                         style: const TextStyle(
                           color: AppColors.textPrimary,
-                          fontSize: 19,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 17,
                         ),
-                      )
+                        decoration: _bareFieldDecoration('请输入纪念日标题'),
+                      ),
+                    ),
+                  const SizedBox(height: 22),
+                  const _FieldLabel('日期'),
+                  const SizedBox(height: 10),
+                  _DateField(label: _entry.dateLabel, onTap: _pickDate),
+                  const SizedBox(height: 22),
+                  _FieldLabel(_fixed ? '内容' : '内容 （类型二选一）'),
+                  const SizedBox(height: 10),
+                  if (_fixed)
+                    _FixedContentChip(label: '${_entry.title}动画')
+                  else ...<Widget>[
+                    _ContentTypeSelector(
+                      type: _entry.type,
+                      onChanged: _selectContentType,
+                    ),
+                    const SizedBox(height: 16),
+                    if (_entry.type == MemorialContentType.text)
+                      _TextContentField(controller: _textController)
                     else
-                      _FilledField(
-                        child: TextField(
-                          key: const Key('memorial-title-field'),
-                          controller: _titleController,
-                          maxLength: 20,
-                          // 和「连接 Wi-Fi」页同一个坑：Scaffold 默认会按键盘把
-                          // body 缩矮、框架也会把光标滚进视口，但默认只留 20px，
-                          // 而那 20px 正好被浮在底部的保存按钮（bottom: 12 + 高 50）
-                          // 占着。把按钮的占位算进来，获焦时页面就多往上滚一点。
-                          scrollPadding: const EdgeInsets.fromLTRB(
-                            20,
-                            20,
-                            20,
-                            96,
-                          ),
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 17,
-                          ),
-                          decoration: _bareFieldDecoration('请输入纪念日标题'),
-                        ),
+                      _ImageContentSlot(
+                        localPath: _pickedImagePath,
+                        url: _imageContent,
+                        onTap: _pickImage,
                       ),
-                    const SizedBox(height: 22),
-                    const _FieldLabel('日期'),
-                    const SizedBox(height: 10),
-                    _DateField(label: _entry.dateLabel, onTap: _pickDate),
-                    const SizedBox(height: 22),
-                    _FieldLabel(_fixed ? '内容' : '内容 （类型二选一）'),
-                    const SizedBox(height: 10),
-                    if (_fixed)
-                      _FixedContentChip(label: '${_entry.title}动画')
-                    else ...<Widget>[
-                      _ContentTypeSelector(
-                        type: _entry.type,
-                        onChanged: _selectContentType,
-                      ),
-                      const SizedBox(height: 16),
-                      if (_entry.type == MemorialContentType.text)
-                        _TextContentField(controller: _textController)
-                      else
-                        _ImageContentSlot(
-                          localPath: _pickedImagePath,
-                          url: _imageContent,
-                          onTap: _pickImage,
-                        ),
-                    ],
                   ],
-                ),
+                ],
               ),
             ),
           ),
-          Positioned(
-            left: AppSpacing.pageMargin,
-            right: AppSpacing.pageMargin,
-            bottom: 12,
-            child: AppPrimaryButton(
-              key: const Key('memorial-save'),
-              label: '保存',
-              loading: _saving,
-              onPressed: _saving ? null : _save,
-            ),
+        ),
+        Positioned(
+          left: AppSpacing.pageMargin,
+          right: AppSpacing.pageMargin,
+          bottom: 12,
+          child: AppPrimaryButton(
+            key: const Key('memorial-save'),
+            label: '保存',
+            loading: _saving,
+            onPressed: _saving ? null : _save,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

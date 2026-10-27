@@ -2915,6 +2915,14 @@ class FlowerpotState extends ChangeNotifier {
     if (date == null && entry.enabled) {
       throw const TuyaException('memorial_date_missing', '请先选择纪念日日期');
     }
+    // 内容二选一：只提交所选类型，且它必须有值。停用也走同一个保存接口，空值同样
+    // 会覆盖掉原来那一类内容，所以启用 / 停用一律要求（2026-10-27 用户）。
+    if (entry.content.trim().isEmpty) {
+      throw TuyaException(
+        'memorial_content_missing',
+        entry.type == MemorialContentType.text ? '请输入纪念日文字内容' : '请先上传图片',
+      );
+    }
     final entries = _memorials.putIfAbsent(deviceId, () => <MemorialEntry>[]);
     final index = entries.indexWhere((item) => item.id == entry.id);
     if (index < 0 && entries.length >= TuyaMemorialCodec.maxCustomEntries) {
@@ -2988,6 +2996,28 @@ class FlowerpotState extends ChangeNotifier {
         .toList(growable: true);
     await _persistMemorials();
     notifyListeners();
+  }
+
+  /// 进编辑页时按 `anniversaryId` 现拉一条自定义纪念日的详情
+  /// （`/Client/UserProduct/getProductAnniversaryDetail`）。编辑页的标题、日期、启停
+  /// 和「类型二选一」的回填都以它为准，不用进页前列表里那一行。拉到后顺手换掉列表里的
+  /// 同一条。没接后端时返回 null，页面沿用路由带进来的条目；查不到这条时抛错，由页面
+  /// 显示失败和重试。
+  Future<MemorialEntry?> loadMemorialDetail(String deviceId, int id) async {
+    if (!_backendReady) return null;
+    final row = await _backend.getAnniversaryDetail(id);
+    if (row == null) {
+      throw const ApiException('ANNIVERSARY_NOT_FOUND', '没有找到这条纪念日，可能已被删除');
+    }
+    final entry = _memorialFromBackend(row);
+    final entries = _memorials[deviceId];
+    final index = entries?.indexWhere((item) => item.id == id) ?? -1;
+    if (index >= 0) {
+      entries![index] = entry;
+      await _persistMemorials();
+      notifyListeners();
+    }
+    return entry;
   }
 
   /// 把一条自定义纪念日写进后端，返回换上后端 id、图片换成 URL 之后的条目。

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flowerpot/src/core/backend/backend.dart';
 import 'package:flowerpot/src/core/network/network.dart';
 import 'package:http/http.dart' as http;
@@ -458,6 +460,238 @@ void main() {
     expect(find.text('上传图片'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  for (final detailImage in [false, true]) {
+    testWidgets('编辑已有纪念日先拉详情再回填，不用列表那一行 image=$detailImage', (
+      tester,
+    ) async {
+      final server = _AnniversaryServer()
+        ..rows[9] = _row(
+          9,
+          title: '详情标题',
+          image: detailImage,
+          content: detailImage ? 'https://example.test/detail.jpg' : '详情文字',
+        )
+        // 列表里是另一种类型的旧值：编辑页不能拿它回填。
+        ..staleList = <Map<String, Object?>>[
+          _row(
+            9,
+            title: '列表标题',
+            image: !detailImage,
+            content: detailImage ? '列表文字' : 'https://example.test/list.jpg',
+          ),
+        ];
+      final hold = Completer<void>();
+      server.holdDetail = hold.future;
+      final result = await _pumpEditPage(
+        tester,
+        _entryFromRow(server.staleList!.single),
+        backend: server.repository(),
+        creating: false,
+      );
+      expect(find.byKey(const Key('memorial-edit-load-state')), findsOneWidget);
+      expect(find.byKey(const Key('memorial-save')), findsNothing);
+      hold.complete();
+      await tester.pumpAndSettle();
+      expect(server.detailRequests, 1);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('memorial-title-field')))
+            .controller!
+            .text,
+        '详情标题',
+      );
+      expect(
+        tester
+            .widget<RadioGroup<MemorialContentType>>(
+              find.byType(RadioGroup<MemorialContentType>),
+            )
+            .groupValue,
+        detailImage ? MemorialContentType.image : MemorialContentType.text,
+      );
+      if (detailImage) {
+        expect(_slotImageUrl(tester), 'https://example.test/detail.jpg');
+        expect(find.byKey(const Key('memorial-text-field')), findsNothing);
+        await _switchType(tester, false);
+        expect(_textFieldValue(tester), isEmpty);
+        await _switchType(tester, true);
+        expect(_slotImageUrl(tester), 'https://example.test/detail.jpg');
+      } else {
+        expect(_textFieldValue(tester), '详情文字');
+        expect(find.byKey(const Key('memorial-image-slot')), findsNothing);
+        await _switchType(tester, true);
+        expect(_slotImageUrl(tester), isNull);
+        await _switchType(tester, false);
+        expect(_textFieldValue(tester), '详情文字');
+      }
+      // 列表里那一行也换成详情的值。
+      final listed = result.state.customMemorialsFor('device-01').single;
+      expect(listed.title, '详情标题');
+      expect(listed.content, server.rows[9]!['content']);
+
+      await tester.tap(find.byKey(const Key('memorial-save')));
+      await tester.pumpAndSettle();
+      final body = server.bodyOf('editUserProductAnniversary');
+      expect(body['contentType'], detailImage ? 1 : 0);
+      expect(body['content'], server.rows[9]!['content']);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('详情拉取失败显示重试且不能保存，重试成功后按详情回填', (tester) async {
+    final server = _AnniversaryServer()
+      ..rows[9] = _row(9, title: '纪念日', image: false, content: '详情文字')
+      ..failDetail = true;
+    await _pumpEditPage(
+      tester,
+      _entryFromRow(server.rows[9]!).copyWith(content: '列表文字'),
+      backend: server.repository(),
+      creating: false,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('纪念日加载失败，请检查网络后重试'), findsOneWidget);
+    expect(find.byKey(const Key('memorial-save')), findsNothing);
+    expect(find.byKey(const Key('memorial-text-field')), findsNothing);
+
+    server.failDetail = false;
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(server.detailRequests, 2);
+    expect(_textFieldValue(tester), '详情文字');
+    expect(find.byKey(const Key('memorial-save')), findsOneWidget);
+    expect(server.writes, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('新增纪念日同样二选一：没选图不保存，文字保存只带 contentType=0', (
+    tester,
+  ) async {
+    final server = _AnniversaryServer();
+    await _pumpEditPage(
+      tester,
+      MemorialEntry(
+        id: 77,
+        date: DateTime(2026, 10, 27),
+        type: MemorialContentType.text,
+        content: '',
+      ),
+      backend: server.repository(),
+    );
+    expect(server.detailRequests, 0, reason: '新增没有详情可拉');
+    await tester.enterText(find.byKey(const Key('memorial-title-field')), '新的');
+    await tester.enterText(find.byKey(const Key('memorial-text-field')), '草稿');
+    await _switchType(tester, true);
+    await tester.tap(find.byKey(const Key('memorial-save')));
+    await tester.pumpAndSettle();
+    expect(server.writes, isEmpty, reason: '图片类型没有图，不能提交');
+    await _switchType(tester, false);
+    expect(_textFieldValue(tester), isEmpty, reason: '切换会丢掉没保存的文字');
+    await tester.enterText(
+      find.byKey(const Key('memorial-text-field')),
+      '在一起100天',
+    );
+    await tester.tap(find.byKey(const Key('memorial-save')));
+    await tester.pumpAndSettle();
+    final body = server.bodyOf('addUserProductAnniversary');
+    expect(body['contentType'], 0);
+    expect(body['content'], '在一起100天');
+    expect(body.keys.toSet(), {
+      'deviceId',
+      'title',
+      'content',
+      'contentType',
+      'anniversaryDate',
+    });
+    expect(tester.takeException(), isNull);
+  });
+
+  test('新增图片纪念日先上传，保存只带 contentType=1 和上传后的地址', () async {
+    final directory = Directory.systemTemp.createTempSync('memorial-test');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final picked = File('${directory.path}/picked.jpg')
+      ..writeAsStringSync('jpeg');
+    final server = _AnniversaryServer();
+    final repository = _MemorialRepository();
+    final state = FlowerpotState(
+      repository: repository,
+      backendRepository: server.repository(),
+    );
+    addTearDown(state.dispose);
+    await state.refreshDevices();
+    await state.refreshMemorials('device-01');
+
+    final result = await state.saveMemorial(
+      'device-01',
+      MemorialEntry(
+        id: 77,
+        date: DateTime(2026, 10, 27),
+        title: '图片纪念日',
+        type: MemorialContentType.image,
+        content: picked.path,
+      ),
+    );
+    expect(result.success, isTrue, reason: result.message);
+    expect(server.uploads, 1);
+    final body = server.bodyOf('addUserProductAnniversary');
+    expect(body['contentType'], 1);
+    expect(body['content'], _AnniversaryServer.uploadedUrl);
+    final saved = state.customMemorialsFor('device-01').single;
+    expect(saved.type, MemorialContentType.image);
+    expect(saved.content, _AnniversaryServer.uploadedUrl);
+    final frame = TuyaMemorialCodec.decodeRaw(repository.lastDps![154])!;
+    expect(frame[8], 2);
+  });
+
+  testWidgets('停用时保存也按二选一校验：所选类型为空不提交', (tester) async {
+    final server = _AnniversaryServer()
+      ..rows[9] = _row(9, title: '纪念日', image: false, content: '原文字');
+    await _pumpEditPage(
+      tester,
+      _entryFromRow(server.rows[9]!),
+      backend: server.repository(),
+      creating: false,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('memorial-enable-switch')));
+    await tester.pumpAndSettle();
+    await _switchType(tester, true);
+    await tester.tap(find.byKey(const Key('memorial-save')));
+    await tester.pumpAndSettle();
+    expect(server.writes, isEmpty, reason: '停用也不能用空图片覆盖原文字');
+
+    await _switchType(tester, false);
+    expect(_textFieldValue(tester), '原文字');
+    await tester.tap(find.byKey(const Key('memorial-save')));
+    await tester.pumpAndSettle();
+    final body = server.bodyOf('editUserProductAnniversary');
+    expect(body['contentType'], 0);
+    expect(body['content'], '原文字');
+    expect(server.bodyOf('setUserProductAnniversaryVerify')['verify'], 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('状态层同样拒绝空内容的自定义纪念日，停用也不例外', () async {
+    final repository = _MemorialRepository();
+    final state = FlowerpotState(repository: repository);
+    addTearDown(state.dispose);
+    await state.refreshDevices();
+    for (final type in MemorialContentType.values) {
+      final result = await state.saveMemorial(
+        'device-01',
+        MemorialEntry(
+          id: 5,
+          date: DateTime(2026, 10, 27),
+          title: '纪念日',
+          type: type,
+          content: '  ',
+          enabled: false,
+        ),
+      );
+      expect(result.success, isFalse);
+    }
+    expect(repository.lastDps, isNull);
+    expect(state.customMemorialsFor('device-01'), isEmpty);
+  });
 }
 
 Future<({FlowerpotState state, _MemorialRepository repository})>
@@ -495,6 +729,7 @@ Future<({FlowerpotState state, _MemorialRepository repository})> _pumpEditPage(
   MemorialEntry entry, {
   AppBackendRepository? backend,
   Size size = const Size(375, 812),
+  bool creating = true,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -515,7 +750,7 @@ Future<({FlowerpotState state, _MemorialRepository repository})> _pumpEditPage(
           arguments: MemorialEditArguments(
             deviceId: 'device-01',
             entry: entry,
-            creating: true,
+            creating: creating,
           ),
         ),
       ),
@@ -652,5 +887,117 @@ class _AnniversaryBackend extends DisabledAppBackendRepository {
     requests++;
     if (fail) throw const ApiException('NETWORK_ERROR', '网络异常');
     return rows;
+  }
+}
+
+String? _slotImageUrl(WidgetTester tester) {
+  final images = find.descendant(
+    of: find.byKey(const Key('memorial-image-slot')),
+    matching: find.byType(Image),
+  );
+  if (images.evaluate().isEmpty) return null;
+  final provider = tester.widget<Image>(images.first).image;
+  return provider is NetworkImage ? provider.url : null;
+}
+
+String _textFieldValue(WidgetTester tester) => tester
+    .widget<TextField>(find.byKey(const Key('memorial-text-field')))
+    .controller!
+    .text;
+
+/// swagger `ClientProductAnniversaryDetailApiOut`：列表和详情都是这个模型。
+Map<String, Object?> _row(
+  int id, {
+  required String title,
+  required bool image,
+  required String content,
+  int verify = 1,
+}) => <String, Object?>{
+  'anniversaryId': id,
+  'deviceId': 'device-01',
+  'title': title,
+  'anniversaryDate': '2026-10-20',
+  'contentType': image ? 1 : 0,
+  'content': content,
+  'verify': verify,
+};
+
+MemorialEntry _entryFromRow(Map<String, Object?> row) => MemorialEntry(
+  id: row['anniversaryId']! as int,
+  date: DateTime(2026, 10, 20),
+  title: row['title']! as String,
+  type: row['contentType'] == 1
+      ? MemorialContentType.image
+      : MemorialContentType.text,
+  content: row['content']! as String,
+);
+
+/// 按 swagger 模拟纪念日这组接口：列表 / 详情同一个模型，新增和编辑只认一组
+/// `contentType + content`，新增只回 `true`（id 由仓库层回列表按标题 + 日期找）。
+class _AnniversaryServer {
+  static const String uploadedUrl = 'https://example.test/upload/new.jpg';
+
+  final Map<int, Map<String, Object?>> rows = <int, Map<String, Object?>>{};
+
+  /// 设了就让列表接口返回它，用来模拟列表与详情不一致。
+  List<Map<String, Object?>>? staleList;
+  Future<void>? holdDetail;
+  bool failDetail = false;
+  int detailRequests = 0;
+  int uploads = 0;
+  int _nextId = 40;
+
+  /// 除列表、详情、上传之外的写请求。
+  final List<http.Request> writes = <http.Request>[];
+
+  Map<String, dynamic> bodyOf(String endpoint) =>
+      jsonDecode(
+            writes.lastWhere((r) => r.url.path.endsWith(endpoint)).body,
+          )
+          as Map<String, dynamic>;
+
+  HttpAppBackendRepository repository() {
+    final session = ApiSession(storageKey: 'memorial.detail')
+      ..setToken('test-token');
+    return HttpAppBackendRepository(
+      client: ApiClient(
+        baseUrl: 'https://example.test',
+        session: session,
+        httpClient: MockClient(_handle),
+      ),
+    );
+  }
+
+  Future<http.Response> _handle(http.Request request) async {
+    final path = request.url.path;
+    Object? data = true;
+    if (path.endsWith('getProductAnniversaryList')) {
+      data = <String, Object?>{'pageData': staleList ?? rows.values.toList()};
+    } else if (path.endsWith('getProductAnniversaryDetail')) {
+      detailRequests++;
+      await holdDetail;
+      if (failDetail) {
+        return http.Response('unavailable', 503);
+      }
+      data = rows[int.parse(request.url.queryParameters['id']!)];
+    } else if (path.endsWith('setFileUpload')) {
+      uploads++;
+      data = uploadedUrl;
+    } else {
+      writes.add(request);
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      if (path.endsWith('addUserProductAnniversary')) {
+        final id = _nextId++;
+        rows[id] = <String, Object?>{...body, 'anniversaryId': id, 'verify': 1};
+      } else if (path.endsWith('editUserProductAnniversary')) {
+        final id = body['anniversaryId'] as int;
+        rows[id] = <String, Object?>{...?rows[id], ...body};
+      }
+    }
+    return http.Response(
+      jsonEncode({'retCode': 200, 'retMsg': 'ok', 'retData': data}),
+      200,
+      headers: {'content-type': 'application/json; charset=utf-8'},
+    );
   }
 }
