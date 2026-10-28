@@ -57,7 +57,7 @@ class _MemorialEditPageState extends State<MemorialEditPage>
     text: _source.title,
   );
   late final TextEditingController _textController = TextEditingController(
-    text: _sourceContent(MemorialContentType.text),
+    text: _sourceText(),
   );
 
   /// Local path of a freshly picked image, before it is uploaded. The DP wants
@@ -124,7 +124,7 @@ class _MemorialEditPageState extends State<MemorialEditPage>
         _source = loaded;
         _entry = loaded;
         _titleController.text = loaded.title;
-        _textController.text = _sourceContent(MemorialContentType.text);
+        _textController.text = _sourceText();
         _imageContent = _sourceContent(MemorialContentType.image);
         _pickedImagePath = null;
       }
@@ -134,6 +134,20 @@ class _MemorialEditPageState extends State<MemorialEditPage>
   /// [_source] 在 [type] 下的内容：类型对得上才是它的 content，否则为空。
   String _sourceContent(MemorialContentType type) =>
       type == _source.type ? _source.content : '';
+
+  /// 文字框的回填值：超出设备上限（15 个字、45 字节）的部分直接截掉。输入框的
+  /// `maxLength` 只挡手动输入，程序填进去的长内容（例如后端把图片地址当文字返回）
+  /// 会原样留着，保存时又被字数校验挡住，用户只能整段删掉重打。
+  String _sourceText() {
+    final runes = _sourceContent(
+      MemorialContentType.text,
+    ).runes.take(TuyaMemorialCodec.maxTextCharacters).toList();
+    while (utf8.encode(String.fromCharCodes(runes)).length >
+        TuyaMemorialCodec.maxTextBytes) {
+      runes.removeLast();
+    }
+    return String.fromCharCodes(runes);
+  }
 
   @override
   void dispose() {
@@ -151,7 +165,7 @@ class _MemorialEditPageState extends State<MemorialEditPage>
     setState(() {
       _entry = _entry.copyWith(type: type);
       _textController.text = type == MemorialContentType.text
-          ? _sourceContent(type)
+          ? _sourceText()
           : '';
       _imageContent = type == MemorialContentType.image
           ? _sourceContent(type)

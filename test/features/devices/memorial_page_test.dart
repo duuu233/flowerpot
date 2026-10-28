@@ -563,6 +563,46 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('详情文字超过 15 字时回填直接截断，停用后可以直接保存', (tester) async {
+    const url = 'https://example.test/upload/anniversary-photo.jpg';
+    final server = _AnniversaryServer()
+      // 后端把图片地址按文字类型返回：原样填进文字框会被保存时的字数校验挡住。
+      ..rows[9] = _row(9, title: '纪念日', image: false, content: url);
+    await _pumpEditPage(
+      tester,
+      _entryFromRow(server.rows[9]!),
+      backend: server.repository(),
+      creating: false,
+    );
+    await tester.pumpAndSettle();
+    expect(_textFieldValue(tester), url.substring(0, 15));
+
+    await tester.tap(find.byKey(const Key('memorial-enable-switch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('memorial-save')));
+    await tester.pumpAndSettle();
+    final body = server.bodyOf('editUserProductAnniversary');
+    expect(body['contentType'], 0);
+    expect(body['content'], url.substring(0, 15));
+    expect(server.bodyOf('setUserProductAnniversaryVerify')['verify'], 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('详情文字按 45 字节截断，不切半个字符', (tester) async {
+    final server = _AnniversaryServer()
+      ..rows[9] = _row(9, title: '纪念日', image: false, content: '🎉' * 15);
+    await _pumpEditPage(
+      tester,
+      _entryFromRow(server.rows[9]!),
+      backend: server.repository(),
+      creating: false,
+    );
+    await tester.pumpAndSettle();
+    // 每个 emoji 4 字节：45 字节以内最多 11 个。
+    expect(_textFieldValue(tester), '🎉' * 11);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('新增纪念日同样二选一：没选图不保存，文字保存只带 contentType=0', (
     tester,
   ) async {
