@@ -13,6 +13,7 @@
   `WaterTrendLineChart`），周 / 月仍用 `LightDliBarChart`：日包 96 个点，柱状图画出来挤成一片。
 - **2026-10-28 起周 / 月显示日期**：日期条为首尾日期区间（`HistoryPeriod.windowDateLabel`），柱状图标签为
   `M/d`（`HistoryPeriod.dateBarLabels`，周每 7 根、月每 30 根、最后一根必标），最后一点按昨天逐天回推。
+  需水状态页（水位 / 土壤湿度）同日采用同一口径，折线刻度用 `HistoryPeriod.dateTicks`。
 
 ## Widget 拆分
 

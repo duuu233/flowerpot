@@ -173,22 +173,23 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
     ReportRange.month => '月',
   };
 
-  /// 周 / 月只说窗口，不写具体日期：点数是已聚合天数、右端是最近聚合日（见 [HistoryPeriod]）。
+  /// 周 / 月显示日期区间（2026-10-28 产品要求补日期，原来只写「近 N 天日均」）：右端最后一点
+  /// 按昨天、往左逐天回推，和横轴同一口径（见 [HistoryPeriod.windowDateLabel]）。水位、土壤湿度一样。
   String _dateLabel(int count) => switch (range) {
     ReportRange.day => _formatDay(HistoryPeriod.dayFor(periodOffset)),
-    _ => HistoryPeriod.windowLabel(range, count),
+    _ => HistoryPeriod.windowDateLabel(range, count),
   };
 
   String _formatDay(DateTime date) => '${date.month}月${date.day}日';
 
   /// 日视图按点的真实时刻标整点（今天那条只到现在，不能拉满 00:00–24:00）；
-  /// 周 / 月等距标相对天数。
+  /// 周 / 月等距标日期（`M/d`，2026-10-28 起，原来是「N天前」）。
   ({List<String> labels, List<double>? positions}) _chartTicks(
     HistoryChart chart,
   ) => switch (range) {
     ReportRange.day => HistoryPeriod.timeTicks(chart.minutes),
     _ => (
-      labels: HistoryPeriod.relativeTicks(chart.values.length),
+      labels: HistoryPeriod.dateTicks(chart.values.length),
       positions: null,
     ),
   };

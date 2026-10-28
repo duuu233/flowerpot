@@ -131,7 +131,7 @@ abstract final class HistoryPeriod {
           : '',
   ];
 
-  // ── 周 / 月：标具体日期（2026-10-28 产品要求，光照状态页先用）──
+  // ── 周 / 月：标具体日期（2026-10-28 产品要求：光照状态页、需水状态页（水位 / 土壤湿度））──
   //
   // 和上面的「N天前」同一个对齐口径：右端最后一个点 = 昨天，往左每个点早一天，
   // 第 i 个点（共 count 个）= 今天 − (count − i) 天。设备断过电会缺天，此时日期与
@@ -151,6 +151,20 @@ abstract final class HistoryPeriod {
           : '',
   ];
 
+  /// 折线图用的均匀日期刻度：取点规则同 [relativeTicks]，文字换成 `M/d`。
+  static List<String> dateTicks(int count, {int ticks = 5}) {
+    if (count <= 0) return const <String>[];
+    if (count <= ticks) {
+      return <String>[
+        for (var i = 0; i < count; i++) shortDate(barDate(i, count)),
+      ];
+    }
+    return <String>[
+      for (var tick = 0; tick < ticks; tick++)
+        shortDate(barDate(((count - 1) * tick / (ticks - 1)).round(), count)),
+    ];
+  }
+
   /// 日期条上的日期区间：最老一点 ~ 最新一点（`10月1日 - 10月27日`）；没有点时退回 [windowLabel]。
   static String windowDateLabel(ReportRange range, int count) {
     if (range == ReportRange.day || count <= 0) return windowLabel(range, count);
@@ -159,7 +173,7 @@ abstract final class HistoryPeriod {
     return '${first.month}月${first.day}日 - ${last.month}月${last.day}日';
   }
 
-  /// 日期条上的标题：周 / 月只说窗口，不写日期区间（光照状态页 2026-10-28 起改用 [windowDateLabel]）。
+  /// 日期条上的标题：周 / 月只说窗口，不写日期区间（光照、需水状态页 2026-10-28 起改用 [windowDateLabel]）。
   static String windowLabel(ReportRange range, int count) => switch (range) {
     ReportRange.day => '',
     ReportRange.week => count > 0 ? '近 $count 天日均' : '近 4 周',

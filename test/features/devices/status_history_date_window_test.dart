@@ -35,6 +35,19 @@ void main() {
       expect(labels[20], HistoryPeriod.shortDate(HistoryPeriod.dayFor(-8)));
     });
 
+    test('折线图日期刻度与相对刻度取同样的点', () {
+      final dates = HistoryPeriod.dateTicks(28);
+      expect(dates.length, HistoryPeriod.relativeTicks(28).length);
+      expect(dates.first, HistoryPeriod.shortDate(HistoryPeriod.dayFor(-28)));
+      expect(dates.last, HistoryPeriod.shortDate(HistoryPeriod.dayFor(-1)));
+      expect(HistoryPeriod.dateTicks(3), <String>[
+        HistoryPeriod.shortDate(HistoryPeriod.dayFor(-3)),
+        HistoryPeriod.shortDate(HistoryPeriod.dayFor(-2)),
+        HistoryPeriod.shortDate(HistoryPeriod.dayFor(-1)),
+      ]);
+      expect(HistoryPeriod.dateTicks(0), isEmpty);
+    });
+
     test('日期条写首尾日期，没有点时退回窗口文案', () {
       final first = HistoryPeriod.dayFor(-7);
       final last = HistoryPeriod.dayFor(-1);
