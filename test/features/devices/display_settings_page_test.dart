@@ -79,7 +79,8 @@ void main() {
       );
       slider().onChanged!(80);
       slider().onChanged!(60);
-      await tester.pump(const Duration(milliseconds: 119));
+      // 2026-10-28：拖动节流由 120ms 调为 300ms（修操作快了滑块来回晃），时点随之后移，判据不变。
+      await tester.pump(const Duration(milliseconds: 299));
       expect(result.repository.sentDps, isEmpty);
       await tester.pump(const Duration(milliseconds: 1));
       await tester.pump();
@@ -88,7 +89,7 @@ void main() {
       ]);
       expect(slider().onChanged, isNotNull);
       slider().onChanged!(30);
-      await tester.pump(const Duration(milliseconds: 120));
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.pump();
       slider().onChanged!(0);
       slider().onChangeEnd!(0);
@@ -119,7 +120,7 @@ void main() {
         find.byKey(const Key('manual-brightness-slider')),
       );
       slider().onChanged!(70);
-      await tester.pump(const Duration(milliseconds: 120));
+      await tester.pump(const Duration(milliseconds: 300));
       slider().onChanged!(40);
       slider().onChanged!(0);
       slider().onChangeEnd!(0);
@@ -156,7 +157,7 @@ void main() {
     slider().onChanged!(60);
     await tester.pump();
     expect(autoSwitch().onChanged, isNotNull);
-    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 300));
     expect(autoSwitch().onChanged, isNotNull);
     slider().onChangeEnd!(60);
     await tester.pump();
@@ -177,7 +178,7 @@ void main() {
       find.byKey(const Key('manual-brightness-slider')),
     );
     slider().onChanged!(70);
-    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
     slider().onChanged!(40);
     slider().onChangeEnd!(40);
@@ -196,6 +197,74 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(slider().value, 25);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  // 2026-10-28：下发成功后状态层先把下发值写进快照（乐观值），设备对前面中间值的真实上报还在路上。
+  // 旧逻辑看到「快照 == 最终值」500ms 就放手，随后迟到的 70 把滑块拉回去——用户看到的来回晃。
+  testWidgets('optimistic final value waits for every pending device echo', (
+    tester,
+  ) async {
+    final result = await _pumpManualDisplay(tester);
+    result.repository.sentDps.clear();
+    Slider slider() => tester.widget<Slider>(
+      find.byKey(const Key('manual-brightness-slider')),
+    );
+    slider().onChanged!(70);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+    slider().onChanged!(40);
+    slider().onChangeEnd!(40);
+    await tester.pump();
+    await tester.pump();
+    expect(result.repository.sentDps, <Map<int, Object>>[
+      {168: 70},
+      {168: 40},
+    ]);
+    expect(result.state.deviceById('device-01')!.settings.manualBrightness, 40);
+    await tester.pump(const Duration(milliseconds: 800));
+    expect(slider().value, 40);
+    _reportBrightness(result.repository, 70);
+    await tester.pump();
+    await tester.pump();
+    expect(slider().value, 40);
+    expect(find.text('40%'), findsOneWidget);
+    _reportBrightness(result.repository, 40);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(slider().value, 40);
+    _reportBrightness(result.repository, 25);
+    await tester.pump();
+    await tester.pump();
+    expect(slider().value, 25, reason: '确认完成后仍以设备状态为准');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('dragging back to the last sent value does not resend it', (
+    tester,
+  ) async {
+    final result = await _pumpManualDisplay(tester);
+    result.repository.sentDps.clear();
+    Slider slider() => tester.widget<Slider>(
+      find.byKey(const Key('manual-brightness-slider')),
+    );
+    slider().onChanged!(50);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump();
+    slider().onChanged!(60);
+    slider().onChanged!(50);
+    slider().onChangeEnd!(50);
+    await tester.pump();
+    await tester.pump();
+    expect(result.repository.sentDps, <Map<int, Object>>[
+      {168: 50},
+    ]);
+    _reportBrightness(result.repository, 50);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(slider().value, 50);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -235,7 +304,7 @@ void main() {
         find.byKey(const Key('manual-brightness-slider')),
       );
       slider().onChanged!(70);
-      await tester.pump(const Duration(milliseconds: 120));
+      await tester.pump(const Duration(milliseconds: 300));
       slider().onChanged!(0);
       await tester.pump();
       await tester.tap(find.byKey(const Key('auto-brightness-switch')));
@@ -292,7 +361,7 @@ void main() {
         Offset(rect.right - 24, rect.center.dy),
       );
       await gesture.moveTo(Offset(rect.center.dx, rect.center.dy));
-      await tester.pump(const Duration(milliseconds: 120));
+      await tester.pump(const Duration(milliseconds: 300));
       Slider slider() => tester.widget<Slider>(sliderFinder);
       final selected = slider().value;
       expect(selected, inInclusiveRange(40, 60));
@@ -353,7 +422,7 @@ void main() {
         find.byKey(const Key('manual-brightness-slider')),
       );
       slider().onChanged!(70);
-      await tester.pump(const Duration(milliseconds: 120));
+      await tester.pump(const Duration(milliseconds: 300));
       slider().onChanged!(0);
       slider().onChangeEnd!(0);
       result.repository.pushDeviceUpdate(

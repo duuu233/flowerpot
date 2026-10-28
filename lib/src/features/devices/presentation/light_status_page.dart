@@ -191,21 +191,22 @@ class _LightStatusPageState extends State<LightStatusPage> {
     ReportRange.month => '月',
   };
 
-  /// 周 / 月只说窗口，不写具体日期：点数是已聚合天数、右端是最近聚合日（见 [HistoryPeriod]）。
+  /// 周 / 月显示日期区间（2026-10-28 产品要求补日期，原来只写「近 N 天日均」）：右端最后一点
+  /// 按昨天、往左逐天回推，和柱状图横轴同一口径（见 [HistoryPeriod.windowDateLabel]）。
   String _dateLabel(int count) => switch (range) {
     ReportRange.day => _formatDay(HistoryPeriod.dayFor(periodOffset)),
-    _ => HistoryPeriod.windowLabel(range, count),
+    _ => HistoryPeriod.windowDateLabel(range, count),
   };
 
   String _formatDay(DateTime date) => '${date.month}月${date.day}日';
 
   /// 柱状图的标签是**一根柱子一个**（[LightDliBarChart] 按下标取），所以要按点数
   /// 生成。日视图已经改画折线、按时刻标（[HistoryPeriod.timeTicks]），这里只剩周和
-  /// 月：只标相对天数。
+  /// 月：2026-10-28 起标具体日期（`M/d`，原来是「N天前」），位置不变。
   List<String> _chartLabels(int count) => switch (range) {
     ReportRange.day => const <String>[],
-    ReportRange.week => HistoryPeriod.relativeBarLabels(count),
-    ReportRange.month => HistoryPeriod.relativeBarLabels(count, every: 30),
+    ReportRange.week => HistoryPeriod.dateBarLabels(count),
+    ReportRange.month => HistoryPeriod.dateBarLabels(count, every: 30),
   };
 
   /// 纵轴上限：比峰值大的第一个「整」刻度（1/2/5×10ⁿ 一格，共五格）。

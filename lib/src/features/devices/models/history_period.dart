@@ -131,7 +131,35 @@ abstract final class HistoryPeriod {
           : '',
   ];
 
-  /// 日期条上的标题：周 / 月只说窗口，不写日期区间。
+  // ── 周 / 月：标具体日期（2026-10-28 产品要求，光照状态页先用）──
+  //
+  // 和上面的「N天前」同一个对齐口径：右端最后一个点 = 昨天，往左每个点早一天，
+  // 第 i 个点（共 count 个）= 今天 − (count − i) 天。设备断过电会缺天，此时日期与
+  // 「N天前」一样只是按点数回推，不代表那天一定有采样。
+
+  /// 第 [index] 个点（共 [count] 个）对应的日期，只到日。
+  static DateTime barDate(int index, int count) => dayFor(index - count);
+
+  /// `M/d`，柱状图横轴用。
+  static String shortDate(DateTime date) => '${date.month}/${date.day}';
+
+  /// 柱状图逐柱日期标签：和 [relativeBarLabels] 标在同样的位置（每隔 [every] 根、最后一根一定标）。
+  static List<String> dateBarLabels(int count, {int every = 7}) => <String>[
+    for (var i = 0; i < count; i++)
+      i == count - 1 || (count - 1 - i) % every == 0
+          ? shortDate(barDate(i, count))
+          : '',
+  ];
+
+  /// 日期条上的日期区间：最老一点 ~ 最新一点（`10月1日 - 10月27日`）；没有点时退回 [windowLabel]。
+  static String windowDateLabel(ReportRange range, int count) {
+    if (range == ReportRange.day || count <= 0) return windowLabel(range, count);
+    final first = barDate(0, count);
+    final last = barDate(count - 1, count);
+    return '${first.month}月${first.day}日 - ${last.month}月${last.day}日';
+  }
+
+  /// 日期条上的标题：周 / 月只说窗口，不写日期区间（光照状态页 2026-10-28 起改用 [windowDateLabel]）。
   static String windowLabel(ReportRange range, int count) => switch (range) {
     ReportRange.day => '',
     ReportRange.week => count > 0 ? '近 $count 天日均' : '近 4 周',

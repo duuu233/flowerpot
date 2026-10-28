@@ -16,6 +16,37 @@ import 'package:flutter_test/flutter_test.dart';
 /// `onPrevious` 都是裸的 `periodOffset--`，一直点能翻到去年，而设备根本没有那些天
 /// 的数据。往后翻本来就有界，坏的一直只有往前这一侧。
 void main() {
+  // 2026-10-28 产品：光照状态页周 / 月补日期。口径同「N天前」：最后一点 = 昨天，往左逐天回推。
+  group('HistoryPeriod 周 / 月日期', () {
+    test('最后一点是昨天，第一点是今天往前 count 天', () {
+      expect(HistoryPeriod.barDate(6, 7), HistoryPeriod.dayFor(-1));
+      expect(HistoryPeriod.barDate(0, 7), HistoryPeriod.dayFor(-7));
+      expect(HistoryPeriod.barDate(0, 1), HistoryPeriod.dayFor(-1));
+    });
+
+    test('柱状图日期标在原来「N天前」的位置', () {
+      final labels = HistoryPeriod.dateBarLabels(28);
+      final relative = HistoryPeriod.relativeBarLabels(28);
+      expect(labels.length, 28);
+      for (var i = 0; i < 28; i++) {
+        expect(labels[i].isEmpty, relative[i].isEmpty, reason: '第 $i 根');
+      }
+      expect(labels.last, HistoryPeriod.shortDate(HistoryPeriod.dayFor(-1)));
+      expect(labels[20], HistoryPeriod.shortDate(HistoryPeriod.dayFor(-8)));
+    });
+
+    test('日期条写首尾日期，没有点时退回窗口文案', () {
+      final first = HistoryPeriod.dayFor(-7);
+      final last = HistoryPeriod.dayFor(-1);
+      expect(
+        HistoryPeriod.windowDateLabel(ReportRange.week, 7),
+        '${first.month}月${first.day}日 - ${last.month}月${last.day}日',
+      );
+      expect(HistoryPeriod.windowDateLabel(ReportRange.week, 0), '近 4 周');
+      expect(HistoryPeriod.windowDateLabel(ReportRange.month, 0), '近半年');
+    });
+  });
+
   group('HistoryPeriod 窗口规则', () {
     test('日视图就是设备日包那 7 天：当天 + 往前 6 天', () {
       expect(HistoryPeriod.maxBack(ReportRange.day), 6);

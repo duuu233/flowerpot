@@ -342,6 +342,11 @@ class FlowerpotState extends ChangeNotifier {
     return null;
   }
 
+  /// 这台设备某个 DP 累计收到的上报次数（设备报了就算一次，值没变也算，见 [_applyDeviceUpdate]）。
+  /// 显示页拿它核对「本次下发的亮度，设备是不是都报回来了」：下发成功后状态层会先把下发值写进快照，
+  /// 只看快照值分不清是设备真报了还是本地乐观值。
+  int dpReportRevision(String id, int dp) => _dpReportRevisions[id]?[dp] ?? 0;
+
   Future<void> initialize() async {
     if (_initialized) return;
     try {
