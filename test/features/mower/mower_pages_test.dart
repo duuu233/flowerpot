@@ -1284,6 +1284,136 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  group('首页计划卡：今日计划 / 手动计划（DP121 计划类型，2026-10-30）', () {
+    // 2026-10-11 是周日，_week() 里周日两个时段 08:00-09:00、14:00-15:00，带修边。
+    int seconds(DateTime time) => time.millisecondsSinceEpoch ~/ 1000;
+    // 页面和设备读同一个时钟，倒计时与时段进度按它算。
+    Future<void> pumpAt(
+      WidgetTester tester,
+      DateTime Function() clock, {
+      String? currentPlan,
+    }) async {
+      await _pumpMowerHome(
+        tester,
+        <int, Object?>{
+          MowerDp.battery: 80,
+          MowerDp.mowSchedule: TuyaRaw.hex(
+            MowerScheduleCodec.encodeByDay(_week()),
+          ),
+          if (currentPlan != null) MowerDp.scheduleCurrent: currentPlan,
+        },
+        now: clock,
+        setup: (_) => MowerDevice.instance.clock = clock,
+      );
+      await tester.pump();
+    }
+
+    Finder inCard(Finder finder) => find.descendant(
+      of: find.byKey(const Key('mower-today-plan')),
+      matching: finder,
+    );
+
+    testWidgets('定时计划：今日计划 + 修边在标题后，两个时段同样式带进度，倒计时在卡片里', (tester) async {
+      final now = DateTime(2026, 10, 11, 8, 30);
+      await pumpAt(
+        tester,
+        () => now,
+        currentPlan:
+            '{"st":${seconds(DateTime(2026, 10, 11, 8))},"et":${seconds(DateTime(2026, 10, 11, 9))},"now":${seconds(now)},"t":1}',
+      );
+      expect(find.text('今日计划'), findsOneWidget);
+      expect(find.text('手动计划'), findsNothing);
+      expect(inCard(find.byKey(const Key('mower-today-edge'))), findsOneWidget);
+      expect(find.text('08:00 - 09:00'), findsOneWidget);
+      expect(find.text('14:00 - 15:00'), findsOneWidget);
+      expect(find.textContaining('下一任务'), findsNothing);
+      expect(find.text('进行中'), findsOneWidget);
+      expect(find.text('未开始'), findsOneWidget);
+      final first = tester.widget<Text>(find.text('08:00 - 09:00'));
+      final second = tester.widget<Text>(find.text('14:00 - 15:00'));
+      expect(first.style, second.style, reason: '两个时段同一样式');
+      expect(first.style?.fontSize, 12);
+      expect(inCard(find.text('30分')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(MowerStatusCard),
+          matching: find.byKey(const Key('mower-work-countdown')),
+        ),
+        findsNothing,
+        reason: '状态后面不再显示倒计时',
+      );
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('手动计划：标题改手动计划，起止取DP121，不显示修边，倒计时在原修边位置', (tester) async {
+      final now = DateTime(2026, 10, 11, 9, 30);
+      await pumpAt(
+        tester,
+        () => now,
+        currentPlan:
+            '{"st":${seconds(DateTime(2026, 10, 11, 9))},"et":${seconds(DateTime(2026, 10, 11, 11))},"now":${seconds(now)},"t":2}',
+      );
+      expect(find.text('手动计划'), findsOneWidget);
+      expect(find.text('今日计划'), findsNothing);
+      expect(find.text('2026.10.11 · 周日'), findsOneWidget);
+      expect(find.text('09:00 - 11:00'), findsOneWidget);
+      expect(find.byKey(const Key('mower-today-edge')), findsNothing);
+      expect(find.text('08:00 - 09:00'), findsNothing);
+      expect(inCard(find.text('1小时30分')), findsOneWidget);
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('倒计时为0不看DP121类型，直接今日计划；时段进度按手机时间', (tester) async {
+      final now = DateTime(2026, 10, 11, 15, 30);
+      await pumpAt(
+        tester,
+        () => now,
+        currentPlan:
+            '{"st":${seconds(DateTime(2026, 10, 11, 13))},"et":${seconds(DateTime(2026, 10, 11, 15))},"now":${seconds(now)},"t":2}',
+      );
+      expect(find.text('今日计划'), findsOneWidget);
+      expect(find.text('手动计划'), findsNothing);
+      expect(find.text('已结束'), findsNWidgets(2));
+      expect(find.byKey(const Key('mower-work-countdown')), findsNothing);
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('旧固件没有t：按今日计划显示，倒计时照常', (tester) async {
+      final now = DateTime(2026, 10, 11, 7, 30);
+      await pumpAt(
+        tester,
+        () => now,
+        currentPlan:
+            '{"st":${seconds(DateTime(2026, 10, 11, 7))},"et":${seconds(DateTime(2026, 10, 11, 9))},"now":${seconds(now)}}',
+      );
+      expect(find.text('今日计划'), findsOneWidget);
+      expect(find.text('未开始'), findsNWidgets(2));
+      expect(inCard(find.text('1小时30分')), findsOneWidget);
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('手动计划倒计时到0：卡片自己切回今日计划', (tester) async {
+      var now = DateTime(2026, 10, 11, 10, 58);
+      await pumpAt(
+        tester,
+        () => now,
+        currentPlan:
+            '{"st":${seconds(DateTime(2026, 10, 11, 9))},"et":${seconds(DateTime(2026, 10, 11, 11))},"now":${seconds(now)},"t":2}',
+      );
+      expect(find.text('手动计划'), findsOneWidget);
+      now = DateTime(2026, 10, 11, 11, 0, 1);
+      await tester.pump(const Duration(minutes: 3));
+      expect(find.text('今日计划'), findsOneWidget);
+      expect(find.text('手动计划'), findsNothing);
+      MowerDevice.instance.resetForTest();
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   testWidgets('设备没报过割草计划：首页「暂无割草计划」、计划页不画任何色块、编辑框不预填', (tester) async {
     await _pumpMowerHome(tester, <int, Object?>{MowerDp.battery: 50});
 

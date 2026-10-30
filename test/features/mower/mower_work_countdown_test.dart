@@ -6,6 +6,7 @@ import 'package:flowerpot/src/features/mower/mower_dp.dart';
 import 'package:flowerpot/src/features/mower/mower_ui.dart';
 import 'package:flowerpot/src/features/mower/mower_work_countdown.dart';
 import 'package:flowerpot/src/features/mower/presentation/widgets/mower_status_card.dart';
+import 'package:flowerpot/src/features/mower/presentation/widgets/mower_work_countdown_view.dart';
 import 'package:flowerpot/src/state.dart';
 import 'package:flowerpot/src/tuya/tuya_models.dart';
 import 'package:flutter/material.dart';
@@ -15,7 +16,7 @@ import '../../support/mock_tuya_repository.dart';
 import '../../support/plant_catalog.dart';
 
 /// 工作时间倒计时（2026-10-26 起以设备 DP121 schedule_current 为准）：终点 = 收到新帧的本机时刻 +
-/// `et − now`，状态胶囊里「图标 + 剩余时间」按分钟递减，到 0 停在「0分」；新帧重设基准，同一帧不动；
+/// `et − now`，「图标 + 剩余时间」按分钟递减（2026-10-30 起在首页计划卡里，不在状态胶囊），到 0 停在「0分」；新帧重设基准，同一帧不动；
 /// 无计划或剩余为 0 隐藏，与 DP5 状态、关机、在线无关（2026-10-26 产品）；DP119 下发成功后先转圈等 DP121。
 void main() {
   setUp(MowerDevice.instance.resetForTest);
@@ -52,18 +53,16 @@ void main() {
     expect(MowerWorkCountdown.untilNextTick(end, end), isNull);
   });
 
-  testWidgets('状态胶囊跟在工作状态后面按分钟递减，减到0整块收起', (tester) async {
+  testWidgets('倒计时按分钟递减，减到0整块收起', (tester) async {
     var now = DateTime(2026, 10, 22, 10);
     final end = now.add(const Duration(hours: 2));
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: Center(
-            child: MowerStatusCard(
-              tone: MowerPowerState.idle,
-              percent: 80,
-              statusLabel: '回桩',
-              workEndsAt: end,
+            child: MowerWorkCountdownView(
+              endsAt: end,
+              loading: false,
               now: () => now,
             ),
           ),
@@ -71,7 +70,6 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('回桩'), findsOneWidget);
     expect(find.byIcon(Icons.timer_outlined), findsOneWidget);
     expect(find.text('2小时0分'), findsOneWidget);
 
@@ -87,39 +85,35 @@ void main() {
     await tester.pump(const Duration(minutes: 1));
     expect(find.text('0分'), findsNothing);
     expect(find.byKey(const Key('mower-work-countdown')), findsNothing);
-    expect(find.text('回桩'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('等DP121时显示图标+转圈，优先于时间；收到后换成剩余时间', (tester) async {
     final now = DateTime(2026, 10, 26, 10);
-    Widget card({required bool loading, DateTime? endsAt}) => MaterialApp(
+    Widget view({required bool loading, DateTime? endsAt}) => MaterialApp(
       home: Scaffold(
         body: Center(
-          child: MowerStatusCard(
-            tone: MowerPowerState.idle,
-            percent: 80,
-            statusLabel: '待机',
-            workEndsAt: endsAt,
-            workLoading: loading,
+          child: MowerWorkCountdownView(
+            endsAt: endsAt,
+            loading: loading,
             now: () => now,
           ),
         ),
       ),
     );
-    await tester.pumpWidget(card(loading: true));
+    await tester.pumpWidget(view(loading: true));
     expect(find.byIcon(Icons.timer_outlined), findsOneWidget);
     expect(find.byKey(const Key('mower-work-countdown-loading')), findsOneWidget);
     expect(find.byKey(const Key('mower-work-countdown-text')), findsNothing);
 
     await tester.pumpWidget(
-      card(loading: false, endsAt: now.add(const Duration(minutes: 90))),
+      view(loading: false, endsAt: now.add(const Duration(minutes: 90))),
     );
     expect(find.byKey(const Key('mower-work-countdown-loading')), findsNothing);
     expect(find.text('1小时30分'), findsOneWidget);
   });
 
-  testWidgets('没设置过工作时间：胶囊里不显示倒计时', (tester) async {
+  testWidgets('状态胶囊后面不再显示倒计时（2026-10-30）', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
@@ -131,10 +125,44 @@ void main() {
         ),
       ),
     );
+    expect(find.text('待机'), findsOneWidget);
     expect(find.byKey(const Key('mower-work-countdown')), findsNothing);
+    expect(find.byIcon(Icons.timer_outlined), findsNothing);
   });
 
-  test('DP121 解析：u32 三字段齐全才认，剩余 max(0, et−now)，计划身份只看 st/et', () {
+  test('计划卡：倒计时为0直接今日计划，不看类型；大于0时只有手动(t=2)显示手动计划', () {
+    final now = DateTime(2026, 10, 30, 9);
+    final later = now.add(const Duration(minutes: 30));
+    MowerCurrentPlan plan(int t) => MowerCurrentPlan.parse(
+      '{"st":100,"et":2000,"now":200,"t":$t}',
+    )!;
+    expect(
+      MowerWorkCountdown.showsManualPlan(plan: plan(2), endsAt: later, now: now),
+      isTrue,
+    );
+    expect(
+      MowerWorkCountdown.showsManualPlan(plan: plan(1), endsAt: later, now: now),
+      isFalse,
+    );
+    expect(
+      MowerWorkCountdown.showsManualPlan(plan: plan(0), endsAt: later, now: now),
+      isFalse,
+      reason: 't=0 理论上到不了，兜底今日计划',
+    );
+    for (final endsAt in <DateTime?>[null, now, now.subtract(const Duration(minutes: 1))]) {
+      expect(
+        MowerWorkCountdown.showsManualPlan(plan: plan(2), endsAt: endsAt, now: now),
+        isFalse,
+        reason: '倒计时为 0 不再看 DP121 类型：$endsAt',
+      );
+    }
+    expect(
+      MowerWorkCountdown.showsManualPlan(plan: null, endsAt: later, now: now),
+      isFalse,
+    );
+  });
+
+  test('DP121 解析：u32 三字段齐全才认，剩余 max(0, et−now)，计划身份看 st/et/t', () {
     final plan = MowerCurrentPlan.parse(
       '{"st":1761451200,"et":1761465600,"now":1761454500}',
     )!;
@@ -174,6 +202,30 @@ void main() {
     )!;
     expect(next.samePlan(plan), isTrue, reason: 'now 变了不算计划变');
     expect(next.sameFrame(plan), isFalse);
+
+    // V3.1 计划类型 t：缺字段（旧固件）或认不出按 0，不能整帧作废。
+    expect(plan.type, MowerPlanType.none);
+    for (final (raw, type) in <(String, MowerPlanType)>[
+      ('{"st":1,"et":100,"now":50,"t":1}', MowerPlanType.scheduled),
+      ('{"st":1,"et":100,"now":50,"t":2}', MowerPlanType.manual),
+      ('{"st":0,"et":0,"now":50,"t":0}', MowerPlanType.none),
+      ('{"st":1,"et":100,"now":50,"t":"2"}', MowerPlanType.none),
+      ('{"st":1,"et":100,"now":50,"t":9}', MowerPlanType.none),
+    ]) {
+      expect(MowerCurrentPlan.parse(raw)?.type, type, reason: raw);
+    }
+    final scheduled = MowerCurrentPlan.parse(
+      '{"st":1761451200,"et":1761465600,"now":1761454500,"t":1}',
+    )!;
+    final manual = MowerCurrentPlan.parse(
+      '{"st":1761451200,"et":1761465600,"now":1761454500,"t":2}',
+    )!;
+    expect(
+      manual.samePlan(scheduled),
+      isFalse,
+      reason: '同一时段只有 t 变了也算计划变（撞车用例）',
+    );
+    expect(manual.sameFrame(scheduled), isFalse);
   });
 
   testWidgets('DP121：按收到时刻+et−now计时，新帧重设基准，同一帧快照不动，无计划收起', (
@@ -210,6 +262,13 @@ void main() {
     _report(repository, '{"st":3400,"et":7000,"now":3400}');
     await tester.pump();
     await tester.pump();
+    expect(device.workEndsAt, DateTime(2026, 10, 26, 10, 20));
+
+    // 同一时段只有类型变了（定时 → 手动）：也是新计划，类型跟着换。
+    _report(repository, '{"st":3400,"et":7000,"now":3400,"t":2}');
+    await tester.pump();
+    await tester.pump();
+    expect(device.currentPlan?.type, MowerPlanType.manual);
     expect(device.workEndsAt, DateTime(2026, 10, 26, 10, 20));
 
     // 认不出的帧丢掉，保留上一帧。

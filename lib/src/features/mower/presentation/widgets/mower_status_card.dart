@@ -1,10 +1,8 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../../mower_ui.dart';
-import '../../mower_work_countdown.dart';
 
 /// 首页那圈电量环 + 整机图 + 环下面那行电量 + 状态胶囊。
 ///
@@ -21,19 +19,7 @@ class MowerStatusCard extends StatelessWidget {
     this.chargingLabel,
     this.wifiLinked = false,
     this.bleLinked = false,
-    this.workEndsAt,
-    this.workLoading = false,
-    this.now = DateTime.now,
   });
-
-  /// 工作时间倒计时终点（按设备 DP121 当前计划算，见 [MowerWorkCountdown]）；null 时胶囊里不显示倒计时。
-  final DateTime? workEndsAt;
-
-  /// DP119 刚下发、等设备 DP121 计划：显示倒计时图标，时间处转圈（优先于 [workEndsAt]）。
-  final bool workLoading;
-
-  /// 倒计时读的时钟，用例里换成假时间。
-  final DateTime Function() now;
 
   /// Wi-Fi / 蓝牙图标亮不亮：各自读涂鸦的分通道状态（2026-09-23），同时连着就都亮。
   final bool wifiLinked;
@@ -116,9 +102,6 @@ class MowerStatusCard extends StatelessWidget {
               label: statusLabel,
               wifiLinked: wifiLinked,
               bleLinked: bleLinked,
-              workEndsAt: workEndsAt,
-              workLoading: workLoading,
-              now: now,
             ),
           ),
         ],
@@ -309,23 +292,17 @@ class _BoltPainter extends CustomPainter {
 /// 状态胶囊 + 两颗连接图标。稿子上它们压在环的下沿上。
 ///
 /// 胶囊里的字是 **DP5 工作状态**（待机 / 随机割草 / 暂停 / 回桩…），不是写死的「待机」。
-/// 有倒计时时，状态后面紧跟「图标 + 剩余时间」（2026-10-22 定稿备选 B），等 DP121 时图标 + 转圈。
+/// 工作时间倒计时 2026-10-30 起移到首页计划卡（产品：去掉状态后的倒计时），胶囊里只有状态。
 class _StatusChips extends StatelessWidget {
   const _StatusChips({
     required this.label,
     required this.wifiLinked,
     required this.bleLinked,
-    required this.workEndsAt,
-    required this.workLoading,
-    required this.now,
   });
 
   final String label;
   final bool wifiLinked;
   final bool bleLinked;
-  final DateTime? workEndsAt;
-  final bool workLoading;
-  final DateTime Function() now;
 
   /// 未连接时按原来的 30% 透明度淡显，连接后显示原图。
   static Widget _linkIcon(String asset, {required bool on, required Key key}) =>
@@ -371,12 +348,6 @@ class _StatusChips extends StatelessWidget {
                 key: const Key('mower-status-chip'),
                 style: _chipTextStyle,
               ),
-              if (workLoading || workEndsAt != null)
-                _WorkCountdown(
-                  endsAt: workEndsAt,
-                  loading: workLoading,
-                  now: now,
-                ),
             ],
           ),
         ),
@@ -402,100 +373,6 @@ const TextStyle _chipTextStyle = TextStyle(
   fontSize: 12,
   fontWeight: FontWeight.w500,
 );
-
-/// 状态胶囊里的工作时间倒计时：「⏱ 1小时59分」，按分钟递减，减到 0 整块收起（2026-10-26 产品）。
-///
-/// 只按终点和当前时间算，不判断设备状态。[loading] 时显示图标 + 转圈，等 DP121 计划。
-/// 每次只排一个计时器，到下一次显示值变化的那一刻再刷新。
-class _WorkCountdown extends StatefulWidget {
-  const _WorkCountdown({
-    required this.endsAt,
-    required this.loading,
-    required this.now,
-  });
-
-  final DateTime? endsAt;
-  final bool loading;
-  final DateTime Function() now;
-
-  @override
-  State<_WorkCountdown> createState() => _WorkCountdownState();
-}
-
-class _WorkCountdownState extends State<_WorkCountdown> {
-  Timer? _tick;
-
-  @override
-  void initState() {
-    super.initState();
-    _schedule();
-  }
-
-  @override
-  void didUpdateWidget(_WorkCountdown oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.endsAt != widget.endsAt ||
-        oldWidget.loading != widget.loading) {
-      _schedule();
-    }
-  }
-
-  void _schedule() {
-    _tick?.cancel();
-    final endsAt = widget.endsAt;
-    final wait = widget.loading || endsAt == null
-        ? null
-        : MowerWorkCountdown.untilNextTick(endsAt, widget.now());
-    _tick = wait == null
-        ? null
-        : Timer(wait, () {
-            if (!mounted) return;
-            setState(_schedule);
-          });
-  }
-
-  @override
-  void dispose() {
-    _tick?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final endsAt = widget.endsAt;
-    final Widget value;
-    if (widget.loading) {
-      value = const SizedBox.square(
-        key: Key('mower-work-countdown-loading'),
-        dimension: 10,
-        child: CircularProgressIndicator(
-          strokeWidth: 1.5,
-          color: MowerColors.brand,
-        ),
-      );
-    } else {
-      final minutes = endsAt == null
-          ? 0
-          : MowerWorkCountdown.remainingMinutes(endsAt, widget.now());
-      if (minutes == 0) return const SizedBox.shrink();
-      value = Text(
-        MowerWorkCountdown.label(minutes),
-        key: const Key('mower-work-countdown-text'),
-        style: _chipTextStyle,
-      );
-    }
-    return Row(
-      key: const Key('mower-work-countdown'),
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        const SizedBox(width: 8),
-        const Icon(Icons.timer_outlined, size: 13, color: MowerColors.brand),
-        const SizedBox(width: 2),
-        value,
-      ],
-    );
-  }
-}
 
 /// 电量环：底下留一道缺口的仪表盘，从左下角（135°）顺时针走 270°。
 ///

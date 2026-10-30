@@ -1,6 +1,6 @@
 import 'mower_current_plan.dart';
 
-/// 工作时间倒计时（2026-10-26 起以设备 DP121 为准，V3.0 §3.8）。
+/// 工作时间倒计时（2026-10-26 起以设备 DP121 为准，V3.0 §3.8；2026-10-30 起显示在首页计划卡，不在状态胶囊）。
 ///
 /// 终点 = 收到 DP121 新帧时的本机时刻 + 该帧 `et − now`，之后按本机时钟逐分钟递减；收到新帧才
 /// 重设基准（机器校时、计划变化、60s 兜底都会重发）。用的是设备给的相对差值，手机时钟快慢、
@@ -31,6 +31,21 @@ class MowerWorkCountdown {
     final minutes = remainingMinutes(endsAt, now);
     if (minutes == 0) return null;
     return endsAt.difference(now) - Duration(minutes: minutes - 1);
+  }
+
+  /// 首页计划卡显示「手动计划」还是「今日计划」（2026-10-30 产品，协议 §3.8 推荐写法）：
+  /// 先看倒计时，为 0（含无计划、没报过 DP121）直接今日计划，不再看 DP121 类型；
+  /// 大于 0 才按 `t`，手动计划（2）显示手动计划，其余显示今日计划。
+  static bool showsManualPlan({
+    required MowerCurrentPlan? plan,
+    required DateTime? endsAt,
+    required DateTime now,
+  }) {
+    if (endsAt == null || remainingMinutes(endsAt, now) == 0) return false;
+    return switch (plan?.type) {
+      MowerPlanType.manual => true,
+      _ => false,
+    };
   }
 
   /// 「1小时59分」/ 不足 1 小时「45分」/ 到点「0分」。

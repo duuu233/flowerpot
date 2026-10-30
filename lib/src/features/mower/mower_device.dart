@@ -80,7 +80,7 @@ class MowerDevice extends ChangeNotifier {
   /// 设备无计划或没报过 DP121 为 null，首页不显示倒计时。
   DateTime? workEndsAt;
 
-  /// 这次 [_applyReported] 里 DP121 的计划身份（st, et）变了，等有 state 时记一行日志。
+  /// 这次 [_applyReported] 里 DP121 的计划身份（st, et, t）变了，等有 state 时记一行日志。
   bool _currentPlanChanged = false;
 
   /// 首页状态胶囊实际显示的倒计时终点：只看 DP121 算出的剩余（2026-10-26 产品），无计划或剩余为 0
@@ -640,8 +640,13 @@ class MowerDevice extends ChangeNotifier {
     String at(int seconds) => _clockText(
       DateTime.fromMillisecondsSinceEpoch(seconds * 1000),
     );
+    final type = switch (plan.type) {
+      MowerPlanType.scheduled => '定时计划',
+      MowerPlanType.manual => '手动计划',
+      MowerPlanType.none => '类型未知',
+    };
     state.logMowerInteraction(
-      '倒计时 · 割草机 DP121 $id 计划 ${at(plan.startSeconds)}–${at(plan.endSeconds)}，'
+      '倒计时 · 割草机 DP121 $id $type ${at(plan.startSeconds)}–${at(plan.endSeconds)}，'
       '剩余 ${MowerWorkCountdown.label(MowerWorkCountdown.remainingMinutes(endsAt, clock()))}，'
       '本机计到 ${_clockText(endsAt)}',
     );

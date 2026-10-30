@@ -10,8 +10,11 @@ import '../mower_ui.dart';
 import '../mower_device.dart';
 import '../mower_dp.dart';
 import '../mower_command_result.dart';
+import '../mower_current_plan.dart';
+import '../mower_work_countdown.dart';
 import 'widgets/mower_card.dart';
 import 'widgets/mower_status_card.dart';
+import 'widgets/mower_work_countdown_view.dart';
 import 'widgets/mower_start_dialog.dart';
 
 /// 割草机首页（`docs/UI/v2/割草机/割草机-控制.png` 及其三张状态图）。
@@ -21,9 +24,9 @@ import 'widgets/mower_start_dialog.dart';
 /// | 元素 | DP |
 /// | --- | --- |
 /// | 电量环 | DP13 battery_percentage（充电态看 DP117） |
-/// | 状态胶囊 | DP5 status；后面跟工作时间倒计时：DP119 下发后先转圈等 DP121，之后按 DP121 剩余显示，剩余为 0 或无计划隐藏（[MowerDevice.visibleWorkEndsAt]） |
+/// | 状态胶囊 | DP5 status（2026-10-30 起后面不再跟倒计时） |
 /// | 黄色提醒 | DP18 fault（位图 → 文案，见 [MowerFault.messages]）；没有故障时显示实时提醒：DP111 抬起位 / DP120 事件码 44·144 → 已抬起 / 已落地，DP5=12 → 正在脱困（[MowerDevice.liveNotice]） |
-/// | 今日计划 | DP101 mow_schedule 解析出来的今天那一组（**不存数据库**） |
+/// | 今日计划 / 手动计划 | 倒计时为 0 或 DP121 t≠2：今日计划，DP101 mow_schedule 解析出来的今天那一组（**不存数据库**）；倒计时 > 0 且 DP121 t=2：手动计划，起止取 DP121 st / et。右侧工作时间倒计时：DP119 下发后先转圈等 DP121，之后按 DP121 剩余显示，剩余为 0 或无计划隐藏（[MowerDevice.visibleWorkEndsAt]） |
 /// | 停止 / 继续 | DP2 switch_go |
 /// | 自动 / 定点 / 回归 | DP3 mode = smart / spot / goto_charge |
 /// | 自动/定点新任务的割草时间 | DP119 operating_time（整数小时）；继续不重写 |
@@ -440,7 +443,13 @@ class _MowerControlPageState extends State<MowerControlPage> {
                   _NoticeBar(fault: notice),
                   const SizedBox(height: 8),
                 ],
-                _TodayPlanCard(schedule: _device.schedule),
+                _PlanCard(
+                  schedule: _device.schedule,
+                  plan: _device.currentPlan,
+                  workEndsAt: _device.visibleWorkEndsAt,
+                  workLoading: _device.awaitingWorkPlan,
+                  now: widget.now,
+                ),
                 const SizedBox(height: 8),
                 _ActionPanel(
                   device: _device,
@@ -458,9 +467,6 @@ class _MowerControlPageState extends State<MowerControlPage> {
                   statusLabel: _device.shutdown ? '已关机' : _device.status.label,
                   wifiLinked: _device.wifiLinked,
                   bleLinked: _device.bleLinked,
-                  workEndsAt: _device.visibleWorkEndsAt,
-                  workLoading: _device.awaitingWorkPlan,
-                  now: widget.now,
                 ),
               );
               final fits =
@@ -564,11 +570,61 @@ class _NoticeBar extends StatelessWidget {
   }
 }
 
-/// 今日计划卡。**数据来自 DP101 解析**（2026-09-18 用户：割草计划不存数据库）。
-class _TodayPlanCard extends StatelessWidget {
-  const _TodayPlanCard({required this.schedule});
+/// 首页计划卡：今日计划 / 手动计划（2026-10-30 产品，DP121 计划类型 V3.1）。
+///
+/// 先看倒计时：为 0（含无计划、没报过 DP121、旧固件）直接今日计划，不看 DP121 类型；大于 0 才按 `t`，
+/// 手动计划（2）显示手动计划，其余显示今日计划（[MowerWorkCountdown.showsManualPlan]）。
+/// - 今日计划：时段**来自 DP101 解析**（2026-09-18 用户：割草计划不存数据库），两个时段同一样式，
+///   各带按手机时间算的「未开始 / 进行中 / 已结束」；修边跟在「今日计划」后面。
+/// - 手动计划：起止时间取 DP121 的 st / et，不显示修边。
+/// - 两种都在原来修边的位置显示工作时间倒计时（隐藏规则不变：只看 DP121 算出的剩余为 0）。
+/// 日期和星期都读手机。倒计时到 0、时段开始 / 结束、跨零点时卡片自己重画。
+class _PlanCard extends StatefulWidget {
+  const _PlanCard({
+    required this.schedule,
+    required this.plan,
+    required this.workEndsAt,
+    required this.workLoading,
+    required this.now,
+  });
 
   final List<MowerScheduleDay> schedule;
+
+  /// DP121 最后一帧（[MowerDevice.currentPlan]），只用它的类型和手动计划的起止。
+  final MowerCurrentPlan? plan;
+
+  /// 倒计时终点（[MowerDevice.visibleWorkEndsAt]），null 不显示倒计时。
+  final DateTime? workEndsAt;
+
+  /// DP119 刚下发、等 DP121：倒计时位置先转圈（[MowerDevice.awaitingWorkPlan]）。
+  final bool workLoading;
+
+  final DateTime Function() now;
+
+  @override
+  State<_PlanCard> createState() => _PlanCardState();
+}
+
+/// 今日计划里一个时段相对手机当前时间的进度。
+enum _SlotPhase {
+  notStarted('未开始', MowerColors.inkSecondary),
+  running('进行中', MowerColors.brand),
+  finished('已结束', MowerColors.inkTertiary);
+
+  const _SlotPhase(this.label, this.color);
+
+  final String label;
+  final Color color;
+
+  static _SlotPhase of(MowerScheduleSlot slot, int nowMinutes) {
+    if (nowMinutes < slot.startMinutes) return notStarted;
+    if (nowMinutes < slot.endMinutes) return running;
+    return finished;
+  }
+}
+
+class _PlanCardState extends State<_PlanCard> {
+  Timer? _refresh;
 
   static const List<String> _weekdayLabels = <String>[
     '周日',
@@ -580,13 +636,45 @@ class _TodayPlanCard extends StatelessWidget {
     '周六',
   ];
 
+  static const TextStyle _rowStyle = TextStyle(
+    color: MowerColors.brand,
+    fontSize: 12,
+    height: 1.5,
+  );
+
+  @override
+  void dispose() {
+    _refresh?.cancel();
+    super.dispose();
+  }
+
+  /// 下一次显示会变的时刻：倒计时到 0（切回今日计划）、今天某个时段开始 / 结束、零点换日期。
+  void _scheduleRefresh(DateTime now, List<MowerScheduleSlot> slots) {
+    _refresh?.cancel();
+    final midnight = DateTime(now.year, now.month, now.day);
+    final endsAt = widget.workEndsAt;
+    final moments = <DateTime>[
+      if (endsAt != null) endsAt,
+      for (final slot in slots) ...<DateTime>[
+        midnight.add(Duration(minutes: slot.startMinutes)),
+        midnight.add(Duration(minutes: slot.endMinutes)),
+      ],
+      DateTime(now.year, now.month, now.day + 1),
+    ].where((moment) => moment.isAfter(now));
+    if (moments.isEmpty) return;
+    final next = moments.reduce((a, b) => a.isBefore(b) ? a : b);
+    _refresh = Timer(next.difference(now), () {
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final now = widget.now();
     // DateTime.weekday 是 1=周一…7=周日，界面序是 0=周日…6=周六。
     final weekday = now.weekday % 7;
-    final day = weekday < schedule.length
-        ? schedule[weekday]
+    final day = weekday < widget.schedule.length
+        ? widget.schedule[weekday]
         : const MowerScheduleDay();
     // 只认设备会执行的时段（有效位 + 时长 > 10 分钟）。一个都没有（包括设备还没报过 DP101）
     // 就画缺省态，不编（2026-09-23 产品：「图标 + 暂无割草计划」，日期和星期保留）。
@@ -594,10 +682,70 @@ class _TodayPlanCard extends StatelessWidget {
       for (final slot in <MowerScheduleSlot?>[day.slotOne, day.slotTwo])
         if (slot != null && slot.validForDevice) slot,
     ];
-    final one = slots.isEmpty ? null : slots.first;
-    final two = slots.length > 1 ? slots[1] : null;
+    _scheduleRefresh(now, slots);
+    final manual = MowerWorkCountdown.showsManualPlan(
+      plan: widget.plan,
+      endsAt: widget.workEndsAt,
+      now: now,
+    );
     final dateText =
         '${now.year}.${_two(now.month)}.${_two(now.day)} · ${_weekdayLabels[weekday]}';
+    final countdown = MowerWorkCountdownView(
+      endsAt: widget.workEndsAt,
+      loading: widget.workLoading,
+      now: widget.now,
+    );
+    final nowMinutes = now.hour * 60 + now.minute;
+    final plan = widget.plan;
+    final List<Widget> rows;
+    if (manual && plan != null) {
+      rows = <Widget>[
+        _row(
+          Text(
+            _manualRange(plan),
+            key: const Key('mower-manual-range'),
+            style: _rowStyle,
+          ),
+          trailing: countdown,
+        ),
+      ];
+    } else if (slots.isEmpty) {
+      rows = <Widget>[
+        _row(
+          const Padding(
+            key: Key('mower-today-empty'),
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(
+                  Icons.event_busy_outlined,
+                  size: 20,
+                  color: MowerColors.inkTertiary,
+                ),
+                SizedBox(width: 6),
+                Text(
+                  '暂无割草计划',
+                  style: TextStyle(
+                    color: MowerColors.inkSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          trailing: countdown,
+        ),
+      ];
+    } else {
+      rows = <Widget>[
+        for (var index = 0; index < slots.length; index++)
+          _row(
+            _slotLine(slots[index], index, nowMinutes),
+            trailing: index == 0 ? countdown : null,
+          ),
+      ];
+    }
     return MowerCard(
       key: const Key('mower-today-plan'),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
@@ -605,17 +753,36 @@ class _TodayPlanCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
-              const Text(
-                '今日计划',
-                style: TextStyle(
+              Text(
+                manual ? '手动计划' : '今日计划',
+                key: const Key('mower-plan-title'),
+                style: const TextStyle(
                   color: MowerColors.ink,
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                   height: 1.54,
                 ),
               ),
+              // 修边跟在「今日计划」后面；手动计划不显示修边。
+              if (!manual && day.edge) ...<Widget>[
+                const SizedBox(width: 8),
+                Container(
+                  key: const Key('mower-today-edge'),
+                  height: 20,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: MowerColors.softFill,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    '修边',
+                    style: TextStyle(color: MowerColors.brand, fontSize: 12),
+                  ),
+                ),
+              ],
+              const Spacer(),
               Text(
                 dateText,
                 style: const TextStyle(
@@ -627,80 +794,63 @@ class _TodayPlanCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          if (one == null)
-            const Padding(
-              key: Key('mower-today-empty'),
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                children: <Widget>[
-                  Icon(
-                    Icons.event_busy_outlined,
-                    size: 20,
-                    color: MowerColors.inkTertiary,
-                  ),
-                  SizedBox(width: 6),
-                  Text(
-                    '暂无割草计划',
-                    style: TextStyle(
-                      color: MowerColors.inkSecondary,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else ...<Widget>[
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: <Widget>[
-                Flexible(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '${_hhmm(one.startMinutes)}  →  ${_hhmm(one.endMinutes)}',
-                      key: const Key('mower-today-range'),
-                      style: const TextStyle(
-                        color: MowerColors.ink,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                        height: 1.56,
-                      ),
-                    ),
-                  ),
-                ),
-                if (day.edge) const SizedBox(width: 8),
-                if (day.edge)
-                  Container(
-                    width: 54,
-                    height: 26,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: MowerColors.softFill,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      '修边',
-                      style: TextStyle(color: MowerColors.brand, fontSize: 12),
-                    ),
-                  ),
-              ],
-            ),
-            if (two != null) ...<Widget>[
-              const SizedBox(height: 4),
-              Text(
-                '下一任务 ${_hhmm(two.startMinutes)} - ${_hhmm(two.endMinutes)}',
-                style: const TextStyle(
-                  color: MowerColors.brand,
-                  fontSize: 12,
-                  height: 1.5,
-                ),
-              ),
-            ],
+          for (var index = 0; index < rows.length; index++) ...<Widget>[
+            if (index > 0) const SizedBox(height: 4),
+            rows[index],
           ],
         ],
       ),
     );
+  }
+
+  /// 一行：左边内容，右边（原修边的位置）放倒计时。
+  static Widget _row(Widget content, {Widget? trailing}) => Row(
+    children: <Widget>[
+      Expanded(
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: content,
+          ),
+        ),
+      ),
+      if (trailing != null) ...<Widget>[const SizedBox(width: 8), trailing],
+    ],
+  );
+
+  /// 今日计划的时段：两个时段同一样式（原「下一任务」的字号颜色，去掉「下一任务」文字），后面跟进度。
+  static Widget _slotLine(MowerScheduleSlot slot, int index, int nowMinutes) {
+    final phase = _SlotPhase.of(slot, nowMinutes);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text(
+          '${_hhmm(slot.startMinutes)} - ${_hhmm(slot.endMinutes)}',
+          key: index == 0 ? const Key('mower-today-range') : null,
+          style: _rowStyle,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          phase.label,
+          key: Key('mower-today-phase-$index'),
+          style: _rowStyle.copyWith(color: phase.color),
+        ),
+      ],
+    );
+  }
+
+  /// 手动计划的起止：DP121 的 st / et（UTC 秒）换成手机本地时间；结束在次日零点（截到当天 24:00）写 24:00。
+  static String _manualRange(MowerCurrentPlan plan) {
+    final start = DateTime.fromMillisecondsSinceEpoch(plan.startSeconds * 1000);
+    final end = DateTime.fromMillisecondsSinceEpoch(plan.endSeconds * 1000);
+    String clock(DateTime time) => '${_two(time.hour)}:${_two(time.minute)}';
+    final endText =
+        end.hour == 0 && end.minute == 0 && end.day != start.day
+        ? '24:00'
+        : clock(end);
+    return '${clock(start)} - $endText';
   }
 
   static String _two(int value) => value.toString().padLeft(2, '0');
