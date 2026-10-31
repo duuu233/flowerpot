@@ -145,12 +145,15 @@ abstract final class TuyaConfig {
     // `TuyaHistoryCodec`。
     'temp_daily_hist': 164, // raw, ro：空气温度日历史
     'humi_daily_hist': 165, // raw, ro：空气湿度日历史
-    // 2026-09-28 新增（`docs/新增 DP 说明 — DP166 ~ DP169.md`）。167 power_off 关机 / 169 file_download
-    // 文件分片下载暂不对接（产品：页面没有先不弄），这里不登记。
+    // 2026-09-28 新增（`docs/新增 DP 说明 — DP166 ~ DP169.md`）。167 power_off 关机暂不对接，这里不登记；
+    // 那版说明里的 169 file_download 已作废，169 改为下面的 first_calib。
     'led_switch': 166, // bool rw：双色 LED 灯效总开关，默认 false（关）；和 117 屏幕是两个独立开关
     // 168 = 手动亮度（docs/app_DP_问题修正说明.md §6）：0~100，0 = 灭屏，仅 117 = false 时
     // 生效，出厂 100。09-28 那版说明里 168 是 `ota_result`，按新说明作废，App 不再按 OTA 结果解读。
     'manual_brightness': 168, // value rw 0-100
+    // 2026-10-31 产品：首用 / 恢复出厂配网成功 → 设备教程结束 → 自动水位校准，完成、跳过或退出
+    // 校准界面任一发生即报 true；恢复出厂清回 false。为 true 时 App 才能进设备页。
+    'first_calib': 169, // bool rw，默认 false
   };
 
   /// DPs the device transmits as an integer scaled by a power of ten (涂鸦

@@ -13,6 +13,9 @@ import '../../home/presentation/home_page.dart';
 import '../../mower/presentation/mower_home_page.dart';
 import 'device_online_guard.dart';
 
+/// 花盆 DP169 还不是 true 时点设备的提示。
+const String deviceFirstCalibrationPendingMessage = '请先在设备上完成使用教程与水位校准';
+
 class DeviceListPage extends StatelessWidget {
   const DeviceListPage({super.key, this.devices, this.onOpenProfile});
 
@@ -48,6 +51,16 @@ class DeviceListPage extends StatelessWidget {
         context,
         AppRoutes.mowerHome,
         arguments: MowerHomeArguments(deviceId: device.id),
+      );
+      return;
+    }
+    // DP169 `first_calib`（2026-10-31 产品）：设备首用 / 恢复出厂后的教程与自动水位校准
+    // 没结束时不进设备页，等设备报 true（完成、跳过或退出校准都算）。
+    if (!device.firstCalibrated) {
+      showAppMessage(
+        context,
+        deviceFirstCalibrationPendingMessage,
+        tone: AppMessageTone.info,
       );
       return;
     }

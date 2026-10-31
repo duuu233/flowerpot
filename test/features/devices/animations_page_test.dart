@@ -12,12 +12,17 @@ void main() {
   testWidgets('animation page exposes the Figma empty state', (tester) async {
     final state = await _pumpAnimationsPage(tester, const Size(375, 812));
 
-    expect(find.text('定制动画'), findsOneWidget);
+    // 2026-10-31 产品：「定制动画」统一改称「自定义图片」。
+    expect(find.text('自定义图片'), findsOneWidget);
+    expect(find.text('定制动画'), findsNothing);
     // 「文件同步」和权限提示条已经下线，上传说明也只提本地图片。
     expect(find.text('文件同步'), findsNothing);
     expect(find.text('仅支持屏幕录制或本地文件。'), findsNothing);
     expect(find.text('点击这里重新授权'), findsNothing);
     expect(find.text('支持本地图片文件上传'), findsOneWidget);
+    expect(find.text('长按文件可删除已选文件'), findsOneWidget);
+    expect(find.text('设备中间按键可长按退出和进入'), findsOneWidget);
+    expect(find.text('左右触摸可以切换自定义图片'), findsOneWidget);
     expect(find.text('提示'), findsOneWidget);
     expect(find.text('上传文件'), findsOneWidget);
     expect(find.text('Files  0/10'), findsOneWidget);

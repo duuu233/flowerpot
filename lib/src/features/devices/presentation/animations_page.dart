@@ -88,7 +88,7 @@ class _AnimationsPageState extends State<AnimationsPage>
         .toList(growable: false);
     return AppPageScaffold(
       appBar: AppPageHeader(
-        title: '定制动画',
+        title: '自定义图片',
         leading: const AppBackButton(),
         actions: <Widget>[
           // DP156：清空设备相册（docs/app_DP_问题修正说明.md §3）。
@@ -364,8 +364,8 @@ class _AnimationsPageState extends State<AnimationsPage>
 class _AnimationTipsCard extends StatelessWidget {
   const _AnimationTipsCard();
 
-  /// 文案区的高度，不含卡片内边距。
-  static const double _contentHeight = 126;
+  /// 文案区的高度，不含卡片内边距。2026-10-31 提示从两条加到四条，每条多 6 + 19px。
+  static const double _contentHeight = 176;
   static const EdgeInsets _contentPadding = EdgeInsets.fromLTRB(16, 14, 14, 14);
 
   @override
@@ -430,6 +430,10 @@ class _AnimationTipsCard extends StatelessWidget {
                   const _TipLine(text: '支持本地图片文件上传'),
                   const SizedBox(height: AppSpacing.xs),
                   const _TipLine(text: '长按文件可删除已选文件'),
+                  const SizedBox(height: AppSpacing.xs),
+                  const _TipLine(text: '设备中间按键可长按退出和进入'),
+                  const SizedBox(height: AppSpacing.xs),
+                  const _TipLine(text: '左右触摸可以切换自定义图片'),
                 ],
               ),
             ),

@@ -134,7 +134,7 @@ class HomeDashboardModel {
         language: language,
       ),
       actions: const <HomeActionData>[
-        HomeActionData(kind: HomeActionKind.animation, label: '定制动画'),
+        HomeActionData(kind: HomeActionKind.animation, label: '自定义图片'),
         // 2026-09-14 产品：帮助中心从设备设置页挪到首页，排在电池状态下方；
         // 2026-09-15 电池状态挪进设备设置页，这里不再有。
         HomeActionData(kind: HomeActionKind.help, label: '帮助中心'),

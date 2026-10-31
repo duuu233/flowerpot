@@ -762,6 +762,7 @@ class SmartPlanterDevice {
     this.birthday,
     this.weddingDay,
     this.lastOperationResult = '',
+    this.firstCalibrated = true,
   });
 
   final String id;
@@ -823,6 +824,11 @@ class SmartPlanterDevice {
   /// `<操作>:<对象>:<结果>`. Empty until it reports one.
   final String lastOperationResult;
 
+  /// `first_calib` (169)：设备首用 / 恢复出厂后的教程与自动水位校准已经结束（完成、跳过或
+  /// 退出都算）。为 false 时 App 不让进设备页。真实设备没上报过按 false（见
+  /// `TuyaRepository`）；构造默认 true 只给 Mock / 静态预览用。
+  final bool firstCalibrated;
+
   /// Whether the last receipt says the operation succeeded. Null when the
   /// device has reported nothing, or something this app cannot parse.
   bool? get lastOperationSucceeded {
@@ -859,6 +865,7 @@ class SmartPlanterDevice {
     DateTime? weddingDay,
     bool clearWeddingDay = false,
     String? lastOperationResult,
+    bool? firstCalibrated,
   }) => SmartPlanterDevice(
     id: id,
     productId: productId,
@@ -885,6 +892,7 @@ class SmartPlanterDevice {
     birthday: clearBirthday ? null : (birthday ?? this.birthday),
     weddingDay: clearWeddingDay ? null : (weddingDay ?? this.weddingDay),
     lastOperationResult: lastOperationResult ?? this.lastOperationResult,
+    firstCalibrated: firstCalibrated ?? this.firstCalibrated,
   );
 }
 

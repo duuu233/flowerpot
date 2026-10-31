@@ -163,7 +163,7 @@ class InteractionLogRouteObserver extends NavigatorObserver {
     AppRoutes.ledSettings: 'LED设置',
     AppRoutes.plantDetectionSettings: '自动检测植物',
     AppRoutes.behaviorSettings: '行为设置',
-    AppRoutes.animations: '定制动画',
+    AppRoutes.animations: '自定义图片',
     AppRoutes.reports: '报表',
     AppRoutes.plantPicker: '选择植物',
     AppRoutes.plantDetail: '植物详情',

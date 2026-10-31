@@ -1709,6 +1709,8 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       birthday: TuyaMemorialCodec.decodeFixedDate(dp('memorial_birthday')),
       weddingDay: TuyaMemorialCodec.decodeFixedDate(dp('memorial_wedding')),
       lastOperationResult: '${dp('op_result') ?? ''}',
+      // 169 默认 false：没上报过（含不带这条 DP 的旧固件）一律当作首次校准未结束。
+      firstCalibrated: boolean(dp('first_calib'), false),
     );
   }
 

@@ -3211,7 +3211,7 @@ class FlowerpotState extends ChangeNotifier {
           ? uploadedUrl!.trim()
           : _newestBackendImageUrl(deviceId, before);
       if (url == null || url.isEmpty) {
-        _logInteraction('定制动画 ✗ 图片已上传，但拿不到图片地址，DP142 dl_url 未下发');
+        _logInteraction('自定义图片 ✗ 图片已上传，但拿不到图片地址，DP142 dl_url 未下发');
         throw const ApiException(
           'UPLOAD_URL_MISSING',
           '图片已上传，但接口没有返回图片地址，未能通知设备下载',
@@ -3219,7 +3219,7 @@ class FlowerpotState extends ChangeNotifier {
       }
       final fileName = BackendImage.fileNameOf(url);
       // 下发那一行打的是十六进制帧，人读不了；先把帧里装了什么摆出来。
-      _logInteraction('定制动画 DP142 dl_url：name=$fileName url=$url');
+      _logInteraction('自定义图片 DP142 dl_url：name=$fileName url=$url');
       await _publishRawDp(
         deviceId,
         'dl_url',

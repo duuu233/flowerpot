@@ -127,6 +127,34 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('DP169 首次校准没结束的花盆不进设备页，只提示去设备上完成', (tester) async {
+    // 2026-10-31 产品：首用 / 恢复出厂后设备先走教程与自动水位校准，first_calib 报 true
+    // （完成、跳过或退出都算）之后 App 才能进设备页。
+    Object? deviceArguments;
+    await _pumpDeviceList(
+      tester,
+      const Size(375, 812),
+      withRoutes: true,
+      devices: <SmartPlanterDevice>[
+        _device(
+          id: 'device-01',
+          name: 'YSplanter-01',
+          online: true,
+          firstCalibrated: false,
+        ),
+      ],
+      onDeviceArguments: (value) => deviceArguments = value,
+    );
+
+    await tester.tap(find.byKey(const Key('device-list-item-device-01')));
+    await tester.pumpAndSettle();
+
+    expect(find.text(deviceFirstCalibrationPendingMessage), findsOneWidget);
+    expect(deviceArguments, isNull);
+    expect(find.text('设备列表'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('离线割草机仍可进入页面连接蓝牙，与花盆共用灰色离线胶囊', (tester) async {
     Object? mowerArguments;
     await _pumpDeviceList(
@@ -390,6 +418,7 @@ SmartPlanterDevice _device({
   required String name,
   required bool online,
   String productId = 'pid-smart-planter',
+  bool firstCalibrated = true,
 }) {
   return SmartPlanterDevice(
     id: id,
@@ -412,6 +441,7 @@ SmartPlanterDevice _device({
     settings: const DeviceControlSettings(),
     firmwareVersion: '1.0.8',
     macAddress: 'A4:C1:38:7B:2D:10',
+    firstCalibrated: firstCalibrated,
   );
 }
 

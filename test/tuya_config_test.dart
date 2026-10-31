@@ -4,18 +4,20 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('the product DP table matches the platform export', () {
     // 101–165 来自 assets/智能花盆test(yciq4kssu1fv8umn)_09_16.xlsx，一个不缺、
-    // 外加现协议已接的166（LED）和168（手动亮度），167/169暂不接。
+    // 外加现协议已接的166（LED）、168（手动亮度）和169（first_calib，2026-10-31），167暂不接。
     expect(TuyaConfig.productId, 'yciq4kssu1fv8umn');
     // ⚠️ **键比 DP 号多两个**：162（plant_present / plant_confirm）和 163
     // （plant_confirm_switch / plant_detect_switch）各留了平台改名前后的两个
     // 标识符，好让按旧名查的地方也能查到。所以这里不能拿 `dp.length` 当 DP 个数
     // 比——2026-09-12 加别名时这条断言就是这么断的（`dp.length` 65 对 63）。
-    expect(TuyaConfig.dp.length, 69);
+    expect(TuyaConfig.dp.length, 70);
     expect(TuyaConfig.dp.values.toSet(), <int>{
       ...List<int>.generate(65, (index) => 101 + index),
       166,
       168,
+      169,
     });
+    expect(TuyaConfig.dp['first_calib'], 169);
     expect(TuyaConfig.dp['soil_moist'], 106);
     expect(TuyaConfig.dp['vibration_switch'], 122);
     expect(TuyaConfig.dp['water_level_calib'], 140);
