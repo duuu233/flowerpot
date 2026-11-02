@@ -26,6 +26,16 @@ class InteractionLogPanel extends StatefulWidget {
 class _InteractionLogPanelState extends State<InteractionLogPanel> {
   bool _expanded = true;
 
+  /// 日志区滚动条要常显（2026-11-02 产品：拉高一点并显示滚动条，方便翻看），
+  /// [Scrollbar] 与 [SingleChildScrollView] 必须共用同一个控制器。
+  final ScrollController _logScroll = ScrollController();
+
+  @override
+  void dispose() {
+    _logScroll.dispose();
+    super.dispose();
+  }
+
   /// 「OTA日志」：把保留的 OTA 调试日志合并成一个 `.txt`，调起系统分享当附件发出去
   /// （微信 / QQ / 邮件；手机上可直接打开，也可发到电脑端）。不走剪贴板，没有长度限制。
   Future<void> _shareOtaLog() async {
@@ -117,17 +127,29 @@ class _InteractionLogPanelState extends State<InteractionLogPanel> {
               )
             else
               // 新的在最后，所以从下往上读；高度封顶，免得把页面撑长。
+              // 2026-11-02 起封顶由 180 拉到屏高的 45%（不低于 180），滚动条常显。
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 180),
-                child: SingleChildScrollView(
-                  reverse: true,
-                  child: SelectableText(
-                    lines.join('\n'),
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 11,
-                      height: 1.5,
-                      fontFamily: 'monospace',
+                constraints: BoxConstraints(
+                  maxHeight: (MediaQuery.sizeOf(context).height * .45)
+                      .clamp(180.0, double.infinity)
+                      .toDouble(),
+                ),
+                child: Scrollbar(
+                  controller: _logScroll,
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: _logScroll,
+                    reverse: true,
+                    // 右侧让出滚动条的位置，长行不压在滑块下面
+                    padding: const EdgeInsets.only(right: 10),
+                    child: SelectableText(
+                      lines.join('\n'),
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 11,
+                        height: 1.5,
+                        fontFamily: 'monospace',
+                      ),
                     ),
                   ),
                 ),
