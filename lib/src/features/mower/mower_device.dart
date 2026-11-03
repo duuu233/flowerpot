@@ -1354,6 +1354,35 @@ class MowerDevice extends ChangeNotifier {
     _echoTimers.add(timer);
   }
 
+  /// 设置页进页现读：从 SDK 当前设备模型取这几条 DP 的最新值（读取数据不缓存口径）。
+  /// 读的过程中到了更新的实时上报，以上报为准；还在等下发回显的 DP 跳过，不把刚下发的值盖回旧值。
+  Future<void> rereadDps(FlowerpotState state, Iterable<int> dps) async {
+    final id = _deviceId;
+    if (id == null) return;
+    final generation = _bindingGeneration;
+    final read = ++_snapshotSequence;
+    try {
+      final snapshot = await state.mowerDps(id);
+      if (snapshot == null || !_isCurrent(id, generation)) return;
+      final targets = dps
+          .where(
+            (dp) =>
+                snapshot.containsKey(dp) &&
+                !_awaitingEcho.containsKey(dp) &&
+                (_appliedDpReads[dp] ?? 0) <= read,
+          )
+          .toList();
+      for (final dp in targets) {
+        _appliedDpReads[dp] = read;
+      }
+      _applyReported(snapshot, only: targets);
+      notifyListeners();
+    } catch (error) {
+      if (!_isCurrent(id, generation)) return;
+      state.logMowerInteraction('读取设备信息失败 ✗ 割草机：$error');
+    }
+  }
+
   /// 把这几条 DP 画回设备快照里的值。快照里没有的（设备从没报过）就保持现状。
   Future<void> _revertToDevice(
     FlowerpotState state,

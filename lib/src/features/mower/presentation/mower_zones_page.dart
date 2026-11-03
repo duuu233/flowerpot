@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../devices/presentation/device_online_guard.dart';
@@ -17,6 +19,10 @@ import 'widgets/mower_form.dart';
 /// 2. **百分比 0 = 删除该区**（即使有效位是 1）；
 /// 3. **Σ 有效区百分比 > 100 设备整包拒绝**（原配置保留）——这里保存前就拦下来，
 ///    否则用户看到"保存成功"而设备那边一个字节都没改。
+///
+/// 页面跟随设备（2026-11-03）：进页从 SDK 现读 DP103；停留期间设备上报新的区域配置
+///（例如在机器上改了区域 2）、或下发被拒回弹，页面跟着刷新。只有用户已经拖动 / 改过
+/// 还没保存时保留用户的修改，不被上报冲掉（保存是 5 区全量替换）。
 class MowerZonesPage extends StatefulWidget {
   const MowerZonesPage({super.key});
 
@@ -31,7 +37,15 @@ class MowerZonesPage extends StatefulWidget {
 class _MowerZonesPageState extends State<MowerZonesPage> {
   MowerDevice get _device => MowerDevice.instance;
 
-  late List<MowerZoneConfig> _zones = List<MowerZoneConfig>.of(_device.zones);
+  late List<MowerZoneConfig> _zones;
+
+  /// 页面最近一次采用的设备区域配置；与 [_zones] 不同说明用户有未保存的修改。
+  /// 必须在 [initState] 里和 [_zones] 同时取值（不能惰性初始化，否则第一次上报时才取到新值，判断成没变化）。
+  late String _synced;
+
+  static String _signature(List<MowerZoneConfig> zones) => zones
+      .map((zone) => '${zone.index}:${zone.percent}:${zone.meters}')
+      .join(',');
 
   int get _total => _zones.fold(
     0,
@@ -41,15 +55,48 @@ class _MowerZonesPageState extends State<MowerZonesPage> {
   @override
   void initState() {
     super.initState();
+    _zones = List<MowerZoneConfig>.of(_device.zones);
+    _synced = _signature(_zones);
+    _device.addListener(_onDeviceChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      FlowerpotScope.of(context)
+      final state = FlowerpotScope.of(context)
         ..logPageEntry('割草机-区域设置')
         ..logMowerInteraction(
           '读取 ← 割草机-区域设置 DP${MowerDp.zoneConfig} zone_config '
           '= ${MowerZoneCodec.toHexZones(MowerZoneCodec.encode(_zones))}',
         );
+      unawaited(_device.rereadDps(state, const <int>[MowerDp.zoneConfig]));
     });
+  }
+
+  @override
+  void dispose() {
+    _device.removeListener(_onDeviceChanged);
+    super.dispose();
+  }
+
+  /// 设备的区域配置变了（上报、进页现读、下发被拒回弹）：没有未保存修改就刷新页面。
+  void _onDeviceChanged() {
+    if (!mounted) return;
+    final next = _signature(_device.zones);
+    if (next == _synced) return;
+    final local = _signature(_zones);
+    final edited = local != _synced;
+    _synced = next;
+    if (local == next) return;
+    final hex = MowerZoneCodec.toHexZones(MowerZoneCodec.encode(_device.zones));
+    final state = FlowerpotScope.of(context);
+    if (edited) {
+      state.logMowerInteraction(
+        '上报 ← 割草机-区域设置 DP${MowerDp.zoneConfig}=$hex，页面有未保存修改，保留用户修改',
+      );
+      return;
+    }
+    setState(() => _zones = List<MowerZoneConfig>.of(_device.zones));
+    state.logMowerInteraction(
+      '上报 ← 割草机-区域设置 DP${MowerDp.zoneConfig}=$hex，页面已刷新',
+    );
   }
 
   void _setPercent(int index, int percent) {

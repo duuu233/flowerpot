@@ -1972,6 +1972,91 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('区域设置：进页现读 SDK；停留时设备上报 DP103（机器上改区域 2）页面跟着刷新', (tester) async {
+    final repo = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.zoneConfig: TuyaRaw.hex(
+        MowerZoneCodec.encode(const <MowerZoneConfig>[
+          MowerZoneConfig(index: 1, percent: 35, meters: 20),
+        ]),
+      ),
+    });
+    // 绑定之后设备那边又改过，SDK 设备模型已是新值，但还没走实时上报：进页现读要拿到它。
+    repo.rawDpsByDevice[_mowerId]![MowerDp.zoneConfig] = TuyaRaw.hex(
+      MowerZoneCodec.encode(const <MowerZoneConfig>[
+        MowerZoneConfig(index: 1, percent: 35, meters: 20),
+        MowerZoneConfig(index: 2, percent: 25, meters: 40),
+      ]),
+    );
+    await tester.tap(find.byKey(const Key('mower-nav-settings')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mower-settings-区域设置')));
+    await tester.pumpAndSettle();
+    String percent(int zone) =>
+        tester.widget<Text>(find.byKey(Key('mower-zone-percent-$zone'))).data!;
+    expect(percent(1), '35%');
+    expect(percent(2), '25%');
+
+    // 停留在页面上，机器上把区域 2 改成 45%：上报到达，页面刷新。
+    final reported = TuyaRaw.hex(
+      MowerZoneCodec.encode(const <MowerZoneConfig>[
+        MowerZoneConfig(index: 1, percent: 35, meters: 20),
+        MowerZoneConfig(index: 2, percent: 45, meters: 60),
+      ]),
+    );
+    repo.rawDpsByDevice[_mowerId]![MowerDp.zoneConfig] = reported;
+    repo.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: {MowerDp.zoneConfig},
+        reportedDps: {MowerDp.zoneConfig: reported},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(percent(1), '35%');
+    expect(percent(2), '45%');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('区域设置：用户改了还没保存时，设备上报不冲掉用户的修改', (tester) async {
+    final repo = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.zoneConfig: TuyaRaw.hex(
+        MowerZoneCodec.encode(const <MowerZoneConfig>[
+          MowerZoneConfig(index: 1, percent: 35, meters: 20),
+        ]),
+      ),
+    });
+    await tester.tap(find.byKey(const Key('mower-nav-settings')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('mower-settings-区域设置')));
+    await tester.pumpAndSettle();
+    tester
+        .widget<Slider>(find.byKey(const Key('mower-zone-slider-1')))
+        .onChanged!(50);
+    await tester.pump();
+    String percent(int zone) =>
+        tester.widget<Text>(find.byKey(Key('mower-zone-percent-$zone'))).data!;
+    expect(percent(1), '50%');
+
+    final reported = TuyaRaw.hex(
+      MowerZoneCodec.encode(const <MowerZoneConfig>[
+        MowerZoneConfig(index: 1, percent: 35, meters: 20),
+        MowerZoneConfig(index: 2, percent: 15, meters: 30),
+      ]),
+    );
+    repo.rawDpsByDevice[_mowerId]![MowerDp.zoneConfig] = reported;
+    repo.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: {MowerDp.zoneConfig},
+        reportedDps: {MowerDp.zoneConfig: reported},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(percent(1), '50%');
+    expect(percent(2), '0%');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('设置页：重新配网隐藏；「设备参数」进花盆同一页「更多设备信息」', (tester) async {
     await _pumpMowerHome(
       tester,
