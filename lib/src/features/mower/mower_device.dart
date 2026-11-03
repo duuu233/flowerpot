@@ -1356,19 +1356,26 @@ class MowerDevice extends ChangeNotifier {
 
   /// 设置页进页现读：从 SDK 当前设备模型取这几条 DP 的最新值（读取数据不缓存口径）。
   /// 读的过程中到了更新的实时上报，以上报为准；还在等下发回显的 DP 跳过，不把刚下发的值盖回旧值。
+  /// DP101 不做乐观显示（始终显示设备返回），等回显期间照样读，但按计划读取序号丢掉过期的那次。
   Future<void> rereadDps(FlowerpotState state, Iterable<int> dps) async {
     final id = _deviceId;
     if (id == null) return;
     final generation = _bindingGeneration;
+    final wanted = dps.toList();
+    final scheduleRead = wanted.contains(MowerDp.mowSchedule)
+        ? ++_scheduleReadSequence
+        : null;
     final read = ++_snapshotSequence;
     try {
       final snapshot = await state.mowerDps(id);
       if (snapshot == null || !_isCurrent(id, generation)) return;
-      final targets = dps
+      final targets = wanted
           .where(
             (dp) =>
                 snapshot.containsKey(dp) &&
-                !_awaitingEcho.containsKey(dp) &&
+                (dp == MowerDp.mowSchedule
+                    ? scheduleRead == _scheduleReadSequence
+                    : !_awaitingEcho.containsKey(dp)) &&
                 (_appliedDpReads[dp] ?? 0) <= read,
           )
           .toList();
@@ -1376,6 +1383,12 @@ class MowerDevice extends ChangeNotifier {
         _appliedDpReads[dp] = read;
       }
       _applyReported(snapshot, only: targets);
+      if (targets.contains(MowerDp.mowSchedule)) {
+        final bytes = TuyaRaw.bytes(snapshot[MowerDp.mowSchedule]);
+        if (bytes != null) {
+          _rememberSchedule(state, Uint8List.fromList(bytes), '进页现读');
+        }
+      }
       notifyListeners();
     } catch (error) {
       if (!_isCurrent(id, generation)) return;

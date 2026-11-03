@@ -49,6 +49,9 @@ class _MowerPlanPageState extends State<MowerPlanPage> {
           '读取 ← 割草机-割草计划 DP${MowerDp.mowSchedule} mow_schedule '
           '= ${MowerScheduleCodec.toHexGroups(MowerScheduleCodec.encodeByDay(_device.schedule))}',
         );
+      // 进页从 SDK 现读 DP101（同区域设置）；停留期间设备上报的 DP101 由下面的
+      // ListenableBuilder 直接重画——本页不存计划副本，图表 / 合计 / 修边都读 MowerDevice.schedule。
+      unawaited(_device.rereadDps(state, const <int>[MowerDp.mowSchedule]));
     });
   }
 

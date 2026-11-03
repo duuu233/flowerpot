@@ -1756,6 +1756,52 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('割草计划：进页现读 SDK；停留时设备上报 DP101（机器上改时段）图表与合计跟着刷新', (tester) async {
+    List<MowerScheduleDay> week(int startMinutes, int endMinutes) {
+      final days = List<MowerScheduleDay>.filled(7, const MowerScheduleDay());
+      days[1] = MowerScheduleDay(
+        slotOne: MowerScheduleSlot(
+          startMinutes: startMinutes,
+          endMinutes: endMinutes,
+        ),
+      );
+      return days;
+    }
+
+    final repo = await _pumpMowerHome(tester, <int, Object?>{
+      MowerDp.mowSchedule: TuyaRaw.hex(
+        MowerScheduleCodec.encodeByDay(
+          List<MowerScheduleDay>.filled(7, const MowerScheduleDay()),
+        ),
+      ),
+    });
+    // 绑定之后设备上改了计划，SDK 设备模型已是新值但没走实时上报：进页现读要拿到它。
+    repo.rawDpsByDevice[_mowerId]![MowerDp.mowSchedule] = TuyaRaw.hex(
+      MowerScheduleCodec.encodeByDay(week(8 * 60, 10 * 60)),
+    );
+    await tester.tap(find.byKey(const Key('mower-nav-plan')));
+    await tester.pumpAndSettle();
+    expect(find.text('总工作时间：2小时'), findsOneWidget);
+    expect(find.byKey(const Key('mower-plan-slot-1-1')), findsOneWidget);
+
+    // 停留在计划页，机器上把周一改成 08:00–11:30：上报到达即重画。
+    final reported = TuyaRaw.hex(
+      MowerScheduleCodec.encodeByDay(week(8 * 60, 11 * 60 + 30)),
+    );
+    repo.rawDpsByDevice[_mowerId]![MowerDp.mowSchedule] = reported;
+    repo.pushDeviceUpdate(
+      DeviceUpdate.changed(
+        _mower(),
+        changedDps: {MowerDp.mowSchedule},
+        reportedDps: {MowerDp.mowSchedule: reported},
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('总工作时间：3小时30分钟'), findsOneWidget);
+    expect(repo.publishedDps, isEmpty, reason: '跟随设备只读不下发');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('割草计划页按设备报的计划合计工作时间；星期下面那排勾是修边，点了只翻沿边位、整周下发', (tester) async {
     final repository = await _pumpMowerHome(tester, <int, Object?>{
       MowerDp.mowSchedule: TuyaRaw.hex(MowerScheduleCodec.encodeByDay(_week())),
