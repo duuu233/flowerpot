@@ -71,6 +71,12 @@ abstract final class AppAssets {
   /// 首页快捷入口「帮助中心」（2026-09-14）。与上面三张同一套风格：浅色圆角底 + 青色实心
   /// 图形、问号镂空；底板取自那三张，图形取自 [helpChatIcon] 的气泡，按同样的 38px 居中。
   static const String helpCenterIcon = 'assets/images/help_center_icon.png';
+
+  /// 首页快捷入口「选择植物」（2026-11-04，取代暂不开放的「自定义图片」入口）。同一套风格：
+  /// 底板取自上面三张（#EEF6F7 圆角底），图形取自 [selectPlantIcon] 的盆栽，改成同一种青色
+  /// #70AFB5、放大到与另外三张一样的 40px 见方居中（80 × 80 二倍图）。
+  static const String homePlantSelectIcon =
+      'assets/images/home_plant_select_icon.png';
   static const String calendarIcon = 'assets/images/calendar_icon.png';
   static const String infoIcon = 'assets/images/info_icon.png';
   static const String plantSelectionBadgeIcon =

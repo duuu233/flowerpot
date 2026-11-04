@@ -102,15 +102,22 @@ void main() {
     expect(find.text(model.careMessages[0]), findsOneWidget);
   });
 
-  test('帮助中心排在电池状态下方', () {
+  // 2026-09-15 电池状态挪进设备设置页后这条没跟着改（还引用已删除的 HomeActionKind.battery，
+  // 整个文件编译不过）；2026-11-04 按当前顺序改写：「自定义图片」暂不开放入口，
+  // 「选择植物」放在它原来的第一位，后面仍是帮助中心、设置。
+  test('首页快捷入口：选择植物在第一位，不显示自定义图片', () {
     final model = HomeDashboardModel.fromDevice(device: _fixture, userLabel: '用户');
     expect(model.actions.map((item) => item.kind), <HomeActionKind>[
-      HomeActionKind.animation,
-      HomeActionKind.battery,
+      HomeActionKind.plant,
       HomeActionKind.help,
       HomeActionKind.settings,
     ]);
-    expect(model.actions[2].label, '帮助中心');
+    expect(model.actions[0].label, '选择植物');
+    expect(model.actions[1].label, '帮助中心');
+    expect(
+      model.actions.any((item) => item.kind == HomeActionKind.animation),
+      isFalse,
+    );
   });
 
   testWidgets('首次使用指南那张卡只是纯文本，点了不跳转', (tester) async {

@@ -118,7 +118,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('还未添加植物'), findsNothing);
-    expect(find.text('自定义图片'), findsOneWidget);
+    // 2026-11-04 首页「自定义图片」暂不开放入口，「选择植物」放到它的位置。
+    expect(find.text('自定义图片'), findsNothing);
+    expect(find.text('选择植物'), findsOneWidget);
     // 2026-09-15 电池状态挪进设备设置页，首页快捷列表不再有。
     expect(find.text('电池状态'), findsNothing);
     expect(tester.takeException(), isNull);

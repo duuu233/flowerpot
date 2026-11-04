@@ -431,6 +431,33 @@ class _HomePageState extends State<HomePage> with NetworkRetryAware<HomePage> {
     );
   }
 
+  /// 首页快捷入口「选择植物」（2026-11-04）：与设备设置页「选择植物」同一套门禁和页面——
+  /// 没设备提示先添加、离线拦下；盆里没有植物（DP 116 == -1）不让选（选了也会被设备下一次
+  /// 上报覆盖），提示先种植物；否则进选择植物页（select 模式）。
+  void _openPlantPicker(BuildContext context, String? deviceId) {
+    if (deviceId == null) {
+      showAppMessage(context, '请先添加并连接花盆', tone: AppMessageTone.info);
+      return;
+    }
+    if (!ensureDeviceOnline(context, deviceId)) return;
+    if (FlowerpotScope.of(context).plantMissing(deviceId)) {
+      showAppMessage(
+        context,
+        HomeCareBanner.plantMissingNotice,
+        tone: AppMessageTone.info,
+      );
+      return;
+    }
+    Navigator.pushNamed(
+      context,
+      AppRoutes.plantPicker,
+      arguments: PlantPickerArguments(
+        deviceId: deviceId,
+        mode: PlantPickerMode.select,
+      ),
+    );
+  }
+
   void _openAction(
     BuildContext context,
     String? deviceId,
@@ -441,7 +468,12 @@ class _HomePageState extends State<HomePage> with NetworkRetryAware<HomePage> {
       Navigator.pushNamed(context, AppRoutes.help);
       return;
     }
+    if (kind == HomeActionKind.plant) {
+      _openPlantPicker(context, deviceId);
+      return;
+    }
     final route = switch (kind) {
+      HomeActionKind.plant => AppRoutes.plantPicker,
       HomeActionKind.animation => AppRoutes.animations,
       HomeActionKind.settings => AppRoutes.deviceSettings,
       HomeActionKind.help => AppRoutes.help,

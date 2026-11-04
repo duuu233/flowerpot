@@ -3,7 +3,8 @@ import '../../../tuya/tuya_status_copy.dart';
 
 enum HomeMetricKind { water, light, temperature, humidity }
 
-enum HomeActionKind { animation, help, settings }
+/// [animation]（自定义图片）2026-11-04 起首页暂不开放入口，页面与路由保留，恢复时加回 actions 即可。
+enum HomeActionKind { plant, animation, help, settings }
 
 enum HomeDashboardScene {
   withCompanionSummary,
@@ -134,7 +135,9 @@ class HomeDashboardModel {
         language: language,
       ),
       actions: const <HomeActionData>[
-        HomeActionData(kind: HomeActionKind.animation, label: '自定义图片'),
+        // 2026-11-04 产品：「自定义图片」App 暂时不做入口，隐藏；「选择植物」放到它原来的位置
+        //（与设备设置页「选择植物」同一流程）。
+        HomeActionData(kind: HomeActionKind.plant, label: '选择植物'),
         // 2026-09-14 产品：帮助中心从设备设置页挪到首页，排在电池状态下方；
         // 2026-09-15 电池状态挪进设备设置页，这里不再有。
         HomeActionData(kind: HomeActionKind.help, label: '帮助中心'),
