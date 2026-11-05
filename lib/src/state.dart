@@ -4950,7 +4950,7 @@ class FlowerpotState extends ChangeNotifier {
     } on TuyaException catch (error) {
       // 涂鸦的错误码分不出是不是手机没网：交给「网络异常」弹窗去查一次，网是通的
       // 就什么都不发生。APP 后端那边由 ApiClient 自己上报。
-      NetworkStatus.reportFailure();
+      NetworkStatus.reportFailure(NetworkFailureSource.tuya);
       return ActionResult(false, error.message, code: error.code);
     } on ApiException catch (error) {
       if (error.isAuthError && epoch == _sessionEpoch) {

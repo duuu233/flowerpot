@@ -149,12 +149,12 @@ class ApiClient {
       } on ApiException {
         rethrow;
       } on TimeoutException {
-        NetworkStatus.reportFailure();
+        NetworkStatus.reportFailure(NetworkFailureSource.backend);
         throw const ApiException('NETWORK_TIMEOUT', '网络请求超时，请稍后重试');
       } on FileSystemException {
         throw const ApiException('UPLOAD_FILE_MISSING', '文件不存在或已被清理，请重新选择');
       } on Exception {
-        NetworkStatus.reportFailure();
+        NetworkStatus.reportFailure(NetworkFailureSource.backend);
         throw const ApiException('NETWORK_UNREACHABLE', '网络连接失败，请稍后重试');
       }
     }
@@ -224,7 +224,7 @@ class ApiClient {
           await Future<void>.delayed(networkRetryDelay);
           continue;
         }
-        NetworkStatus.reportFailure();
+        NetworkStatus.reportFailure(NetworkFailureSource.backend);
         throw const ApiException('NETWORK_TIMEOUT', '网络请求超时，请稍后重试');
       } on http.ClientException {
         if (retryTransportErrors && attempt < networkRetryMax) {
@@ -232,7 +232,7 @@ class ApiClient {
           await Future<void>.delayed(networkRetryDelay);
           continue;
         }
-        NetworkStatus.reportFailure();
+        NetworkStatus.reportFailure(NetworkFailureSource.backend);
         throw const ApiException('NETWORK_UNREACHABLE', '网络连接失败，请稍后重试');
       } on IOException {
         if (retryTransportErrors && attempt < networkRetryMax) {
@@ -240,7 +240,7 @@ class ApiClient {
           await Future<void>.delayed(networkRetryDelay);
           continue;
         }
-        NetworkStatus.reportFailure();
+        NetworkStatus.reportFailure(NetworkFailureSource.backend);
         throw const ApiException('NETWORK_UNREACHABLE', '网络连接失败，请稍后重试');
       } on Exception {
         throw const ApiException('CLIENT_ERROR', '请求处理失败，请稍后重试');

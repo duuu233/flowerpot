@@ -20,7 +20,8 @@ class AppToast {
   }) {
     final text = message.trim();
     if (text.isEmpty) return;
-    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    final overlay =
+        Overlay.maybeOf(context, rootOverlay: true) ?? _overlayItself(context);
     if (overlay == null) return;
 
     dismiss();
@@ -43,6 +44,15 @@ class AppToast {
       text,
       Directionality.of(context),
     ).ignore();
+  }
+
+  /// 传进来的就是 Overlay 自己的 context（全局宿主拿的是根 Navigator 的
+  /// `overlay.context`，它的祖先里没有这个 Overlay）。
+  static OverlayState? _overlayItself(BuildContext context) {
+    if (context is StatefulElement && context.state is OverlayState) {
+      return context.state as OverlayState;
+    }
+    return null;
   }
 
   @visibleForTesting

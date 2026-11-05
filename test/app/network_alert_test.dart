@@ -12,10 +12,13 @@ import '../support/mock_tuya_repository.dart';
 
 void main() {
   var online = false;
+  var serverUp = true;
 
   setUp(() {
     online = false;
+    serverUp = true;
     NetworkStatus.probe = () async => online;
+    NetworkStatus.serverProbe = () async => serverUp;
   });
 
   Future<void> pumpHost(
@@ -138,6 +141,72 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('网络异常'), findsNothing);
+  });
+
+  // 2026-11-05：网络异常和服务器异常分开——手机有网、后端连不上只提示 toast。
+  testWidgets('online backend failure: toast only, hides itself', (
+    tester,
+  ) async {
+    online = true;
+    await pumpHost(tester);
+
+    NetworkStatus.reportFailure(NetworkFailureSource.backend);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('服务器异常，请稍后重试'), findsOneWidget);
+    expect(find.text('网络异常'), findsNothing);
+
+    // 同一次操作陆续失败的几条请求只提示一次。
+    NetworkStatus.reportFailure(NetworkFailureSource.backend);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('服务器异常，请稍后重试'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('服务器异常，请稍后重试'),
+      findsNothing,
+      reason: '显示一会儿自己消失',
+    );
+    await tester.pump(NetworkAlertHost.serverToastCooldown);
+  });
+
+  testWidgets('tuya failure while online shows nothing', (tester) async {
+    online = true;
+    await pumpHost(tester);
+
+    NetworkStatus.reportFailure(NetworkFailureSource.tuya);
+    await tester.pumpAndSettle();
+
+    expect(find.text('服务器异常，请稍后重试'), findsNothing);
+    expect(find.text('网络异常'), findsNothing);
+  });
+
+  testWidgets('backend failure while offline still shows the network alert', (
+    tester,
+  ) async {
+    await pumpHost(tester);
+
+    NetworkStatus.reportFailure(NetworkFailureSource.backend);
+    await tester.pumpAndSettle();
+
+    expect(find.text('网络异常'), findsOneWidget);
+    expect(find.text('服务器异常，请稍后重试'), findsNothing);
+  });
+
+  testWidgets('online at start-up, backend unresolvable: toast', (
+    tester,
+  ) async {
+    online = true;
+    serverUp = false;
+    await pumpHost(tester, enabled: true);
+
+    expect(find.text('服务器异常，请稍后重试'), findsOneWidget);
+    expect(find.text('网络异常'), findsNothing);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+    await tester.pump(NetworkAlertHost.serverToastCooldown);
   });
 
   testWidgets('waits for another dialog to close before alerting', (

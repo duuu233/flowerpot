@@ -7,6 +7,7 @@ import '../core/network/network_status.dart';
 import '../design_system/design_system.dart';
 import '../routes/app_routes.dart';
 import '../shared/l10n/app_l10n.dart';
+import '../shared/widgets/app_toast.dart';
 import '../shared/widgets/blocking_progress.dart';
 import '../state.dart';
 import 'app_route_tracker.dart';
@@ -47,7 +48,13 @@ mixin NetworkRetryAware<T extends StatefulWidget> on State<T> {
 ///
 /// **什么时候弹**：闪屏结束、回到前台（等 [resumeDelay] 让 Wi-Fi 先连上）、以及
 /// 任何一次请求因网络失败（[NetworkStatus.reportFailure]）之后，去 [NetworkStatus.probe]
-/// 查一次，查出来没网才弹。一次只弹一个，弹着的时候再来的失败不叠。
+/// 查一次，查出来**手机没网**才弹。一次只弹一个，弹着的时候再来的失败不叠。
+///
+/// **服务器异常不弹框**（2026-11-05 产品：网络异常和服务器异常分开）：手机有网，但
+/// 后端请求连不上 / 超时（[NetworkFailureSource.backend]），或冷启动 / 回前台时后端域名
+/// 解析不了（[NetworkStatus.serverProbe]），只提示一条「服务器异常，请稍后重试」toast，
+/// 显示一会儿自己消失；[serverToastCooldown] 内只提示一次。涂鸦报错且手机有网时
+/// 什么都不提示（页面自己的失败处理照常）。
 ///
 /// **什么时候不弹**：
 /// - 配网动线（[quietRoutes]）：PRODUCT_RULES §1.6 不许 App 自己冒弹框；而且 AP 配网时
@@ -88,6 +95,10 @@ class NetworkAlertHost extends StatefulWidget {
   /// 点「取消」之后多久内不再弹。
   static const Duration cancelCooldown = Duration(seconds: 3);
 
+  /// 「服务器异常」toast 提示过之后多久内不再提示：同一次操作里一起发出去的几条
+  /// 请求会陆续失败，只提示一次。
+  static const Duration serverToastCooldown = Duration(seconds: 5);
+
   /// 点「重试」后进度圈至少转多久。断网时 DNS 是秒回失败的，没有这一下，弹窗关掉
   /// 又立刻原样弹出来，看着像按钮没反应。
   static const Duration retrySpinner = Duration(milliseconds: 600);
@@ -98,9 +109,10 @@ class NetworkAlertHost extends StatefulWidget {
 
 class _NetworkAlertHostState extends State<NetworkAlertHost>
     with WidgetsBindingObserver {
-  StreamSubscription<void>? _failures;
+  StreamSubscription<NetworkFailureSource>? _failures;
   Timer? _resumeTimer;
   Timer? _cooldown;
+  Timer? _serverToastCooldown;
 
   /// 一轮「查网 → 弹窗 → 重试」正在进行，期间再来的检查都跳过。
   bool _checking = false;
@@ -113,7 +125,9 @@ class _NetworkAlertHostState extends State<NetworkAlertHost>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.routes.addListener(_routesChanged);
-    _failures = NetworkStatus.failures.listen((_) => unawaited(_check()));
+    _failures = NetworkStatus.failures.listen(
+      (source) => unawaited(_check(failure: source)),
+    );
     if (widget.enabled) _checkAfterFrame();
   }
 
@@ -148,6 +162,7 @@ class _NetworkAlertHostState extends State<NetworkAlertHost>
     unawaited(_failures?.cancel());
     _resumeTimer?.cancel();
     _cooldown?.cancel();
+    _serverToastCooldown?.cancel();
     super.dispose();
   }
 
@@ -167,12 +182,22 @@ class _NetworkAlertHostState extends State<NetworkAlertHost>
     widget.routes.currentPage?.settings.name,
   );
 
-  Future<void> _check() async {
+  /// [failure]：由哪边的失败触发；null = 冷启动 / 回前台 / 等别的弹框关掉后的检查。
+  Future<void> _check({NetworkFailureSource? failure}) async {
     if (!mounted || !widget.enabled || _checking || _cooldown != null) return;
     if (_quiet) return;
     _checking = true;
     try {
-      if (await _probe()) return;
+      if (await _probe()) {
+        // 手机有网：后端请求失败、或（主动检查时）后端域名解析不了 → 服务器异常。
+        final serverDown = switch (failure) {
+          NetworkFailureSource.backend => true,
+          NetworkFailureSource.tuya => false,
+          null => !await _probeServer(),
+        };
+        if (serverDown) _showServerError();
+        return;
+      }
       if (!mounted || !widget.enabled || _quiet) return;
       DebugLogGate.log(
         '[network] 网络不可用（${widget.routes.currentPage?.settings.name}）',
@@ -194,6 +219,32 @@ class _NetworkAlertHostState extends State<NetworkAlertHost>
       // 判断不了就当有网：宁可少弹一次，也不冤枉用户的网络。
       return true;
     }
+  }
+
+  Future<bool> _probeServer() async {
+    try {
+      return await NetworkStatus.serverProbe();
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// 服务器异常：toast，显示一会儿自己消失，不打断操作。
+  void _showServerError() {
+    if (!mounted || !widget.enabled || _quiet) return;
+    if (_serverToastCooldown != null) return;
+    final toastContext = widget.routes.navigator?.overlay?.context;
+    if (toastContext == null) return;
+    DebugLogGate.log(
+      '[network] 服务器异常（${widget.routes.currentPage?.settings.name}）',
+    );
+    AppToast.warn(
+      toastContext,
+      AppL10n(widget.state.language).serverErrorMessage,
+    );
+    _serverToastCooldown = Timer(NetworkAlertHost.serverToastCooldown, () {
+      _serverToastCooldown = null;
+    });
   }
 
   /// 弹「网络异常」。点「重试」先查网：还是不通就再弹，通了就刷新当前页。

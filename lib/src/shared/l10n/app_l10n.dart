@@ -91,6 +91,12 @@ class AppL10n {
         'The network is unavailable. Please check your connection and try again.',
   });
 
+  /// 手机有网、后端连不上时的 toast（2026-11-05，和「网络异常」弹窗分开）。
+  String get serverErrorMessage => t(const {
+    AppLanguage.zh: '服务器异常，请稍后重试',
+    AppLanguage.en: 'Server error. Please try again later.',
+  });
+
   // ── 设置 ────────────────────────────────────────────────────────────
   String get settings =>
       t(const {AppLanguage.zh: '设置', AppLanguage.en: 'Settings'});
