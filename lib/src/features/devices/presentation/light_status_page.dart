@@ -202,11 +202,12 @@ class _LightStatusPageState extends State<LightStatusPage> {
 
   /// 柱状图的标签是**一根柱子一个**（[LightDliBarChart] 按下标取），所以要按点数
   /// 生成。日视图已经改画折线、按时刻标（[HistoryPeriod.timeTicks]），这里只剩周和
-  /// 月：2026-10-28 起标具体日期（`M/d`，原来是「N天前」），位置不变。
+  /// 月：2026-10-28 起标具体日期（`M/d`，原来是「N天前」）。2026-11-11 起标字间隔
+  /// 随点数走（[HistoryPeriod.barLabelled]），原来周每 7 根、月每 30 根写死，点数少时
+  /// 只有最后一根有日期。
   List<String> _chartLabels(int count) => switch (range) {
     ReportRange.day => const <String>[],
-    ReportRange.week => HistoryPeriod.dateBarLabels(count),
-    ReportRange.month => HistoryPeriod.dateBarLabels(count, every: 30),
+    _ => HistoryPeriod.dateBarLabels(count),
   };
 
   /// 纵轴上限：比峰值大的第一个「整」刻度（1/2/5×10ⁿ 一格，共五格）。

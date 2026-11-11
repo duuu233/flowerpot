@@ -123,13 +123,29 @@ abstract final class HistoryPeriod {
     ];
   }
 
-  /// 柱状图用的逐柱标签：每隔 [every] 根标一个，最后一根一定标，其余留空。
-  static List<String> relativeBarLabels(int count, {int every = 7}) => <String>[
-    for (var i = 0; i < count; i++)
-      i == count - 1 || (count - 1 - i) % every == 0
-          ? relativeDayLabel(i, count)
-          : '',
-  ];
+  /// 柱状图用的逐柱标签：位置见 [barLabelled]，其余留空。
+  static List<String> relativeBarLabels(int count, {int maxLabels = 7}) =>
+      <String>[
+        for (var i = 0; i < count; i++)
+          barLabelled(i, count, maxLabels: maxLabels)
+              ? relativeDayLabel(i, count)
+              : '',
+      ];
+
+  /// 柱状图第 [index] 根（共 [count] 根）要不要标字：按点数算间隔，整条轴最多
+  /// [maxLabels] 个，最后一根一定标，从它往左每隔一个间隔标一根；点数不超过
+  /// [maxLabels] 时每根都标。
+  ///
+  /// ⚠️ 原来写死「周每 7 根、月每 30 根」标一个（2026-11-11 用户报：光照周 / 月只有
+  /// 最后一天有日期）。周包常见 7 个点、月包刚开始聚合也不满 30 个点，固定间隔下
+  /// 只剩最后一根够得着；所以间隔必须跟着点数走，不能按周期写死。
+  static bool barLabelled(int index, int count, {int maxLabels = 7}) {
+    if (index < 0 || index >= count) return false;
+    final step = count <= maxLabels
+        ? 1
+        : ((count - 1) + (maxLabels - 2)) ~/ (maxLabels - 1);
+    return (count - 1 - index) % step == 0;
+  }
 
   // ── 周 / 月：标具体日期（2026-10-28 产品要求：光照状态页、需水状态页（水位 / 土壤湿度））──
   //
@@ -143,10 +159,11 @@ abstract final class HistoryPeriod {
   /// `M/d`，柱状图横轴用。
   static String shortDate(DateTime date) => '${date.month}/${date.day}';
 
-  /// 柱状图逐柱日期标签：和 [relativeBarLabels] 标在同样的位置（每隔 [every] 根、最后一根一定标）。
-  static List<String> dateBarLabels(int count, {int every = 7}) => <String>[
+  /// 柱状图逐柱日期标签：和 [relativeBarLabels] 标在同样的位置（见 [barLabelled]：
+  /// 间隔随点数走，最多 [maxLabels] 个，最后一根一定标）。
+  static List<String> dateBarLabels(int count, {int maxLabels = 7}) => <String>[
     for (var i = 0; i < count; i++)
-      i == count - 1 || (count - 1 - i) % every == 0
+      barLabelled(i, count, maxLabels: maxLabels)
           ? shortDate(barDate(i, count))
           : '',
   ];

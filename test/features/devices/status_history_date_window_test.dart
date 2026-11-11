@@ -32,7 +32,36 @@ void main() {
         expect(labels[i].isEmpty, relative[i].isEmpty, reason: '第 $i 根');
       }
       expect(labels.last, HistoryPeriod.shortDate(HistoryPeriod.dayFor(-1)));
-      expect(labels[20], HistoryPeriod.shortDate(HistoryPeriod.dayFor(-8)));
+      expect(labels[22], HistoryPeriod.shortDate(HistoryPeriod.dayFor(-6)));
+    });
+
+    // 2026-11-11 用户报：光照周 / 月只有最后一天有日期。原来写死周每 7 根、月每 30 根
+    // 标一个，周包 7 个点、月包不满 30 个点时只剩最后一根。
+    test('标字间隔随点数走：点数少每根都标，多了最多 7 个、最后一根一定标', () {
+      List<int> labelled(int count) => <int>[
+        for (var i = 0; i < count; i++)
+          if (HistoryPeriod.barLabelled(i, count)) i,
+      ];
+
+      expect(labelled(1), <int>[0]);
+      expect(labelled(7), <int>[0, 1, 2, 3, 4, 5, 6]);
+      expect(labelled(28), <int>[2, 7, 12, 17, 22, 27]);
+      expect(labelled(30), <int>[4, 9, 14, 19, 24, 29]);
+      expect(labelled(180), <int>[29, 59, 89, 119, 149, 179]);
+      for (var count = 1; count <= 180; count++) {
+        final indexes = labelled(count);
+        expect(indexes.last, count - 1, reason: '$count 根');
+        expect(indexes.length, lessThanOrEqualTo(7), reason: '$count 根');
+        if (count >= 2) {
+          expect(indexes.length, greaterThanOrEqualTo(2), reason: '$count 根');
+        }
+      }
+
+      final week = HistoryPeriod.dateBarLabels(7);
+      expect(week.where((label) => label.isEmpty), isEmpty);
+      expect(week.first, HistoryPeriod.shortDate(HistoryPeriod.dayFor(-7)));
+      expect(week.last, HistoryPeriod.shortDate(HistoryPeriod.dayFor(-1)));
+      expect(HistoryPeriod.dateBarLabels(0), isEmpty);
     });
 
     test('折线图日期刻度与相对刻度取同样的点', () {
