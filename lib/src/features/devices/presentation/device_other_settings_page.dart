@@ -112,7 +112,6 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
                       firmwareUpdate: state.hasFirmwareUpdate(widget.deviceId),
                       onTemperatureUnit: () => _chooseTemperatureUnit(device),
                       onClockFormat: () => _chooseClockFormat(device),
-                      onDeviceLanguage: () => _chooseDeviceLanguage(device),
                       onCalibration: _calibrateWaterLevel,
                       onFirmware: _checkFirmware,
                     ),
@@ -151,16 +150,6 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     );
     if (selected != null && selected != device.settings.clockFormat) {
       await _updateSetting('clockFormat', selected);
-    }
-  }
-
-  Future<void> _chooseDeviceLanguage(SmartPlanterDevice device) async {
-    final selected = await showDeviceLanguageSheet(
-      context,
-      selectedLanguage: device.settings.deviceLanguage,
-    );
-    if (selected != null && selected != device.settings.deviceLanguage) {
-      await _updateSetting('deviceLanguage', selected);
     }
   }
 
@@ -305,27 +294,6 @@ Future<String?> showClockFormatSheet(
     ],
   );
 }
-
-/// 设备屏幕语言（DP153）：目前只支持简体中文和英文。
-Future<String?> showDeviceLanguageSheet(
-  BuildContext context, {
-  required String selectedLanguage,
-}) {
-  return _showSettingsChoiceSheet(
-    context,
-    title: '设备语言',
-    selectedValue: selectedLanguage,
-    keyPrefix: 'device-language',
-    options: const <_SettingsChoiceOptionData>[
-      _SettingsChoiceOptionData(value: 'zh', label: '简体中文'),
-      _SettingsChoiceOptionData(value: 'en', label: 'English'),
-    ],
-  );
-}
-
-/// 「设备语言」那一行的显示值。
-String deviceLanguageLabel(String language) =>
-    language == 'en' ? 'English' : '简体中文';
 
 Future<String?> _showSettingsChoiceSheet(
   BuildContext context, {
@@ -541,7 +509,6 @@ class _GeneralSettingsCard extends StatelessWidget {
     required this.updatingFirmware,
     required this.onTemperatureUnit,
     required this.onClockFormat,
-    required this.onDeviceLanguage,
     required this.onCalibration,
     required this.ota,
     required this.firmwareUpdate,
@@ -552,7 +519,6 @@ class _GeneralSettingsCard extends StatelessWidget {
   final bool updatingFirmware;
   final VoidCallback onTemperatureUnit;
   final VoidCallback onClockFormat;
-  final VoidCallback onDeviceLanguage;
   final VoidCallback onCalibration;
   final OtaProgress? ota;
 
@@ -581,14 +547,7 @@ class _GeneralSettingsCard extends StatelessWidget {
             value: settings.clockFormat == '24h' ? '24小时' : '12小时',
             onTap: onClockFormat,
           ),
-          // DP153 `language`：设备屏幕语言，下发即生效（与 App 界面语言无关）。
-          _SettingsRow(
-            key: const Key('device-language-setting'),
-            icon: Icons.translate,
-            title: '设备语言',
-            value: deviceLanguageLabel(settings.deviceLanguage),
-            onTap: onDeviceLanguage,
-          ),
+          // 「设备语言」（DP153 `language`）2026-11-13 按产品要求隐藏，设备屏幕默认中文，App 不再下发。
           _SettingsRow(
             key: const Key('water-level-calibration-setting'),
             assetPath: AppAssets.waterCalibrationIcon,

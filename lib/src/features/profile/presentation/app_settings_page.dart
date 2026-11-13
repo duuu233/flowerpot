@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../app/app_theme.dart';
 import '../../../app/flowerpot_app.dart';
-// 只引这两个文件而不是整个 design_system：后者也导出一个 showAppMessage，
+// 只引这个文件而不是整个 design_system：后者也导出一个 showAppMessage，
 // 和本页用的 shared 版签名不同，整包导入会变成二义引用。
-import '../../../design_system/widgets/dialogs/app_option_dialog.dart';
 import '../../../design_system/widgets/feedback/app_confirm_dialog.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/shared.dart';
@@ -45,12 +44,7 @@ class AppSettingsPage extends StatelessWidget {
                       );
                     },
                   ),
-                  SettingTile(
-                    icon: Icons.language_rounded,
-                    title: '语种设置',
-                    subtitle: state.languageCode == 'zh' ? '简体中文' : 'English',
-                    onTap: () => _language(context),
-                  ),
+                  // 「语种设置」2026-11-13 按产品要求隐藏：App 界面固定简体中文（见 FlowerpotState.initialize）。
                   SettingTile(
                     icon: Icons.notifications_active_outlined,
                     title: '消息通知',
@@ -111,23 +105,6 @@ class AppSettingsPage extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _language(BuildContext context) async {
-    final state = FlowerpotScope.of(context);
-    final selected = await showAppOptionDialog<String>(
-      context,
-      title: '语言',
-      selected: state.languageCode,
-      // 语言列表由 AppLanguage 枚举生成：以后加语种只改枚举，这一页不用动。
-      options: <AppOption<String>>[
-        for (final language in AppLanguage.values)
-          AppOption<String>(value: language.code, label: language.label),
-      ],
-    );
-    if (selected != null) {
-      await state.setLanguage(selected);
-    }
   }
 
   Future<void> _logout(BuildContext context) async {

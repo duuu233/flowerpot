@@ -351,7 +351,9 @@ class FlowerpotState extends ChangeNotifier {
     if (_initialized) return;
     try {
       final preferences = await SharedPreferences.getInstance();
-      _languageCode = preferences.getString('languageCode') ?? 'zh';
+      // 2026-11-13 产品要求：语种设置入口隐藏，App 界面固定简体中文；
+      // 以前切成 English 的本机偏好不再生效（偏好值保留，恢复入口时改回读取即可）。
+      _languageCode = 'zh';
       _notificationsEnabled =
           preferences.getBool('notificationsEnabled') ?? true;
       _restoreMemorials(preferences.getString(_memorialsKey));
