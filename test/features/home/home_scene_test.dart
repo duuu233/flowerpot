@@ -125,7 +125,7 @@ void main() {
       MaterialApp(
         theme: buildAppTheme(),
         home: const Scaffold(
-          body: HomeHelpCard(topics: <String>['首次使用指南', '如何设定东方金穗的表情']),
+          body: HomeHelpCard(topics: <String>['首次使用指南', '如何设定YS 智能花盆的表情']),
         ),
       ),
     );

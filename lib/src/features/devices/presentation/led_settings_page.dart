@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/led_settings_page_model.dart';
 import 'device_online_guard.dart';
+import 'device_product_name.dart';
 import 'widgets/device_toggle_settings_card.dart';
 import 'widgets/setting_orbit_illustration.dart';
 
@@ -19,7 +20,11 @@ class LedSettingsPage extends StatefulWidget {
   State<LedSettingsPage> createState() => _LedSettingsPageState();
 }
 
-class _LedSettingsPageState extends State<LedSettingsPage> {
+class _LedSettingsPageState extends State<LedSettingsPage>
+    with DeviceProductNameRefresh<LedSettingsPage> {
+  @override
+  String get productNameDeviceId => widget.deviceId;
+
   bool updating = false;
 
   Future<void> _setLed(bool value) async {
@@ -44,7 +49,10 @@ class _LedSettingsPageState extends State<LedSettingsPage> {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final model = LedSettingsPageModel.fromSettings(device.settings);
+    final model = LedSettingsPageModel.fromSettings(
+      device.settings,
+      productName: FlowerpotScope.of(context).productNameLabel(widget.deviceId),
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: 'LED设置', leading: AppBackButton()),
       background: AppPageBackground.standard,

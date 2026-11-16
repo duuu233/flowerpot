@@ -11,6 +11,10 @@ import ThingSmartHomeKit
 #if canImport(ThingSmartBLEKit)
 import ThingSmartBLEKit
 #endif
+// 消息中心（ThingSmartMessage），同样由 ThingSmartHomeKit 依赖带进来；模块不在时消息方法如实报不可用。
+#if canImport(ThingSmartMessageKit)
+import ThingSmartMessageKit
+#endif
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -101,6 +105,14 @@ final class FlowerpotTuyaBridge: NSObject {
   fileprivate var blePairingResult: FlutterResult?
   /// 双模配网兜底超时：SDK 的回调没来（签名对不上或设备没回话）时，不让 Dart 一直挂着。
   fileprivate var blePairingWatchdog: DispatchWorkItem?
+
+  /// 正在等结果的那次 queryDeviceConfigState（问设备要 Wi-Fi 列表），以及问的是哪台。
+  fileprivate var bleWifiListResult: FlutterResult?
+  fileprivate var bleWifiListUuid: String?
+  fileprivate var bleWifiListWatchdog: DispatchWorkItem?
+  /// 查 Wi-Fi 列表时 SDK 和这台设备建好的蓝牙连接（按 uuid）。配网时有它就走
+  /// pairDeviceWithUUID 复用这条连接，不再重新连；没有才走 startConfigBLEWifiDevice。
+  fileprivate var bleLinkedUuid: String?
   #endif
 
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -159,11 +171,20 @@ final class FlowerpotTuyaBridge: NSObject {
       result(nil)
     case "disconnectBleDevice": disconnectBleDevice(result)
     case "queryDeviceProductInfo": queryBleProductInfo(args, result)
-    // 设备自报 Wi-Fi 列表 iOS 暂未接：扫描结果里 supportWifiList 恒为 false，Dart 不会调到这里，
-    // 用户在下一页手动输入 Wi-Fi 名（会预填手机当前连接的网络）。
-    case "queryDeviceConfigState":
-      sdkError(result, code: "ble_wifi_list_unsupported", message: "iOS 端暂不支持读取设备扫到的 Wi-Fi 列表，请手动输入 Wi-Fi 名称")
+    // 设备自报 Wi-Fi 列表。方法名沿用 Android（IMultiModeActivator.queryDeviceConfigState），
+    // iOS 对应的是 ThingSmartBLEWifiActivator.connectAndQueryWifiListWithUUID + didScanWifiList 回调。
+    case "queryDeviceConfigState": queryBleWifiList(args, result)
     case "pairBleDevice": pairBleDevice(args, result)
+    // 已绑定设备的涂鸦产品名（页面文案称呼设备用）。取法同 Android：用设备的 productId + uuid
+    // 走「查配网设备信息」那条云端接口，iOS 是 ThingSmartBLEManager.queryDeviceInfoWithUUID。
+    case "deviceProductName": deviceProductName(args, result)
+    // 割草机按通道下发：先看各通道在不在线，Wi-Fi 离线时连蓝牙，再按指定模式下发。
+    case "deviceLinkState": deviceLinkState(args, result)
+    case "bleConnectDevice": bleConnectDevice(args, result)
+    case "publishDpsWithMode": publishDpsWithMode(args, result)
+    // 消息通知页按设备取消息。Android 是 getMessageListByMsgSrcId，iOS 是
+    // ThingSmartMessage.fetchEncryptMessageDetailListWithListRequestModel。
+    case "deviceMessages": deviceMessages(args, result)
     case "publishDps": publishDps(args, result)
     case "renameDevice": renameDevice(args, result)
     case "removeDevice": removeDevice(args, reset: false, result)
@@ -339,6 +360,8 @@ final class FlowerpotTuyaBridge: NSObject {
   private func endSession() {
     stopBleScanning()
     finishBlePairing(with: FlutterError(code: "pair_cancelled", message: "账号已退出", details: nil))
+    finishBleWifiList(with: FlutterError(code: "pair_cancelled", message: "账号已退出", details: nil))
+    releaseBleLink()
     releaseDeviceListeners()
     currentHome = nil
     activatorToken = nil
@@ -478,6 +501,119 @@ final class FlowerpotTuyaBridge: NSObject {
       return
     }
     device.publishDps(dps, success: { result(nil) }, failure: { error in self.fail(result, error) })
+  }
+
+  /// 指定通道下发（割草机：Wi-Fi 在线走云端 / 局域网，离线降级蓝牙时走 Auto）。
+  ///
+  /// Dart 传的模式名就是 iOS 的枚举名：Android `ThingDevicePublishModeEnum` 的
+  /// Internet / Local / Auto 对应 iOS `ThingDevicePublishMode` 的同名三项，
+  /// 方法是 `publishDps:mode:success:failure:`。
+  private func publishDpsWithMode(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    guard let id = args["deviceId"] as? String,
+          let dps = args["dps"] as? [String: Any],
+          let device = watched[id] ?? ThingSmartDevice(deviceId: id) else {
+      sdkError(result, code: "bad_args", message: "设备参数错误")
+      return
+    }
+    let modeName = args["mode"] as? String ?? ""
+    let mode: ThingDevicePublishMode
+    switch modeName {
+    case "ThingDevicePublishModeInternet": mode = .internet
+    case "ThingDevicePublishModeLocal": mode = .local
+    case "ThingDevicePublishModeAuto": mode = .auto
+    default:
+      sdkError(result, code: "bad_args", message: "没有这个下发模式：\(modeName)")
+      return
+    }
+    // 闭包捕获 device：临时实例不在 watched 里时，回调回来之前别被释放。
+    device.publishDps(dps, mode: mode, success: { [device] in
+      _ = device
+      result(nil)
+    }, failure: { [device] error in
+      _ = device
+      self.fail(result, error)
+    })
+  }
+
+  /// 设备各通道在不在线，返回结构同 Android（`ble` / `wifi` 两个结论 + 各分量原值）。
+  ///
+  /// iOS 的取法：`ble` = `ThingSmartBLEManager.deviceStatueWithUUID`（手机和设备的蓝牙连着）；
+  /// `wifi` = 设备模型的云端 / 局域网在线（`isCloudOnline` / `isLocalOnline`，按属性名安全读取）。
+  /// 这一版 SDK 两个属性都读不到时，按涂鸦文档的口径：`isOnline` 为真而蓝牙没连 = Wi-Fi 在线。
+  private func deviceLinkState(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    let id = args["deviceId"] as? String ?? ""
+    let model = (watched[id] ?? ThingSmartDevice(deviceId: id))?.deviceModel
+    let uuid = model?.uuid ?? ""
+    let ble = bleLocalOnline(uuid)
+    let cloud = Self.advNumber(model, "isCloudOnline")?.boolValue
+    let lan = Self.advNumber(model, "isLocalOnline")?.boolValue
+    let online = model?.isOnline ?? false
+    let wifi: Bool
+    if cloud != nil || lan != nil {
+      wifi = cloud == true || lan == true
+    } else {
+      wifi = online && ble != true
+    }
+    result([
+      "ble": ble ?? false,
+      "wifi": wifi,
+      "bleManager": ble.map { $0 as Any } ?? NSNull(),
+      "bleChannel": NSNull(),
+      // iOS 不单独给 MQTT 通道值，云端在线即走 MQTT。
+      "mqtt": cloud.map { $0 as Any } ?? NSNull(),
+      "lan": lan.map { $0 as Any } ?? NSNull(),
+      "cloud": cloud.map { $0 as Any } ?? NSNull(),
+      "online": online,
+      "bleNodeFirst": NSNull(),
+      "hasBle": NSNull(),
+      "beanFound": model != nil,
+    ])
+  }
+
+  /// 原样 dump 一个 SDK 对象的全部属性（含父类），对应 Android 把 bean 的无参 getter 全部带上。
+  /// 不做字段映射：页面按 Android 同名字段读（msgTitle / msgContent / time / msgSrcId …），
+  /// 这一版 iOS 模型叫别的名字时也能在调试板上一眼看出来。
+  fileprivate static func objectFields(_ object: NSObject) -> [String: Any] {
+    var out: [String: Any] = [:]
+    var cls: AnyClass? = type(of: object)
+    while let current = cls, ObjectIdentifier(current) != ObjectIdentifier(NSObject.self) {
+      var count: UInt32 = 0
+      if let properties = class_copyPropertyList(current, &count) {
+        for index in 0..<Int(count) {
+          let property = properties[index]
+          let name = String(cString: property_getName(property))
+          if out[name] != nil { continue }
+          var getter = name
+          if let custom = property_copyAttributeValue(property, "G") {
+            getter = String(cString: custom)
+            free(custom)
+          }
+          guard object.responds(to: NSSelectorFromString(getter)) else { continue }
+          out[name] = plainValue(object.value(forKey: name), depth: 0)
+        }
+        free(properties)
+      }
+      cls = class_getSuperclass(current)
+    }
+    return out
+  }
+
+  /// 转成方法通道传得过去的值；认不出的对象用 description。
+  fileprivate static func plainValue(_ value: Any?, depth: Int) -> Any {
+    guard let value, !(value is NSNull) else { return NSNull() }
+    switch value {
+    case let text as String: return text
+    case let number as NSNumber: return number
+    case let date as Date: return Int(date.timeIntervalSince1970)
+    case let list as [Any]:
+      return depth > 3 ? "\(list)" : list.map { plainValue($0, depth: depth + 1) }
+    case let dict as [AnyHashable: Any]:
+      if depth > 3 { return "\(dict)" }
+      var out: [String: Any] = [:]
+      for (key, item) in dict { out["\(key)"] = plainValue(item, depth: depth + 1) }
+      return out
+    default: return "\(value)"
+    }
   }
 
   private func renameDevice(_ args: [String: Any], _ result: @escaping FlutterResult) {
@@ -884,6 +1020,25 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
     emit(["deviceId": id, "online": model.isOnline])
   }
 
+  /// 设备告警（MQTT 56），对应 Android `registerWarnMessageListener` 的 `onWarnMessageArrived`。
+  /// 与 Android 同一个事件形状：`type=pushMessage`、`source=warn56`、`fields` 为原样字段（含 warnLevel / devId），
+  /// 不放顶层 deviceId（带 deviceId 的事件会被 Dart 当成设备状态更新）。消息通知页据此给消息定等级。
+  /// delegate 的可选方法：这一版 SDK 没有它时只是不回调。
+  func device(_ device: ThingSmartDevice, warningInfoUpdate warningInfo: [AnyHashable: Any]) {
+    var fields = FlowerpotTuyaBridge.plainValue(warningInfo, depth: 0) as? [String: Any] ?? [:]
+    let id = device.deviceModel?.devId ?? ""
+    if fields["devId"] == nil, !id.isEmpty { fields["devId"] = id }
+    emit([
+      "type": "pushMessage",
+      "source": "warn56",
+      "watchedDeviceId": id,
+      "callback": "warningInfoUpdate",
+      "beanClass": "NSDictionary",
+      "fields": fields,
+      "receivedAt": Int(Date().timeIntervalSince1970 * 1000),
+    ])
+  }
+
   func deviceRemoved(_ device: ThingSmartDevice) {
     guard let id = device.deviceModel?.devId else { return }
     emit(["deviceId": id, "removed": true])
@@ -971,6 +1126,78 @@ extension FlowerpotTuyaBridge: ThingSmartActivatorDelegate {
     }
   }
 }
+#endif
+
+// MARK: - 消息中心（消息通知页）
+
+#if canImport(ThingSmartHomeKit)
+#if canImport(ThingSmartMessageKit)
+extension FlowerpotTuyaBridge {
+  /// 按设备取消息（对应 Android `deviceMessages` → `getMessageListByMsgSrcId`）。
+  ///
+  /// iOS 是 `ThingSmartMessage.fetchEncryptMessageDetailListWithListRequestModel:success:failure:`，
+  /// 请求模型 `ThingSmartMessageDetailListRequestModel` 带 msgType / msgSrcId（= 设备 ID）/ limit / offset。
+  /// 返回结构同 Android：`{ok, instance, method, msgType, msgSrcId, count, items, diagnostic}`，
+  /// 每条消息把模型属性原样带上（页面按 msgTitle / msgTypeContent / msgContent / time / dateTime 读）。
+  /// 永远不抛错。
+  fileprivate func deviceMessages(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    let limit = (args["limit"] as? NSNumber)?.intValue ?? 50
+    let offset = (args["offset"] as? NSNumber)?.intValue ?? 0
+    let msgSrcId = (args["deviceId"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+    var requested = (args["msgType"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+    if requested.isEmpty { requested = "MSG_REPORT" }
+    guard !msgSrcId.isEmpty else {
+      result(["ok": false, "diagnostic": ["要设备 ID：消息只按设备（msgSrcId）取"]])
+      return
+    }
+    // Android 三档 MSG_REPORT / MSG_FAMILY / MSG_NOTIFY ↔ iOS ThingMessageTypeAlarm / Family / Notice。
+    let type: ThingMessageType
+    switch requested {
+    case "MSG_FAMILY": type = .family
+    case "MSG_NOTIFY": type = .notice
+    default: type = .alarm
+    }
+    let request = ThingSmartMessageDetailListRequestModel()
+    request.msgType = type
+    request.msgSrcId = msgSrcId
+    request.limit = limit
+    request.offset = offset
+    let method = "fetchEncryptMessageDetailListWithListRequestModel"
+    let diagnostic = ["ThingSmartMessage.\(method)(msgType=\(requested), msgSrcId=\(msgSrcId), offset=\(offset), limit=\(limit))"]
+    let message = ThingSmartMessage()
+    message.fetchEncryptMessageDetailList(with: request, success: { [message] list in
+      _ = message
+      let objects = ((list as Any) as? [NSObject]) ?? []
+      let rows = objects.map { FlowerpotTuyaBridge.objectFields($0) }
+      result([
+        "ok": true,
+        "instance": "ThingSmartMessage",
+        "method": method,
+        "msgType": requested,
+        "msgSrcId": msgSrcId,
+        "count": rows.count,
+        "items": rows,
+        "diagnostic": diagnostic + ["← \(rows.count) 条"],
+      ])
+    }, failure: { [message] error in
+      _ = message
+      let nsError = error as NSError?
+      result([
+        "ok": false,
+        "code": nsError.map { String($0.code) } ?? "sdk_error",
+        "message": error?.localizedDescription ?? "取消息失败",
+        "diagnostic": diagnostic + ["✗ \(FlowerpotTuyaBridge.otaError(error))"],
+      ])
+    })
+  }
+}
+#else
+extension FlowerpotTuyaBridge {
+  fileprivate func deviceMessages(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    result(["ok": false, "diagnostic": ["包里没有 ThingSmartMessageKit，取不到消息"]])
+  }
+}
+#endif
 #endif
 
 // MARK: - 蓝牙发现与双模配网
@@ -1124,7 +1351,12 @@ extension FlowerpotTuyaBridge: CBCentralManagerDelegate {
   ///
   /// 字段按涂鸦 iOS 文档的属性名读（uuid / productId / mac / isActive / bleType），读不到就空着，
   /// 原样 description 放进 raw，真机上一眼能看出 SDK 给了什么。
-  /// supportWifiList 恒为 false：iOS 端没接「设备自报 Wi-Fi 列表」，下一页手动输入。
+  ///
+  /// supportWifiList：Android 按 `ScanDeviceBean.flag` 的 `CombosFlagCapability.SCAN_WIFI` 位判断；
+  /// iOS 的 `ThingBLEAdvModel` 没有对应的能力位（文档只列了 uuid / productId / mac / isActive /
+  /// isSupport5G / isProuductKey / bleProtocolV / isSupportMultiUserShare / bleType），所以一律按 true 报，
+  /// 让 Dart 和 Android 一样先问设备要 Wi-Fi 列表；搜索页只列花盆和割草机（都是双模、Android 上能读列表），
+  /// 问不到时 Dart 不拦路，回落成手动输入 Wi-Fi 名。
   fileprivate func bleDeviceMap(_ model: NSObject) -> [String: Any] {
     let peripheral = Self.advValue(model, "peripheral") as? NSObject
     let rssi = Self.advNumber(model, "rssi", "RSSI") ?? Self.advNumber(peripheral, "rssi", "RSSI")
@@ -1139,7 +1371,7 @@ extension FlowerpotTuyaBridge: CBCentralManagerDelegate {
       "name": name,
       "rssi": rssi?.intValue ?? 0,
       "bound": Self.advNumber(model, "isActive")?.boolValue ?? false,
-      "supportWifiList": false,
+      "supportWifiList": true,
       "configType": Self.advString(model, "bleType"),
       "flag": 0,
       "raw": model.description,
@@ -1183,6 +1415,8 @@ extension FlowerpotTuyaBridge: ThingSmartBLEManagerDelegate, ThingSmartBLEWifiAc
       return
     }
     stopBleScanning()
+    // 上一轮查 Wi-Fi 列表时留下的蓝牙连接要放掉：设备只有没被连着时才广播。
+    if blePairingResult == nil { releaseBleLink() }
     // 新一轮不沿用上一轮扫到的设备（产品口径：按实际搜索展示，不要缓存）。
     bleScanned.removeAll()
     bleSeq = 0
@@ -1217,9 +1451,206 @@ extension FlowerpotTuyaBridge: ThingSmartBLEManagerDelegate, ThingSmartBLEWifiAc
   /// 配网进行中不动它，免得把正在下发凭据的那条连接掐断。
   fileprivate func disconnectBleDevice(_ result: @escaping FlutterResult) {
     if blePairingResult == nil {
+      finishBleWifiList(with: FlutterError(code: "ble_wifi_list_cancelled", message: "已断开设备蓝牙", details: nil))
+      releaseBleLink()
       bleWifiActivator()?.stopDiscover()
     }
     result(nil)
+  }
+
+  /// 放掉查 Wi-Fi 列表时建的那条蓝牙连接。没有时什么都不做。
+  fileprivate func releaseBleLink() {
+    guard let uuid = bleLinkedUuid else { return }
+    bleLinkedUuid = nil
+    bleManager()?.disconnectBLE(withUUID: uuid, success: { [weak self] in
+      self?.pairingTrace("ble: 已断开 \(uuid)（断开后设备才会重新广播）")
+    }, failure: { [weak self] error in
+      self?.pairingTrace("ble: 断开 \(uuid) 失败 \(FlowerpotTuyaBridge.otaError(error))")
+    })
+  }
+
+  /// 手机和这台（已绑定）设备的蓝牙连着没有：`ThingSmartBLEManager.deviceStatueWithUUID`。
+  fileprivate func bleLocalOnline(_ uuid: String) -> Bool? {
+    guard !uuid.isEmpty, let manager = bleManager() else { return nil }
+    return manager.deviceStatue(withUUID: uuid)
+  }
+
+  /// **双模第②步：问设备要它自己扫到的 Wi-Fi 列表**（对应 Android `queryDeviceConfigState`）。
+  ///
+  /// `ThingSmartBLEWifiActivator.connectAndQueryWifiListWithUUID:success:failure:` 按扫到的 uuid
+  /// 和设备建本地蓝牙连接再问列表，列表从 `bleWifiActivator:didScanWifiList:uuid:error:` 回来。
+  /// 这条连接留着给下一步配网复用（[bleLinkedUuid] → pairDeviceWithUUID）。
+  /// SDK 这条没有超时参数，按 Dart 给的 timeoutMs（默认 30 秒）兜底。
+  fileprivate func queryBleWifiList(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    let uuid = args["uuid"] as? String ?? ""
+    guard !uuid.isEmpty else {
+      sdkError(result, code: "ble_uuid_required", message: "查设备 Wi-Fi 列表必须给 BLE 扫到的 uuid")
+      return
+    }
+    guard bleScanned[uuid] != nil else {
+      sdkError(result, code: "ble_device_missing", message: "uuid=\(uuid) 不在本轮蓝牙扫描结果里，请重新扫描")
+      return
+    }
+    guard let activator = bleWifiActivator() else {
+      sdkError(result, code: "sdk_unavailable", message: "无法获取双模配网实例")
+      return
+    }
+    finishBleWifiList(with: FlutterError(code: "ble_wifi_list_cancelled", message: "被新的查询取代", details: nil))
+    if bleLinkedUuid != uuid { releaseBleLink() }
+    bleWifiListResult = result
+    bleWifiListUuid = uuid
+    activator.bleWifiDelegate = self
+    let timeoutMs = (args["timeoutMs"] as? NSNumber)?.intValue ?? 30_000
+    pairingTrace("ble wifi: connectAndQueryWifiList(uuid=\(uuid), timeout=\(timeoutMs)ms)")
+    activator.connectAndQueryWifiList(withUUID: uuid, success: { [weak self] in
+      self?.pairingTrace("ble wifi: 已连上设备，等它报 Wi-Fi 列表")
+    }, failure: { [weak self] error in
+      guard let self else { return }
+      self.pairingTrace("ble wifi: 失败 \(FlowerpotTuyaBridge.otaError(error))")
+      self.finishBleWifiList(with: self.flutterError(error, fallback: "读取设备 Wi-Fi 列表失败"))
+    })
+    let watchdog = DispatchWorkItem { [weak self] in
+      guard let self, self.bleWifiListResult != nil else { return }
+      self.pairingTrace("ble wifi: \(timeoutMs)ms 内设备没报列表，按超时结束")
+      self.finishBleWifiList(with: FlutterError(code: "ble_wifi_list_timeout", message: "读取设备 Wi-Fi 列表超时", details: nil))
+    }
+    bleWifiListWatchdog = watchdog
+    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(timeoutMs), execute: watchdog)
+  }
+
+  /// 把 [value] 回给等着的那次查 Wi-Fi 列表。没有在等时什么都不做。
+  fileprivate func finishBleWifiList(with value: Any?) {
+    bleWifiListWatchdog?.cancel()
+    bleWifiListWatchdog = nil
+    guard let callback = bleWifiListResult else { return }
+    bleWifiListResult = nil
+    bleWifiListUuid = nil
+    callback(value)
+  }
+
+  /// 设备报回的 Wi-Fi 列表 → Dart `DeviceWifiNetwork.fromMap`（ssid / rssi / sec / raw，与 Android 同）。
+  /// 文档没写元素格式：字典、字符串、模型对象三种都认，认不出的原样放 raw。
+  fileprivate static func bleWifiList(_ list: [Any]?) -> [[String: Any]] {
+    return (list ?? []).map { item in
+      if let text = item as? String {
+        return ["ssid": text, "rssi": 0, "sec": 0, "raw": text]
+      }
+      var fields: [String: Any] = [:]
+      if let dict = item as? [AnyHashable: Any] {
+        for (key, value) in dict { fields["\(key)"] = value }
+      } else if let object = item as? NSObject {
+        fields = objectFields(object)
+      }
+      func pick(_ keys: String...) -> Any? {
+        for key in keys {
+          if let value = fields[key], !(value is NSNull) { return value }
+        }
+        return nil
+      }
+      let ssid = pick("ssid", "SSID", "name").map { "\($0)" } ?? ""
+      let rssi = (pick("rssi", "RSSI", "signal") as? NSNumber)?.intValue
+        ?? Int("\(pick("rssi", "RSSI", "signal") ?? "")") ?? 0
+      let sec = (pick("sec", "security", "encrypt") as? NSNumber)?.intValue
+        ?? Int("\(pick("sec", "security", "encrypt") ?? "")") ?? 0
+      return ["ssid": ssid, "rssi": rssi, "sec": sec, "raw": "\(item)"]
+    }
+  }
+
+  /// 已绑定设备的涂鸦产品名（对应 Android `deviceProductName`）。
+  ///
+  /// 取的字段同 Android：这台设备模型上的 productId + uuid，走查配网设备信息那条云端接口
+  /// （Android `getActivatorDeviceInfo(productId, uuid, mac)`，iOS `queryDeviceInfoWithUUID:productId:`），
+  /// 读回来的 name 就是涂鸦平台上设的产品名。永远回 map：`{name?, productId, code?, message?}`。
+  fileprivate func deviceProductName(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    let id = args["deviceId"] as? String ?? ""
+    guard let model = (watched[id] ?? ThingSmartDevice(deviceId: id))?.deviceModel else {
+      result(["name": NSNull(), "code": "no_device", "message": "找不到设备 \(id)"])
+      return
+    }
+    let productId = model.productId ?? ""
+    let uuid = model.uuid ?? ""
+    guard let manager = bleManager() else {
+      result(["name": NSNull(), "code": "no_activator", "message": "拿不到 ThingSmartBLEManager", "queryProductId": productId])
+      return
+    }
+    manager.queryDeviceInfo(withUUID: uuid, productId: productId, success: { dict in
+      var info = Self.productInfoMap(dict, productId: productId)
+      info["queryProductId"] = productId
+      result(info)
+    }, failure: { error in
+      let nsError = error as NSError?
+      result([
+        "name": NSNull(),
+        "code": nsError.map { String($0.code) } ?? "sdk_error",
+        "message": error?.localizedDescription ?? "查询产品信息失败",
+        "queryProductId": productId,
+      ])
+    })
+  }
+
+  /// 云端返回的产品信息 → Dart（name / icon / productId / raw，与 Android productInfoMap 同）。
+  fileprivate static func productInfoMap(_ dict: Any?, productId: String) -> [String: Any] {
+    let info = dict as? [AnyHashable: Any] ?? [:]
+    let name = (info["name"] ?? info["productName"]).map { "\($0)" } ?? ""
+    let icon = (info["icon"] ?? info["iconUrl"]).map { "\($0)" } ?? ""
+    let pid = (info["productId"] ?? info["pid"]).map { "\($0)" } ?? productId
+    return [
+      "name": name.isEmpty ? NSNull() : name,
+      "icon": icon,
+      "productId": pid,
+      "raw": "\(info)",
+    ]
+  }
+
+  /// 连这台已绑定设备的蓝牙（对应 Android `bleConnectDevice`）：已连着直接回；否则
+  /// `ThingSmartBLEManager.connectBLEWithUUID:productKey:` 发起，连上 / 失败 / 超时（默认 15 秒）就回。
+  fileprivate func bleConnectDevice(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    let id = args["deviceId"] as? String ?? ""
+    let timeoutMs = (args["timeoutMs"] as? NSNumber)?.intValue ?? 15_000
+    guard let manager = bleManager() else {
+      result(["connected": false, "diagnostic": ["ThingSmartBLEManager 取不到"]])
+      return
+    }
+    guard let model = (watched[id] ?? ThingSmartDevice(deviceId: id))?.deviceModel else {
+      result(["connected": false, "diagnostic": ["找不到设备 \(id)"]])
+      return
+    }
+    let uuid = model.uuid ?? ""
+    let productId = model.productId ?? ""
+    if !uuid.isEmpty, manager.deviceStatue(withUUID: uuid) {
+      result(["connected": true, "already": true, "diagnostic": ["本来就连着"]])
+      return
+    }
+    var diagnostic = ["设备 uuid=\(uuid) productId=\(productId)"]
+    withBluetoothState(timeout: 3) { [weak self] state in
+      guard let self else { return }
+      guard state == .poweredOn else {
+        diagnostic.append("手机蓝牙不可用（state=\(state.rawValue)）")
+        result(["connected": false, "reason": "phone_bluetooth_off", "diagnostic": diagnostic])
+        return
+      }
+      let started = Date()
+      var done = false
+      func finish(_ connected: Bool, _ why: String) {
+        guard !done else { return }
+        done = true
+        diagnostic.append(why)
+        result([
+          "connected": connected,
+          "elapsedMs": Int(Date().timeIntervalSince(started) * 1000),
+          "diagnostic": diagnostic,
+        ])
+      }
+      manager.connectBLE(withUUID: uuid, productKey: productId, success: {
+        finish(true, "connectBLE 成功")
+      }, failure: {
+        finish(manager.deviceStatue(withUUID: uuid), "connectBLE 失败")
+      })
+      DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(timeoutMs)) {
+        finish(manager.deviceStatue(withUUID: uuid), "\(timeoutMs)ms 内没连上")
+      }
+      _ = self
+    }
   }
 
   /// 按扫到的 uuid + productId 去云端查产品名和图标（搜索页列表上显示用）。
@@ -1231,19 +1662,18 @@ extension FlowerpotTuyaBridge: ThingSmartBLEManagerDelegate, ThingSmartBLEWifiAc
       return
     }
     manager.queryDeviceInfo(withUUID: uuid, productId: productId, success: { dict in
-      let info = (dict as Any) as? [AnyHashable: Any] ?? [:]
-      result([
-        "name": (info["name"] ?? info["productName"]).map { "\($0)" } ?? "",
-        "icon": (info["icon"] ?? info["iconUrl"]).map { "\($0)" } ?? "",
-        "productId": productId,
-        "raw": "\(info)",
-      ])
+      result(Self.productInfoMap(dict, productId: productId))
     }, failure: { [weak self] error in self?.fail(result, error) })
   }
 
   /// 双模配网：把路由器 SSID / 密码经蓝牙交给设备，设备自己连路由器并注册到云端。
   ///
-  /// 涂鸦 iOS 的这条接口按家庭 id 自己取令牌，不用 prepareActivatorToken 预取的那个；
+  /// 两条路，结果都从 `bleWifiActivator:didReceiveBLEWifiConfigDevice:error:` 回来：
+  /// - 上一步查过 Wi-Fi 列表、蓝牙还连着（[bleLinkedUuid]）→ `pairDeviceWithUUID:token:ssid:pwd:timeout:`
+  ///   复用那条连接（涂鸦文档：扫描 Wi-Fi 列表之后用它配网，避免重复连接）。令牌用
+  ///   prepareActivatorToken 预取的，过期就现取，与 Android 的并行配网器一致。
+  /// - 没查过列表 → `startConfigBLEWifiDeviceWithUUID:homeId:productId:ssid:password:timeout:`，
+  ///   这条按家庭 id 自己取令牌。
   /// 手机全程连着路由器，不存在 AP 那种「连上热点就没外网」的问题。
   fileprivate func pairBleDevice(_ args: [String: Any], _ result: @escaping FlutterResult) {
     let uuid = args["uuid"] as? String ?? ""
@@ -1260,6 +1690,29 @@ extension FlowerpotTuyaBridge: ThingSmartBLEManagerDelegate, ThingSmartBLEWifiAc
     let password = args["password"] as? String ?? ""
     // 上一次还没回话就又来一次：先了结旧的，否则旧那次的 Future 永远挂着。
     finishBlePairing(with: FlutterError(code: "pair_cancelled", message: "被新的配网请求取代", details: nil))
+    finishBleWifiList(with: FlutterError(code: "ble_wifi_list_cancelled", message: "已开始配网", details: nil))
+    if bleLinkedUuid == uuid {
+      let start: (String) -> Void = { [weak self] token in
+        guard let self else { return }
+        guard let activator = self.bleWifiActivator() else {
+          self.sdkError(result, code: "sdk_unavailable", message: "无法获取双模配网实例")
+          return
+        }
+        self.blePairingResult = result
+        activator.bleWifiDelegate = self
+        self.pairingTrace("ble pair: pairDevice(uuid=\(uuid))，复用查 Wi-Fi 列表时的蓝牙连接")
+        activator.pairDevice(withUUID: uuid, token: token, ssid: ssid, pwd: password, timeout: 120)
+        self.armBlePairingWatchdog()
+      }
+      if let token = freshActivatorToken() {
+        start(token)
+      } else {
+        withHome(result) { [weak self] home in
+          self?.fetchActivatorToken(home, result, ready: start)
+        }
+      }
+      return
+    }
     withHome(result) { [weak self] home in
       guard let self else { return }
       guard let activator = self.bleWifiActivator() else {
@@ -1279,21 +1732,27 @@ extension FlowerpotTuyaBridge: ThingSmartBLEManagerDelegate, ThingSmartBLEWifiAc
         password: password,
         timeout: 120,
         success: { [weak self] in self?.pairingTrace("ble pair: 凭据已经蓝牙下发，等设备连云") },
-        failure: { [weak self] error in
+        // ThingFailureHandler 不带参数（涂鸦 Swift 示例同为 `failure: { }`），具体原因看 SDK 日志。
+        failure: { [weak self] in
           guard let self else { return }
-          self.pairingTrace("ble pair: 下发失败 \(FlowerpotTuyaBridge.otaError(error))")
-          self.finishBlePairing(with: self.flutterError(error, fallback: "蓝牙配网失败"))
+          self.pairingTrace("ble pair: 下发失败")
+          self.finishBlePairing(with: FlutterError(code: "ble_pair_send_failed", message: "蓝牙下发配网信息失败，请让设备靠近手机后重试", details: nil))
         }
       )
-      // 兜底：SDK 的结果回调到 130 秒还没来，就按超时了结。
-      let watchdog = DispatchWorkItem { [weak self] in
-        guard let self, self.blePairingResult != nil else { return }
-        self.pairingTrace("ble pair: 130 秒未收到 SDK 结果，按超时结束")
-        self.finishBlePairing(with: FlutterError(code: "pair_timeout", message: "蓝牙配网超时，请让设备靠近手机并重启设备后重试", details: nil))
-      }
-      self.blePairingWatchdog = watchdog
-      DispatchQueue.main.asyncAfter(deadline: .now() + 130, execute: watchdog)
+      self.armBlePairingWatchdog()
     }
+  }
+
+  /// 兜底：SDK 的结果回调到 130 秒还没来，就按超时了结。
+  fileprivate func armBlePairingWatchdog() {
+    blePairingWatchdog?.cancel()
+    let watchdog = DispatchWorkItem { [weak self] in
+      guard let self, self.blePairingResult != nil else { return }
+      self.pairingTrace("ble pair: 130 秒未收到 SDK 结果，按超时结束")
+      self.finishBlePairing(with: FlutterError(code: "pair_timeout", message: "蓝牙配网超时，请让设备靠近手机并重启设备后重试", details: nil))
+    }
+    blePairingWatchdog = watchdog
+    DispatchQueue.main.asyncAfter(deadline: .now() + 130, execute: watchdog)
   }
 
   /// 了结进行中的双模配网：停掉配网器，把 [value] 回给等着的那次 pairBleDevice。
@@ -1302,6 +1761,8 @@ extension FlowerpotTuyaBridge: ThingSmartBLEManagerDelegate, ThingSmartBLEWifiAc
     blePairingWatchdog = nil
     guard let callback = blePairingResult else { return }
     blePairingResult = nil
+    // 配网结束（成或败），那条蓝牙连接交给 SDK 收尾，不再复用。
+    bleLinkedUuid = nil
     let activator = bleWifiActivator()
     activator?.stopDiscover()
     activator?.bleWifiDelegate = nil
@@ -1345,9 +1806,39 @@ extension FlowerpotTuyaBridge: ThingSmartBLEManagerDelegate, ThingSmartBLEWifiAc
     }
   }
 
+  /// 设备报回的 Wi-Fi 列表（connectAndQueryWifiListWithUUID 的结果）。
+  @objc(bleWifiActivator:didScanWifiList:uuid:error:)
+  func bleWifiActivator(
+    _ activator: ThingSmartBLEWifiActivator?,
+    didScanWifiList wifiList: [Any]?,
+    uuid: String?,
+    error: Error?
+  ) {
+    guard bleWifiListResult != nil else { return }
+    if let uuid, let asked = bleWifiListUuid, !uuid.isEmpty, uuid != asked { return }
+    if let error {
+      pairingTrace("ble wifi: 失败 \(FlowerpotTuyaBridge.otaError(error))")
+      finishBleWifiList(with: flutterError(error, fallback: "读取设备 Wi-Fi 列表失败"))
+      return
+    }
+    let list = Self.bleWifiList(wifiList)
+    pairingTrace("ble wifi: 设备报回 \(list.count) 个网络")
+    // 连接留着给配网用。
+    bleLinkedUuid = bleWifiListUuid
+    finishBleWifiList(with: list)
+  }
+
   /// 设备不在配网状态（例如已静置退出）。
   @objc(bleWifiActivator:notConfigStateWithError:)
   func bleWifiActivator(_ activator: ThingSmartBLEWifiActivator?, notConfigStateWithError error: Error?) {
+    if bleWifiListResult != nil {
+      pairingTrace("ble wifi: 设备不在配网状态 \(FlowerpotTuyaBridge.otaError(error))")
+      finishBleWifiList(with: FlutterError(
+        code: "ble_not_config_state",
+        message: "设备不在配网状态，请给设备断电重启后重试",
+        details: nil
+      ))
+    }
     guard blePairingResult != nil else { return }
     pairingTrace("ble pair: 设备不在配网状态 \(FlowerpotTuyaBridge.otaError(error))")
     finishBlePairing(with: FlutterError(
@@ -1379,6 +1870,24 @@ extension FlowerpotTuyaBridge {
   }
 
   fileprivate func finishBlePairing(with value: Any?) {}
+
+  fileprivate func finishBleWifiList(with value: Any?) {}
+
+  fileprivate func releaseBleLink() {}
+
+  fileprivate func bleLocalOnline(_ uuid: String) -> Bool? { nil }
+
+  fileprivate func queryBleWifiList(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    sdkError(result, code: "ble_unavailable", message: "SDK 蓝牙模块不可用：包里没有 ThingSmartBLEKit")
+  }
+
+  fileprivate func deviceProductName(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    result(["name": NSNull(), "code": "ble_unavailable", "message": "SDK 蓝牙模块不可用：包里没有 ThingSmartBLEKit"])
+  }
+
+  fileprivate func bleConnectDevice(_ args: [String: Any], _ result: @escaping FlutterResult) {
+    result(["connected": false, "diagnostic": ["SDK 蓝牙模块不可用：包里没有 ThingSmartBLEKit"]])
+  }
 }
 #endif
 #endif

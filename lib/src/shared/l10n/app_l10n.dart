@@ -111,12 +111,13 @@ class AppL10n {
     AppLanguage.en: 'Enable auto detection',
   });
 
-  String get plantDetectionDescription => t(const {
+  /// [productName] 是这台设备的涂鸦产品名（`FlowerpotState.productNameLabel`）。
+  String plantDetectionDescription(String productName) => t({
     AppLanguage.zh:
-        '开启后，东方金穗发现盆里的植物和当前记录不一致时会主动提醒，\n'
+        '开启后，$productName发现盆里的植物和当前记录不一致时会主动提醒，\n'
         '由你确认换成新植物还是保持原样。',
     AppLanguage.en:
-        'When on, 东方金穗 asks you to confirm whenever the plant it '
+        'When on, $productName asks you to confirm whenever the plant it '
         'detects differs from the one on record.',
   });
 

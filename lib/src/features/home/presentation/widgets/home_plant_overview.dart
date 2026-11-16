@@ -31,6 +31,7 @@ class HomePlantOverview extends StatelessWidget {
                 child: _PlantHeroImage(
                   imageUrl: model.plantMissing ? null : model.plantImageUrl,
                   plantMissing: model.plantMissing,
+                  productName: model.productName,
                 ),
               ),
               Positioned(
@@ -105,7 +106,11 @@ class HomePlantOverview extends StatelessWidget {
 /// 唯一的例外是 [plantMissing]：设备明确报了「盆里没有植物」(116 = -1)，画一张
 /// **不带植物的花盆**说的就是事实，不是编的。`DevicePlantArtwork` 是同一套口径。
 class _PlantHeroImage extends StatelessWidget {
-  const _PlantHeroImage({required this.imageUrl, this.plantMissing = false});
+  const _PlantHeroImage({
+    required this.imageUrl,
+    this.plantMissing = false,
+    this.productName = '设备',
+  });
 
   static const double _width = 132;
   static const double _height = 170;
@@ -114,6 +119,9 @@ class _PlantHeroImage extends StatelessWidget {
 
   /// 设备报了 116 = -1：画不带植物的花盆，别让上一株的照片留在页面上。
   final bool plantMissing;
+
+  /// 无障碍标签里称呼设备的名字（涂鸦产品名）。
+  final String productName;
 
   @override
   Widget build(BuildContext context) {
@@ -138,7 +146,7 @@ class _PlantHeroImage extends StatelessWidget {
     height: _height,
     fit: BoxFit.contain,
     filterQuality: FilterQuality.high,
-    semanticLabel: '未种植物的东方金穗',
+    semanticLabel: '未种植物的$productName',
   );
 
   /// 有植物但后台没配图：**留空位**，不画图。位置照占，免得下面的内容跳动。

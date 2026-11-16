@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/hearing_settings_page_model.dart';
 import 'device_online_guard.dart';
+import 'device_product_name.dart';
 import 'widgets/hearing_settings_card.dart';
 
 class HearingSettingsPage extends StatefulWidget {
@@ -15,7 +16,11 @@ class HearingSettingsPage extends StatefulWidget {
   State<HearingSettingsPage> createState() => _HearingSettingsPageState();
 }
 
-class _HearingSettingsPageState extends State<HearingSettingsPage> {
+class _HearingSettingsPageState extends State<HearingSettingsPage>
+    with DeviceProductNameRefresh<HearingSettingsPage> {
+  @override
+  String get productNameDeviceId => widget.deviceId;
+
   bool updatingInteraction = false;
   bool updatingSensitivity = false;
   double? pendingSensitivity;
@@ -66,7 +71,10 @@ class _HearingSettingsPageState extends State<HearingSettingsPage> {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final model = HearingSettingsPageModel.fromSettings(device.settings);
+    final model = HearingSettingsPageModel.fromSettings(
+      device.settings,
+      productName: FlowerpotScope.of(context).productNameLabel(widget.deviceId),
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '听觉感知', leading: AppBackButton()),
       background: AppPageBackground.standard,

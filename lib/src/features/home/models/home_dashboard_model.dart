@@ -49,6 +49,7 @@ class HomeDashboardModel {
     this.emptyMessage = '为设备添加植物后，即可生成专属养护建议与\n环境数据分析。',
     this.addPlantLabel = '添加植物',
     this.scene = HomeDashboardScene.withCompanionSummary,
+    this.productName = '设备',
   });
 
   factory HomeDashboardModel.fromDevice({
@@ -56,6 +57,7 @@ class HomeDashboardModel {
     required String userLabel,
     HomeDashboardScene scene = HomeDashboardScene.withCompanionSummary,
     String language = 'zh',
+    String productName = '设备',
   }) {
     final english = language.trim().toLowerCase().startsWith('en');
     final settings = device?.settings ?? const DeviceControlSettings();
@@ -143,12 +145,14 @@ class HomeDashboardModel {
         HomeActionData(kind: HomeActionKind.help, label: '帮助中心'),
         HomeActionData(kind: HomeActionKind.settings, label: '设置'),
       ],
-      helpTopics: const <String>[
+      // 设备称呼用涂鸦产品名（2026-11-16，FlowerpotState.productNameLabel）。
+      helpTopics: <String>[
         '首次使用指南',
-        '如何设定东方金穗的表情',
-        '如何将东方金穗重新连接到Wi-Fi?',
+        '如何设定$productName的表情',
+        '如何将$productName重新连接到Wi-Fi?',
       ],
       scene: scene,
+      productName: productName,
     );
   }
 
@@ -206,6 +210,9 @@ class HomeDashboardModel {
   final String emptyMessage;
   final String addPlantLabel;
   final HomeDashboardScene scene;
+
+  /// 文案与无障碍标签里称呼这台设备的名字：涂鸦产品名，问不到时为「设备」。
+  final String productName;
 
   bool get showCompanionSummary =>
       scene != HomeDashboardScene.withoutCompanionSummary;

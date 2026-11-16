@@ -8,6 +8,7 @@ import '../../../tuya/tuya_config.dart';
 import '../../../tuya/tuya_models.dart';
 import '../models/display_settings_page_model.dart';
 import 'device_online_guard.dart';
+import 'device_product_name.dart';
 import 'widgets/display_settings_card.dart';
 
 class DisplaySettingsPage extends StatefulWidget {
@@ -26,7 +27,11 @@ class DisplaySettingsPage extends StatefulWidget {
 //   还在路上——只看「快照 == 最终值」就会过早放手，随后迟到的中间值把滑块拉回去又拉回来。
 //   所以本次调节记下已成功下发了几次（_sentBrightnessCount），等 DP168 真的报回同样多次、且最新值
 //   等于最终值，再稳定 500ms 才把滑块交还给设备状态；最迟 5 秒仍以设备状态为准，失败立即交还。
-class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
+class _DisplaySettingsPageState extends State<DisplaySettingsPage>
+    with DeviceProductNameRefresh<DisplaySettingsPage> {
+  @override
+  String get productNameDeviceId => widget.deviceId;
+
   static const _brightnessInterval = Duration(milliseconds: 300);
   static const _brightnessSettleDelay = Duration(milliseconds: 500);
   static const _brightnessEchoTimeout = Duration(seconds: 5);
@@ -247,7 +252,10 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final model = DisplaySettingsPageModel.fromSettings(device.settings);
+    final model = DisplaySettingsPageModel.fromSettings(
+      device.settings,
+      productName: FlowerpotScope.of(context).productNameLabel(widget.deviceId),
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '显示', leading: AppBackButton()),
       background: AppPageBackground.standard,

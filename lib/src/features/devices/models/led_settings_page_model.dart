@@ -6,18 +6,29 @@ import '../../../tuya/tuya_models.dart';
 /// 原来固件没有单独的 LED 功能点，和「显示」页共用 117；新 DP 说明写明 117 是屏幕背光、
 /// 166 是双色 LED，两个独立开关，所以两页不再联动。
 class LedSettingsPageModel {
-  const LedSettingsPageModel({required this.ledEnabled});
+  const LedSettingsPageModel({
+    required this.ledEnabled,
+    this.productName = '设备',
+  });
 
-  factory LedSettingsPageModel.fromSettings(DeviceControlSettings settings) =>
-      LedSettingsPageModel(ledEnabled: settings.ledEnabled);
+  factory LedSettingsPageModel.fromSettings(
+    DeviceControlSettings settings, {
+    String productName = '设备',
+  }) => LedSettingsPageModel(
+    ledEnabled: settings.ledEnabled,
+    productName: productName,
+  );
 
   final bool ledEnabled;
+
+  /// 文案里称呼设备的名字：涂鸦产品名（[FlowerpotState.productNameLabel]）。
+  final String productName;
 
   String get status => ledEnabled ? '已开启' : '已关闭';
 
   /// 2026-09-28 产品改文案（背后已是 DP166 双色 LED，不再是屏幕指示灯）。
-  List<String> get descriptionLines => const <String>[
-    '关闭后，东方金穗的双色 LED 灯效将不再亮起',
+  List<String> get descriptionLines => <String>[
+    '关闭后，$productName的双色 LED 灯效将不再亮起',
   ];
 
   String get description => descriptionLines.join('\n');

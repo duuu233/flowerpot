@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/behavior_settings_page_model.dart';
 import 'device_online_guard.dart';
+import 'device_product_name.dart';
 import 'widgets/behavior_schedule_card.dart';
 import 'widgets/schedule_slot_dialog.dart';
 import 'widgets/standby_settings_card.dart';
@@ -32,7 +33,11 @@ class BehaviorSettingsPage extends StatefulWidget {
   State<BehaviorSettingsPage> createState() => _BehaviorSettingsPageState();
 }
 
-class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
+class _BehaviorSettingsPageState extends State<BehaviorSettingsPage>
+    with DeviceProductNameRefresh<BehaviorSettingsPage> {
+  @override
+  String get productNameDeviceId => widget.deviceId;
+
   final Set<BehaviorScheduleKind> updating = <BehaviorScheduleKind>{};
 
   /// 休眠那张卡自己的在途标记：它和午休 / 夜间不是同一个 DP，互相不该锁住。
@@ -135,7 +140,10 @@ class _BehaviorSettingsPageState extends State<BehaviorSettingsPage> {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final model = BehaviorSettingsPageModel.fromSettings(device.settings);
+    final model = BehaviorSettingsPageModel.fromSettings(
+      device.settings,
+      productName: FlowerpotScope.of(context).productNameLabel(widget.deviceId),
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '行为', leading: AppBackButton()),
       background: AppPageBackground.standard,

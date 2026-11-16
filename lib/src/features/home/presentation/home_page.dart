@@ -297,6 +297,7 @@ class _HomePageState extends State<HomePage> with NetworkRetryAware<HomePage> {
           userLabel: state.user?.nickname ?? '用户',
           scene: widget.scene,
           language: state.languageCode,
+          productName: state.productNameLabel(device?.id),
         );
     final avatarImage = resolveUserAvatar(state.user?.avatarUrl);
     void goBack() => Navigator.of(context).maybePop();

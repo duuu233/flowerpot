@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/vibration_settings_page_model.dart';
 import 'device_online_guard.dart';
+import 'device_product_name.dart';
 import 'widgets/vibration_scene_switches_card.dart';
 import 'widgets/vibration_settings_card.dart';
 
@@ -16,7 +17,11 @@ class VibrationSettingsPage extends StatefulWidget {
   State<VibrationSettingsPage> createState() => _VibrationSettingsPageState();
 }
 
-class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
+class _VibrationSettingsPageState extends State<VibrationSettingsPage>
+    with DeviceProductNameRefresh<VibrationSettingsPage> {
+  @override
+  String get productNameDeviceId => widget.deviceId;
+
   bool updating = false;
   bool updatingKeyVibration = false;
   bool updatingPlantVibration = false;
@@ -69,7 +74,10 @@ class _VibrationSettingsPageState extends State<VibrationSettingsPage> {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final model = VibrationSettingsPageModel.fromSettings(device.settings);
+    final model = VibrationSettingsPageModel.fromSettings(
+      device.settings,
+      productName: FlowerpotScope.of(context).productNameLabel(widget.deviceId),
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '震动设置', leading: AppBackButton()),
       background: AppPageBackground.standard,

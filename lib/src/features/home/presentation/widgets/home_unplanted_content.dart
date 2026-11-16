@@ -119,7 +119,7 @@ class _UnplantedHero extends StatelessWidget {
                   height: 110,
                   fit: BoxFit.contain,
                   filterQuality: FilterQuality.high,
-                  semanticLabel: '东方金穗设备',
+                  semanticLabel: model.productName,
                 ),
               ),
               Positioned(

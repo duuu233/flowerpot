@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../models/touch_settings_page_model.dart';
 import 'device_online_guard.dart';
+import 'device_product_name.dart';
 import 'widgets/touch_settings_card.dart';
 
 class TouchSettingsPage extends StatefulWidget {
@@ -15,7 +16,11 @@ class TouchSettingsPage extends StatefulWidget {
   State<TouchSettingsPage> createState() => _TouchSettingsPageState();
 }
 
-class _TouchSettingsPageState extends State<TouchSettingsPage> {
+class _TouchSettingsPageState extends State<TouchSettingsPage>
+    with DeviceProductNameRefresh<TouchSettingsPage> {
+  @override
+  String get productNameDeviceId => widget.deviceId;
+
   bool updatingInteraction = false;
   bool updatingSensitivity = false;
   double? pendingSensitivity;
@@ -66,7 +71,10 @@ class _TouchSettingsPageState extends State<TouchSettingsPage> {
         body: const AppErrorView(title: '未找到设备', message: '设备不存在或已经解绑。'),
       );
     }
-    final model = TouchSettingsPageModel.fromSettings(device.settings);
+    final model = TouchSettingsPageModel.fromSettings(
+      device.settings,
+      productName: FlowerpotScope.of(context).productNameLabel(widget.deviceId),
+    );
     return AppPageScaffold(
       appBar: const AppPageHeader(title: '触觉感知', leading: AppBackButton()),
       background: AppPageBackground.standard,

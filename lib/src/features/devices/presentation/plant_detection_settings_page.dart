@@ -4,6 +4,7 @@ import '../../../app/flowerpot_app.dart';
 import '../../../design_system/design_system.dart';
 import '../../../shared/l10n/app_l10n.dart';
 import 'device_online_guard.dart';
+import 'device_product_name.dart';
 import 'widgets/device_toggle_settings_card.dart';
 import 'widgets/setting_orbit_illustration.dart';
 
@@ -23,7 +24,11 @@ class PlantDetectionSettingsPage extends StatefulWidget {
 }
 
 class _PlantDetectionSettingsPageState
-    extends State<PlantDetectionSettingsPage> {
+    extends State<PlantDetectionSettingsPage>
+    with DeviceProductNameRefresh<PlantDetectionSettingsPage> {
+  @override
+  String get productNameDeviceId => widget.deviceId;
+
   bool updating = false;
 
   Future<void> _setEnabled(bool value) async {
@@ -56,7 +61,9 @@ class _PlantDetectionSettingsPageState
       );
     }
     final enabled = device.settings.plantDetection;
-    final description = l10n.plantDetectionDescription;
+    final description = l10n.plantDetectionDescription(
+      FlowerpotScope.of(context).productNameLabel(widget.deviceId),
+    );
     return AppPageScaffold(
       appBar: AppPageHeader(
         title: l10n.plantDetection,

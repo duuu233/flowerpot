@@ -67,8 +67,9 @@ class BehaviorSettingsPageModel {
   const BehaviorSettingsPageModel({required this.nap, required this.night});
 
   factory BehaviorSettingsPageModel.fromSettings(
-    DeviceControlSettings settings,
-  ) {
+    DeviceControlSettings settings, {
+    String productName = '设备',
+  }) {
     final napPeriod = _period(
       settings.napPeriod,
       fallbackStart: const BehaviorClockTime(12, 0),
@@ -84,7 +85,8 @@ class BehaviorSettingsPageModel {
         kind: BehaviorScheduleKind.nap,
         title: '中午小憩',
         enabled: settings.napEnabled,
-        descriptionLines: const <String>['让东方金穗在正午稍作休息，可自定义她的小憩时', '间。'],
+        // 设备称呼用涂鸦产品名（[FlowerpotState.productNameLabel]）。
+        descriptionLines: <String>['让$productName在正午稍作休息，可自定义她的小憩时', '间。'],
         start: napPeriod.$1,
         end: napPeriod.$2,
         settings: settings,
@@ -93,7 +95,7 @@ class BehaviorSettingsPageModel {
         kind: BehaviorScheduleKind.night,
         title: '夜间睡眠',
         enabled: settings.nightEnabled,
-        descriptionLines: const <String>['设定东方金穗的夜间作息选择她的入睡与醒来时间。'],
+        descriptionLines: <String>['设定$productName的夜间作息选择她的入睡与醒来时间。'],
         start: nightPeriod.$1,
         end: nightPeriod.$2,
         settings: settings,

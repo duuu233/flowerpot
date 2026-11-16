@@ -1411,12 +1411,38 @@ class FlowerpotState extends ChangeNotifier {
   }
 
   /// 设备的**涂鸦产品名称**（更多设备信息「设备型号」，2026-09-23；不是昵称、不可改）。
-  /// 每次进页面都现问涂鸦，不跨页面缓存（2026-10-21 用户：SDK 的值不缓存）；页面自己
-  /// 只在本次停留内复用这一次结果。取不到返回 null，原因记进联调日志。
+  /// 每次进页面都现问涂鸦（2026-10-21 用户：SDK 的值不缓存）；页面自己只在本次停留内
+  /// 复用这一次结果。取不到返回 null，原因记进联调日志。
+  ///
+  /// 问到的名字同时记进 [productNameOf]（2026-11-16：花盆 / 割草机页面里称呼设备的文案
+  /// 改用涂鸦产品名，不再写死「东方金穗」）——那份只是本次会话最近一次现问的结果，
+  /// 让页面第一帧就有名字可画；进页面照样现问，问到新的就刷新。退出登录清空。
   Future<String?> productNameFor(String deviceId) => _loadProductName(deviceId);
 
+  /// 设备的涂鸦产品名（页面文案里称呼这台设备用），本次会话还没问到时为 null。
+  /// 显示用 [productNameLabel]，问不到时回落成「设备」。
+  String? productNameOf(String? deviceId) =>
+      deviceId == null ? null : _productNames[deviceId];
+
+  /// 页面文案里称呼这台设备的名字：涂鸦产品名，还没问到 / 问不到时说「设备」。
+  /// 外部通用页面（登录、我的、关于、协议）仍用应用名，不走这里。
+  String productNameLabel(String? deviceId) =>
+      productNameOf(deviceId) ?? fallbackProductName;
+
+  /// 涂鸦产品名问不到时的称呼。
+  static const String fallbackProductName = '设备';
+
+  final Map<String, String> _productNames = <String, String>{};
+
   Future<String?> _loadProductName(String deviceId) async {
-    final data = await _repository.deviceProductName(deviceId);
+    final epoch = _sessionEpoch;
+    final Map<String, Object?> data;
+    try {
+      data = await _repository.deviceProductName(deviceId);
+    } catch (error) {
+      _logInteraction('设备型号 ✗ $deviceId 取不到涂鸦产品名：$error');
+      return null;
+    }
     final name = '${data['name'] ?? ''}'.trim();
     if (name.isEmpty) {
       _logInteraction(
@@ -1425,7 +1451,18 @@ class FlowerpotState extends ChangeNotifier {
       return null;
     }
     _logInteraction('设备型号 ← $deviceId 涂鸦产品名「$name」');
+    if (epoch == _sessionEpoch && _productNames[deviceId] != name) {
+      _productNames[deviceId] = name;
+      notifyListeners();
+    }
     return name;
+  }
+
+  /// 设备清单刷新后把每台设备的涂鸦产品名现问一遍（不等、不抛错）。
+  void _refreshProductNames() {
+    for (final device in _devices) {
+      unawaited(_loadProductName(device.id));
+    }
   }
 
   /// 注册之后收到的推送（原样）。
@@ -5291,6 +5328,7 @@ class FlowerpotState extends ChangeNotifier {
       _syncMowerShutdownOnline();
       notifyListeners();
       unawaited(_seedMowerShutdown(epoch));
+      _refreshProductNames();
     } catch (error) {
       if (epoch != _sessionEpoch) return;
       // 失败不清空已有列表：断网重进时保留上一次拿到的设备，比直接白屏好。
@@ -5420,6 +5458,7 @@ class FlowerpotState extends ChangeNotifier {
     _sessionEpoch++;
     _user = null;
     _devices = <SmartPlanterDevice>[];
+    _productNames.clear();
     _otaProgress.clear();
     _otaTiming.clear();
     _otaUpdatedAt.clear();
