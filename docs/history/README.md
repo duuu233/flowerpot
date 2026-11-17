@@ -1,5 +1,6 @@
 # 本地操作更新记录
 
+- [2026-11-17 iOS 配网列表与设备列表按产品 ID 取涂鸦名称和图片](2026-11/2026-11-17-ios-product-name-icon.md)：iOS 设备列表补涂鸦产品图 `iconUrl`；广播 pid 多键名读取、产品信息解析加固并写调试日志；搜索页图标按云端产品 ID 再认、认不出画涂鸦产品图；设备列表名为空时用涂鸦产品名；未编译、未运行测试。
 - [2026-11-16 iOS 涂鸦桥接对齐 Android、设备页文案改用涂鸦产品名](2026-11/2026-11-16-ios-sdk-parity-product-name.md)：iOS 补设备自报 Wi-Fi 列表（`connectAndQueryWifiListWithUUID` + `pairDeviceWithUUID` 复用连接）、产品名、割草机按通道下发、消息通知按设备取消息、设备告警，修正双模配网 failure 回调参数；花盆设备页「东方金穗」改为涂鸦产品名（问不到说「设备」），外部通用页面不变；未编译、未运行测试。
 - [2026-11-16 iOS 补蓝牙发现与双模配网桥接](2026-11/2026-11-16-ios-ble-pairing.md)：iOS 原生桥接补齐蓝牙授权、探测、扫描、产品信息与双模配网，结构同 Android；未编译、未真机。
 - [2026-11-13 隐藏语言切换、iOS 包名与蒲公英用户包](2026-11/2026-11-13-hide-language-ios-pgyer.md)：「我的 → 设置」的语种设置与花盆「其他设置」的设备语言（DP153）都隐藏，App 界面固定中文；iOS Bundle ID 改为 `com.common.yikaltdtext`（Android 不变）；Xcode 打无日志 Ad Hoc 包的步骤与前置条件；未编译、未运行测试。

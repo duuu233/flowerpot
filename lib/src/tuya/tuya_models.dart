@@ -1212,16 +1212,28 @@ class BleDevice {
 /// BLE 广播里常常没有名字，页面上一行只有 `mac + pid + rssi`，人没法判断哪一台是花盆。
 /// 拿 pid 去云端换回产品名之后，列表才真的能"看出有没有"。
 class BleProductInfo {
-  const BleProductInfo({this.name = '', this.icon = '', this.raw = ''});
+  const BleProductInfo({
+    this.name = '',
+    this.icon = '',
+    this.productId = '',
+    this.raw = '',
+  });
 
   factory BleProductInfo.fromMap(Map<Object?, Object?> map) => BleProductInfo(
     name: map['name']?.toString() ?? '',
     icon: map['icon']?.toString() ?? '',
+    productId: map['productId']?.toString() ?? '',
     raw: map['raw']?.toString() ?? '',
   );
 
+  /// 涂鸦平台上的产品名（搜索页那一行显示的名字）。
   final String name;
+
+  /// 涂鸦平台上给这个产品配的图（URL）。认不出是花盆 / 割草机时搜索页画它。
   final String icon;
+
+  /// 云端回的产品 ID（没回就是查询时传的那个）。广播里的 pid 认不出时再按它认一次。
+  final String productId;
 
   /// 认不出字段时的原样 `toString()`。真机上一眼能看出 SDK 给的是什么 bean。
   final String raw;

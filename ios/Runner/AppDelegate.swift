@@ -976,6 +976,8 @@ final class FlowerpotTuyaBridge: NSObject {
       "online": device.isOnline,
       "activeTime": device.activeTime,
       "mac": device.uuid,
+      // 涂鸦平台上给这个产品配的图（同 Android DeviceBean.getIconUrl），设备列表那一列画的就是它。
+      "iconUrl": device.iconUrl,
       // 固件版本用 verSw；Android 侧曾经错取协议版本 pv，两端现在都用同一个字段。
       "firmwareVersion": device.verSw,
       "dps": device.dps,
@@ -1366,7 +1368,8 @@ extension FlowerpotTuyaBridge: CBCentralManagerDelegate {
       "type": "bleDevice",
       "seq": bleSeq,
       "uuid": Self.advString(model, "uuid"),
-      "productId": Self.advString(model, "productId"),
+      // 产品 ID：涂鸦文档属性名是 productId；isProuductKey 的设备放的是 productKey，两个都试。
+      "productId": Self.advString(model, "productId", "productKey", "pid"),
       "mac": Self.advString(model, "mac"),
       "name": name,
       "rssi": rssi?.intValue ?? 0,
@@ -1589,16 +1592,30 @@ extension FlowerpotTuyaBridge: ThingSmartBLEManagerDelegate, ThingSmartBLEWifiAc
   }
 
   /// 云端返回的产品信息 → Dart（name / icon / productId / raw，与 Android productInfoMap 同）。
+  ///
+  /// 字段按 tuya.m.product.info.get 的常见写法逐个试；外面再包一层 result / data 的也认。
+  /// NSNull、空串都算没有，不把 "<null>" 当成名字。
   fileprivate static func productInfoMap(_ dict: Any?, productId: String) -> [String: Any] {
-    let info = dict as? [AnyHashable: Any] ?? [:]
-    let name = (info["name"] ?? info["productName"]).map { "\($0)" } ?? ""
-    let icon = (info["icon"] ?? info["iconUrl"]).map { "\($0)" } ?? ""
-    let pid = (info["productId"] ?? info["pid"]).map { "\($0)" } ?? productId
+    var info = dict as? [AnyHashable: Any] ?? [:]
+    for wrapper in ["result", "data", "productInfo"] {
+      if let inner = info[wrapper] as? [AnyHashable: Any] { info = inner; break }
+    }
+    func text(_ keys: String...) -> String {
+      for key in keys {
+        guard let value = info[key], !(value is NSNull) else { continue }
+        let string = "\(value)".trimmingCharacters(in: .whitespacesAndNewlines)
+        if !string.isEmpty { return string }
+      }
+      return ""
+    }
+    let name = text("name", "productName")
+    let icon = text("icon", "iconUrl", "iconURL", "productIcon")
+    let pid = text("productId", "pid", "productKey")
     return [
       "name": name.isEmpty ? NSNull() : name,
       "icon": icon,
-      "productId": pid,
-      "raw": "\(info)",
+      "productId": pid.isEmpty ? productId : pid,
+      "raw": "\(dict ?? "")",
     ]
   }
 
@@ -1656,14 +1673,23 @@ extension FlowerpotTuyaBridge: ThingSmartBLEManagerDelegate, ThingSmartBLEWifiAc
   /// 按扫到的 uuid + productId 去云端查产品名和图标（搜索页列表上显示用）。
   fileprivate func queryBleProductInfo(_ args: [String: Any], _ result: @escaping FlutterResult) {
     let uuid = args["uuid"] as? String ?? ""
-    let productId = args["productId"] as? String ?? ""
+    var productId = (args["productId"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+    // Dart 没带到产品 ID 时，用本轮扫到的那条广播里的。
+    if productId.isEmpty, let model = bleScanned[uuid] {
+      productId = Self.advString(model, "productId", "productKey", "pid")
+    }
     guard let manager = bleManager() else {
       sdkError(result, code: "ble_unavailable", message: "SDK 蓝牙模块不可用")
       return
     }
-    manager.queryDeviceInfo(withUUID: uuid, productId: productId, success: { dict in
-      result(Self.productInfoMap(dict, productId: productId))
-    }, failure: { [weak self] error in self?.fail(result, error) })
+    manager.queryDeviceInfo(withUUID: uuid, productId: productId, success: { [weak self] dict in
+      let info = Self.productInfoMap(dict, productId: productId)
+      self?.pairingTrace("ble product: uuid=\(uuid) pid=\(productId) → \(info["name"] ?? "") raw=\(info["raw"] ?? "")")
+      result(info)
+    }, failure: { [weak self] error in
+      self?.pairingTrace("ble product: uuid=\(uuid) pid=\(productId) 失败 \(error?.localizedDescription ?? "")")
+      self?.fail(result, error)
+    })
   }
 
   /// 双模配网：把路由器 SSID / 密码经蓝牙交给设备，设备自己连路由器并注册到云端。

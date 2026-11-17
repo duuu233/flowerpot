@@ -392,6 +392,42 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('广播 pid 认不出时按云端回的产品 ID 画产品图，名字用涂鸦产品名', (tester) async {
+    // 2026-11-17：iOS 广播字段与 Android 不完全一样，连接设备那一行的名字和图都要按产品 ID 取。
+    PairingGate.reset();
+    final repository = _SlowNameRepository();
+    await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    repository.pushBleDevice(
+      const BleDevice(
+        uuid: 'uuid-other-pid',
+        name: 'BLE-xyz',
+        mac: 'AA:BB:CC:00:00:09',
+        productId: 'adv-pid-unknown',
+        rssi: -50,
+        bound: false,
+        supportWifiList: false,
+      ),
+    );
+    await tester.pump();
+    repository.names.complete(
+      const BleProductInfo(name: '涂鸦产品名', productId: TuyaConfig.productId),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('涂鸦产品名'), findsOneWidget);
+    expect(find.text('BLE-xyz'), findsNothing);
+    expect(find.byKey(const Key('device-search-icon-planter')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('名字一直查不回来：最多等 5 秒就退回广播里的名字，设备不会一直不出现', (
     tester,
   ) async {

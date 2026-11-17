@@ -246,7 +246,11 @@ class _DeviceListCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        device.name,
+                        // 涂鸦设备名：默认就是产品名，用户改过名就是自定义名（同 Android）。
+                        // SDK 没给名字时按产品 ID 问到的涂鸦产品名。
+                        device.name.trim().isNotEmpty
+                            ? device.name
+                            : FlowerpotScope.of(context).productNameLabel(device.id),
                         key: Key('device-list-name-${device.id}'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

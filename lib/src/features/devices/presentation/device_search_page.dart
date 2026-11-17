@@ -1599,16 +1599,27 @@ class _FoundDevice {
   /// （花盆这两个不一样，见 [TuyaConfig.broadcastId]）；热点那条（AP 回落）只有花盆走。
   /// 都不是（排查态下列出来的别家设备、后台新加还没配图的产品）就是 null，退回蓝牙图标。
   /// ⚠️ 割草机的**广播** pid 是否就是平台 ID 还没真机确认——花盆就不是；不是的话这里要补。
+  ///
+  /// 广播里的 pid 认不出时，再按云端查回来的产品 ID（[BleProductInfo.productId]）认一次
+  /// （2026-11-17：iOS 广播字段与 Android 不完全一样，两端都要按产品 ID 拿到同一张图）。
   _ProductIcon? get productIcon {
     final device = ble;
     if (device == null) return _ProductIcon.planter;
-    final pid = device.productId.trim();
+    return _iconFor(device.productId) ?? _iconFor(productInfo?.productId ?? '');
+  }
+
+  static _ProductIcon? _iconFor(String productId) {
+    final pid = productId.trim();
+    if (pid.isEmpty) return null;
     if (pid == MowerDp.productId) return _ProductIcon.mower;
     if (pid == TuyaConfig.productId || pid == TuyaConfig.broadcastId) {
       return _ProductIcon.planter;
     }
     return null;
   }
+
+  /// 本地认不出是哪款产品时画的图：涂鸦平台按产品 ID 回的产品图，没有就是空串。
+  String get cloudIcon => productInfo?.icon.trim() ?? '';
 
   /// 行上显示的名字。
   ///
@@ -1907,14 +1918,26 @@ class _FoundDeviceIcon extends StatelessWidget {
             ),
           ),
         ),
-        null => Icon(
-          device.isBle ? Icons.bluetooth : Icons.wifi_tethering,
-          size: 22,
-          color: AppColors.brandPrimary,
+        null when device.cloudIcon.isNotEmpty => Image.network(
+          device.cloudIcon,
+          key: const Key('device-search-icon-cloud'),
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          excludeFromSemantics: true,
+          errorBuilder: (_, _, _) => _fallback(),
         ),
+        null => _fallback(),
       },
     );
   }
+
+  Widget _fallback() => Icon(
+    device.isBle ? Icons.bluetooth : Icons.wifi_tethering,
+    size: 22,
+    color: AppColors.brandPrimary,
+  );
 }
 
 class _SearchRadar extends StatelessWidget {
