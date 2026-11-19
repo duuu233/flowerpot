@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' show Random, max;
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1446,15 +1447,24 @@ class FlowerpotState extends ChangeNotifier {
 
   final Map<String, String> _productNames = <String, String>{};
 
+  /// 每台设备最近一次「按产品 ID 现问涂鸦产品名」的原始结果，只给联调日志的设备
+  /// 快照用（[logDeviceListSnapshot]），页面不读。退出登录清空。
+  final Map<String, Map<String, Object?>> _productNameProbes =
+      <String, Map<String, Object?>>{};
+
   Future<String?> _loadProductName(String deviceId) async {
     final epoch = _sessionEpoch;
     final Map<String, Object?> data;
     try {
       data = await _repository.deviceProductName(deviceId);
     } catch (error) {
+      if (epoch == _sessionEpoch) {
+        _productNameProbes[deviceId] = <String, Object?>{'error': '$error'};
+      }
       _logInteraction('设备型号 ✗ $deviceId 取不到涂鸦产品名：$error');
       return null;
     }
+    if (epoch == _sessionEpoch) _productNameProbes[deviceId] = data;
     final name = '${data['name'] ?? ''}'.trim();
     if (name.isEmpty) {
       _logInteraction(
@@ -1470,11 +1480,94 @@ class FlowerpotState extends ChangeNotifier {
     return name;
   }
 
-  /// 设备清单刷新后把每台设备的涂鸦产品名现问一遍（不等、不抛错）。
+  /// 设备清单刷新后把每台设备的涂鸦产品名现问一遍（不等、不抛错）；都问完后在联调
+  /// 日志里打一份设备列表快照（[logDeviceListSnapshot]）。
   void _refreshProductNames() {
-    for (final device in _devices) {
-      unawaited(_loadProductName(device.id));
+    final epoch = _sessionEpoch;
+    final ids = <String>[for (final device in _devices) device.id];
+    unawaited(() async {
+      await Future.wait(ids.map(_loadProductName));
+      if (epoch != _sessionEpoch) return;
+      logDeviceListSnapshot();
+    }());
+  }
+
+  /// 联调日志：设备列表页**正在显示的数据**整份打一遍，外加判断数据来源要用的现场信息
+  /// （2026-11-19 用户：页面展示的数据和关键信息都打进日志，排版清楚、便于复制）。
+  ///
+  /// 每台设备一段：页面上的名称及其来源、涂鸦设备名、按产品 ID 现问到的涂鸦产品名
+  /// （含原样返回）、产品 ID、设备 ID、在线、图片、固件、DP169。设备名与产品名不一致时
+  /// 单独标出来——列表画的是涂鸦设备名，产品名只在设备名为空时才用。
+  void logDeviceListSnapshot() {
+    final locales = PlatformDispatcher.instance.locales
+        .map((locale) => locale.toLanguageTag())
+        .join(', ');
+    final buffer = StringBuffer()
+      ..writeln('设备列表快照 · 共 ${_devices.length} 台')
+      ..writeln('  平台：${defaultTargetPlatform.name}')
+      ..writeln('  手机系统语言：${locales.isEmpty ? '-' : locales}')
+      ..writeln('  App 界面语言：$_languageCode')
+      ..writeln('  涂鸦账号 uid：${_user?.id ?? '-'}')
+      ..writeln('  家庭：${_lastHomeId ?? '-'}');
+    if (_deviceLoadError != null) {
+      buffer.writeln('  读取失败：$_deviceLoadError');
     }
+    for (var index = 0; index < _devices.length; index++) {
+      final device = _devices[index];
+      buffer
+        ..writeln()
+        ..write(_deviceSnapshotBlock(index + 1, device));
+    }
+    _logInteraction(buffer.toString().trimRight());
+  }
+
+  String _deviceSnapshotBlock(int number, SmartPlanterDevice device) {
+    final tuyaName = device.name.trim();
+    final probe = _productNameProbes[device.id];
+    final productName = '${probe?['name'] ?? ''}'.trim();
+    final shown = tuyaName.isNotEmpty ? device.name : productNameLabel(device.id);
+    final String probeText;
+    if (probe == null) {
+      probeText = '还没问';
+    } else if (probe['error'] != null) {
+      probeText = '✗ 查询异常：${probe['error']}';
+    } else if (productName.isEmpty) {
+      probeText = '✗ 没查到（${probe['code'] ?? ''} ${probe['message'] ?? ''}）'
+          .replaceAll('（ ）', '');
+    } else {
+      probeText = '「$productName」';
+    }
+    final kind = isMowerDevice(device)
+        ? '割草机'
+        : device.productId.trim() == TuyaConfig.broadcastId ||
+              device.productId.trim() == TuyaConfig.productId
+        ? '花盆'
+        : '未识别';
+    String raw(Object? value) {
+      final text = '${value ?? ''}'.replaceAll(RegExp(r'\s+'), ' ').trim();
+      return text.length > 300 ? '${text.substring(0, 300)}…' : text;
+    }
+
+    final lines = <String>[
+      '[$number] 页面显示名称：「$shown」',
+      '    名称来源：${tuyaName.isNotEmpty ? '涂鸦设备名（SDK 设备 name）' : '设备名为空，用按产品 ID 查到的产品名'}',
+      '    涂鸦设备名：${tuyaName.isEmpty ? '（空）' : '「$tuyaName」'}',
+      '    按产品 ID 查涂鸦产品名：$probeText',
+      if (probe?['queryProductId'] != null)
+        '    查询用的产品 ID：${probe!['queryProductId']}',
+      if (raw(probe?['raw']).isNotEmpty) '    产品信息原样返回：${raw(probe?['raw'])}',
+      '    产品 ID：${device.productId.isEmpty ? '-' : device.productId}（$kind）',
+      '    设备 ID：${device.id}',
+      '    在线：${device.online ? '在线' : '离线'}',
+      '    图片：${device.iconUrl.trim().isEmpty ? '（空，列表留白）' : device.iconUrl}',
+      '    固件版本：${device.firmwareVersion.isEmpty ? '-' : device.firmwareVersion}',
+      if (!isMowerDevice(device))
+        '    DP169 首次校准：${device.firstCalibrated ? '已完成（可进设备页）' : '未完成（点击只提示）'}',
+      if (tuyaName.isNotEmpty && productName.isNotEmpty && tuyaName != productName)
+        '    ⚠ 设备名与产品名不一致：列表显示的是涂鸦云端给这台设备记的名字，'
+            '不是按产品 ID 现查的产品名',
+    ];
+    return lines.join('\n');
   }
 
   /// 注册之后收到的推送（原样）。
@@ -5549,6 +5642,7 @@ class FlowerpotState extends ChangeNotifier {
       _deviceLoadOffline = !await _networkAvailable();
       if (epoch != _sessionEpoch) return;
       _logDevices();
+      logDeviceListSnapshot();
       notifyListeners();
       if (!ignoreErrors) rethrow;
     }
@@ -5672,6 +5766,7 @@ class FlowerpotState extends ChangeNotifier {
     _user = null;
     _devices = <SmartPlanterDevice>[];
     _productNames.clear();
+    _productNameProbes.clear();
     _otaProgress.clear();
     _otaTiming.clear();
     _otaUpdatedAt.clear();
