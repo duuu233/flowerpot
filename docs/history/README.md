@@ -1,5 +1,6 @@
 # 本地操作更新记录
 
+- [2026-11-19 iOS 本地化改为跟随系统语言（中文兜底）](2026-11/2026-11-19-ios-localization-follow-system.md)：`CFBundleLocalizations` 恢复 zh-Hans + en，开发区域 zh-Hans 兜底，取代同日「只声明中文」；未编译、未真机。
 - [2026-11-19 iOS 默认简体中文：涂鸦名称固定按中文返回](2026-11/2026-11-19-ios-default-chinese.md)：真机系统中文仍返回「Flower Pot Test」；iOS 本地化改为只声明 zh-Hans（开发区域同改），任何系统语言下涂鸦都按中文请求；Android 未改；未编译、未真机。
 - [2026-11-19 iOS 声明简体中文本地化：涂鸦名称按中文返回](2026-11/2026-11-19-ios-localization-zh.md)：iOS 只声明 en，中文 iPhone 上涂鸦按英文返回产品名（「Flower Pot Test」），Android 跟随系统语言正常；加 `CFBundleLocalizations` zh-Hans / en；后端无设备名称客户端接口（旧用户产品接口已下线）；未编译、未真机。
 - [2026-11-19 设备列表名称「Flower Pot Test」排查与联调日志排版、设备快照](2026-11/2026-11-19-device-name-debug-log.md)：列表名是涂鸦云端设备名（非按产品 ID 现查），显示规则未改；联调日志加「设备列表快照」（显示名与来源、涂鸦设备名、按产品 ID 查到的产品名、手机系统语言等），日志框一条一块、可逐条 / 全部复制；iOS 无日志多因 Generated.xcconfig 残留 `APP_DEBUG_TOOLS=false`；未编译、未运行测试。
