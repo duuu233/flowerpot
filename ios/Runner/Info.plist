@@ -9,11 +9,10 @@
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<string>zh-Hans</string>
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>zh-Hans</string>
-		<string>en</string>
 	</array>
 	<key>CFBundleDisplayName</key>
 	<string>东方金穗</string>
