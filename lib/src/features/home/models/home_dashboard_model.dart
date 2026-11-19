@@ -58,6 +58,7 @@ class HomeDashboardModel {
     HomeDashboardScene scene = HomeDashboardScene.withCompanionSummary,
     String language = 'zh',
     String productName = '设备',
+    String? deviceName,
   }) {
     final english = language.trim().toLowerCase().startsWith('en');
     final settings = device?.settings ?? const DeviceControlSettings();
@@ -90,7 +91,8 @@ class HomeDashboardModel {
     return HomeDashboardModel(
       userLabel: userLabel,
       deviceId: device?.id,
-      deviceName: device?.name,
+      // 页面显示名（FlowerpotState.deviceDisplayName）；没传时用涂鸦设备名。
+      deviceName: deviceName ?? device?.name,
       // The same device must not read "已陪伴1天" here and "已陪伴127天" one
       // tap later, so both scenes use the bound date.
       companionDays: device?.companionDays ?? 0,

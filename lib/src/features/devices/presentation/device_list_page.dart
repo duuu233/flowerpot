@@ -246,11 +246,9 @@ class _DeviceListCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        // 涂鸦设备名：默认就是产品名，用户改过名就是自定义名（同 Android）。
-                        // SDK 没给名字时按产品 ID 问到的涂鸦产品名。
-                        device.name.trim().isNotEmpty
-                            ? device.name
-                            : FlowerpotScope.of(context).productNameLabel(device.id),
+                        // 2026-11-19：按手机系统语言动态显示——本机改过名显示自定义名，
+                        // 否则按产品 ID 现查的涂鸦产品名（规则见 deviceDisplayName）。
+                        FlowerpotScope.of(context).deviceDisplayName(device),
                         key: Key('device-list-name-${device.id}'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

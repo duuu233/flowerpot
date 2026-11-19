@@ -18,14 +18,17 @@ void main() {
     await _pumpDeviceInfo(tester, const Size(375, 812));
 
     expect(find.text('更多设备信息'), findsOneWidget);
-    expect(find.text('YSplanter-01'), findsOneWidget);
+    // 2026-11-19：卡片上的名称按产品 ID 现查的涂鸦产品名显示（随系统语言），
+    // 不再显示激活时存下的涂鸦设备名「YSplanter-01」。
+    expect(find.text('YSplanter-01'), findsNothing);
     expect(find.text('已陪伴52天'), findsOneWidget);
     expect(find.text('软件'), findsOneWidget);
     expect(find.text('固件版本'), findsOneWidget);
     expect(find.text('2.1.4'), findsOneWidget);
     expect(find.text('硬件'), findsOneWidget);
     expect(find.text('设备型号'), findsOneWidget);
-    expect(find.text('YS 智能花盆'), findsOneWidget);
+    // 卡片名称 + 设备型号两处。
+    expect(find.text('YS 智能花盆'), findsNWidgets(2));
     expect(find.text('设备devId'), findsOneWidget);
     expect(find.text('6c1f9cacbfbe243ccaa2jy'), findsOneWidget);
     expect(find.text('硬件版本'), findsOneWidget);
@@ -71,8 +74,9 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('智能花盆 Pro'), findsOneWidget);
-    expect(find.text('YSplanter-01'), findsOneWidget);
+    // 卡片名称 + 设备型号两处都是涂鸦产品名；激活时存下的设备名不再显示。
+    expect(find.text('智能花盆 Pro'), findsNWidgets(2));
+    expect(find.text('YSplanter-01'), findsNothing);
     expect(find.text('device-01'), findsOneWidget);
     expect(find.text('mac地址'), findsNothing);
     expect(tester.takeException(), isNull);

@@ -47,7 +47,7 @@ void main() {
     });
   });
 
-  test('设备列表加载后打一份快照：显示名、名称来源、按产品 ID 查到的产品名、不一致标记', () async {
+  test('设备列表加载后打一份快照：显示名、名称来源、设备名、改名记录、按产品 ID 查到的产品名', () async {
     final repository = MockTuyaRepository(latency: Duration.zero)
       ..productName = 'YUSEN-智能花盆';
     final state = FlowerpotState(repository: repository);
@@ -72,11 +72,12 @@ void main() {
     final device = state.devices.first;
     expect(snapshot, contains('共 ${state.devices.length} 台'));
     expect(snapshot, contains('手机系统语言：'));
-    expect(snapshot, contains('[1] 页面显示名称：「${device.name}」'));
-    expect(snapshot, contains('名称来源：涂鸦设备名'));
+    expect(snapshot, contains('[1] 页面显示名称：「YUSEN-智能花盆」'));
+    expect(snapshot, contains('名称来源：按产品 ID 现查的涂鸦产品名'));
+    expect(snapshot, contains('涂鸦设备名（激活时存下）：「${device.name}」'));
+    expect(snapshot, contains('本机改名记录：无'));
     expect(snapshot, contains('按产品 ID 查涂鸦产品名：「YUSEN-智能花盆」'));
     expect(snapshot, contains('设备 ID：${device.id}'));
-    expect(snapshot, contains('⚠ 设备名与产品名不一致'));
   }, skip: !DebugLogGate.enabled);
 
   testWidgets('日志框一条一块，可单条复制、复制全部', (tester) async {

@@ -46,7 +46,9 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
   Future<void> _rename(BuildContext context, SmartPlanterDevice device) async {
     final name = await showDialog<String>(
       context: context,
-      builder: (_) => RenameDeviceDialog(initialName: device.name),
+      builder: (_) => RenameDeviceDialog(
+        initialName: FlowerpotScope.of(context).deviceDisplayName(device),
+      ),
     );
     if (name == null || !context.mounted) return;
     final state = FlowerpotScope.of(context);
@@ -383,7 +385,8 @@ class _DeviceInfoHero extends StatelessWidget {
                       children: <Widget>[
                         Flexible(
                           child: Text(
-                            device.name,
+                            // 显示名随系统语言（FlowerpotState.deviceDisplayName）。
+                            FlowerpotScope.of(context).deviceDisplayName(device),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

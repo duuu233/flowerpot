@@ -409,7 +409,7 @@ class _MowerControlPageState extends State<MowerControlPage> {
   String _deviceName(BuildContext context) {
     final id = _device.deviceId;
     if (id == null) return '';
-    return FlowerpotScope.of(context).deviceById(id)?.name ?? '';
+    return FlowerpotScope.of(context).deviceDisplayNameOf(id);
   }
 
   @override

@@ -1445,6 +1445,78 @@ class FlowerpotState extends ChangeNotifier {
   /// 涂鸦产品名问不到时的称呼。
   static const String fallbackProductName = '设备';
 
+  /// 页面上显示的设备名称（2026-11-19 产品：按手机系统语言动态显示）。
+  ///
+  /// 1. 本机在 App 里改过名、且涂鸦设备名仍是改后的那个 → 显示自定义名；
+  /// 2. 否则显示按产品 ID 现问的涂鸦产品名——涂鸦按 App 本地化语言（iOS 声明 zh-Hans + en，
+  ///    随系统语言）返回平台多语言里的产品名，中文手机「花盆test」、英文手机「Flower Pot Test」；
+  /// 3. 产品名还没问到 / 问不到 → 涂鸦设备名；再没有 → 「设备」。
+  ///
+  /// 不直接用涂鸦设备名：它是配网激活那一刻按当时的语言存下的，之后不随系统语言变；
+  /// 涂鸦也不区分「激活时自动取的」和「用户改的」，所以改名只能靠本机记录（换手机、重装、
+  /// 在别的 App 里改的名字都认不出，会显示产品名）。后端目前没有设备名称接口。
+  String deviceDisplayName(SmartPlanterDevice device) {
+    final tuyaName = device.name.trim();
+    final custom = _customDeviceNames[device.id];
+    if (custom != null && tuyaName.isNotEmpty && custom == tuyaName) {
+      return tuyaName;
+    }
+    final productName = _productNames[device.id]?.trim() ?? '';
+    if (productName.isNotEmpty) return productName;
+    return tuyaName.isNotEmpty ? tuyaName : fallbackProductName;
+  }
+
+  /// [deviceDisplayName] 的按 ID 版本；设备不在清单里时返回空串。
+  String deviceDisplayNameOf(String? deviceId) {
+    final device = deviceId == null ? null : deviceById(deviceId);
+    return device == null ? '' : deviceDisplayName(device);
+  }
+
+  /// 本机在 App 里改过名的设备：设备 ID → 改后的名字。按涂鸦 uid 存在本机，
+  /// 会话开始时读回，退出登录清空内存。
+  final Map<String, String> _customDeviceNames = <String, String>{};
+
+  static String _customNamesKey(String uid) => 'customDeviceNames:$uid';
+
+  Future<void> _restoreCustomDeviceNames() async {
+    _customDeviceNames.clear();
+    final uid = _user?.id ?? '';
+    if (uid.isEmpty) return;
+    try {
+      final raw = (await SharedPreferences.getInstance()).getString(
+        _customNamesKey(uid),
+      );
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      decoded.forEach((key, value) {
+        if (value is String && value.trim().isNotEmpty) {
+          _customDeviceNames['$key'] = value.trim();
+        }
+      });
+    } catch (_) {
+      // 读不回只是改过名的设备先显示产品名，不影响其它功能。
+    }
+  }
+
+  Future<void> _saveCustomDeviceNames() async {
+    final uid = _user?.id ?? '';
+    if (uid.isEmpty) return;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (_customDeviceNames.isEmpty) {
+        await preferences.remove(_customNamesKey(uid));
+      } else {
+        await preferences.setString(
+          _customNamesKey(uid),
+          jsonEncode(_customDeviceNames),
+        );
+      }
+    } catch (_) {
+      // 存不住只是下次会话改过名的设备显示产品名。
+    }
+  }
+
   final Map<String, String> _productNames = <String, String>{};
 
   /// 每台设备最近一次「按产品 ID 现问涂鸦产品名」的原始结果，只给联调日志的设备
@@ -1495,9 +1567,8 @@ class FlowerpotState extends ChangeNotifier {
   /// 联调日志：设备列表页**正在显示的数据**整份打一遍，外加判断数据来源要用的现场信息
   /// （2026-11-19 用户：页面展示的数据和关键信息都打进日志，排版清楚、便于复制）。
   ///
-  /// 每台设备一段：页面上的名称及其来源、涂鸦设备名、按产品 ID 现问到的涂鸦产品名
-  /// （含原样返回）、产品 ID、设备 ID、在线、图片、固件、DP169。设备名与产品名不一致时
-  /// 单独标出来——列表画的是涂鸦设备名，产品名只在设备名为空时才用。
+  /// 每台设备一段：页面上的名称及其来源（[deviceDisplayName]）、涂鸦设备名、本机改名记录、
+  /// 按产品 ID 现问到的涂鸦产品名（含原样返回）、产品 ID、设备 ID、在线、图片、固件、DP169。
   void logDeviceListSnapshot() {
     final locales = PlatformDispatcher.instance.locales
         .map((locale) => locale.toLanguageTag())
@@ -1525,7 +1596,16 @@ class FlowerpotState extends ChangeNotifier {
     final tuyaName = device.name.trim();
     final probe = _productNameProbes[device.id];
     final productName = '${probe?['name'] ?? ''}'.trim();
-    final shown = tuyaName.isNotEmpty ? device.name : productNameLabel(device.id);
+    final shown = deviceDisplayName(device);
+    final custom = _customDeviceNames[device.id];
+    final cachedProduct = _productNames[device.id]?.trim() ?? '';
+    final source = custom != null && tuyaName.isNotEmpty && custom == tuyaName
+        ? '本机改过名（自定义名）'
+        : cachedProduct.isNotEmpty
+        ? '按产品 ID 现查的涂鸦产品名（随系统语言）'
+        : tuyaName.isNotEmpty
+        ? '涂鸦设备名（产品名还没查到 / 查不到）'
+        : '兜底「$fallbackProductName」';
     final String probeText;
     if (probe == null) {
       probeText = '还没问';
@@ -1550,8 +1630,9 @@ class FlowerpotState extends ChangeNotifier {
 
     final lines = <String>[
       '[$number] 页面显示名称：「$shown」',
-      '    名称来源：${tuyaName.isNotEmpty ? '涂鸦设备名（SDK 设备 name）' : '设备名为空，用按产品 ID 查到的产品名'}',
-      '    涂鸦设备名：${tuyaName.isEmpty ? '（空）' : '「$tuyaName」'}',
+      '    名称来源：$source',
+      '    涂鸦设备名（激活时存下）：${tuyaName.isEmpty ? '（空）' : '「$tuyaName」'}',
+      '    本机改名记录：${custom == null ? '无' : '「$custom」'}',
       '    按产品 ID 查涂鸦产品名：$probeText',
       if (probe?['queryProductId'] != null)
         '    查询用的产品 ID：${probe!['queryProductId']}',
@@ -1563,9 +1644,6 @@ class FlowerpotState extends ChangeNotifier {
       '    固件版本：${device.firmwareVersion.isEmpty ? '-' : device.firmwareVersion}',
       if (!isMowerDevice(device))
         '    DP169 首次校准：${device.firstCalibrated ? '已完成（可进设备页）' : '未完成（点击只提示）'}',
-      if (tuyaName.isNotEmpty && productName.isNotEmpty && tuyaName != productName)
-        '    ⚠ 设备名与产品名不一致：列表显示的是涂鸦云端给这台设备记的名字，'
-            '不是按产品 ID 现查的产品名',
     ];
     return lines.join('\n');
   }
@@ -2526,6 +2604,8 @@ class FlowerpotState extends ChangeNotifier {
     final trimmed = name.trim();
     if (trimmed.isEmpty) throw const TuyaException('name', '设备名称不能为空');
     await _repository.renameDevice(id, trimmed);
+    _customDeviceNames[id] = trimmed;
+    unawaited(_saveCustomDeviceNames());
     _replaceDevice(id, (device) => device.copyWith(name: trimmed));
     // 后端也要跟着改，否则管理后台看到的还是绑定时那个名字。改名在涂鸦那边
     // 已经生效了，这一步失败只降级成一句提示，不把整次改名判成失败。
@@ -4359,6 +4439,9 @@ class FlowerpotState extends ChangeNotifier {
       }
     }
     _backendDevices.remove(id);
+    if (_customDeviceNames.remove(id) != null) {
+      unawaited(_saveCustomDeviceNames());
+    }
     _devices.removeWhere((device) => device.id == id);
     clearOtaProgress(id);
     _availableFirmware.remove(id);
@@ -5332,6 +5415,7 @@ class FlowerpotState extends ChangeNotifier {
     await _restoreBackendUserId();
     await _applyHomeTag();
     await _pinKnownHome();
+    await _restoreCustomDeviceNames();
     await _refreshDevicesForSession(ignoreErrors: true);
   }
 
@@ -5767,6 +5851,7 @@ class FlowerpotState extends ChangeNotifier {
     _devices = <SmartPlanterDevice>[];
     _productNames.clear();
     _productNameProbes.clear();
+    _customDeviceNames.clear();
     _otaProgress.clear();
     _otaTiming.clear();
     _otaUpdatedAt.clear();

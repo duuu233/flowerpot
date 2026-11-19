@@ -101,7 +101,7 @@ class MowerSettingsPage extends StatelessWidget {
     final id = MowerDevice.instance.deviceId;
     if (id == null) return;
     final state = FlowerpotScope.of(context);
-    final name = state.deviceById(id)?.name ?? '';
+    final name = state.deviceDisplayNameOf(id);
     final confirmed = await showAppConfirmDialog(
       context,
       title: '删除设备',

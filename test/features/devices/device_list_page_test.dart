@@ -206,6 +206,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('名称按产品 ID 现查的涂鸦产品名显示（随系统语言），不用激活时存下的设备名', (
+    tester,
+  ) async {
+    // 2026-11-19：设备用英文请求激活，涂鸦设备名存成了「Flower Pot Test」；中文手机上
+    // 按产品 ID 现查回「花盆test」，列表要显示后者。查不到产品名的设备退回设备名。
+    await _pumpDeviceList(
+      tester,
+      const Size(375, 812),
+      devices: <SmartPlanterDevice>[
+        _device(id: 'device-01', name: 'Flower Pot Test', online: true),
+        _device(id: 'device-02', name: '阳台那盆', online: true),
+      ],
+      productNames: const <String, String>{'device-01': '花盆test'},
+    );
+    await tester.pump();
+
+    String nameOf(String id) =>
+        tester.widget<Text>(find.byKey(Key('device-list-name-$id'))).data!;
+    expect(nameOf('device-01'), '花盆test');
+    expect(nameOf('device-02'), '阳台那盆');
+    expect(find.text('Flower Pot Test'), findsNothing);
+  });
+
   testWidgets('真机割草机点进去是割草机页面（带设备 ID），不进花盆详情', (tester) async {
     // 2026-09-21 割草机真机到位：设备列表里那一行来自涂鸦（`state.devices`），
     // 按产品 ID 认出是割草机，进割草机那套页面并绑到这台设备上。
@@ -336,6 +359,7 @@ Future<FlowerpotState> _pumpDeviceList(
   Size size, {
   bool withRoutes = false,
   List<SmartPlanterDevice>? devices,
+  Map<String, String> productNames = const <String, String>{},
   ValueChanged<Object?>? onDeviceArguments,
   ValueChanged<Object?>? onPlantPickerArguments,
   ValueChanged<Object?>? onMowerArguments,
@@ -345,7 +369,8 @@ Future<FlowerpotState> _pumpDeviceList(
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final state = FlowerpotState(
     repository: _DeviceListRepository(devices ?? _devices)
-      ..rawDpsByDevice.addAll(rawDps),
+      ..rawDpsByDevice.addAll(rawDps)
+      ..productNames.addAll(productNames),
   );
   addTearDown(state.dispose);
   await state.refreshDevices();
@@ -466,6 +491,13 @@ class _DeviceListRepository extends MockTuyaRepository {
 
   final List<SmartPlanterDevice> items;
 
+  /// 按设备 ID 回的涂鸦产品名；没列出的设备回空（模拟查不到，列表退回涂鸦设备名）。
+  final Map<String, String> productNames = <String, String>{};
+
   @override
   Future<List<SmartPlanterDevice>> getDevices() async => items;
+
+  @override
+  Future<Map<String, Object?>> deviceProductName(String deviceId) async =>
+      <String, Object?>{'name': productNames[deviceId]};
 }
