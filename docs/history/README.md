@@ -1,5 +1,6 @@
 # 本地操作更新记录
 
+- [2026-11-19 登录页隐藏微信快捷登录（iOS / Android）](2026-11/2026-11-19-hide-wechat-login.md)：`LoginEntryConfig.wechatLogin` 改为 false，代码保留；快捷登录全关时「其他登录方式」分隔线一并不显示；未运行测试。
 - [2026-11-19 设备名称按手机系统语言动态显示](2026-11/2026-11-19-device-display-name-by-language.md)：列表等页面不再直接用激活时存下的涂鸦设备名，改为本机改过名显示自定义名、否则显示按产品 ID 现查的涂鸦产品名（随系统语言），查不到才用设备名；本机改名记录存 SharedPreferences；未编译、未运行测试。
 - [2026-11-19 iOS 本地化改为跟随系统语言（中文兜底）](2026-11/2026-11-19-ios-localization-follow-system.md)：`CFBundleLocalizations` 恢复 zh-Hans + en，开发区域 zh-Hans 兜底，取代同日「只声明中文」；未编译、未真机。
 - [2026-11-19 iOS 默认简体中文：涂鸦名称固定按中文返回](2026-11/2026-11-19-ios-default-chinese.md)：真机系统中文仍返回「Flower Pot Test」；iOS 本地化改为只声明 zh-Hans（开发区域同改），任何系统语言下涂鸦都按中文请求；Android 未改；未编译、未真机。

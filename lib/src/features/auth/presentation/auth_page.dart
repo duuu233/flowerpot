@@ -373,29 +373,32 @@ class _LoginPanel extends StatelessWidget {
                     color: AppColors.textSecondary,
                   ),
                 ),
-                const SizedBox(height: 34),
-                const _OtherLoginDivider(),
-                const SizedBox(height: AppSpacing.lg),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    if (LoginEntryConfig.wechatLogin)
-                      _SocialButton(
-                        label: '微信登录',
-                        assetPath: AppAssets.wechatLoginIcon,
-                        onTap: onWechat,
-                      ),
-                    if (LoginEntryConfig.wechatLogin &&
-                        LoginEntryConfig.alipayLogin)
-                      const SizedBox(width: 32),
-                    if (LoginEntryConfig.alipayLogin)
-                      _SocialButton(
-                        label: '支付宝登录',
-                        assetPath: AppAssets.alipayLoginIcon,
-                        onTap: onAlipay,
-                      ),
-                  ],
-                ),
+                // 快捷登录全部隐藏时（2026-11-19 起微信也隐藏）分隔线与那一行一起不画。
+                if (LoginEntryConfig.anySocialLogin) ...<Widget>[
+                  const SizedBox(height: 34),
+                  const _OtherLoginDivider(),
+                  const SizedBox(height: AppSpacing.lg),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      if (LoginEntryConfig.wechatLogin)
+                        _SocialButton(
+                          label: '微信登录',
+                          assetPath: AppAssets.wechatLoginIcon,
+                          onTap: onWechat,
+                        ),
+                      if (LoginEntryConfig.wechatLogin &&
+                          LoginEntryConfig.alipayLogin)
+                        const SizedBox(width: 32),
+                      if (LoginEntryConfig.alipayLogin)
+                        _SocialButton(
+                          label: '支付宝登录',
+                          assetPath: AppAssets.alipayLoginIcon,
+                          onTap: onAlipay,
+                        ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 _AgreementRow(
                   accepted: accepted,

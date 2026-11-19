@@ -36,16 +36,17 @@ void main() {
       ),
       findsOneWidget,
     );
+    // WeChat quick login is hidden on iOS and Android (2026-11-19, code kept);
+    // Alipay quick login and password login are hidden until their platform
+    // parameters exist.
     expect(
       find.byKey(
         const ValueKey<String>(
           'auth-social-icon:assets/images/wechat_login_icon.png',
         ),
       ),
-      findsOneWidget,
+      findsNothing,
     );
-    // Alipay quick login and password login are hidden until their platform
-    // parameters exist.
     expect(
       find.byKey(
         const ValueKey<String>(
@@ -67,7 +68,8 @@ void main() {
     expect(find.text('没有账户？'), findsNothing);
     expect(find.text('去注册'), findsNothing);
     expect(find.text('输入验证码即登录，未注册手机将自动创建账户'), findsOneWidget);
-    expect(find.text('其他登录方式'), findsOneWidget);
+    // No quick login is offered, so the「其他登录方式」divider is gone too.
+    expect(find.text('其他登录方式'), findsNothing);
     expect(find.text('《用户协议》'), findsOneWidget);
     expect(find.text('《隐私政策》'), findsOneWidget);
     for (final field in tester.widgetList<TextField>(find.byType(TextField))) {
