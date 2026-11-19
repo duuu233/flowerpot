@@ -172,6 +172,7 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
               ? MowerDevice.instance.deviceId
               : AppRoutes.deviceIdOf(page.settings) ?? state.selectedDevice?.id
         : null;
+    _announceOtaConclusions(deviceId);
     // 离开设备页就算这次看完了设备面板，下次进来重新提醒。
     _remindDismissed.removeWhere((id) => id != deviceId);
     if (deviceId == null ||
@@ -185,10 +186,12 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
     if (name == AppRoutes.deviceOtherSettings) return;
     if (OtaProgressLayer.anyOpen) return;
     if (widget.routes.popupOnTop) return;
+    // 「正在确认」满 3 分钟收尾成超时 / 失败的，结论和下一步已经给了，也不自动弹提醒。
     final running =
-        state.otaProgressFor(deviceId)?.status == OtaStatus.running &&
-        (state.otaProgressFor(deviceId)?.verifyingVersion == true ||
-            !state.otaStalled(deviceId));
+        (state.otaProgressFor(deviceId)?.status == OtaStatus.running &&
+            (state.otaProgressFor(deviceId)?.verifyingVersion == true ||
+                !state.otaStalled(deviceId))) ||
+        state.otaVerificationConcluded(deviceId);
     if (running) return;
 
     final version = state.deviceById(deviceId)?.firmwareVersion;
@@ -214,6 +217,7 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
         widget.routes.currentPage != page ||
         OtaProgressLayer.anyOpen ||
         widget.routes.popupOnTop ||
+        state.otaVerificationConcluded(deviceId) ||
         (state.otaProgressFor(deviceId)?.status == OtaStatus.running &&
             (state.otaProgressFor(deviceId)?.verifyingVersion == true ||
                 !state.otaStalled(deviceId)))) {
@@ -227,6 +231,36 @@ class _FirmwareReminderHostState extends State<FirmwareReminderHost> {
         await _alert(deviceId, update, force: false);
       case FirmwareUpgradeType.force:
         await _alert(deviceId, update, force: true);
+    }
+  }
+
+  /// 「正在确认升级结果」满 3 分钟收尾（升级超时 / 版本未变的失败）时，进度弹层已经关了：
+  /// 用户正停在这台设备的页面上就弹一条轻提示（2026-11-19）。弹层开着时结论就在弹层上，
+  /// 不在这台设备页上的不补弹；收尾消息取一次就清掉。
+  void _announceOtaConclusions(String? deviceId) {
+    final ids = widget.state.takeOtaConclusionNotices();
+    if (deviceId == null ||
+        !ids.contains(deviceId) ||
+        OtaProgressLayer.isOpenFor(deviceId)) {
+      return;
+    }
+    final status = widget.state.otaProgressFor(deviceId)?.status;
+    final context = widget.routes.navigator?.overlay?.context;
+    if (context == null) return;
+    if (status == OtaStatus.timedOut) {
+      OtaDebugLog.ui('升级超时轻提示', deviceId: deviceId);
+      showAppMessage(
+        context,
+        '固件升级超时，请检查设备电源和网络后重新检查',
+        tone: AppMessageTone.info,
+      );
+    } else if (status == OtaStatus.failed) {
+      OtaDebugLog.ui('升级失败轻提示（版本未变化）', deviceId: deviceId);
+      showAppMessage(
+        context,
+        '固件升级失败，本次升级未生效',
+        tone: AppMessageTone.error,
+      );
     }
   }
 

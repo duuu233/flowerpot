@@ -5,6 +5,7 @@ import '../../../app/network_alert.dart';
 import '../../../design_system/design_system.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/widgets/blocking_progress.dart';
+import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
 import 'device_online_guard.dart';
 import 'firmware_upgrade_flow.dart';
@@ -564,7 +565,13 @@ class _GeneralSettingsCard extends StatelessWidget {
             // 一个不动的加载态干等。
             value: switch (ota?.status) {
               OtaStatus.running => otaRunningLabel(ota, withPercent: true),
+              // 「正在确认」满 3 分钟收尾的结论只写一个词，原因在进度弹层上。
+              OtaStatus.failed
+                  when ota?.code ==
+                      FlowerpotState.otaVerificationUnchangedCode =>
+                '升级失败',
               OtaStatus.failed => ota?.message ?? '升级失败',
+              OtaStatus.timedOut => '升级超时',
               _ => 'V${device.firmwareVersion}',
             },
             // 转圈只用在"正在问云端"这几百毫秒上：升级期间也转的话，上面那个

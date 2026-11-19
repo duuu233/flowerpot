@@ -79,6 +79,18 @@ class FlowerpotState extends ChangeNotifier {
   final Set<String> _otaProbing = <String>{};
   final Set<String> _otaProbeAgain = <String>{};
 
+  /// 「正在确认升级结果」满 [otaVerificationTimeout] 收尾（升级超时 / 版本未变的失败）后
+  /// 仍记着的本次目标版本与收尾时刻。设备晚些时候真装好了（版本 DP、SDK 当前版本、
+  /// SDK 成功回调），[otaResumeWindow] 内仍转「升级完成」：更新版本号、熄红点，不另外弹窗。
+  final Map<String, String> _otaLateTarget = <String, String>{};
+  final Map<String, DateTime> _otaConcludedAt = <String, DateTime>{};
+
+  /// 正在做到点前最后一次现读的设备，防并发。
+  final Set<String> _otaConcluding = <String>{};
+
+  /// 刚到点收尾、还没交给页面提示的设备，见 [takeOtaConclusionNotices]。
+  final Set<String> _otaConclusionNotices = <String>{};
+
   /// SDK 失败/超时（不是明确拒绝）收尾的时刻。断网、息屏期间涂鸦先放弃了，设备其实
   /// 还在升级：[otaResumeWindow] 内回前台 / 网络恢复时重新问 SDK，还在升级就接回。
   final Map<String, DateTime> _otaInterruptedAt = <String, DateTime>{};
@@ -3441,6 +3453,7 @@ class FlowerpotState extends ChangeNotifier {
     _reportedOtaVersion.remove(id);
     _otaVerificationStartedAt.remove(id);
     _otaInterruptedAt.remove(id);
+    _clearOtaLate(id);
     _pendingOtaVersion[id] = version;
     _otaBaselineRead[id] = _captureOtaBaseline(id);
     if (DebugLogGate.enabled) {
@@ -3547,8 +3560,12 @@ class FlowerpotState extends ChangeNotifier {
     '5005',
   };
 
-  /// 重新打开升级进度时调：安装中 / 核验中马上现读一次 SDK 当前版本，不等下一条事件。
-  void refreshOtaResult(String deviceId) => _scheduleOtaProbe(deviceId);
+  /// 重新打开升级进度时调：安装中 / 核验中马上现读一次 SDK 当前版本，不等下一条事件；
+  /// 核验已到点的顺带收尾（[checkOtaVerificationDeadline]）。
+  void refreshOtaResult(String deviceId) {
+    checkOtaVerificationDeadline(deviceId);
+    _scheduleOtaProbe(deviceId);
+  }
 
   /// 记下发起前的版本基线：先放设备字段（同步），再补 SDK 当前模型的版本DP/verSw。
   Future<bool> _captureOtaBaseline(String id) async {
@@ -3582,10 +3599,19 @@ class FlowerpotState extends ChangeNotifier {
   /// 用户既看不出出了问题，也没法重试——只能杀掉 App。
   static const Duration otaStallTimeout = Duration(minutes: 10);
   static const Duration otaPreparationTimeout = Duration(minutes: 2);
-  static const Duration otaVerificationTimeout = Duration(minutes: 2);
+
+  /// 「正在确认升级结果」最长多久（2026-11-19 产品：最多 3 分钟要出结果）。从首次进入
+  /// 核验算，重复报错 / 进度不重置；到点由 [checkOtaVerificationDeadline] 收尾。
+  static const Duration otaVerificationTimeout = Duration(minutes: 3);
+
+  /// 核验到点、设备在线且读到的版本全是升级前的：按升级失败收尾时带的错误码。
+  static const String otaVerificationUnchangedCode = 'verification_unchanged';
+
+  /// 核验到点、读不到可下结论的版本（离线 / 读失败 / 版本有变但不是目标）：升级超时。
+  static const String otaVerificationTimeoutCode = 'verification_timeout';
 
   /// 这台设备的升级是不是卡住了（仍处于 running，但已经 [otaStallTimeout]
-  /// 没有任何事件）。
+  /// 没有任何事件）。核验中到点后、收尾完成前的那一下也算。
   bool otaStalled(String deviceId) {
     if (_otaProgress[deviceId]?.status != OtaStatus.running) return false;
     final verificationAt = _otaVerificationStartedAt[deviceId];
@@ -3600,6 +3626,160 @@ class FlowerpotState extends ChangeNotifier {
     return _otaNow().difference(at) >= timeout;
   }
 
+  bool _otaVerificationExpired(String id) {
+    final at = _otaVerificationStartedAt[id];
+    return at != null &&
+        _otaProgress[id]?.status == OtaStatus.running &&
+        _otaNow().difference(at) >= otaVerificationTimeout;
+  }
+
+  /// 核验满 [otaVerificationTimeout] 就收尾：最后现读一次设备版本，再给结论——
+  ///
+  /// - 是本次目标版本 → 升级完成；
+  /// - 设备在线、读到的版本全是升级前的 → 升级失败（[otaVerificationUnchangedCode]）；
+  /// - 其余（离线、读不到、发起前没拿到版本基线）→ 升级超时（[OtaStatus.timedOut]）。
+  ///
+  /// 前台在线轮询每拍（3 秒）、回前台、进度弹层每秒、重新打开升级入口时调；没到点
+  /// 什么也不做。收尾后目标版本留在 [_otaLateTarget]，晚到的真实版本仍转成功。
+  void checkOtaVerificationDeadline(String id) {
+    if (!_otaVerificationExpired(id) || !_otaConcluding.add(id)) return;
+    unawaited(_concludeOtaVerification(id, _sessionEpoch));
+  }
+
+  Future<void> _concludeOtaVerification(String id, int epoch) async {
+    try {
+      final target = _pendingOtaVersion[id];
+      if (target == null) return;
+      List<String>? versions;
+      final baselineRead = _otaBaselineRead[id];
+      // 发起前没读到版本基线：分不清读到的是不是升级前就有的，不拿它判成功或失败。
+      if (baselineRead != null && await baselineRead) {
+        try {
+          versions = await _repository.firmwareVersions(id);
+        } catch (error) {
+          OtaDebugLog.app('核验到点现读 SDK 版本失败：${_otaError(error)}', deviceId: id);
+        }
+      }
+      if (epoch != _sessionEpoch ||
+          _pendingOtaVersion[id] != target ||
+          !_otaVerificationExpired(id)) {
+        return;
+      }
+      final online = isDeviceOnline(id);
+      OtaDebugLog.app(
+        '核验到点现读 SDK 版本 $versions，目标 $target，'
+        '发起前基线 ${_otaBaseline[id]}，online=$online',
+        deviceId: id,
+      );
+      if (versions != null &&
+          versions.any((version) => _otaVersionConfirms(id, version, target))) {
+        _otaTiming[id]?.mark('target_version_match');
+        _logInteraction('OTA 核验到点 ← SDK 当前设备版本 = 目标版本，按升级完成处理');
+        _applyOtaProgress(OtaProgress(deviceId: id, status: OtaStatus.success));
+        return;
+      }
+      final baseline = _otaBaseline[id] ?? const <String>{};
+      final unchanged =
+          online &&
+          versions != null &&
+          versions.isNotEmpty &&
+          versions.every((version) => baseline.contains(_bareOtaVersion(version)));
+      final previous = _otaProgress[id];
+      final current = unchanged
+          ? deviceById(id)?.firmwareVersion ?? versions!.first
+          : null;
+      final result = unchanged
+          ? OtaProgress(
+              deviceId: id,
+              status: OtaStatus.failed,
+              percent: previous?.percent,
+              stage: previous?.stage,
+              code: otaVerificationUnchangedCode,
+              message: current == null
+                  ? '设备版本未变化，本次升级未生效，可重新升级。'
+                  : '设备当前仍为 V${_bareOtaVersion(current)}，本次升级未生效，可重新升级。',
+            )
+          : OtaProgress(
+              deviceId: id,
+              status: OtaStatus.timedOut,
+              percent: previous?.percent,
+              stage: previous?.stage,
+              code: otaVerificationTimeoutCode,
+              message:
+                  '${otaVerificationTimeout.inMinutes} 分钟内未收到设备确认，'
+                  '请检查设备电源和网络后重新检查。',
+            );
+      _otaTiming.remove(id)?.mark('result_${result.status.name}');
+      _otaProgress[id] = result;
+      _otaUpdatedAt[id] = _otaNow();
+      _otaVerificationStartedAt.remove(id);
+      _reportedOtaVersion.remove(id);
+      _otaProbeAgain.remove(id);
+      _otaInterruptedAt.remove(id);
+      _pendingOtaVersion.remove(id);
+      // 版本基线（_otaBaseline / _otaBaselineRead）留着，晚到的真实版本靠它防巧合。
+      _otaLateTarget[id] = target;
+      _otaConcludedAt[id] = _otaNow();
+      _otaConclusionNotices.add(id);
+      _logInteraction(
+        unchanged
+            ? 'OTA ✗ 核验到点：设备在线、版本仍为升级前，按升级失败处理'
+            : 'OTA 核验到点：${otaVerificationTimeout.inMinutes} 分钟未确认设备版本，按升级超时处理',
+      );
+      notifyListeners();
+    } finally {
+      if (epoch == _sessionEpoch) _otaConcluding.remove(id);
+    }
+  }
+
+  /// 核验到点收尾后，晚到的真实版本还要不要看（[otaResumeWindow] 内）。
+  bool _otaLateWanted(String id) {
+    final at = _otaConcludedAt[id];
+    final status = _otaProgress[id]?.status;
+    return at != null &&
+        _otaLateTarget.containsKey(id) &&
+        (status == OtaStatus.timedOut || status == OtaStatus.failed) &&
+        _otaNow().difference(at) < otaResumeWindow;
+  }
+
+  /// 收尾后设备真的装好了：转「升级完成」，版本号写成目标、熄红点。不另外弹窗。
+  void _resolveLateOta(String id, String evidence) {
+    final target = _otaLateTarget[id];
+    if (target == null) return;
+    _logInteraction('OTA 晚到确认 ← $evidence = 目标版本，按升级完成处理');
+    _clearOtaLate(id);
+    _otaBaseline.remove(id);
+    _otaBaselineRead.remove(id);
+    _availableFirmware.remove(id);
+    _otaProgress[id] = OtaProgress(deviceId: id, status: OtaStatus.success);
+    _otaUpdatedAt[id] = _otaNow();
+    _replaceDevice(id, (device) => device.copyWith(firmwareVersion: target));
+  }
+
+  void _clearOtaLate(String id) {
+    _otaLateTarget.remove(id);
+    _otaConcludedAt.remove(id);
+    _otaConclusionNotices.remove(id);
+  }
+
+  /// 这台设备的升级是不是「正在确认」满 [otaVerificationTimeout] 收尾出来的结论（升级超时，
+  /// 或设备在线版本未变的失败）。进度弹层据此给「重新检查 / 重新升级」，升级提醒据此不自动弹。
+  bool otaVerificationConcluded(String deviceId) {
+    final ota = _otaProgress[deviceId];
+    return ota?.status == OtaStatus.timedOut ||
+        (ota?.status == OtaStatus.failed &&
+            ota?.code == otaVerificationUnchangedCode);
+  }
+
+  /// 取走刚到点收尾（升级超时 / 版本未变的失败）的设备，取一次就清掉。提醒宿主据此
+  /// 在用户停在该设备页、进度弹层没开着时弹一条轻提示。
+  List<String> takeOtaConclusionNotices() {
+    if (_otaConclusionNotices.isEmpty) return const <String>[];
+    final ids = _otaConclusionNotices.toList(growable: false);
+    _otaConclusionNotices.clear();
+    return ids;
+  }
+
   /// 丢掉本地记着的升级状态，让界面回到「可以重新检查」。
   ///
   /// 只动 App 这边：设备那头是不是真的还在升级，只有它自己知道。
@@ -3607,6 +3787,7 @@ class FlowerpotState extends ChangeNotifier {
     OtaDebugLog.app('本地清除升级状态（${_otaDescribe(_otaProgress[deviceId])}）', deviceId: deviceId);
     _otaInterruptedAt.remove(deviceId);
     _otaResumeCheckedAt.remove(deviceId);
+    _clearOtaLate(deviceId);
     if (_otaProgress.remove(deviceId) == null) return;
     _otaTiming.remove(deviceId)?.mark('local_clear');
     _otaUpdatedAt.remove(deviceId);
@@ -3641,6 +3822,7 @@ class FlowerpotState extends ChangeNotifier {
     if (local == null) return false;
     switch (local.status) {
       case OtaStatus.success:
+      case OtaStatus.timedOut:
         return false;
       case OtaStatus.failed:
         final at = _otaInterruptedAt[id];
@@ -3656,7 +3838,11 @@ class FlowerpotState extends ChangeNotifier {
   /// 已经断了（失败、核验中、停滞）。刚确认装好同一版本的不接（云端状态可能滞后）。
   bool _otaAttachable(String id, FirmwareUpdate update) {
     final local = _otaProgress[id];
-    if (local == null || local.status == OtaStatus.failed) return true;
+    if (local == null ||
+        local.status == OtaStatus.failed ||
+        local.status == OtaStatus.timedOut) {
+      return true;
+    }
     if (local.status == OtaStatus.success) {
       final current = deviceById(id)?.firmwareVersion;
       return current == null ||
@@ -3728,6 +3914,7 @@ class FlowerpotState extends ChangeNotifier {
         _pendingOtaVersion[id] == update.version;
     _otaVerificationStartedAt.remove(id);
     _otaInterruptedAt.remove(id);
+    _clearOtaLate(id);
     if (!sameTask) _reportedOtaVersion.remove(id);
     _pendingOtaVersion[id] = update.version;
     if (!sameTask || !_otaBaselineRead.containsKey(id)) {
@@ -3766,8 +3953,8 @@ class FlowerpotState extends ChangeNotifier {
 
   /// 回来后 SDK 已查不到这次升级：保留目标转核验，现读设备版本判断是否已装好。
   ///
-  /// 核验期间任何阶段的目标版本都算数，2 分钟没结果显示「暂未确认升级结果」可关闭，
-  /// 不合成失败（同 SDK 报错后的核验，见 [_applyOtaProgress]）。
+  /// 核验期间任何阶段的目标版本都算数；满 [otaVerificationTimeout] 由
+  /// [checkOtaVerificationDeadline] 收尾（同 SDK 报错后的核验，见 [_applyOtaProgress]）。
   void _verifyOtaAfterResume(String id) {
     final local = _otaProgress[id];
     if (local == null ||
@@ -4524,6 +4711,11 @@ class FlowerpotState extends ChangeNotifier {
     );
     // 已确认的终态保持；有升级进度后SDK报错先核验版本，不提前锁死失败。
     if (previous != null && previous.status != OtaStatus.running) {
+      if (incoming.status == OtaStatus.success &&
+          _otaLateWanted(incoming.deviceId)) {
+        _resolveLateOta(incoming.deviceId, 'SDK 报告升级成功');
+        return;
+      }
       OtaDebugLog.app('已是终态 ${previous.status.name}，忽略这条', deviceId: incoming.deviceId);
       return;
     }
@@ -4650,6 +4842,7 @@ class FlowerpotState extends ChangeNotifier {
   }
 
   bool _otaProbeWanted(String deviceId) {
+    if (_otaLateWanted(deviceId)) return true;
     final progress = _otaProgress[deviceId];
     return progress != null &&
         progress.status == OtaStatus.running &&
@@ -4671,9 +4864,14 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
+  /// 现读要比的目标：进行中的本次目标，或核验到点收尾后留着的那个。
+  String? _otaProbeTarget(String deviceId) =>
+      _pendingOtaVersion[deviceId] ??
+      (_otaLateWanted(deviceId) ? _otaLateTarget[deviceId] : null);
+
   /// 读一次；返回 true 表示不用再读（已判成功或会话已变）。
   Future<bool> _probeOtaVersionOnce(String deviceId, int epoch) async {
-    final target = _pendingOtaVersion[deviceId];
+    final target = _otaProbeTarget(deviceId);
     if (target == null) return true;
     try {
       final baselineRead = _otaBaselineRead[deviceId];
@@ -4685,12 +4883,16 @@ class FlowerpotState extends ChangeNotifier {
         deviceId: deviceId,
       );
       if (epoch != _sessionEpoch) return true;
-      if (_pendingOtaVersion[deviceId] != target ||
+      if (_otaProbeTarget(deviceId) != target ||
           !_otaProbeWanted(deviceId)) {
         return false;
       }
       for (final version in versions) {
         if (!_otaVersionConfirms(deviceId, version, target)) continue;
+        if (_otaLateWanted(deviceId)) {
+          _resolveLateOta(deviceId, 'SDK 当前设备版本 $version');
+          return true;
+        }
         _otaTiming[deviceId]?.mark('target_version_match');
         _logInteraction('OTA 核验 ← SDK 当前设备版本 $version = 目标版本，按升级完成处理');
         _applyOtaProgress(
@@ -4730,6 +4932,16 @@ class FlowerpotState extends ChangeNotifier {
         ? MowerDp.fwVersion
         : TuyaConfig.dp['firmware_version'];
     if (dpId == null || !changedDps.contains(dpId)) return;
+    if (_otaLateWanted(device.id)) {
+      final raw = reportedDps.containsKey(dpId)
+          ? reportedDps[dpId]
+          : device.firmwareVersion;
+      final target = _otaLateTarget[device.id]!;
+      if (raw is String && _otaVersionConfirms(device.id, raw, target)) {
+        _resolveLateOta(device.id, '设备上报版本 DP$dpId=$raw');
+      }
+      return;
+    }
     if (_otaProgress[device.id]?.status != OtaStatus.running ||
         !_pendingOtaVersion.containsKey(device.id)) {
       return;
@@ -5242,6 +5454,7 @@ class FlowerpotState extends ChangeNotifier {
     if (!authenticated || _devices.isEmpty) return;
     // 推送漏了（MQTT 重连、切后台回来）时 OTA 结果也靠这一拍补读。
     for (final id in _otaProgress.keys.toList()) {
+      checkOtaVerificationDeadline(id);
       _scheduleOtaProbe(id);
     }
     // 网络恢复没有单独的监听：断网期间这一拍照样在跑，问 SDK 失败就等下一拍
@@ -5469,6 +5682,10 @@ class FlowerpotState extends ChangeNotifier {
     _otaBaselineRead.clear();
     _otaProbing.clear();
     _otaProbeAgain.clear();
+    _otaLateTarget.clear();
+    _otaConcludedAt.clear();
+    _otaConcluding.clear();
+    _otaConclusionNotices.clear();
     _otaInterruptedAt.clear();
     _otaResumeCheckedAt.clear();
     _otaResuming.clear();

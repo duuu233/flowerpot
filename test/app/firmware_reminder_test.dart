@@ -681,7 +681,12 @@ void main() {
         expect(find.text(force), findsNothing);
         expect(repository.startCalls, 1);
         expect(repository.checkCalls, 0);
-        expect(state.otaProgressFor(id)?.verifyingVersion, isTrue);
+        // 满 3 分钟后可能已由前台轮询收尾成「升级超时」：两种状态都不自动弹提醒。
+        expect(
+          state.otaProgressFor(id)?.verifyingVersion == true ||
+              state.otaVerificationConcluded(id),
+          isTrue,
+        );
         expect(tester.takeException(), isNull);
       },
     );

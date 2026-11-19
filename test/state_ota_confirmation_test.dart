@@ -471,18 +471,35 @@ void main() {
       addTearDown(state.dispose);
       await _sdk(repository, percent: 96, stage: OtaStage.installing);
       await _sdk(repository, status: OtaStatus.failed);
-      now = now.add(const Duration(seconds: 119));
+      now = now.add(const Duration(seconds: 179));
       await _sdk(repository, status: OtaStatus.failed);
       await _sdk(repository, percent: 100);
+      state.checkOtaVerificationDeadline(_id);
+      await Future<void>.delayed(Duration.zero);
       expect(state.otaStalled(_id), isFalse);
+      expect(state.otaProgressFor(_id)!.status, OtaStatus.running);
       now = now.add(const Duration(seconds: 1));
       expect(state.otaStalled(_id), isTrue);
       expect(state.otaProgressFor(_id)!.status, OtaStatus.running);
       expect(state.otaProgressFor(_id)!.verifyingVersion, isTrue);
+      // 满 3 分钟收尾：读不到设备版本 → 升级超时（不是失败）。
+      state.checkOtaVerificationDeadline(_id);
+      await Future<void>.delayed(Duration.zero);
+      expect(state.otaProgressFor(_id)!.status, OtaStatus.timedOut);
+      expect(
+        state.otaProgressFor(_id)!.code,
+        FlowerpotState.otaVerificationTimeoutCode,
+      );
+      expect(state.otaVerificationConcluded(_id), isTrue);
+      expect(state.takeOtaConclusionNotices(), [_id]);
+      expect(state.takeOtaConclusionNotices(), isEmpty);
+      // 晚到的真实版本仍转成功，版本号更新、红点熄灭。
       now = now.add(const Duration(minutes: 5));
       _report(repository, state);
       await Future<void>.delayed(Duration.zero);
       expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
+      expect(state.deviceById(_id)!.firmwareVersion, _target);
+      expect(state.hasFirmwareUpdate(_id), isFalse);
       expect(state.otaStalled(_id), isFalse);
       expect(repository.starts, 1);
     },
@@ -527,6 +544,64 @@ void main() {
       },
     );
   }
+
+  test(
+    'online device still on the old version at the deadline fails; offline times out',
+    () async {
+      for (final online in [true, false]) {
+        var now = DateTime(2026);
+        final repository = _Repository()
+          ..firmwareVersionsByDevice[_id] = ['1.0.0'];
+        final state = await _state(repository, clock: () => now);
+        await _sdk(repository, percent: 96, stage: OtaStage.installing);
+        await _sdk(repository, status: OtaStatus.failed);
+        if (!online) {
+          repository.pushDeviceUpdate(
+            DeviceUpdate.changed(
+              state.deviceById(_id)!.copyWith(online: false),
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+        }
+        now = now.add(const Duration(minutes: 3));
+        state.checkOtaVerificationDeadline(_id);
+        await Future<void>.delayed(Duration.zero);
+        final ota = state.otaProgressFor(_id)!;
+        if (online) {
+          expect(ota.status, OtaStatus.failed);
+          expect(ota.code, FlowerpotState.otaVerificationUnchangedCode);
+          expect(ota.message, contains('V1.0.0'));
+        } else {
+          expect(ota.status, OtaStatus.timedOut);
+        }
+        expect(state.otaVerificationConcluded(_id), isTrue);
+        // 收尾后 SDK 晚到的成功回调同样转成功。
+        await _sdk(repository, status: OtaStatus.success);
+        expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
+        expect(state.deviceById(_id)!.firmwareVersion, _target);
+        state.dispose();
+      }
+    },
+  );
+
+  test(
+    'SDK model reading the target at the deadline resolves as success',
+    () async {
+      var now = DateTime(2026);
+      final repository = _Repository();
+      final state = await _state(repository, clock: () => now);
+      addTearDown(state.dispose);
+      await _sdk(repository, percent: 96, stage: OtaStage.installing);
+      await _sdk(repository, status: OtaStatus.failed);
+      now = now.add(const Duration(minutes: 3));
+      repository.firmwareVersionsByDevice[_id] = [_target];
+      state.checkOtaVerificationDeadline(_id);
+      await Future<void>.delayed(Duration.zero);
+      expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
+      expect(state.otaVerificationConcluded(_id), isFalse);
+      expect(state.takeOtaConclusionNotices(), isEmpty);
+    },
+  );
 
   test('a valid SDK success still resolves pending confirmation', () async {
     final repository = _Repository();
@@ -638,7 +713,7 @@ void main() {
   }
 
   testWidgets(
-    'online manual recheck is neutral and cancelling preserves the target',
+    'reopening after 3 minutes shows the timeout; closing keeps late confirmation',
     (tester) async {
       var now = DateTime(2026);
       final repository = _Repository();
@@ -653,16 +728,17 @@ void main() {
       await tester.tap(find.text('关闭窗口'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      now = now.add(const Duration(minutes: 2));
+      now = now.add(const Duration(minutes: 3));
       await tester.tap(find.text('查看升级'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('暂未确认升级结果'), findsOneWidget);
+      expect(find.text('升级超时'), findsOneWidget);
+      expect(find.text('重新检查'), findsOneWidget);
       expect(find.text('升级似乎已中断'), findsNothing);
-      await tester.tap(find.text('取消'));
+      await tester.tap(find.text('知道了'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(state.otaProgressFor(_id)!.verifyingVersion, isTrue);
+      expect(state.otaProgressFor(_id)!.status, OtaStatus.timedOut);
       _report(repository, state);
       await tester.pump();
       expect(state.otaProgressFor(_id)!.status, OtaStatus.success);
@@ -673,7 +749,7 @@ void main() {
   );
 
   testWidgets(
-    'verification expiry is unconfirmed, closable and viewable offline without another start',
+    'open dialog concludes as timeout at 3 minutes and recheck asks Tuya again',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(320, 568));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -687,27 +763,53 @@ void main() {
       });
       addTearDown(state.dispose);
       await _pumpDialog(tester, state);
-      now = now.add(const Duration(minutes: 2));
+      now = now.add(const Duration(minutes: 2, seconds: 59));
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('暂未确认升级结果'), findsOneWidget);
+      expect(find.text('正在确认升级结果'), findsOneWidget);
+      now = now.add(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('升级超时'), findsOneWidget);
       expect(find.text('升级失败'), findsNothing);
-      await tester.tap(find.text('关闭窗口'));
+      final checksBefore = repository.checks;
+      await tester.tap(find.text('重新检查'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(state.otaProgressFor(_id)!.verifyingVersion, isTrue);
-      repository.pushDeviceUpdate(
-        DeviceUpdate.changed(state.deviceById(_id)!.copyWith(online: false)),
-      );
-      await tester.pump();
-      await tester.tap(find.text('查看升级'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text('暂未确认升级结果'), findsOneWidget);
-      expect(find.text('升级似乎已中断'), findsNothing);
-      _report(repository, state);
-      await tester.pump();
-      expect(find.text('升级完成'), findsOneWidget);
+      expect(repository.checks, checksBefore + 1);
+      expect(find.byKey(const Key('firmware-update-dialog')), findsOneWidget);
       expect(repository.starts, 1);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'online old version at 3 minutes offers retry that upgrades without another confirmation',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 568));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      var now = DateTime(2026);
+      final repository = _Repository()
+        ..firmwareVersionsByDevice[_id] = ['1.0.0'];
+      late FlowerpotState state;
+      await tester.runAsync(() async {
+        state = await _state(repository, clock: () => now);
+        await _sdk(repository, percent: 98);
+        await _sdk(repository, status: OtaStatus.failed);
+      });
+      addTearDown(state.dispose);
+      await _pumpDialog(tester, state);
+      now = now.add(const Duration(minutes: 3));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('升级失败'), findsOneWidget);
+      expect(find.textContaining('V1.0.0'), findsOneWidget);
+      await tester.tap(find.text('重新升级'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(const Key('firmware-update-dialog')), findsNothing);
+      expect(repository.starts, 2);
+      expect(find.byKey(const Key('ota-progress-dialog')), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

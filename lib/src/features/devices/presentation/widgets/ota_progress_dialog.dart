@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../../app/flowerpot_app.dart';
 import '../../../../core/logging/ota_debug_log.dart';
 import '../../../../design_system/design_system.dart';
+import '../../../../state.dart';
 import '../../../../tuya/ota_progress_layer.dart';
 import '../../../../tuya/tuya_models.dart';
 
@@ -61,11 +62,17 @@ String _runningHint(OtaStage stage) => switch (stage) {
   OtaStage.waitingWake => '设备唤醒后会自动开始升级，请保持设备通电。',
 };
 
-Future<void> showOtaProgressDialog(
+/// 进度弹层关掉时用户选的下一步；点「知道了 / 关闭窗口」或返回键关掉时为 null。
+///
+/// 只在「正在确认升级结果」满 3 分钟收尾后出现（2026-11-19 产品：最多 3 分钟出结果）：
+/// 升级超时给 [recheck]（重新问涂鸦），设备在线版本未变的升级失败给 [retry]（直接重新升级）。
+enum OtaProgressAction { recheck, retry }
+
+Future<OtaProgressAction?> showOtaProgressDialog(
   BuildContext context, {
   required String deviceId,
 }) {
-  return showDialog<void>(
+  return showDialog<OtaProgressAction>(
     context: context,
     barrierDismissible: false,
     // 其余区域的黑色半透明遮罩。和「检查更新」那个框用同一个浓度。
@@ -85,6 +92,7 @@ class _OtaProgressDialog extends StatefulWidget {
 
 class _OtaProgressDialogState extends State<_OtaProgressDialog> {
   Timer? _stallTimer;
+  FlowerpotState? _state;
 
   /// 上一次写进 OTA 调试日志的显示内容；变了才记，避免每秒重建刷屏。
   String? _lastShown;
@@ -96,9 +104,18 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
     OtaProgressLayer.opened(widget.deviceId);
     OtaDebugLog.ui('打开升级进度弹层', deviceId: widget.deviceId);
     // A stalled SDK may never send another event to rebuild this dialog.
+    // 同一拍顺带检查「正在确认升级结果」是否满 3 分钟，到点由状态层收尾。
     _stallTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      _state?.checkOtaVerificationDeadline(widget.deviceId);
+      setState(() {});
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _state = FlowerpotScope.of(context);
   }
 
   @override
@@ -117,6 +134,9 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
     final running = status == OtaStatus.running;
     final verifying = running && ota?.verifyingVersion == true;
     final stalled = running && state.otaStalled(widget.deviceId);
+    final timedOut = status == OtaStatus.timedOut;
+    // 核验满 3 分钟收尾出来的结论：给「重新检查 / 重新升级」+「知道了」两个按钮。
+    final concluded = state.otaVerificationConcluded(widget.deviceId);
     if (!running) _stallTimer?.cancel();
     final stage = ota?.displayStage ?? OtaStage.preparing;
     final percent = (ota?.percent ?? 0).clamp(0, 100);
@@ -168,12 +188,14 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
                         Text(
-                          stalled
-                              ? (verifying ? '暂未确认升级结果' : '暂未收到升级进度')
+                          // 核验中到点后、收尾前的那一下仍写「正在确认」，马上换成结论。
+                          stalled && !verifying
+                              ? '暂未收到升级进度'
                               : switch (status) {
                                   OtaStatus.running => otaRunningLabel(ota),
                                   OtaStatus.success => '升级完成',
                                   OtaStatus.failed => '升级失败',
+                                  OtaStatus.timedOut => '升级超时',
                                 },
                           key: const Key('ota-progress-title'),
                           textAlign: TextAlign.center,
@@ -195,15 +217,17 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
                                 ? 1
                                 : percent / 100,
                             backgroundColor: AppColors.canvas,
-                            color: status == OtaStatus.failed
-                                ? AppColors.danger
-                                : AppColors.brandPrimary,
+                            color: switch (status) {
+                              OtaStatus.failed => AppColors.danger,
+                              OtaStatus.timedOut => AppColors.warning,
+                              _ => AppColors.brandPrimary,
+                            },
                           ),
                         ),
                         const SizedBox(height: AppSpacing.sm),
                         Text(
                           // 不写数字时留一行空白，弹层高度不跟着跳。
-                          indeterminate
+                          indeterminate || concluded
                               ? ''
                               : status == OtaStatus.success
                               ? '100%'
@@ -220,14 +244,14 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
                           switch (status) {
                             OtaStatus.running =>
                               verifying
-                                  ? (stalled
-                                        ? '暂未确认设备版本，请保持设备通电并连接 Wi-Fi。可以关闭窗口，稍后重新检查；关闭不会中断设备升级。'
-                                        : '设备可能正在安装或重启，正在等待版本确认。请保持设备通电、不要断开 Wi-Fi；关闭窗口不会中断升级。')
+                                  ? '设备正在安装或重启，通常 1~2 分钟内完成。请保持设备通电、不要断开 Wi-Fi；关闭窗口不会中断升级。'
                                   : stalled
                                   ? '设备可能仍在升级，请保持通电、不要断开 Wi-Fi。可以关闭窗口，稍后重新检查；关闭不会中断设备升级。'
                                   : _runningHint(stage),
                             OtaStatus.success => '设备已升级到新版本。',
                             OtaStatus.failed => ota?.message ?? '请稍后重试。',
+                            OtaStatus.timedOut =>
+                              ota?.message ?? '未收到设备确认，请检查设备电源和网络后重新检查。',
                           },
                           textAlign: TextAlign.center,
                           style: AppTypography.smallBody,
@@ -237,7 +261,32 @@ class _OtaProgressDialogState extends State<_OtaProgressDialog> {
                   ),
                 ),
                 // 跑完（成功或失败）才给关闭按钮；升级中不给，避免用户以为能中断。
-                if (!running || stalled || verifying) ...<Widget>[
+                if (concluded) ...<Widget>[
+                  const SizedBox(height: AppSpacing.xxl),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: OutlinedButton(
+                          key: const Key('ota-progress-close'),
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('知道了'),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: FilledButton(
+                          key: const Key('ota-progress-recheck'),
+                          onPressed: () => Navigator.of(context).pop(
+                            timedOut
+                                ? OtaProgressAction.recheck
+                                : OtaProgressAction.retry,
+                          ),
+                          child: Text(timedOut ? '重新检查' : '重新升级'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (!running || stalled || verifying) ...<Widget>[
                   const SizedBox(height: AppSpacing.xxl),
                   FilledButton(
                     key: const Key('ota-progress-close'),

@@ -13,9 +13,11 @@ import 'widgets/ota_progress_dialog.dart';
 /// 复用，包括逻辑和交互」）。
 ///
 /// 依次：
-/// 1. **正在升级**：没卡住就重新打开进度弹层；卡住了（[FlowerpotState.otaStalled]）弹
-///    「升级似乎已中断」，确认后丢掉本地进度、重新问涂鸦（不再用红点那次的旧结论）。
-///    放在离线判断之前：升级中设备重启、短暂离线是常态，这时要看的是进度。
+/// 1. **正在升级**：没卡住或正在确认升级结果就重新打开进度弹层；卡住了
+///    （[FlowerpotState.otaStalled]）弹「升级似乎已中断」，确认后丢掉本地进度、重新问涂鸦
+///    （不再用红点那次的旧结论）。放在离线判断之前：升级中设备重启、短暂离线是常态，
+///    这时要看的是进度。上次确认满 3 分钟收尾成超时 / 失败的，先丢掉结论再往下走。
+///    进度弹层上点「重新检查 / 重新升级」时整套再走一遍（「重新升级」跳过确认框）。
 /// 2. **离线**：提示「花盆 / 割草机已离线，无法检查固件」，不跳页。
 /// 3. 每次都现问涂鸦有没有新版本（不拿红点那次的旧结论，2026-10-21 用户：SDK 的值
 ///    不缓存），没有就提示已是最新。
@@ -31,6 +33,33 @@ Future<void> runFirmwareUpgrade(
   bool confirmed = false,
   void Function(String line)? log,
 }) async {
+  var skipConfirm = confirmed;
+  while (true) {
+    final action = await _runFirmwareUpgradeOnce(
+      context,
+      deviceId,
+      confirmed: skipConfirm,
+      log: log,
+    );
+    if (action == null || !context.mounted) return;
+    // 核验满 3 分钟收尾后，用户在进度弹层上点了「重新检查 / 重新升级」：丢掉本地这次的
+    // 结论，从头走一遍入口（现问涂鸦）。「重新升级」已经表态要升，不再弹检查更新确认框。
+    final line =
+        '固件 · 升级结论弹层，用户选择：'
+        '${action == OtaProgressAction.retry ? '重新升级' : '重新检查'}';
+    log?.call(line);
+    OtaDebugLog.ui(line, deviceId: deviceId);
+    FlowerpotScope.of(context).clearOtaProgress(deviceId);
+    skipConfirm = action == OtaProgressAction.retry;
+  }
+}
+
+Future<OtaProgressAction?> _runFirmwareUpgradeOnce(
+  BuildContext context,
+  String deviceId, {
+  required bool confirmed,
+  void Function(String line)? log,
+}) async {
   final state = FlowerpotScope.of(context);
   // 每一步同时写进 OTA 调试文件；割草机另外进联调日志。
   void note(String line) {
@@ -38,9 +67,9 @@ Future<void> runFirmwareUpgrade(
     OtaDebugLog.ui(line, deviceId: deviceId);
   }
 
-  if (state.isCheckingFirmware(deviceId)) return;
+  if (state.isCheckingFirmware(deviceId)) return null;
   final device = state.deviceById(deviceId);
-  if (device == null) return;
+  if (device == null) return null;
   final local = state.otaProgressFor(deviceId);
   final localText = local == null
       ? '无'
@@ -50,27 +79,28 @@ Future<void> runFirmwareUpgrade(
 
   if (state.otaProgressFor(deviceId)?.status == OtaStatus.running) {
     // 重新打开进度时先现读一次 SDK 当前版本：设备可能已经装好，只是结果还没推上来。
+    // 「正在确认升级结果」一律打开进度弹层：满 3 分钟由状态层收尾，弹层上直接出结论。
     state.refreshOtaResult(deviceId);
-    if (!state.otaStalled(deviceId) || !state.isDeviceOnline(deviceId)) {
-      await showOtaProgressDialog(context, deviceId: deviceId);
-      return;
+    if (state.otaProgressFor(deviceId)?.verifyingVersion == true ||
+        !state.otaStalled(deviceId) ||
+        !state.isDeviceOnline(deviceId)) {
+      return await showOtaProgressDialog(context, deviceId: deviceId);
     }
     // 设备掉电、掉线或校验失败时，涂鸦可能再也不回终态。按阶段的停滞阈值让用户
     // 重新检查，而不是把他锁在一个永远不动的进度上。
     final retry = await showAppConfirmDialog(
       context,
-      title: state.otaProgressFor(deviceId)?.verifyingVersion == true
-          ? '暂未确认升级结果'
-          : '升级似乎已中断',
-      message: state.otaProgressFor(deviceId)?.verifyingVersion == true
-          ? '尚未收到设备版本确认。可以重新检查固件；请保持设备通电并连接 Wi-Fi。'
-          : '设备已经很久没有回报升级进度。可以重新检查固件；'
-                '若设备仍在升级中，请等它完成后再试。',
+      title: '升级似乎已中断',
+      message: '设备已经很久没有回报升级进度。可以重新检查固件；'
+          '若设备仍在升级中，请等它完成后再试。',
       confirmLabel: '重新检查',
       icon: Icons.sync_problem_outlined,
     );
-    note('固件 · 停滞/待确认提示，用户选择：${retry ? '重新检查' : '取消'}');
-    if (!retry || !context.mounted) return;
+    note('固件 · 停滞提示，用户选择：${retry ? '重新检查' : '取消'}');
+    if (!retry || !context.mounted) return null;
+    state.clearOtaProgress(deviceId);
+  } else if (state.otaVerificationConcluded(deviceId)) {
+    // 上次「正在确认」满 3 分钟收尾成了升级超时 / 失败：再点入口就等于重新检查。
     state.clearOtaProgress(deviceId);
   }
 
@@ -80,7 +110,7 @@ Future<void> runFirmwareUpgrade(
     } else {
       showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.info);
     }
-    return;
+    return null;
   }
 
   state.setCheckingFirmware(deviceId, true);
@@ -88,7 +118,7 @@ Future<void> runFirmwareUpgrade(
     note('固件 → $deviceId 检查新版本（涂鸦 OTA，非 DP）');
     // 每次点进来都现问涂鸦：红点那次的结论可能已经过时（例如设备其实已经升好）。
     final update = await state.checkFirmware(deviceId);
-    if (!context.mounted || !state.isDeviceOnline(deviceId)) return;
+    if (!context.mounted || !state.isDeviceOnline(deviceId)) return null;
     // 「当前版本」优先用同一条 OTA 记录里的那个：设备可能有 MCU、Wi-Fi 模块几个可升级
     // 组件，拿设备上报的版本和另一个组件的新版本并排显示，两行就对不上。
     final currentVersion = update?.currentVersion ?? device.firmwareVersion;
@@ -98,21 +128,20 @@ Future<void> runFirmwareUpgrade(
     );
     if (update == null || update.version == currentVersion) {
       showAppMessage(context, '当前已是最新固件版本');
-      return;
+      return null;
     }
     if (update.inProgress) {
       // SDK 说这台正在升级（例如升级中途关掉 App 后重开）：`checkFirmware` 已经接回了
       // 这次任务（只挂监听、不重新下发），这里直接打开进度弹层接着走。
       if (state.otaProgressFor(deviceId)?.status != OtaStatus.running) {
         final result = await state.upgradeFirmware(deviceId, update.version);
-        if (!context.mounted) return;
+        if (!context.mounted) return null;
         if (!result.success) {
           showDeviceActionResult(context, result);
-          return;
+          return null;
         }
       }
-      await showOtaProgressDialog(context, deviceId: deviceId);
-      return;
+      return await showOtaProgressDialog(context, deviceId: deviceId);
     }
     if (!confirmed) {
       // 确认框开着的时候不转圈。
@@ -123,17 +152,17 @@ Future<void> runFirmwareUpgrade(
         availableVersion: update.version,
       );
       note('固件 · 检查更新确认框，用户选择：${accepted ? '立即更新' : '取消'}');
-      if (!accepted || !context.mounted) return;
+      if (!accepted || !context.mounted) return null;
       state.setCheckingFirmware(deviceId, true);
     }
     if (!state.isDeviceOnline(deviceId)) {
       showAppMessage(context, deviceOfflineMessage, tone: AppMessageTone.info);
-      return;
+      return null;
     }
     // 检测仍可查看版本；用户确认且弹框完整退出后，按最新充电状态决定是否发起。
     if (state.isMowerDevice(device)) {
       final allowed = await state.canStartFirmwareUpgrade(deviceId);
-      if (!context.mounted) return;
+      if (!context.mounted) return null;
       if (!allowed) {
         note('固件 ✗ 割草机未在桩充电，不发起升级');
         showAppMessage(
@@ -141,7 +170,7 @@ Future<void> runFirmwareUpgrade(
           state.isDeviceOnline(deviceId) ? '请回桩进行ota升级' : deviceOfflineMessage,
           tone: AppMessageTone.info,
         );
-        return;
+        return null;
       }
     }
     final result = await state.upgradeFirmware(deviceId, update.version);
@@ -150,12 +179,12 @@ Future<void> runFirmwareUpgrade(
           ? '固件 → 已发起升级到 ${update.version}'
           : '固件 ✗ 发起失败：${result.message}',
     );
-    if (!context.mounted) return;
+    if (!context.mounted) return null;
     if (!result.success) {
       showDeviceActionResult(context, result);
-      return;
+      return null;
     }
-    await showOtaProgressDialog(context, deviceId: deviceId);
+    return await showOtaProgressDialog(context, deviceId: deviceId);
   } on TuyaException catch (error) {
     // SDK 的原始码对用户没有意义，message 才是能照着做的那句。
     note('固件 ✗ 检查失败：${error.code} ${error.message}');
@@ -174,6 +203,7 @@ Future<void> runFirmwareUpgrade(
   } finally {
     state.setCheckingFirmware(deviceId, false);
   }
+  return null;
 }
 
 Future<bool> showFirmwareUpdateDialog(

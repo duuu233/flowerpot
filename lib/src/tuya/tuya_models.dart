@@ -331,7 +331,10 @@ class OtaProgress {
   }
 }
 
-enum OtaStatus { running, success, failed }
+/// 升级状态。[timedOut]：SDK 报错后进入「正在确认升级结果」，满
+/// `FlowerpotState.otaVerificationTimeout`（3 分钟，产品口径）仍读不到设备版本时的终态——
+/// 不等于失败，之后读到目标版本仍会转成 [success]。
+enum OtaStatus { running, success, failed, timedOut }
 
 /// 升级进行中的阶段。
 ///
