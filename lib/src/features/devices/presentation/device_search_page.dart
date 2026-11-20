@@ -826,11 +826,12 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
             : '蓝牙没有打开。当前版本只走蓝牙配网（热点方式已屏蔽），请先打开蓝牙。';
       }
       if (!availability.scanPermission || !availability.locationPermission) {
+        // 页面是普通 Text，不渲染 Markdown：别在文案里写 `**`，会原样显示成星号。
         return '还缺搜索所需的权限。Android 上 BLE 扫描要「附近的设备」与「定位」权限，'
-            '**选「仅在使用该应用时允许」就够了**。';
+            '选「仅在使用该应用时允许」就够了。';
       }
       if (!availability.locationOn) {
-        return '权限已经给了，但**系统的定位服务开关是关着的**——BLE 扫描要求它打开，'
+        return '权限已经给了，但系统的定位服务开关是关着的——BLE 扫描要求它打开，'
             '关着时不会报错、只会一台都扫不到。';
       }
       return null;
@@ -1243,8 +1244,13 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                               ),
                               TextButton(
                                 key: const Key('device-search-open-settings'),
-                                onPressed: () =>
-                                    unawaited(state.openAppSettings()),
+                                // 只差系统定位总开关时直接去定位开关页：应用权限页里没有它，
+                                // 送过去用户只会看到「定位权限已允许」然后卡住（小米上反馈过）。
+                                onPressed: () => unawaited(
+                                  _onlyLocationServiceOff(state.bleAvailability)
+                                      ? state.openLocationSettings()
+                                      : state.openAppSettings(),
+                                ),
                                 child: const Text('去系统设置'),
                               ),
                             ],
@@ -1445,6 +1451,15 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     // ——那是排查期的自述，用户不需要知道，2026-09-12 按设计稿换回来。
     return const _SearchOutcome('搜索附近设备...', '请保持手机蓝牙和Wi-Fi已开启，并让设备处于配网状态');
   }
+
+  /// 蓝牙、权限都齐了，只差系统定位服务总开关。
+  bool _onlyLocationServiceOff(BleAvailability availability) =>
+      availability.available &&
+      availability.supported &&
+      availability.enabled &&
+      availability.scanPermission &&
+      availability.locationPermission &&
+      !availability.locationOn;
 
   String _failureHint(ActionResult result) => switch (result.code) {
     'wifi_disabled' => '请先打开手机 Wi-Fi 再重新扫描。',

@@ -164,6 +164,8 @@ final class FlowerpotTuyaBridge: NSObject {
     // Dart 侧同一套解析，见 TuyaRepository.bleProbe / startBleScan / pairBleDevice。
     case "ensureBlePermissions": ensureBlePermissions(result)
     case "openAppSettings": openAppSettings(result)
+    // iOS 不允许直达系统定位开关页，BLE 扫描也不依赖它；保持与 Android 同名，落到应用设置页。
+    case "openLocationSettings": openAppSettings(result)
     case "bleProbe": bleProbe(result)
     case "startBleScan": startBleScan(args, result)
     case "stopBleScan":

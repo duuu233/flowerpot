@@ -745,6 +745,53 @@ Future<void> _runOutSearchWindow(WidgetTester tester) async {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('只差系统定位总开关：「去系统设置」去定位开关页，缺权限时仍去应用设置页', (
+    tester,
+  ) async {
+    PairingGate.reset(); // 生产值：只走蓝牙，开关按钮才会出现
+    final repository = MockTuyaRepository(latency: Duration.zero)
+      ..bleAvailability = const BleAvailability(
+        available: true,
+        supported: true,
+        enabled: true,
+        locationOn: false,
+      );
+    final state = await _pumpDeviceSearchPage(
+      tester,
+      const Size(375, 812),
+      repository: repository,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('请打开系统定位服务'), findsOneWidget);
+    // 文案是普通 Text，`**` 会原样显示成星号。
+    final notice = tester.widget<Text>(
+      find.byKey(const Key('device-search-ble-notice')),
+    );
+    expect(notice.data, isNot(contains('**')));
+
+    await tester.tap(find.byKey(const Key('device-search-open-settings')));
+    await tester.pump();
+    expect(repository.locationSettingsOpens, 1);
+    expect(repository.appSettingsOpens, 0);
+
+    // 缺定位权限：还是去应用设置页（权限只在那里给）。
+    repository.bleAvailability = const BleAvailability(
+      available: true,
+      supported: true,
+      enabled: true,
+      locationPermission: false,
+    );
+    await state.probeBle();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('device-search-open-settings')));
+    await tester.pump();
+    expect(repository.appSettingsOpens, 1);
+    expect(repository.locationSettingsOpens, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('AP 屏蔽后：蓝牙扫到什么就列什么，已绑定的也列出来但点不动', (tester) async {
     PairingGate.reset();
     final repository = MockTuyaRepository(latency: Duration.zero);

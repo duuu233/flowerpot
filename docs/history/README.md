@@ -1,5 +1,6 @@
 # 本地操作更新记录
 
+- [2026-11-20 搜索设备「请打开系统定位服务」：按钮改去系统定位开关页](2026-11/2026-11-20-location-service-settings.md)：定位权限已给、系统定位总开关关着时（小米需单独开），「去系统设置」改为打开系统定位开关页（新桥接 `openLocationSettings`，iOS 落到应用设置页），缺权限仍去应用设置页；提示文案去掉原样显示的 `**`；未编译、未运行测试。
 - [2026-11-19 登录页隐藏微信快捷登录（iOS / Android）](2026-11/2026-11-19-hide-wechat-login.md)：`LoginEntryConfig.wechatLogin` 改为 false，代码保留；快捷登录全关时「其他登录方式」分隔线一并不显示；未运行测试。
 - [2026-11-19 设备名称按手机系统语言动态显示](2026-11/2026-11-19-device-display-name-by-language.md)：列表等页面不再直接用激活时存下的涂鸦设备名，改为本机改过名显示自定义名、否则显示按产品 ID 现查的涂鸦产品名（随系统语言），查不到才用设备名；本机改名记录存 SharedPreferences；未编译、未运行测试。
 - [2026-11-19 iOS 本地化改为跟随系统语言（中文兜底）](2026-11/2026-11-19-ios-localization-follow-system.md)：`CFBundleLocalizations` 恢复 zh-Hans + en，开发区域 zh-Hans 兜底，取代同日「只声明中文」；未编译、未真机。

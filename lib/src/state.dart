@@ -1041,6 +1041,18 @@ class FlowerpotState extends ChangeNotifier {
     }
   }
 
+  /// 把用户送去系统「定位服务」总开关页。
+  ///
+  /// 定位权限已给、总开关关着时用：应用权限页里没有这个开关，送过去只会看到「权限已允许」。
+  /// 原生打不开时退回 [openAppSettings]。
+  Future<void> openLocationSettings() async {
+    try {
+      await _repository.openLocationSettings();
+    } catch (_) {
+      await openAppSettings();
+    }
+  }
+
   /// 停掉 BLE 扫描并断开订阅。
   ///
   /// **每条离开搜索页的路径都要调**：扫描回调在原生侧握着 Activity，而且在真的耗电。

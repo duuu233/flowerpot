@@ -397,6 +397,10 @@ abstract class TuyaRepository {
   /// 打开本应用的系统设置页（权限被永久拒绝后唯一的出路）。
   Future<void> openAppSettings();
 
+  /// 打开系统「定位服务」总开关页（Android）。权限给了、总开关关着时用它，
+  /// 应用权限页里没有这个开关。iOS 落到应用设置页。
+  Future<void> openLocationSettings();
+
   /// 主动断开与设备的 BLE 连接；[uuid] 为空表示**全断**。
   ///
   /// ⚠️ **这一步直接决定设备还能不能被再次扫到。** BLE 外设**在连接状态下会停止广播**，
@@ -489,6 +493,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> openAppSettings() => _invoke<void>('openAppSettings');
+
+  @override
+  Future<void> openLocationSettings() => _invoke<void>('openLocationSettings');
 
   @override
   Future<void> disconnectBleDevice({String uuid = ''}) =>

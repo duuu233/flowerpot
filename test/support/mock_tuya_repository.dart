@@ -59,6 +59,7 @@ class MockTuyaRepository implements TuyaRepository {
   /// [ensureBlePermissions] 被调了几次；用例据此断言"授权在探测之前"。
   int blePermissionRequests = 0;
   int appSettingsOpens = 0;
+  int locationSettingsOpens = 0;
 
   @override
   Future<void> ensureBlePermissions() async {
@@ -68,6 +69,9 @@ class MockTuyaRepository implements TuyaRepository {
 
   @override
   Future<void> openAppSettings() async => appSettingsOpens++;
+
+  @override
+  Future<void> openLocationSettings() async => locationSettingsOpens++;
 
   /// 断开调用记录；用例据此断言"每条退出路径都断干净了"。
   final List<String> bleDisconnects = <String>[];

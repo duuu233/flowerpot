@@ -466,6 +466,7 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
                     success(result, null)
                 }
                 "openAppSettings" -> openAppSettings(result)
+                "openLocationSettings" -> openLocationSettings(result)
                 "queryDeviceConfigState" -> bleQueryDeviceWifi(call, result)
                 "pairBleDevice" -> pairBleDevice(call, result)
                 "publishDps" -> deviceAction(call, result, "publishDps")
@@ -985,6 +986,22 @@ private class TuyaSdkBridge(private val activity: FlutterActivity) {
         runCatching { activity.startActivity(intent) }
             .onSuccess { success(result, true) }
             .onFailure { cause -> error(result, "open_settings_failed", "打不开设置页：${cause.message}") }
+    }
+
+    /**
+     * 打开系统的「定位服务」总开关页（`ACTION_LOCATION_SOURCE_SETTINGS`）。
+     *
+     * 和 [openAppSettings] 不是一回事：应用权限页里只有「本应用能不能定位」，**系统总开关
+     * 不在那里**。权限给了、总开关关着时把人送去应用权限页，他看到权限是开的就卡住了
+     * （小米等机型上尤其明显，总开关得在下拉栏或「设置 → 定位服务」里单独开）。
+     * 个别 ROM 没有这个页面时退回应用设置页，至少有个落脚点。
+     */
+    private fun openLocationSettings(result: MethodChannel.Result) {
+        val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { activity.startActivity(intent) }
+            .onSuccess { success(result, true) }
+            .onFailure { openAppSettings(result) }
     }
 
     /**
