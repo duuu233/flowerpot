@@ -30,9 +30,15 @@
 - Apple Developer → Identifiers → App ID `com.common.yikaltdtext` 勾选 **Access WiFi Information**，保存后重新生成（或让 Xcode 自动签名刷新）描述文件。未勾选时，带了这个 entitlement 的包会签名失败（描述文件不包含该能力）。
 - Xcode 打开工程，Runner → Signing & Capabilities 应能看到 Access WiFi Information；Archive 后在导出包里核对 entitlement。
 
+## 补充（同日）：加上 Hotspot Configuration
+
+- 用户要求把 AP 热点配网所需的 Hotspot Configuration 一并加上。iOS 连设备热点用的是 `NEHotspotConfigurationManager.apply`，需要 `com.apple.developer.networking.HotspotConfiguration`，此前同样缺失。
+- `Runner.entitlements` 新增 `com.apple.developer.networking.HotspotConfiguration = true`。代码未改。
+- 开发者账号的 App ID 需同时勾选 **Hotspot** 与 **Access WiFi Information** 两项能力，再刷新描述文件。
+
 ## 验证
 
-服务器上没有 Xcode / Flutter，未编译、未签名、未真机。需要在 Mac 上 Archive，iPhone 首次进搜索页同意定位（精确位置），确认配网页 Wi-Fi 名称自动填为手机当前网络；拒绝定位时可手动输入。
+服务器上没有 Xcode / Flutter，未编译、未签名、未真机（两项能力均如此）。需要在 Mac 上 Archive，iPhone 首次进搜索页同意定位（精确位置），确认配网页 Wi-Fi 名称自动填为手机当前网络；拒绝定位时可手动输入。
 
 ## 回滚
 
