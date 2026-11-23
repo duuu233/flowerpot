@@ -17,6 +17,7 @@ void main() {
     expect(find.text('喝水中'), findsOneWidget);
     expect(find.text('当前水仓水位'), findsOneWidget);
     expect(find.text('当前土壤湿度'), findsOneWidget);
+    expect(find.text('适中'), findsOneWidget);
     expect(find.text('水仓水位变化'), findsOneWidget);
     expect(find.text('建议'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -54,7 +55,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('water status page starts at day and switches metric', (
+  testWidgets('water page: day range, soil moisture as enum text only', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(375, 812));
@@ -88,7 +89,9 @@ void main() {
     expect(find.text('需水状态'), findsOneWidget);
     expect(find.text('喝水中'), findsOneWidget);
     expect(find.text('80 ml'), findsOneWidget);
-    expect(find.text('97 %'), findsOneWidget);
+    // 2026-11-23：DP 106 只报 dry / moderate，只显示档位文字，不显示数值。
+    expect(find.text('适中'), findsOneWidget);
+    expect(find.textContaining('%'), findsNothing);
     expect(
       tester
           .widget<TimeRangeSelector<ReportRange>>(
@@ -98,60 +101,14 @@ void main() {
       ReportRange.day,
     );
 
-    await tester.tap(find.text('水仓水位变化'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('土壤湿度变化'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-
-    expect(
-      tester
-          .widget<WaterTrendChartCard>(find.byType(WaterTrendChartCard))
-          .metric,
-      WaterStatusMetric.soilMoisture,
-    );
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('soil moisture mode can be opened directly', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(375, 812));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    final state = FlowerpotState(
-      repository: MockTuyaRepository(latency: Duration.zero),
-    );
-    addTearDown(state.dispose);
-    await tester.runAsync(
-      () => state.login(
-        account: '13800138000',
-        credential: 'demo',
-        region: LoginRegion.domestic,
-        verificationCode: false,
-      ),
-    );
-
-    await tester.pumpWidget(
-      FlowerpotScope(
-        state: state,
-        child: MaterialApp(
-          theme: buildAppTheme(),
-          home: WaterStatusPage(
-            deviceId: state.devices.single.id,
-            initialMetric: WaterStatusMetric.soilMoisture,
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-
+    // 只剩水仓水位一条曲线，没有切换菜单，也没有土壤湿度曲线。
     final chart = tester.widget<WaterTrendChartCard>(
       find.byType(WaterTrendChartCard),
     );
-    expect(chart.metric, WaterStatusMetric.soilMoisture);
-    expect(chart.values, contains(97));
-    expect(find.text('土壤湿度变化'), findsOneWidget);
-    expect(find.text('97 %'), findsOneWidget);
+    expect(chart.metric, WaterStatusMetric.waterLevel);
+    expect(find.text('水仓水位变化'), findsOneWidget);
+    expect(find.text('土壤湿度变化'), findsNothing);
+    expect(find.byType(PopupMenuButton<WaterStatusMetric>), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }
@@ -164,7 +121,7 @@ Future<void> _pumpWaterWidgets(WidgetTester tester, Size size) async {
     status: '喝水中',
     description: '正在慢慢吸收水分。',
     waterLevel: 80,
-    soilMoisture: 97,
+    soilMoisture: '适中',
     advice: '当前湿度适宜，建议保持现有浇水频率，避免盆土长期过湿，确保植物根系健康。',
   );
   await tester.pumpWidget(
@@ -188,7 +145,6 @@ Future<void> _pumpWaterWidgets(WidgetTester tester, Size size) async {
                   '20:00',
                   '00:00',
                 ],
-                onMetricChanged: (_) {},
               ),
               const SizedBox(height: 12),
               CareAdviceCard(message: model.advice, emphasized: true),

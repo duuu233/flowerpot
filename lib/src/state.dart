@@ -2933,9 +2933,10 @@ class FlowerpotState extends ChangeNotifier {
   /// 2026-09-15 产品：「只要涂鸦推送了，报表就是要实时动，往前移动那种效果」「不需要做
   /// 特殊处理，跟以前那些数据一样的渲染」。所以曲线不再是进页面取一次的 Future：
   ///
-  /// - 底子是设备上报的历史包（日 131/134/137，周 132/135/138，月 133/136/139；
+  /// - 底子是设备上报的历史包（日 131/137，周 132/138，月 133/139；土壤湿度 134–136
+  ///   2026-11-23 起不再上报；
   ///   温度 164、湿度 165 只有日包），在设备快照里；设备推来新包，快照一换，曲线跟着换。
-  /// - **日视图**再接上之后每次推送的实时值（105 水位、106 土壤湿度、109 照度、112 温度、
+  /// - **日视图**再接上之后每次推送的实时值（105 水位、109 照度、112 温度、
   ///   114 湿度）：新点从右边进，超过 [liveChartWindow] 个点就把最左边挤掉，整条线往前移。
   /// - 周、月是「每天一个平均值」，实时值不往里接，推来新的周包 / 月包时整段换。
   ///
@@ -3047,7 +3048,6 @@ class FlowerpotState extends ChangeNotifier {
   static const Map<SensorMetric, (String, String?)> _liveChartDps =
       <SensorMetric, (String, String?)>{
         SensorMetric.waterLevel: ('water_level', 'tank_level_daily_hist'),
-        SensorMetric.soilMoisture: ('soil_moist', 'soil_moist_daily_hist'),
         SensorMetric.light: ('light_intensity', 'light_daily_hist'),
         // 2026-09-16 的功能点表补了 164 / 165 两条日历史，温度和湿度也有底子了。
         SensorMetric.temperature: ('air_temperature', 'temp_daily_hist'),

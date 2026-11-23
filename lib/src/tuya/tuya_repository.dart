@@ -1620,6 +1620,11 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         'suitable': ComfortLevel.suitable,
         'damp': ComfortLevel.high,
       }),
+      // 106 2026-11-23 起是枚举 dry / moderate；旧固件报的数值认不出，按没上报处理。
+      soilMoisture: reported('soil_moist', const <String, SoilMoisture>{
+        'dry': SoilMoisture.dry,
+        'moderate': SoilMoisture.moderate,
+      }),
     );
 
     final settings = DeviceControlSettings(
@@ -1693,7 +1698,6 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       plant: PlantProfile.unavailable,
       sensors: SensorSnapshot(
         waterLevel: integer(dp('water_level'), 0),
-        soilMoisture: integer(dp('soil_moist'), 0),
         illuminance: integer(dp('light_intensity'), 0),
         ppfd: decimal(dp('light_ppfd_value'), 0),
         par: decimal(dp('light_par_value'), 0),
@@ -1742,7 +1746,6 @@ class MethodChannelTuyaRepository implements TuyaRepository {
   /// 光照曲线。
   static SensorMetric _historyMetric(String key) => switch (key) {
     'waterLevel' => SensorMetric.waterLevel,
-    'soilMoisture' => SensorMetric.soilMoisture,
     'temperature' => SensorMetric.temperature,
     'humidity' => SensorMetric.humidity,
     _ => SensorMetric.light,

@@ -257,7 +257,6 @@ SmartPlanterDevice _device({
     plant: PlantCatalog.items.first,
     sensors: const SensorSnapshot(
       waterLevel: 80,
-      soilMoisture: 60,
       illuminance: 800,
       ppfd: 5.6,
       airTemperature: 24.5,

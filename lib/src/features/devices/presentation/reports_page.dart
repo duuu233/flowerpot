@@ -265,7 +265,7 @@ class _ReportsPageState extends State<ReportsPage>
   ///
   /// 1. **这个指标没有历史 DP**（电池、PPFD、DLI）——再等也不会有
   ///    （2026-09-11 产品反馈「报表里电池数据为空」）。历史 DP 是 131–139 加
-  ///    164/165：水位 / 土壤湿度 / 光照各三个周期，空气温度 / 空气湿度只有日。
+  ///    164/165：水位 / 光照各三个周期，空气温度 / 空气湿度只有日。
   /// 2. **日包里没有这一天**——日包一次带 7 天，某一天空着说明设备那天没报
   ///    （断电、离线）。用户正对着日期在翻，说成「还没上报」会让人以为整个功能
   ///    没通。
@@ -424,15 +424,14 @@ class _MetricInfo {
 
   /// 这个指标在这个周期上到底**有没有历史 DP**。
   ///
-  /// 水位（131/132/133）、土壤湿度（134/135/136）、光照（137/138/139）各有日 / 周 / 月；
+  /// 水位（131/132/133）、光照（137/138/139）各有日 / 周 / 月（土壤湿度 134–136
+  /// 2026-11-23 起不再上报，DP 106 也只剩档位，报表里不再有这一项）；
   /// 空气温度（164）和空气湿度（165）是 2026-09-16 补的，**只有日**。电池、PPFD、DLI
   /// 一个都没有。没有的那些**只有实时值、没有历史曲线**——这是产品功能点决定的，
   /// 不是"还没上报"，两种情况在空态里要分开说。
   static bool hasHistorySource(SensorMetric metric, ReportRange range) =>
       switch (metric) {
-        SensorMetric.waterLevel ||
-        SensorMetric.soilMoisture ||
-        SensorMetric.light => true,
+        SensorMetric.waterLevel || SensorMetric.light => true,
         SensorMetric.temperature ||
         SensorMetric.humidity => range == ReportRange.day,
         _ => false,
@@ -445,14 +444,6 @@ class _MetricInfo {
       Icons.water_outlined,
       AppColors.water,
       '水位低于 25% 时及时补水，避免水泵空转。',
-      0,
-    ),
-    SensorMetric.soilMoisture => const _MetricInfo(
-      '土壤湿度',
-      '%',
-      Icons.water_drop_outlined,
-      Color(0xFF4B9AB0),
-      '观察趋势比单次读数更重要，避免短时间内反复浇水。',
       0,
     ),
     SensorMetric.light => const _MetricInfo(

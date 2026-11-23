@@ -21,7 +21,6 @@ void main() {
     status: '喝水中',
     description: '正在慢慢吸收水分。',
     waterLevel: 80,
-    soilMoisture: 97,
     advice: '当前湿度适宜。',
   );
   const light = LightStatusPageModel(

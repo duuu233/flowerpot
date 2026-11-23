@@ -9,7 +9,6 @@ class WaterTrendChartCard extends StatelessWidget {
     required this.metric,
     required this.values,
     required this.labels,
-    required this.onMetricChanged,
     super.key,
     this.gaps = const <bool>[],
     this.labelPositions,
@@ -24,7 +23,6 @@ class WaterTrendChartCard extends StatelessWidget {
 
   /// 横轴标签落在第几个点上，见 [WaterTrendLineChart.labelPositions]。
   final List<double>? labelPositions;
-  final ValueChanged<WaterStatusMetric> onMetricChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -45,30 +43,8 @@ class WaterTrendChartCard extends StatelessWidget {
                 excludeFromSemantics: true,
               ),
               const SizedBox(width: AppSpacing.sm),
-              PopupMenuButton<WaterStatusMetric>(
-                initialValue: metric,
-                tooltip: '切换数据指标',
-                onSelected: onMetricChanged,
-                itemBuilder: (context) => WaterStatusMetric.values
-                    .map(
-                      (value) => PopupMenuItem<WaterStatusMetric>(
-                        value: value,
-                        child: Text(value.label),
-                      ),
-                    )
-                    .toList(growable: false),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(metric.label, style: AppTypography.body),
-                    const SizedBox(width: AppSpacing.xs),
-                    const Icon(
-                      Icons.arrow_drop_down_rounded,
-                      color: AppColors.textPrimary,
-                    ),
-                  ],
-                ),
-              ),
+              // 2026-11-23 起只有水仓水位一条曲线，土壤湿度不再有历史，切换菜单去掉。
+              Text(metric.label, style: AppTypography.body),
               const Spacer(),
               Text(
                 metric.unit,

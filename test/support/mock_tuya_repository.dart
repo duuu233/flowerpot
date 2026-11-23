@@ -502,13 +502,6 @@ class MockTuyaRepository implements TuyaRepository {
           minimum: 30,
           maximum: 100,
         ),
-        SensorMetric.soilMoisture => _series(
-          count,
-          (progress) => 66 + math.sin(progress * math.pi * 1.6) * 7,
-          jitter: 1.2,
-          minimum: 35,
-          maximum: 96,
-        ),
         SensorMetric.temperature => _series(
           count,
           // Cool before dawn, peak mid-afternoon.
@@ -554,7 +547,6 @@ class MockTuyaRepository implements TuyaRepository {
   static DeviceHistory _demoHistory() => DeviceHistory(<String, List<double>>{
     for (final metric in const <SensorMetric>[
       SensorMetric.waterLevel,
-      SensorMetric.soilMoisture,
       SensorMetric.light,
       SensorMetric.temperature,
       SensorMetric.humidity,
@@ -739,13 +731,14 @@ class MockTuyaRepository implements TuyaRepository {
     plant: PlantCatalog.items.first,
     sensors: const SensorSnapshot(
       waterLevel: 80,
-      soilMoisture: 97,
       illuminance: 305,
       ppfd: 5.642,
       airTemperature: 26.9,
       relativeHumidity: 52,
     ),
     settings: const DeviceControlSettings(),
+    // DP 106 只报档位（2026-11-23）；其余状态不报，页面按读数兜底。
+    status: const DeviceStatusReport(soilMoisture: SoilMoisture.moderate),
     firmwareVersion: '1.0.8',
     macAddress: 'A4:C1:38:7B:2D:10',
     hardwareVersion: '26',

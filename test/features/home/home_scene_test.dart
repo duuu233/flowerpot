@@ -254,6 +254,6 @@ Future<void> _pumpOverview(
 
 SmartPlanterDevice get _fixture => MockTuyaRepository.fixtureDevice.copyWith(
   battery: 80,
-  sensors: const SensorSnapshot(waterLevel: 78, soilMoisture: 60,
+  sensors: const SensorSnapshot(waterLevel: 78,
     illuminance: 800, ppfd: 6, airTemperature: 25.5, relativeHumidity: 60),
 );

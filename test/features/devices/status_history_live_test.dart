@@ -34,7 +34,7 @@ void main() {
     );
     // 别的指标的曲线不受影响。
     expect(
-      state.chartSeries(id, SensorMetric.soilMoisture, ReportRange.day),
+      state.chartSeries(id, SensorMetric.light, ReportRange.day),
       hasLength(24),
     );
   });
@@ -242,7 +242,6 @@ Future<void> _push(
         history: history,
         sensors: SensorSnapshot(
           waterLevel: waterLevel ?? sensors.waterLevel,
-          soilMoisture: sensors.soilMoisture,
           illuminance: sensors.illuminance,
           ppfd: sensors.ppfd,
           par: sensors.par,

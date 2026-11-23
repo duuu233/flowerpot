@@ -849,7 +849,6 @@ SmartPlanterDevice _deviceOf({String productId = 'product-01'}) =>
       plant: PlantCatalog.items.first,
       sensors: const SensorSnapshot(
         waterLevel: 80,
-        soilMoisture: 97,
         illuminance: 305,
         ppfd: 5.642,
         airTemperature: 26.9,

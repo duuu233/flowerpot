@@ -22,7 +22,7 @@ Map<Object?, Object?> _deviceMap() => <Object?, Object?>{
   'dps': <Object?, Object?>{
     '103': 64, // battery_level
     '105': 30, // water_level
-    '106': 55, // soil_moist
+    '106': 'dry', // soil_moist，2026-11-23 起枚举 dry / moderate
     '112': 246, // air_temperature, tenths
     '122': true, // vibration_switch
   },
@@ -162,7 +162,7 @@ void main() {
       final device = updates.single.device!;
       expect(device.sensors.waterLevel, 88);
       // Everything the report left out survives the merge.
-      expect(device.sensors.soilMoisture, 55);
+      expect(device.status.soilMoisture, SoilMoisture.dry);
       expect(device.sensors.airTemperature, 24.6);
       expect(device.battery, 64);
       expect(device.name, '客厅的绿意');
@@ -439,13 +439,13 @@ void main() {
     }
 
     test('DP pushed mid-query is kept, other fresh SDK values are used', () async {
-      final device = await refreshWith(freshWith({'103': 41, '106': 70}), {
+      final device = await refreshWith(freshWith({'103': 41, '106': 'moderate'}), {
         'deviceId': 'dev-1',
         'dps': {'105': 92},
       });
       expect(device.sensors.waterLevel, 92);
       expect(device.battery, 41);
-      expect(device.sensors.soilMoisture, 70);
+      expect(device.status.soilMoisture, SoilMoisture.moderate);
     });
 
     test('online push mid-query only overrides online', () async {

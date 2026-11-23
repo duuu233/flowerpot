@@ -10,7 +10,6 @@ import '../../../shared/user_avatar.dart';
 import '../../../shared/widgets/blocking_progress.dart';
 import '../../../state.dart';
 import '../../../tuya/tuya_models.dart';
-import '../../devices/models/water_status_page_model.dart';
 import '../../devices/presentation/device_online_guard.dart';
 import '../../devices/presentation/plant_picker_page.dart';
 import '../models/home_dashboard_model.dart';
@@ -491,12 +490,7 @@ class _HomePageState extends State<HomePage> with NetworkRetryAware<HomePage> {
     // 详情页能点进去的页面统一过一道在线门禁：离线时里面读到的全是上一次快照，
     // 操作也会被设备拒掉。
     if (!ensureDeviceOnline(context, deviceId)) return;
-    final arguments = route == AppRoutes.waterStatus
-        ? WaterStatusArguments(
-            deviceId: deviceId,
-            initialMetric: WaterStatusMetric.soilMoisture,
-          )
-        : deviceId;
-    Navigator.pushNamed(context, route, arguments: arguments);
+    // 需水状态页 2026-11-23 起只有水位曲线（土壤湿度不再有历史），不再指定初始指标。
+    Navigator.pushNamed(context, route, arguments: deviceId);
   }
 }

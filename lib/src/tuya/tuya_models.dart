@@ -4,7 +4,6 @@ enum LoginRegion { domestic, overseas }
 
 enum SensorMetric {
   waterLevel,
-  soilMoisture,
   light,
   ppfd,
   dli,
@@ -25,6 +24,12 @@ enum BatteryStatus { shortage, good, charging }
 enum WaterNeedsStatus { shortage, drinking, watery }
 
 enum LightingCondition { shortage, good, veryGood }
+
+/// `soil_moist` (DP 106)：只上报的枚举 dry / moderate（2026-11-23 产品口径）。
+///
+/// 此前是 0–100 % 的数值，带日 / 周 / 月历史 134–136；现在设备只报这两档，数值和
+/// 历史都不再上报，需水状态页只显示档位文字、不画土壤湿度曲线。
+enum SoilMoisture { dry, moderate }
 
 /// Shared by `air_temperature_status` (cold/suitable/heat) and
 /// `air_humidity_status` (dry/suitable/damp), which differ only in wording.
@@ -113,6 +118,7 @@ class DeviceStatusReport {
     this.lighting,
     this.temperature,
     this.humidity,
+    this.soilMoisture,
   });
 
   final BatteryStatus? battery;
@@ -120,6 +126,9 @@ class DeviceStatusReport {
   final LightingCondition? lighting;
   final ComfortLevel? temperature;
   final ComfortLevel? humidity;
+
+  /// DP 106。没上报过或认不出的值为 null，页面显示「--」，不按别的读数兜底。
+  final SoilMoisture? soilMoisture;
 }
 
 /// Sensor history the device reports as raw DPs, already decoded into one
@@ -527,7 +536,6 @@ class PlantProfile {
 class SensorSnapshot {
   const SensorSnapshot({
     required this.waterLevel,
-    required this.soilMoisture,
     required this.illuminance,
     required this.ppfd,
     required this.airTemperature,
@@ -536,7 +544,6 @@ class SensorSnapshot {
   });
 
   final int waterLevel;
-  final int soilMoisture;
   final int illuminance;
 
   /// Photosynthetic photon flux density in μmol/m²/s.
@@ -554,7 +561,6 @@ class SensorSnapshot {
 
   double valueFor(SensorMetric metric) => switch (metric) {
     SensorMetric.waterLevel => waterLevel.toDouble(),
-    SensorMetric.soilMoisture => soilMoisture.toDouble(),
     SensorMetric.light => illuminance.toDouble(),
     SensorMetric.ppfd => ppfd,
     SensorMetric.dli => ppfd * 0.0432,

@@ -226,6 +226,20 @@ abstract final class TuyaStatusCopy {
       (_isEnglish(language) ? airHumidityEn[value] : null) ??
       airHumidity[value]!;
 
+  /// `soil_moist` (106) 的档位文字（2026-11-23 产品口径：dry 干燥、moderate 适中）。
+  /// 只是需水状态页上的一格读数，不带说明和建议；没上报或认不出时为「--」。
+  static String soilMoistureLabel(
+    SoilMoisture? value, {
+    String language = 'zh',
+  }) {
+    final english = _isEnglish(language);
+    return switch (value) {
+      SoilMoisture.dry => english ? 'Dry' : '干燥',
+      SoilMoisture.moderate => english ? 'Moderate' : '适中',
+      null => '--',
+    };
+  }
+
   /// 设备没上报 107 时按水仓水位兜底。
   ///
   /// 三档文案说的都是水仓（「水仓快见底」「水仓里水太多」），所以兜底也看 DP 105

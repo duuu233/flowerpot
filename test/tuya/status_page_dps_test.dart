@@ -35,7 +35,7 @@ Map<Object?, Object?> _deviceMap() => <Object?, Object?>{
   'online': true,
   'dps': <Object?, Object?>{
     '105': 30, // water_level
-    '106': 55, // soil_moist
+    '106': 'moderate', // soil_moist，2026-11-23 起枚举 dry / moderate
     '107': 'drinking', // water_needs_status
     '108': 'good', // lighting_condition
     '109': 305, // light_intensity
@@ -94,9 +94,9 @@ void main() {
     expect(HumidityStatusPageModel.reportedDps.map(dp), <int>[114, 115]);
 
     // 2026-09-16 的功能点表给温度、湿度补了日历史（164 / 165），周 / 月仍然没有。
+    // 土壤湿度 134–136 2026-11-23 起不再上报，不在历史表里。
     expect(TuyaConfig.history.keys, <String>[
       'waterLevel',
-      'soilMoisture',
       'illuminance',
       'temperature',
       'humidity',
@@ -113,6 +113,27 @@ void main() {
     });
     expect(dp('temp_daily_hist'), 164);
     expect(dp('humi_daily_hist'), 165);
+  });
+
+  test('106 按枚举解析：dry 干燥、moderate 适中，没上报显示 --', () async {
+    final devices = await repository.getDevices();
+    final device = devices.single;
+    expect(device.status.soilMoisture, SoilMoisture.moderate);
+    expect(WaterStatusPageModel.fromDevice(device).soilMoisture, '适中');
+    expect(
+      WaterStatusPageModel.fromDevice(
+        device.copyWith(
+          status: const DeviceStatusReport(soilMoisture: SoilMoisture.dry),
+        ),
+      ).soilMoisture,
+      '干燥',
+    );
+    expect(
+      WaterStatusPageModel.fromDevice(
+        device.copyWith(status: const DeviceStatusReport()),
+      ).soilMoisture,
+      '--',
+    );
   });
 
   test('164 / 165 的日历史解出来是还原过倍数的真值', () async {

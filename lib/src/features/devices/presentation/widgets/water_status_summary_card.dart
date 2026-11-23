@@ -106,8 +106,8 @@ class WaterStatusSummaryCard extends StatelessWidget {
                   child: _WaterMetric(
                     key: const Key('water-metric-soil'),
                     assetPath: AppAssets.waterStatusIcon,
-                    value: '${model.soilMoisture}',
-                    unit: '%',
+                    // DP 106 只有档位文字（干燥 / 适中），不带单位。
+                    value: model.soilMoisture,
                     label: '当前土壤湿度',
                   ),
                 ),
@@ -133,7 +133,7 @@ class _WaterMetric extends StatelessWidget {
     required this.assetPath,
     super.key,
     required this.value,
-    required this.unit,
+    this.unit = '',
     required this.label,
   });
 
@@ -175,13 +175,14 @@ class _WaterMetric extends StatelessWidget {
                           height: 1.2,
                         ),
                       ),
-                      TextSpan(
-                        text: ' $unit',
-                        style: AppTypography.body.copyWith(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
+                      if (unit.isNotEmpty)
+                        TextSpan(
+                          text: ' $unit',
+                          style: AppTypography.body.copyWith(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),

@@ -181,7 +181,6 @@ class _OnlineRepository extends MockTuyaRepository {
     settings: const DeviceControlSettings(),
     sensors: const SensorSnapshot(
       waterLevel: 50,
-      soilMoisture: 50,
       illuminance: 300,
       ppfd: 5,
       airTemperature: 25,

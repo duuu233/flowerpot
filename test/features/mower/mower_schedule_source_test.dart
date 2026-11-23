@@ -25,7 +25,6 @@ SmartPlanterDevice device() => SmartPlanterDevice(
   plant: PlantCatalog.items.first,
   sensors: const SensorSnapshot(
     waterLevel: 0,
-    soilMoisture: 0,
     illuminance: 0,
     ppfd: 0,
     airTemperature: 0,

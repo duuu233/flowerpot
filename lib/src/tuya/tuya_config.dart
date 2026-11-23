@@ -56,7 +56,9 @@ abstract final class TuyaConfig {
     'battery_level': 103, // value 0-100 %
     'battery_status': 104, // enum shortage/good/charging
     'water_level': 105, // value 0-200 mL
-    'soil_moist': 106, // value 0-100 %
+    // 2026-11-23 产品口径：只上报（ro）的枚举 dry / moderate，不再是 0-100 % 数值，
+    // 见 SoilMoisture。
+    'soil_moist': 106,
     'water_needs_status': 107, // enum shortage/drinking/watery
     'lighting_condition': 108, // enum shortage/good/very_good
     'light_intensity': 109, // value 0-9000 lux
@@ -90,6 +92,8 @@ abstract final class TuyaConfig {
     'tank_level_daily_hist': 131,
     'tank_level_weekly_hist': 132,
     'tank_level_monthly_hist': 133,
+    // 134–136 土壤湿度历史：2026-11-23 产品口径设备不再上报，App 不再解析（不在
+    // [history] 里），留在表里只为与平台导出逐行对照。
     'soil_moist_daily_hist': 134,
     'soil_moist_weekly_hist': 135,
     'soil_moist_monthly_hist': 136,
@@ -199,11 +203,7 @@ abstract final class TuyaConfig {
       'week': 'tank_level_weekly_hist',
       'month': 'tank_level_monthly_hist',
     },
-    'soilMoisture': <String, String>{
-      'day': 'soil_moist_daily_hist',
-      'week': 'soil_moist_weekly_hist',
-      'month': 'soil_moist_monthly_hist',
-    },
+    // 土壤湿度（134–136）2026-11-23 起不再上报，不解析、不画曲线。
     'illuminance': <String, String>{
       'day': 'light_daily_hist',
       'week': 'light_weekly_hist',

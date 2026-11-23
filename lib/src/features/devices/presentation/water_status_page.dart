@@ -27,7 +27,7 @@ class WaterStatusPage extends StatefulWidget {
 
 class _WaterStatusPageState extends State<WaterStatusPage> {
   ReportRange range = ReportRange.day;
-  late WaterStatusMetric metric;
+  late final WaterStatusMetric metric;
   int periodOffset = 0;
   bool initialized = false;
 
@@ -42,7 +42,7 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
     super.didChangeDependencies();
     if (!initialized) {
       initialized = true;
-      // 「为什么没有历史记录」只能在真机上分辨：把这一页的历史 DP（131–136）到货
+      // 「为什么没有历史记录」只能在真机上分辨：把这一页的历史 DP（131–133）到货
       // 情况打进页面底部的联调日志框，一眼看出是设备没报还是报了解不出来。
       // 光照、温度、湿度三个状态页照同一套写法，只是 DP 不同。
       final state = FlowerpotScope.of(context);
@@ -57,7 +57,8 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
         state.logHistoryDiagnostics(
           widget.deviceId,
           '需水状态',
-          metrics: const <String>{'waterLevel', 'soilMoisture'},
+          // 土壤湿度 134–136 2026-11-23 起不再上报，只查水位。
+          metrics: const <String>{'waterLevel'},
         ),
       );
     }
@@ -136,7 +137,6 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
                       gaps: chart.gaps,
                       labels: ticks.labels,
                       labelPositions: ticks.positions,
-                      onMetricChanged: _changeMetric,
                     ),
                   const SizedBox(height: AppSpacing.lg),
                   CareAdviceCard(
@@ -160,13 +160,6 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
     });
   }
 
-  void _changeMetric(WaterStatusMetric value) {
-    if (value == metric) return;
-    setState(() {
-      metric = value;
-    });
-  }
-
   String _rangeLabel(ReportRange value) => switch (value) {
     ReportRange.day => '日',
     ReportRange.week => '周',
@@ -174,7 +167,7 @@ class _WaterStatusPageState extends State<WaterStatusPage> {
   };
 
   /// 周 / 月显示日期区间（2026-10-28 产品要求补日期，原来只写「近 N 天日均」）：右端最后一点
-  /// 按昨天、往左逐天回推，和横轴同一口径（见 [HistoryPeriod.windowDateLabel]）。水位、土壤湿度一样。
+  /// 按昨天、往左逐天回推，和横轴同一口径（见 [HistoryPeriod.windowDateLabel]）。
   String _dateLabel(int count) => switch (range) {
     ReportRange.day => _formatDay(HistoryPeriod.dayFor(periodOffset)),
     _ => HistoryPeriod.windowDateLabel(range, count),
