@@ -36,6 +36,21 @@
 - `Runner.entitlements` 新增 `com.apple.developer.networking.HotspotConfiguration = true`。代码未改。
 - 开发者账号的 App ID 需同时勾选 **Hotspot** 与 **Access WiFi Information** 两项能力，再刷新描述文件。
 
+## 补充（同日）：iOS 偶现 Wi-Fi 搜不到的分析（未改代码）
+
+问题：iOS 偶现 Wi-Fi 搜不到，是否就是上面没配置的两项能力造成的。
+
+- 缺 Access WiFi Information / 定位时，当前 Wi-Fi 名称**每次**都读不到；缺 Hotspot Configuration 时，热点配网**每次**都被系统拒绝。两者都是必现，解释不了「偶现」。
+- 偶现最可能是配网页「切换」里的 Wi-Fi 列表拿不到。iOS 没有扫描附近 Wi-Fi 的公开接口，列表只能经蓝牙让设备回报（`queryDeviceConfigState` → `connectAndQueryWifiListWithUUID` + `didScanWifiList`），与上述能力无关。拿不到的情况：
+  - 固件不支持回报列表（`supportWifiList` 为 false），直接跳过；
+  - 设备不在配网状态（`notConfigStateWithError` → `ble_not_config_state`）；
+  - 蓝牙连接或查询失败（SDK failure / `didScanWifiList` 带 error）；
+  - 设备 30 秒内没回报（`ble_wifi_list_timeout`）；
+  - 点之前搜索页重扫过一轮，`bleScanned` 已清空（`ble_device_missing`）。
+  以上都不拦配网，只是列表为空、只能手填。
+- 若指的是搜不到设备：iOS 设备发现只靠蓝牙广播，设备退出配网状态或正被连着时不广播；只开热点、不广播蓝牙的设备 iOS 扫不到。同样与能力配置无关。
+- 定位方法：带日志的包复现，看联调日志里 `ble wifi:` 开头的行（`设备报回 N 个网络` / `设备不在配网状态` / `失败 【码】` / `…ms 内设备没报列表，按超时结束`）。补完能力后先确认 Wi-Fi 名称是否每次都能自动带出。
+
 ## 验证
 
 服务器上没有 Xcode / Flutter，未编译、未签名、未真机（两项能力均如此）。需要在 Mac 上 Archive，iPhone 首次进搜索页同意定位（精确位置），确认配网页 Wi-Fi 名称自动填为手机当前网络；拒绝定位时可手动输入。
