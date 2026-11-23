@@ -1,6 +1,8 @@
 import CoreBluetooth
+import CoreLocation
 import Flutter
 import NetworkExtension
+import SystemConfiguration.CaptiveNetwork
 import UIKit
 
 #if canImport(ThingSmartHomeKit)
@@ -51,6 +53,9 @@ import ThingSmartMessageKit
 final class FlowerpotTuyaBridge: NSObject {
   /// Dart's end of the event channel, or nil while nothing is listening.
   fileprivate var eventSink: FlutterEventSink?
+
+  /// 读手机当前连着的 Wi-Fi 名（配网页自动带出 Wi-Fi 名称），见 [WifiSsidReader]。
+  private let wifiSsidReader = WifiSsidReader()
 
   #if canImport(ThingSmartHomeKit)
   private let homeManager = ThingSmartHomeManager()
@@ -724,16 +729,11 @@ final class FlowerpotTuyaBridge: NSObject {
   /// public API to scan for nearby access points, so provisioning asks the
   /// user to pick the network in Settings instead of offering a list.
   ///
-  /// Reading even the current SSID needs the "Access WiFi Information"
-  /// capability and location permission; without them this reports nothing
-  /// rather than failing.
+  /// 读当前 SSID 的前提（缺一个就只会拿到空，不报错）见 [WifiSsidReader]：包要带
+  /// Access WiFi Information 能力，且本 App 有精确定位权限——第一次读时在这里弹定位授权框。
   private func scanWifi(_ result: @escaping FlutterResult) {
-    guard #available(iOS 14.0, *) else {
-      result(currentNetwork(nil))
-      return
-    }
-    NEHotspotNetwork.fetchCurrent { network in
-      DispatchQueue.main.async { result(self.currentNetwork(network?.ssid)) }
+    wifiSsidReader.readCurrent { [weak self] ssid in
+      result(self?.currentNetwork(ssid))
     }
   }
 
@@ -1203,6 +1203,126 @@ extension FlowerpotTuyaBridge {
 }
 #endif
 #endif
+
+// MARK: - 当前 Wi-Fi 名
+
+/// 读手机当前连着的 Wi-Fi 名称，配网页拿它自动填「Wi-Fi 名称」。
+///
+/// iOS 读 SSID 有两个前提，缺一个系统接口只返回空（不报错）：
+/// 1. 包带 **Access WiFi Information** 能力：`Runner.entitlements` 的
+///    `com.apple.developer.networking.wifi-info`，且开发者账号里该 App ID 勾选同名能力、
+///    描述文件重新生成；
+/// 2. 本 App 有**定位权限且为精确位置**（iOS 13 起）。没问过就在这里弹授权框；
+///    用户关了精确位置时临时申请一次（Info.plist `NSLocationTemporaryUsageDescriptionDictionary`
+///    的 `WiFiSSID`）。
+///
+/// 涂鸦 SDK 的 `ThingSmartActivator.currentWifiSSID` 内部走的是同一套系统接口，受同样
+/// 限制，绕不过这两个前提，所以这里直接用系统接口：iOS 14 起 `NEHotspotNetwork.fetchCurrent`，
+/// iOS 13 `CNCopyCurrentNetworkInfo`。
+final class WifiSsidReader: NSObject, CLLocationManagerDelegate {
+  private static let precisePurposeKey = "WiFiSSID"
+
+  private let manager = CLLocationManager()
+  private var authorizationWaiters: [() -> Void] = []
+
+  override init() {
+    super.init()
+    manager.delegate = self
+  }
+
+  func readCurrent(_ done: @escaping (String?) -> Void) {
+    ensureAuthorized { [weak self] in
+      guard let self else {
+        done(nil)
+        return
+      }
+      self.ensurePrecise { self.fetch(done) }
+    }
+  }
+
+  private var status: CLAuthorizationStatus {
+    if #available(iOS 14.0, *) { return manager.authorizationStatus }
+    return CLLocationManager.authorizationStatus()
+  }
+
+  private var authorized: Bool {
+    status == .authorizedWhenInUse || status == .authorizedAlways
+  }
+
+  /// 没问过定位就弹授权框，等用户答完再继续；拒绝了也继续（读出来是空，页面让用户手填）。
+  private func ensureAuthorized(_ next: @escaping () -> Void) {
+    guard status == .notDetermined else {
+      next()
+      return
+    }
+    authorizationWaiters.append(next)
+    if authorizationWaiters.count == 1 { manager.requestWhenInUseAuthorization() }
+    // 用户迟迟不答也不把配网页卡住。
+    DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+      self?.flushAuthorizationWaiters()
+    }
+  }
+
+  private func flushAuthorizationWaiters() {
+    let waiters = authorizationWaiters
+    authorizationWaiters.removeAll()
+    waiters.forEach { $0() }
+  }
+
+  /// 有定位权限但用户关了「精确位置」时，SSID 照样读不到：临时申请一次精确位置。
+  private func ensurePrecise(_ next: @escaping () -> Void) {
+    if #available(iOS 14.0, *), authorized, manager.accuracyAuthorization == .reducedAccuracy {
+      manager.requestTemporaryFullAccuracyAuthorization(
+        withPurposeKey: Self.precisePurposeKey
+      ) { _ in
+        DispatchQueue.main.async { next() }
+      }
+      return
+    }
+    next()
+  }
+
+  private func fetch(_ done: @escaping (String?) -> Void) {
+    if #available(iOS 14.0, *) {
+      NEHotspotNetwork.fetchCurrent { network in
+        DispatchQueue.main.async { done(Self.nonEmpty(network?.ssid)) }
+      }
+      return
+    }
+    done(Self.captiveNetworkSsid())
+  }
+
+  private static func captiveNetworkSsid() -> String? {
+    guard let interfaces = CNCopySupportedInterfaces() as? [String] else { return nil }
+    for name in interfaces {
+      guard let info = CNCopyCurrentNetworkInfo(name as CFString) as? [String: Any] else {
+        continue
+      }
+      if let ssid = nonEmpty(info[kCNNetworkInfoKeySSID as String] as? String) {
+        return ssid
+      }
+    }
+    return nil
+  }
+
+  private static func nonEmpty(_ text: String?) -> String? {
+    guard let text, !text.isEmpty else { return nil }
+    return text
+  }
+
+  // iOS 14 起
+  func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+    if status != .notDetermined { flushAuthorizationWaiters() }
+  }
+
+  // iOS 13
+  func locationManager(
+    _ manager: CLLocationManager,
+    didChangeAuthorization status: CLAuthorizationStatus
+  ) {
+    if status != .notDetermined { flushAuthorizationWaiters() }
+  }
+}
 
 // MARK: - 蓝牙发现与双模配网
 

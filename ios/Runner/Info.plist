@@ -33,8 +33,13 @@
 	<string>用于发现并连接附近的智能花盆。</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>用于发现并连接附近的智能花盆。</string>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>WiFiSSID</key>
+		<string>需要精确位置才能读取手机当前连接的 Wi-Fi 名称，并自动填入配网页面。</string>
+	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>用于 Wi-Fi 配网以及获取本地天气信息。</string>
+	<string>用于读取手机当前连接的 Wi-Fi 名称完成配网，以及获取本地天气信息。</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>用于在局域网内发现、配网和控制智能花盆。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
