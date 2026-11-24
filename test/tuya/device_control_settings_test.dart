@@ -28,6 +28,33 @@ void main() {
     });
   });
 
+  test('convertTemperature 摄氏华氏互换、保留一位小数', () {
+    expect(
+      DeviceControlSettings.convertTemperature(
+        24.6,
+        fromFahrenheit: false,
+        toFahrenheit: true,
+      ),
+      76.3,
+    );
+    expect(
+      DeviceControlSettings.convertTemperature(
+        77,
+        fromFahrenheit: true,
+        toFahrenheit: false,
+      ),
+      25.0,
+    );
+    expect(
+      DeviceControlSettings.convertTemperature(
+        24.6,
+        fromFahrenheit: false,
+        toFahrenheit: false,
+      ),
+      24.6,
+    );
+  });
+
   group('clock format (DP 147)', () {
     test('24h labels pass through unchanged', () {
       const settings = DeviceControlSettings();

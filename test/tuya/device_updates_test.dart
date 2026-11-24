@@ -168,6 +168,55 @@ void main() {
       expect(device.name, '客厅的绿意');
     });
 
+    test('温标先到、112 未重报：沿用旧读数单位并换算到当前温标', () async {
+      final updates = <DeviceUpdate>[];
+      final subscription = repository.deviceUpdates.listen(updates.add);
+      addTearDown(subscription.cancel);
+      await repository.getDevices();
+
+      // 只来了 146：112 仍是摄氏下报的 24.6，显示时换算成华氏。
+      await emit(<Object?, Object?>{
+        'deviceId': 'dev-1',
+        'dps': <Object?, Object?>{'146': 'F'},
+      });
+      expect(updates.last.device!.settings.usesFahrenheit, isTrue);
+      expect(updates.last.device!.sensors.airTemperature, 76.3);
+
+      // 其它 DP 上报不改变读数单位。
+      await emit(<Object?, Object?>{
+        'deviceId': 'dev-1',
+        'dps': <Object?, Object?>{'105': 40},
+      });
+      expect(updates.last.device!.sensors.airTemperature, 76.3);
+
+      // 设备按华氏重报 112：原样显示，不再二次换算。
+      await emit(<Object?, Object?>{
+        'deviceId': 'dev-1',
+        'dps': <Object?, Object?>{'112': 770},
+      });
+      expect(updates.last.device!.sensors.airTemperature, 77.0);
+
+      // 切回摄氏、112 未重报：华氏读数换回摄氏。
+      await emit(<Object?, Object?>{
+        'deviceId': 'dev-1',
+        'dps': <Object?, Object?>{'146': 'C'},
+      });
+      expect(updates.last.device!.sensors.airTemperature, 25.0);
+    });
+
+    test('146 与 112 同一条报文到：按设备报的单位原样显示', () async {
+      final updates = <DeviceUpdate>[];
+      final subscription = repository.deviceUpdates.listen(updates.add);
+      addTearDown(subscription.cancel);
+      await repository.getDevices();
+
+      await emit(<Object?, Object?>{
+        'deviceId': 'dev-1',
+        'dps': <Object?, Object?>{'146': 'F', '112': 763},
+      });
+      expect(updates.last.device!.sensors.airTemperature, 76.3);
+    });
+
     test(
       'reportedDps contains only this packet, including mower OTA errors',
       () async {

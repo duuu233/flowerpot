@@ -2813,7 +2813,17 @@ class FlowerpotState extends ChangeNotifier {
         _ => current,
       };
       _settingsOverrides[id] = next;
-      return device.copyWith(settings: next);
+      // 设备回报 146 / 112 之前读数还是旧温标：一起换算，别出现 °F 标签配摄氏数值。
+      final converted = next.usesFahrenheit == current.usesFahrenheit
+          ? null
+          : device.sensors.withAirTemperature(
+              DeviceControlSettings.convertTemperature(
+                device.sensors.airTemperature,
+                fromFahrenheit: current.usesFahrenheit,
+                toFahrenheit: next.usesFahrenheit,
+              ),
+            );
+      return device.copyWith(settings: next, sensors: converted);
     });
     return const ActionResult(true, '设置已同步');
   });

@@ -1,5 +1,6 @@
 # 本地操作更新记录
 
+- [2026-11-24 iOS 设备被移除不消失、切温标后读数未换算](2026-11/2026-11-24-ios-removal-and-temperature-unit.md)：iOS `deviceRemoved:` 改按实例反查 id（移除时 deviceModel 已清空，事件被丢），另接 home delegate `home:didRemoveDeivce:`；温度读数记录上报时的温标，146 先到、112 未重报时换算到当前温标，下发温标的本机更新同步换算；未编译、未运行测试。
 - [2026-11-23 iOS 配网页自动带出手机当前 Wi-Fi 名称](2026-11/2026-11-23-ios-current-wifi-ssid.md)：iOS 读当前 SSID 缺 Access WiFi Information 能力和定位权限，一直为空只能手填；补 `Runner.entitlements`、`CODE_SIGN_ENTITLEMENTS`，`scanWifi` 先申请定位（必要时临时精确位置）再读；涂鸦 SDK 同受限制不能绕过；需在开发者账号给 App ID 勾选该能力；同日补 Hotspot Configuration（AP 热点配网），并记录「偶现 Wi-Fi 搜不到」与能力配置无关的分析；未编译、未真机。
 - [2026-11-23 土壤湿度 DP106 改为枚举、去掉土壤湿度曲线](2026-11/2026-11-23-soil-moisture-enum.md)：106 按 dry 干燥 / moderate 适中解析，需水状态页只显示档位文字；134–136 历史不再解析，需水状态页只剩水位曲线、去掉指标切换，报表页去掉土壤湿度；相对湿度页未改；未编译、未运行测试。
 - [2026-11-20 搜索设备「请打开系统定位服务」：按钮改去系统定位开关页](2026-11/2026-11-20-location-service-settings.md)：定位权限已给、系统定位总开关关着时（小米需单独开），「去系统设置」改为打开系统定位开关页（新桥接 `openLocationSettings`，iOS 落到应用设置页），缺权限仍去应用设置页；提示文案去掉原样显示的 `**`；未编译、未运行测试。

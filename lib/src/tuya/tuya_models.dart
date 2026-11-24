@@ -556,8 +556,18 @@ class SensorSnapshot {
   /// Photosynthetically active radiation in μmol/m², from
   /// `light_par_value`. Reported but not on any screen yet.
   final double par;
+  /// 已换算到 [DeviceControlSettings] 当前温标的读数，见 [DeviceControlSettings.convertTemperature]。
   final double airTemperature;
   final int relativeHumidity;
+
+  SensorSnapshot withAirTemperature(double value) => SensorSnapshot(
+    waterLevel: waterLevel,
+    illuminance: illuminance,
+    ppfd: ppfd,
+    airTemperature: value,
+    relativeHumidity: relativeHumidity,
+    par: par,
+  );
 
   double valueFor(SensorMetric metric) => switch (metric) {
     SensorMetric.waterLevel => waterLevel.toDouble(),
@@ -652,11 +662,24 @@ class DeviceControlSettings {
 
   /// The device reports `air_temperature` in whatever unit
   /// `temp_unit_convert` selects — the platform export gives DP 112's unit as
-  /// `°C/°F` — so a reading is never converted here, only labelled. What does
-  /// need converting is the app's own Celsius numbers: comfort thresholds,
-  /// advice ranges and chart bounds.
+  /// `°C/°F`. 切温标后设备先回 146，112 要等下一次上报才换成新单位；这段时间里
+  /// 读数由解码层（`MethodChannelTuyaRepository._device`）和本机乐观更新按
+  /// [convertTemperature] 换到当前温标，页面拿到的 `airTemperature` 一律已是当前单位。
+  /// What does need converting here is the app's own Celsius numbers: comfort
+  /// thresholds, advice ranges and chart bounds.
   double temperatureFromCelsius(double celsius) =>
       usesFahrenheit ? celsius * 9 / 5 + 32 : celsius;
+
+  /// 摄氏 / 华氏互换，保留一位小数（112 本身就是 0.1 精度）。单位相同时原样返回。
+  static double convertTemperature(
+    double value, {
+    required bool fromFahrenheit,
+    required bool toFahrenheit,
+  }) {
+    if (fromFahrenheit == toFahrenheit) return value;
+    final converted = toFahrenheit ? value * 9 / 5 + 32 : (value - 32) * 5 / 9;
+    return (converted * 10).roundToDouble() / 10;
+  }
 
   /// A reading as the device reports it, with the unit it is in.
   String formatTemperature(double value, {int fractionDigits = 1}) =>

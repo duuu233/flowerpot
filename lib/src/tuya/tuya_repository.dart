@@ -1661,10 +1661,36 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       plantDetection: boolean(dp('plant_detect_switch'), true),
     );
 
+    // 112 按 146 的温标上报，但两者不在同一条报文里到：切温标后设备先回 146，112
+    // 要等下一次上报才是新单位（这段时间会出现 °F 标签配摄氏数值）。所以
+    // 记下当前这份读数是在哪个温标下报的：112 的值变了（或第一次见到这台设备）才算新
+    // 读数、按此刻的 146 认单位；只来了 146 时沿用上一份读数的单位，下面再换算到当前温标。
+    final previous = _snapshots[deviceId];
+    final previousDps = previous?['dps'];
+    final temperatureDp = TuyaConfig.dp['air_temperature'];
+    final previousReading = previousDps is Map
+        ? previousDps['$temperatureDp'] ?? previousDps[temperatureDp]
+        : null;
+    final previousUnit = previous?[_temperatureReadingUnitKey];
+    final readingFahrenheit =
+        previousUnit is bool &&
+            '${dp('air_temperature')}' == '$previousReading'
+        ? previousUnit
+        : settings.usesFahrenheit;
+    final reportedTemperature = scaled('air_temperature', 0);
+    final airTemperature = dp('air_temperature') == null
+        ? reportedTemperature
+        : DeviceControlSettings.convertTemperature(
+            reportedTemperature,
+            fromFahrenheit: readingFahrenheit,
+            toFahrenheit: settings.usesFahrenheit,
+          );
+
     final history = decodeHistory();
     _history[deviceId] = history;
     // Kept so the next DP report has a full device to merge into.
-    _snapshots[deviceId] = raw;
+    _snapshots[deviceId] = Map<Object?, Object?>.of(raw)
+      ..[_temperatureReadingUnitKey] = readingFahrenheit;
 
     final reportedDays = dp('together_days');
     final productId = '${raw['productId'] ?? raw['pid'] ?? ''}';
@@ -1701,7 +1727,7 @@ class MethodChannelTuyaRepository implements TuyaRepository {
         illuminance: integer(dp('light_intensity'), 0),
         ppfd: decimal(dp('light_ppfd_value'), 0),
         par: decimal(dp('light_par_value'), 0),
-        airTemperature: scaled('air_temperature', 0),
+        airTemperature: airTemperature,
         relativeHumidity: scaled('air_humidity', 0).round(),
       ),
       settings: settings,
@@ -1724,6 +1750,9 @@ class MethodChannelTuyaRepository implements TuyaRepository {
       firstCalibrated: boolean(dp('first_calib'), false),
     );
   }
+
+  /// 快照里记「当前 112 读数是否按华氏上报」的键，不是 DP、不会下发，见 [_device]。
+  static const _temperatureReadingUnitKey = '_airTemperatureFahrenheit';
 
   /// `temp_unit_convert` enum value back to the label the settings sheet uses.
   static final Map<String, String> _temperatureUnits = <String, String>{

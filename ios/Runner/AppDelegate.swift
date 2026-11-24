@@ -59,7 +59,14 @@ final class FlowerpotTuyaBridge: NSObject {
 
   #if canImport(ThingSmartHomeKit)
   private let homeManager = ThingSmartHomeManager()
-  private var currentHome: ThingSmartHome?
+  /// 当前家庭。挂上 home delegate，设备从家庭里被移除（别的手机解绑、设备端重置）
+  /// 时 `home:didRemoveDeivce:` 直接给 devId，和设备 delegate 的 `deviceRemoved:` 互为兜底。
+  private var currentHome: ThingSmartHome? {
+    didSet {
+      if oldValue !== currentHome { oldValue?.delegate = nil }
+      currentHome?.delegate = self
+    }
+  }
   private var pairingResult: FlutterResult?
 
   /// Devices with this bridge set as their delegate, keyed by device id.
@@ -937,6 +944,22 @@ final class FlowerpotTuyaBridge: NSObject {
     device.delegate = nil
   }
 
+  /// 按实例反查登记时的 deviceId。设备被移除时 SDK 已先清掉缓存，
+  /// `device.deviceModel` 往往已是 nil，只能靠自己登记的这份。
+  fileprivate func watchedId(of device: ThingSmartDevice) -> String? {
+    watched.first { $0.value === device }?.key
+  }
+
+  /// 设备离开账号：通知 Dart 并停止监听。设备 delegate 与 home delegate 可能各来一次，
+  /// 只认第一次（已不在 [watched] 里就不再发）。
+  fileprivate func deviceWasRemoved(_ deviceId: String) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self, !deviceId.isEmpty, self.watched[deviceId] != nil else { return }
+      self.unwatchDevice(deviceId)
+      self.emit(["deviceId": deviceId, "removed": true])
+    }
+  }
+
   fileprivate func releaseDeviceListeners() {
     watched.values.forEach { $0.delegate = nil }
     watched.removeAll()
@@ -1043,10 +1066,11 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
     ])
   }
 
+  /// 原来只认 `deviceModel?.devId`：移除时缓存已清、model 为 nil，解绑事件整条被丢，
+  /// 列表只剩先到的「离线」，要下拉刷新才消失。先按实例反查登记的 id。
   func deviceRemoved(_ device: ThingSmartDevice) {
-    guard let id = device.deviceModel?.devId else { return }
-    emit(["deviceId": id, "removed": true])
-    DispatchQueue.main.async { [weak self] in self?.unwatchDevice(id) }
+    guard let id = watchedId(of: device) ?? device.deviceModel?.devId else { return }
+    deviceWasRemoved(id)
   }
 
   // 固件升级要跑几分钟，方法通道只回答"已发起"，进度和成败走这里，形状和
@@ -1083,6 +1107,15 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
     if let percent { ota["percent"] = percent }
     if let message { ota["message"] = message }
     emit(["deviceId": deviceId, "ota": ota])
+  }
+}
+#endif
+
+#if canImport(ThingSmartHomeKit)
+/// 家庭层的设备移除通知（SDK 方法名本身拼作 `didRemoveDeivce`）。
+extension FlowerpotTuyaBridge: ThingSmartHomeDelegate {
+  func home(_ home: ThingSmartHome, didRemoveDeivce devId: String) {
+    deviceWasRemoved(devId)
   }
 }
 #endif
