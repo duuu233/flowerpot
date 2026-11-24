@@ -1,6 +1,6 @@
 # 本地操作更新记录
 
-- [2026-11-24 iOS 涂鸦 SDK 由 7.8 升到 7.11](2026-11/2026-11-24-ios-tuya-sdk-7-11.md)：`ios/Podfile` 的 `ThingSmartHomeKit` 改为 `~> 7.11.0`，与新包名 `com.common.yikaltdtext` 导出的安全组件配套；7.8 是旧包名时期组件的版本；对比两版 podspec 与所用模块头文件，项目用到的接口没有删改；未 pod install、未编译。
+- [2026-11-24 iOS 涂鸦 SDK 由 7.8 升到 7.11](2026-11/2026-11-24-ios-tuya-sdk-7-11.md)：Podfile 和新包名的 7.11 安全组件对齐，补 Pods xcconfig 和 Swift 桥接兼容。Mac 已验证 7.11.0.2 的 Release 归档、Ad Hoc 签名及 Wi-Fi / 热点权限，待真机验证。
 - [2026-11-24 iOS 设备被移除不消失、切温标后读数未换算](2026-11/2026-11-24-ios-removal-and-temperature-unit.md)：iOS `deviceRemoved:` 改按实例反查 id（移除时 deviceModel 已清空，事件被丢），另接 home delegate `home:didRemoveDeivce:`；温度读数记录上报时的温标，146 先到、112 未重报时换算到当前温标，下发温标的本机更新同步换算；未编译、未运行测试。
 - [2026-11-23 iOS 配网页自动带出手机当前 Wi-Fi 名称](2026-11/2026-11-23-ios-current-wifi-ssid.md)：iOS 读当前 SSID 缺 Access WiFi Information 能力和定位权限，一直为空只能手填；补 `Runner.entitlements`、`CODE_SIGN_ENTITLEMENTS`，`scanWifi` 先申请定位（必要时临时精确位置）再读；涂鸦 SDK 同受限制不能绕过；需在开发者账号给 App ID 勾选该能力；同日补 Hotspot Configuration（AP 热点配网），并记录「偶现 Wi-Fi 搜不到」与能力配置无关的分析；未编译、未真机。
 - [2026-11-23 土壤湿度 DP106 改为枚举、去掉土壤湿度曲线](2026-11/2026-11-23-soil-moisture-enum.md)：106 按 dry 干燥 / moderate 适中解析，需水状态页只显示档位文字；134–136 历史不再解析，需水状态页只剩水位曲线、去掉指标切换，报表页去掉土壤湿度；相对湿度页未改；未编译、未运行测试。

@@ -60,7 +60,7 @@ final class FlowerpotTuyaBridge: NSObject {
   #if canImport(ThingSmartHomeKit)
   private let homeManager = ThingSmartHomeManager()
   /// 当前家庭。挂上 home delegate，设备从家庭里被移除（别的手机解绑、设备端重置）
-  /// 时 `home:didRemoveDeivce:` 直接给 devId，和设备 delegate 的 `deviceRemoved:` 互为兜底。
+  /// 时 `home:didRemoveDeivice:` 直接给 devId，和设备 delegate 的 `deviceRemoved:` 互为兜底。
   private var currentHome: ThingSmartHome? {
     didSet {
       if oldValue !== currentHome { oldValue?.delegate = nil }
@@ -145,15 +145,14 @@ final class FlowerpotTuyaBridge: NSObject {
     case "deviceSnapshot":
       let id = args["deviceId"] as? String ?? ""
       watchDevice(id)
-      result(watched[id].flatMap { deviceSnapshot($0) })
+      result(watched[id].map { deviceSnapshot($0) })
     case "deviceOnlineStates":
       let ids = args["deviceIds"] as? [String] ?? []
       var states: [String: Bool] = [:]
       for id in ids {
         watchDevice(id)
-        if let device = watched[id] ?? ThingSmartDevice(deviceId: id),
-           let model = device.deviceModel {
-          states[id] = model.isOnline
+        if let device = watched[id] ?? ThingSmartDevice(deviceId: id) {
+          states[id] = device.deviceModel.isOnline
         }
       }
       result(states)
@@ -230,15 +229,16 @@ final class FlowerpotTuyaBridge: NSObject {
       sdkError(result, code: "credentials_missing", message: "请在 ios/Flutter/Tuya.xcconfig 配置涂鸦密钥")
       return
     }
-    ThingSmartSDK.sharedInstance()?.start(withAppKey: key, secretKey: secret)
+    ThingSmartSDK.sharedInstance().start(withAppKey: key, secretKey: secret)
     #if DEBUG
-    ThingSmartSDK.sharedInstance()?.debugMode = true
+    ThingSmartSDK.sharedInstance().debugMode = true
     #endif
     result(true)
   }
 
   private func currentUser(_ result: @escaping FlutterResult) {
-    guard let user = ThingSmartUser.sharedInstance(), user.isLogin else {
+    let user = ThingSmartUser.sharedInstance()
+    guard user.isLogin else {
       result(nil)
       return
     }
@@ -250,8 +250,8 @@ final class FlowerpotTuyaBridge: NSObject {
     let country = args["countryCode"] as? String ?? "86"
     let type = args["type"] as? Int ?? 2
     let user = ThingSmartUser.sharedInstance()
-    let region = user?.getDefaultRegion(withCountryCode: country)
-    user?.sendVerifyCode(
+    let region = user.getDefaultRegion(withCountryCode: country)
+    user.sendVerifyCode(
       withUserName: account,
       region: region,
       countryCode: country,
@@ -268,16 +268,16 @@ final class FlowerpotTuyaBridge: NSObject {
     let email = args["email"] as? Bool ?? false
     let codeLogin = args["verificationCode"] as? Bool ?? false
     let success: () -> Void = { [weak self] in
-      guard let self, let user = ThingSmartUser.sharedInstance() else { return }
-      result(self.userMap(user))
+      guard let self else { return }
+      result(self.userMap(ThingSmartUser.sharedInstance()))
     }
     let failure: (Error?) -> Void = { error in self.fail(result, error) }
     if email {
-      ThingSmartUser.sharedInstance()?.login(byEmail: country, email: account, password: credential, success: success, failure: failure)
+      ThingSmartUser.sharedInstance().login(byEmail: country, email: account, password: credential, success: success, failure: failure)
     } else if codeLogin {
-      ThingSmartUser.sharedInstance()?.login(withMobile: account, countryCode: country, code: credential, success: success, failure: failure)
+      ThingSmartUser.sharedInstance().login(withMobile: account, countryCode: country, code: credential, success: success, failure: failure)
     } else {
-      ThingSmartUser.sharedInstance()?.login(byPhone: country, phoneNumber: account, password: credential, success: success, failure: failure)
+      ThingSmartUser.sharedInstance().login(byPhone: country, phoneNumber: account, password: credential, success: success, failure: failure)
     }
   }
 
@@ -287,14 +287,14 @@ final class FlowerpotTuyaBridge: NSObject {
     let uid = args["uid"] as? String ?? ""
     let password = args["password"] as? String ?? ""
     let country = args["countryCode"] as? String ?? "86"
-    ThingSmartUser.sharedInstance()?.loginOrRegister(
+    ThingSmartUser.sharedInstance().loginOrRegister(
       withCountryCode: country,
       uid: uid,
       password: password,
       createHome: true,
       success: { [weak self] _ in
-        guard let self, let user = ThingSmartUser.sharedInstance() else { return }
-        result(self.userMap(user))
+        guard let self else { return }
+        result(self.userMap(ThingSmartUser.sharedInstance()))
       },
       failure: { error in self.fail(result, error) }
     )
@@ -307,14 +307,14 @@ final class FlowerpotTuyaBridge: NSObject {
     let country = args["countryCode"] as? String ?? "86"
     let email = args["email"] as? Bool ?? false
     let success: () -> Void = { [weak self] in
-      guard let self, let user = ThingSmartUser.sharedInstance() else { return }
-      result(self.userMap(user))
+      guard let self else { return }
+      result(self.userMap(ThingSmartUser.sharedInstance()))
     }
     let failure: (Error?) -> Void = { error in self.fail(result, error) }
     if email {
-      ThingSmartUser.sharedInstance()?.register(byEmail: country, email: account, password: password, code: code, success: success, failure: failure)
+      ThingSmartUser.sharedInstance().register(byEmail: country, email: account, password: password, code: code, success: success, failure: failure)
     } else {
-      ThingSmartUser.sharedInstance()?.register(byPhone: country, phoneNumber: account, password: password, code: code, success: success, failure: failure)
+      ThingSmartUser.sharedInstance().register(byPhone: country, phoneNumber: account, password: password, code: code, success: success, failure: failure)
     }
   }
 
@@ -327,7 +327,7 @@ final class FlowerpotTuyaBridge: NSObject {
     let success: () -> Void = { result(nil) }
     let failure: (Error?) -> Void = { error in self.fail(result, error) }
     if email {
-      ThingSmartUser.sharedInstance()?.resetPassword(
+      ThingSmartUser.sharedInstance().resetPassword(
         byEmail: country,
         email: account,
         newPassword: password,
@@ -336,7 +336,7 @@ final class FlowerpotTuyaBridge: NSObject {
         failure: failure
       )
     } else {
-      ThingSmartUser.sharedInstance()?.resetPassword(
+      ThingSmartUser.sharedInstance().resetPassword(
         byPhone: country,
         phoneNumber: account,
         newPassword: password,
@@ -349,7 +349,7 @@ final class FlowerpotTuyaBridge: NSObject {
 
   private func updateNickname(_ args: [String: Any], _ result: @escaping FlutterResult) {
     let nickname = args["nickname"] as? String ?? ""
-    ThingSmartUser.sharedInstance()?.updateNickname(
+    ThingSmartUser.sharedInstance().updateNickname(
       nickname,
       success: { result(nil) },
       failure: { error in self.fail(result, error) }
@@ -357,14 +357,14 @@ final class FlowerpotTuyaBridge: NSObject {
   }
 
   private func logout(_ result: @escaping FlutterResult) {
-    ThingSmartUser.sharedInstance()?.loginOut({ [weak self] in
+    ThingSmartUser.sharedInstance().loginOut({ [weak self] in
       self?.endSession()
       result(nil)
     }, failure: { error in self.fail(result, error) })
   }
 
   private func cancelAccount(_ result: @escaping FlutterResult) {
-    ThingSmartUser.sharedInstance()?.cancelAccount({ [weak self] in
+    ThingSmartUser.sharedInstance().cancelAccount({ [weak self] in
       self?.endSession()
       result(nil)
     }, failure: { error in self.fail(result, error) })
@@ -499,7 +499,7 @@ final class FlowerpotTuyaBridge: NSObject {
     // 也不再下发 `mode`——原来那句 `args["mode"] == "ez" ? EZ : AP` 留着是个陷阱：
     // 字段没了之后它恒真走 AP 没错，但读一个不存在的键会让人以为还能切模式。
     activator.startConfigWiFi(
-      ThingActivatorModeAP,
+      .AP,
       ssid: args["ssid"] as? String ?? "",
       password: args["password"] as? String ?? "",
       token: token,
@@ -519,9 +519,7 @@ final class FlowerpotTuyaBridge: NSObject {
 
   /// 指定通道下发（割草机：Wi-Fi 在线走云端 / 局域网，离线降级蓝牙时走 Auto）。
   ///
-  /// Dart 传的模式名就是 iOS 的枚举名：Android `ThingDevicePublishModeEnum` 的
-  /// Internet / Local / Auto 对应 iOS `ThingDevicePublishMode` 的同名三项，
-  /// 方法是 `publishDps:mode:success:failure:`。
+  /// Internet / Local / Auto 对应 iOS SDK 导入 Swift 的同名 C 枚举常量。
   private func publishDpsWithMode(_ args: [String: Any], _ result: @escaping FlutterResult) {
     guard let id = args["deviceId"] as? String,
           let dps = args["dps"] as? [String: Any],
@@ -532,9 +530,9 @@ final class FlowerpotTuyaBridge: NSObject {
     let modeName = args["mode"] as? String ?? ""
     let mode: ThingDevicePublishMode
     switch modeName {
-    case "ThingDevicePublishModeInternet": mode = .internet
-    case "ThingDevicePublishModeLocal": mode = .local
-    case "ThingDevicePublishModeAuto": mode = .auto
+    case "ThingDevicePublishModeInternet": mode = ThingDevicePublishModeInternet
+    case "ThingDevicePublishModeLocal": mode = ThingDevicePublishModeLocal
+    case "ThingDevicePublishModeAuto": mode = ThingDevicePublishModeAuto
     default:
       sdkError(result, code: "bad_args", message: "没有这个下发模式：\(modeName)")
       return
@@ -637,7 +635,7 @@ final class FlowerpotTuyaBridge: NSObject {
       sdkError(result, code: "bad_args", message: "设备参数错误")
       return
     }
-    device.renameDevice(withName: name, success: { result(nil) }, failure: { error in self.fail(result, error) })
+    device.updateName(name, success: { result(nil) }, failure: { error in self.fail(result, error) })
   }
 
   private func removeDevice(_ args: [String: Any], reset: Bool, _ result: @escaping FlutterResult) {
@@ -799,14 +797,14 @@ final class FlowerpotTuyaBridge: NSObject {
     // 闭包显式捕获 device：回调是异步的，不捕获的话实例可能在云端回话之前就被
     // ARC 释放，结果既不 success 也不 failure。
     device.getFirmwareUpgradeInfo({ [weak self, device] models in
-      self?.otaLog(id, "checkFirmware → \(models?.count ?? 0) 条：\(FlowerpotTuyaBridge.otaModels(models))")
+      self?.otaLog(id, "checkFirmware → \(models.count) 条：\(FlowerpotTuyaBridge.otaModels(models))")
       // One model per upgradable component; upgradeStatus 1 is "an update is
       // waiting", 2 is "upgrading" and 5 is "waiting for the device to wake".
       // 2/5 是已经在跑的升级（例如升级中途关掉 App 后重开）：报 inProgress，Dart 只
       // 接回、不重新发起，与 Android 一致。此前只认 1，升级中会被当成「已是最新」。
       // 新版本和当前版本都从同一条记录取，避免把两个组件的版本号并排显示。
-      let pending = models?.first(where: { $0.upgradeStatus == 1 })
-      let running = models?.first(where: { $0.upgradeStatus == 2 || $0.upgradeStatus == 5 })
+      let pending = models.first(where: { $0.upgradeStatus.rawValue == 1 })
+      let running = models.first(where: { $0.upgradeStatus.rawValue == 2 || $0.upgradeStatus.rawValue == 5 })
       if let model = pending ?? running {
         result([
           "version": model.version,
@@ -838,13 +836,13 @@ final class FlowerpotTuyaBridge: NSObject {
     otaLog(id, "startFirmwareUpgrade target=\(targetVersion) component=\(expectedComponent.map { String($0) } ?? "nil")")
     device.getFirmwareUpgradeInfo({ [weak self] models in
       guard let self else { return }
-      self.otaLog(id, "getFirmwareUpgradeInfo → \(models?.count ?? 0) 条：\(FlowerpotTuyaBridge.otaModels(models))")
-      let matching = (models ?? []).filter {
+      self.otaLog(id, "getFirmwareUpgradeInfo → \(models.count) 条：\(FlowerpotTuyaBridge.otaModels(models))")
+      let matching = models.filter {
         (targetVersion.isEmpty || $0.version == targetVersion) &&
           (expectedComponent == nil || $0.type == expectedComponent)
       }
-      if matching.first(where: { $0.upgradeStatus == 1 }) == nil,
-        matching.contains(where: { $0.upgradeStatus == 2 || $0.upgradeStatus == 5 })
+      if matching.first(where: { $0.upgradeStatus.rawValue == 1 }) == nil,
+        matching.contains(where: { $0.upgradeStatus.rawValue == 2 || $0.upgradeStatus.rawValue == 5 })
       {
         // 接回已经在跑的升级：留住实例和 delegate 收进度，绝不重新下发。
         self.otaLog(id, "接回进行中的升级，不重新下发")
@@ -852,7 +850,7 @@ final class FlowerpotTuyaBridge: NSObject {
         self.emitOta(id, "running")
         return
       }
-      guard let pending = matching.first(where: { $0.upgradeStatus == 1 }) else {
+      guard let pending = matching.first(where: { $0.upgradeStatus.rawValue == 1 }) else {
         self.otaLog(id, "匹配 \(matching.count) 条，没有待升级的，按已是最新返回")
         self.releaseOta(id)
         self.sdkError(result, code: "firmware_up_to_date", message: "当前固件已是最新版本")
@@ -908,7 +906,7 @@ final class FlowerpotTuyaBridge: NSObject {
   fileprivate static func otaModels(_ models: [ThingSmartFirmwareUpgradeModel]?) -> String {
     (models ?? []).map {
       "{type=\($0.type) version=\($0.version ?? "nil") current=\($0.currentVersion ?? "nil") " +
-        "upgradeStatus=\($0.upgradeStatus) upgradeType=\($0.upgradeType)}"
+        "upgradeStatus=\($0.upgradeStatus.rawValue) upgradeType=\($0.upgradeType)}"
     }.joined(separator: ", ")
   }
 
@@ -979,9 +977,8 @@ final class FlowerpotTuyaBridge: NSObject {
     DispatchQueue.main.async { [weak self] in self?.eventSink?(event) }
   }
 
-  fileprivate func deviceSnapshot(_ device: ThingSmartDevice) -> [String: Any?]? {
-    guard let model = device.deviceModel else { return nil }
-    return deviceMap(model)
+  fileprivate func deviceSnapshot(_ device: ThingSmartDevice) -> [String: Any?] {
+    return deviceMap(device.deviceModel)
   }
 
   private func userMap(_ user: ThingSmartUser) -> [String: Any?] {
@@ -1028,7 +1025,7 @@ final class FlowerpotTuyaBridge: NSObject {
 #if canImport(ThingSmartHomeKit)
 extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
   func device(_ device: ThingSmartDevice, dpsUpdate dps: [AnyHashable: Any]) {
-    guard let id = device.deviceModel?.devId else { return }
+    guard let id = device.deviceModel.devId else { return }
     let changed = dpMap(dps)
     if !changed.isEmpty { emit(["deviceId": id, "dps": changed]) }
   }
@@ -1036,14 +1033,13 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
   /// Name, online flag and firmware version live on the model rather than in a
   /// DP, so the whole snapshot goes over.
   func deviceInfoUpdate(_ device: ThingSmartDevice) {
-    guard let id = device.deviceModel?.devId, let snapshot = deviceSnapshot(device) else {
-      return
-    }
-    emit(["deviceId": id, "device": snapshot])
+    guard let id = device.deviceModel.devId else { return }
+    emit(["deviceId": id, "device": deviceSnapshot(device)])
   }
 
   func deviceOnlineUpdate(_ device: ThingSmartDevice) {
-    guard let model = device.deviceModel, let id = model.devId else { return }
+    let model = device.deviceModel
+    guard let id = model.devId else { return }
     emit(["deviceId": id, "online": model.isOnline])
   }
 
@@ -1053,7 +1049,7 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
   /// delegate 的可选方法：这一版 SDK 没有它时只是不回调。
   func device(_ device: ThingSmartDevice, warningInfoUpdate warningInfo: [AnyHashable: Any]) {
     var fields = FlowerpotTuyaBridge.plainValue(warningInfo, depth: 0) as? [String: Any] ?? [:]
-    let id = device.deviceModel?.devId ?? ""
+    let id = device.deviceModel.devId ?? ""
     if fields["devId"] == nil, !id.isEmpty { fields["devId"] = id }
     emit([
       "type": "pushMessage",
@@ -1069,7 +1065,7 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
   /// 原来只认 `deviceModel?.devId`：移除时缓存已清、model 为 nil，解绑事件整条被丢，
   /// 列表只剩先到的「离线」，要下拉刷新才消失。先按实例反查登记的 id。
   func deviceRemoved(_ device: ThingSmartDevice) {
-    guard let id = watchedId(of: device) ?? device.deviceModel?.devId else { return }
+    guard let id = watchedId(of: device) ?? device.deviceModel.devId else { return }
     deviceWasRemoved(id)
   }
 
@@ -1077,13 +1073,13 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
   // Android 的 emitOta 一致。这几个都是 delegate 的可选方法：SDK 若换了签名
   // 只会静默不回调，不会编译失败，届时版本号仍由 deviceInfoUpdate 兜底刷新。
   func device(_ device: ThingSmartDevice, firmwareUpgradeProgress type: Int, progress: Double) {
-    guard let id = device.deviceModel?.devId else { return }
+    guard let id = device.deviceModel.devId else { return }
     otaLog(id, "delegate firmwareUpgradeProgress type=\(type) progress=\(progress)")
     emitOta(id, "running", percent: Int((progress * 100).rounded()))
   }
 
   func deviceFirmwareUpgradeSuccess(_ device: ThingSmartDevice, type: Int) {
-    guard let id = device.deviceModel?.devId else { return }
+    guard let id = device.deviceModel.devId else { return }
     otaLog(id, "delegate deviceFirmwareUpgradeSuccess type=\(type)")
     emitOta(id, "success")
     // 升级结束，实例可以放了；下次检查会重新建。
@@ -1091,7 +1087,7 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
   }
 
   func deviceFirmwareUpgradeFailure(_ device: ThingSmartDevice, type: Int) {
-    guard let id = device.deviceModel?.devId else { return }
+    guard let id = device.deviceModel.devId else { return }
     otaLog(id, "delegate deviceFirmwareUpgradeFailure type=\(type)")
     emitOta(id, "failed", message: "固件升级失败")
     DispatchQueue.main.async { [weak self] in self?.releaseOta(id) }
@@ -1114,7 +1110,7 @@ extension FlowerpotTuyaBridge: ThingSmartDeviceDelegate {
 #if canImport(ThingSmartHomeKit)
 /// 家庭层的设备移除通知（SDK 方法名本身拼作 `didRemoveDeivce`）。
 extension FlowerpotTuyaBridge: ThingSmartHomeDelegate {
-  func home(_ home: ThingSmartHome, didRemoveDeivce devId: String) {
+  func home(_ home: ThingSmartHome, didRemoveDeivice devId: String) {
     deviceWasRemoved(devId)
   }
 }
