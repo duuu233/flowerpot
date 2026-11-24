@@ -37,7 +37,7 @@ target 'Runner' do
   tuya_sdk_path = File.join(__dir__, 'TuyaSDK')
   if File.exist?(File.join(tuya_sdk_path, 'ThingSmartCryption.podspec'))
     pod 'ThingSmartCryption', :path => tuya_sdk_path
-    pod 'ThingSmartHomeKit', '~> 7.8.0'
+    pod 'ThingSmartHomeKit', '~> 7.11.0'
   end
 
   target 'RunnerTests' do
