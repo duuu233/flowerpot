@@ -42,14 +42,19 @@ class DeviceSettingsPageModel {
 
   /// [firmwareUpdate] 来自 `FlowerpotState.hasFirmwareUpdate`：涂鸦说有新固件
   /// 可装。固件本身藏在「其他设置」里，所以这里只把红点带到那一行。
+  ///
+  /// [displayName] 是页面显示名（`FlowerpotState.deviceDisplayName`，与设备列表、
+  /// 首页、设备信息页同一规则）。不能直接用涂鸦设备名：激活时自动取名可能带序号
+  /// （如「花盆test4」），iOS 个别整台设备推送里还可能为空。没传时才退回涂鸦设备名（测试 / 预览）。
   factory DeviceSettingsPageModel.fromDevice(
     SmartPlanterDevice device, {
     bool firmwareUpdate = false,
+    String? displayName,
   }) {
     final settings = device.settings;
     return DeviceSettingsPageModel(
       deviceId: device.id,
-      deviceName: device.name,
+      deviceName: displayName ?? device.name,
       plantName: device.plant.name,
       companionDays: device.companionDays,
       menuItems: <DeviceSettingsMenuItem>[

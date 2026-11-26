@@ -189,12 +189,14 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
   /// 设备离线时 DP150 发不到：说明情况，用户可在设备上手动进入配网后直接去添加。
   Future<void> _repairNetwork(SmartPlanterDevice device) async {
     final state = FlowerpotScope.of(context);
+    // 对话框里称呼设备用页面显示名（与设备列表、设置页一致），不用涂鸦原始设备名。
+    final name = state.deviceDisplayName(device);
     if (!state.isDeviceOnline(widget.deviceId)) {
       final goSearch = await showAppConfirmDialog(
         context,
         title: '重新配网',
         message:
-            '“${device.name}”当前离线，无法通知设备进入配网。\n'
+            '“$name”当前离线，无法通知设备进入配网。\n'
             '请先在设备上手动进入配网模式，再重新添加设备。',
         confirmLabel: '去添加设备',
       );
@@ -207,7 +209,7 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
       context,
       title: '重新配网',
       message:
-          '“${device.name}”将重启并进入配网模式，随后需要重新连接 Wi-Fi。\n'
+          '“$name”将重启并进入配网模式，随后需要重新连接 Wi-Fi。\n'
           '设备上的设置、历史、校准和照片都会保留，确定继续吗？',
       confirmLabel: '重新配网',
     );
@@ -234,9 +236,10 @@ class _DeviceOtherSettingsPageState extends State<DeviceOtherSettingsPage>
     // 别让用户确认完一件做不成的事。状态层还会再判一次，这里只是提前说。
     if (resetFactory && !ensureDeviceOnline(context, widget.deviceId)) return;
     final title = resetFactory ? '恢复出厂设置' : '移除设备';
+    final name = FlowerpotScope.of(context).deviceDisplayName(device);
     final message = resetFactory
         ? '设备数据和个性化设置将被清除，确定继续吗？'
-        : '移除后需要重新配网才能使用“${device.name}”，确定继续吗？';
+        : '移除后需要重新配网才能使用“$name”，确定继续吗？';
     final confirmed = await showAppConfirmDialog(
       context,
       title: title,

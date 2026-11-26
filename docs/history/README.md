@@ -1,5 +1,6 @@
 # 本地操作更新记录
 
+- [2026-11-26 iOS 设置页顶部设备名多出数字、时有时无、最后为空](2026-11/2026-11-26-ios-settings-device-name.md)：设置页顶部卡片原来直接用涂鸦原始设备名（激活自动取名带序号，如「花盆test4」，且随 iOS 整台设备推送变化），改为与列表 / 首页同一显示规则 `deviceDisplayName`；「其他设置」重新配网 / 移除确认里的设备名同改；推送里原始名变化写联调日志；未编译、未运行测试。
 - [2026-11-24 iOS 涂鸦 SDK 由 7.8 升到 7.11](2026-11/2026-11-24-ios-tuya-sdk-7-11.md)：Podfile 和新包名的 7.11 安全组件对齐，补 Pods xcconfig 和 Swift 桥接兼容。Mac 已验证 7.11.0.2 的 Release 归档、Ad Hoc 签名及 Wi-Fi / 热点权限，待真机验证。
 - [2026-11-24 iOS 设备被移除不消失、切温标后读数未换算](2026-11/2026-11-24-ios-removal-and-temperature-unit.md)：iOS `deviceRemoved:` 改按实例反查 id（移除时 deviceModel 已清空，事件被丢），另接 home delegate `home:didRemoveDeivce:`；温度读数记录上报时的温标，146 先到、112 未重报时换算到当前温标，下发温标的本机更新同步换算；未编译、未运行测试。
 - [2026-11-23 iOS 配网页自动带出手机当前 Wi-Fi 名称](2026-11/2026-11-23-ios-current-wifi-ssid.md)：iOS 读当前 SSID 缺 Access WiFi Information 能力和定位权限，一直为空只能手填；补 `Runner.entitlements`、`CODE_SIGN_ENTITLEMENTS`，`scanWifi` 先申请定位（必要时临时精确位置）再读；涂鸦 SDK 同受限制不能绕过；需在开发者账号给 App ID 勾选该能力；同日补 Hotspot Configuration（AP 热点配网），并记录「偶现 Wi-Fi 搜不到」与能力配置无关的分析；未编译、未真机。

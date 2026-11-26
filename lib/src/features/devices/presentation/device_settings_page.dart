@@ -65,6 +65,8 @@ class _DeviceSettingsPageState extends State<DeviceSettingsPage>
     final model = DeviceSettingsPageModel.fromDevice(
       device,
       firmwareUpdate: state.hasFirmwareUpdate(deviceId),
+      // 顶部卡片的设备名与列表 / 首页同一规则，不显示涂鸦原始设备名。
+      displayName: state.deviceDisplayName(device),
     );
     return AppPageScaffold(
       appBar: AppPageHeader(

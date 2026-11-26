@@ -4,8 +4,26 @@ import 'package:flowerpot/src/features/devices/presentation/widgets/device_setti
 import 'package:flowerpot/src/features/devices/presentation/widgets/device_settings_summary_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/mock_tuya_repository.dart';
 
 void main() {
+  // iOS：设置页顶部设备名多出数字（涂鸦激活时自动取名带序号，如「花盆test4」）、时有时无、
+  // 最后变空。顶部卡片改用页面显示名（FlowerpotState.deviceDisplayName），与列表 / 首页一致。
+  test('设置页顶部用页面显示名，不传时才退回涂鸦设备名', () async {
+    final device = (await MockTuyaRepository(
+      latency: Duration.zero,
+    ).getDevices()).first.copyWith(name: '花盆test4');
+
+    final shown = DeviceSettingsPageModel.fromDevice(
+      device,
+      displayName: '花盆test',
+    );
+    expect(shown.deviceName, '花盆test');
+
+    final fallback = DeviceSettingsPageModel.fromDevice(device);
+    expect(fallback.deviceName, '花盆test4');
+  });
+
   testWidgets('device settings widgets expose the Figma content', (
     tester,
   ) async {

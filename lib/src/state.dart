@@ -5256,6 +5256,15 @@ class FlowerpotState extends ChangeNotifier {
     // A report for a device the session does not hold: the next list refresh
     // is what introduces it.
     if (index < 0) return;
+    // 涂鸦设备名只随整台设备信息推送变化（iOS deviceInfoUpdate / Android onDevInfoUpdate）。
+    // 页面显示走 deviceDisplayName，不直接用它；这里只留痕，便于核对推送里的原始名
+    // （激活时自动取名可能带序号，如「花盆test4」，个别推送里也可能为空）。
+    final previousName = _devices[index].name;
+    if (previousName != device.name) {
+      _logInteraction(
+        '设备名 ← ${device.id} 推送里的涂鸦设备名「$previousName」→「${device.name}」',
+      );
+    }
     final revisions = _dpReportRevisions.putIfAbsent(device.id, () => {});
     for (final dp in update.changedDps) {
       revisions[dp] = (revisions[dp] ?? 0) + 1;
