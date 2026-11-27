@@ -128,4 +128,33 @@ void main() {
     expect(decoded.content, '生日快乐');
     expect(decoded.date, DateTime(2026, 1, 2));
   });
+
+  test('DP154 上报可以是几帧首尾相接：逐帧拆开，认出删除帧，残缺的尾巴丢掉', () {
+    final a = TuyaMemorialCodec.encodeEntry(
+      id: 9,
+      date: DateTime(2026, 10, 20),
+      type: MemorialContentType.text,
+      content: '认识100天',
+    );
+    final b = TuyaMemorialCodec.encodeEntry(
+      id: 10,
+      date: DateTime(2026, 10, 21),
+      type: MemorialContentType.text,
+      content: '停用的',
+      enabled: false,
+    );
+    final c = TuyaMemorialCodec.encodeDelete(11);
+    final joined = <int>[...a, ...b, ...c, 0x00, 0x00, 0x00, 0x0C, 0x01];
+
+    final frames = TuyaMemorialCodec.decodeFrames(
+      TuyaMemorialCodec.encodeRaw(joined),
+    );
+    expect(frames.map((f) => f.entry.id), <int>[9, 10, 11]);
+    expect(frames[0].entry.content, '认识100天');
+    expect(frames[0].deleted, isFalse);
+    expect(frames[1].entry.enabled, isFalse);
+    expect(frames[1].deleted, isFalse);
+    expect(frames[2].deleted, isTrue);
+    expect(TuyaMemorialCodec.decodeFrames(null), isEmpty);
+  });
 }

@@ -180,12 +180,34 @@ class FlowerpotState extends ChangeNotifier {
   final Map<String, DeviceControlSettings> _settingsOverrides =
       <String, DeviceControlSettings>{};
 
-  /// Custom memorial days per device id. DP 154 is write-only in practice —
-  /// the device upserts by id and never reports the set back — so this map is
-  /// the only record of which ids exist and what the user titled them, and it
-  /// is persisted with the session.
+  /// Custom memorial days per device id, persisted with the session. With the
+  /// APP backend this mirrors the backend list (the backend is the source of
+  /// truth and the only place the titles live); without it, it is the only
+  /// record of which ids exist.
+  ///
+  /// DP 154 是可下发可上报（rw）：设备按 id upsert，重新联网后会把自己存着的条目再报上来
+  /// （2026-11-27 测试确认）。那些报文记在 [_reportedMemorials]，用来补回列表里缺的条目，
+  /// 见 [_syncReportedMemorials]。
   final Map<String, List<MemorialEntry>> _memorials =
       <String, List<MemorialEntry>>{};
+
+  /// 本次会话里设备经 DP154 报上来的自定义纪念日：设备 id → (条目 id → 帧内容)。
+  /// 删除帧会把对应 id 拿掉；只在内存里，不存盘。
+  final Map<String, Map<int, MemorialEntry>> _reportedMemorials =
+      <String, Map<int, MemorialEntry>>{};
+
+  /// 每台设备的补齐任务串成一条链，避免两条报文同时去后端查、把同一条加两次。
+  final Map<String, Future<void>> _memorialSyncs = <String, Future<void>>{};
+
+  /// 正在保存的条目 id：保存时设备会回显同一帧，这期间不当成「列表里缺的」去补。
+  final Set<int> _memorialsSaving = <int>{};
+
+  /// 本次会话里用户删掉的条目 id：设备的旧报文晚到时不能把它补回来。
+  final Set<int> _memorialsDeleted = <int>{};
+
+  /// 发出重新配网（DP150）时的那台设备。配网成功后拿新设备比对：涂鸦设备 id 变了、
+  /// uuid / mac 没变，就是同一台设备换了 id，纪念日要跟着搬过去（[_notePairedDevice]）。
+  ({String id, String mac, String productId})? _rePairingFrom;
 
   final List<AnimationAsset> _animations = <AnimationAsset>[];
 
@@ -1651,6 +1673,9 @@ class FlowerpotState extends ChangeNotifier {
       if (raw(probe?['raw']).isNotEmpty) '    产品信息原样返回：${raw(probe?['raw'])}',
       '    产品 ID：${device.productId.isEmpty ? '-' : device.productId}（$kind）',
       '    设备 ID：${device.id}',
+      // 核对重复激活 / 授权：同一台设备重新配网后 ID 变没变、两台设备 uuid 是否相同。
+      '    uuid / mac：${_identityOf(device.macAddress).isEmpty ? '-' : device.macAddress}',
+      '    激活时间：${device.boundAt.toIso8601String()}',
       '    在线：${device.online ? '在线' : '离线'}',
       '    图片：${device.iconUrl.trim().isEmpty ? '（空，列表留白）' : device.iconUrl}',
       '    固件版本：${device.firmwareVersion.isEmpty ? '-' : device.firmwareVersion}',
@@ -2536,15 +2561,59 @@ class FlowerpotState extends ChangeNotifier {
     // Tuya tokens are single-use and the bridge drops its cached copy on
     // success, so the next AP attempt has to fetch a new one.
     _activatorTokenAt = null;
+    final alreadyListed = _devices.any((item) => item.id == device.id);
     _devices = <SmartPlanterDevice>[
       ..._devices.where((item) => item.id != device.id),
       device,
     ];
     _selectedDeviceId = device.id;
+    _notePairedDevice(device, alreadyListed: alreadyListed);
     // 配网是涂鸦侧的事，这里不再顺带去后端建 userProduct 记录：那条链路
     // （getUserProductList / getProductList / addUserProduct）只服务后端自己的
     // 存档，却会把「配网成功」拖成失败提示。
     return const ActionResult(true, '设备配网成功');
+  }
+
+  /// 配网成功后留痕（设备 ID、uuid / mac、激活时间），并处理重新配网：
+  /// 用来核对「重新配网 / 重复添加后涂鸦设备 ID 有没有变」「两台设备是不是同一个授权」。
+  /// 重新配网前后设备 ID 不同、uuid / mac 相同 ⇒ 同一台设备换了 id，纪念日搬到新 id。
+  void _notePairedDevice(
+    SmartPlanterDevice device, {
+    required bool alreadyListed,
+  }) {
+    final mac = _identityOf(device.macAddress);
+    final sameMac = _devices
+        .where((item) => item.id != device.id && mac.isNotEmpty)
+        .where((item) => _identityOf(item.macAddress) == mac)
+        .map((item) => item.id)
+        .toList(growable: false);
+    _logInteraction(
+      '配网成功 → 设备 ID ${device.id}（${alreadyListed ? '列表里已有同 ID' : '列表里没有这个 ID'}）'
+      ' 产品 ${device.productId} uuid/mac ${mac.isEmpty ? '-' : mac}'
+      ' 激活时间 ${device.boundAt.toIso8601String()} 涂鸦设备名「${device.name}」'
+      '${sameMac.isEmpty ? '' : ' ⚠️ 列表里另有同 uuid/mac 的设备：${sameMac.join('、')}'}',
+    );
+    final from = _rePairingFrom;
+    _rePairingFrom = null;
+    if (from == null) return;
+    if (from.id == device.id) {
+      _logInteraction('重新配网 ✓ 设备 ID 未变（${device.id}）');
+      return;
+    }
+    final fromMac = _identityOf(from.mac);
+    final same = fromMac.isNotEmpty && fromMac == mac;
+    _logInteraction(
+      '重新配网 ⚠️ 设备 ID 变了：${from.id} → ${device.id}，'
+      'uuid/mac ${fromMac.isEmpty ? '-' : fromMac} → ${mac.isEmpty ? '-' : mac}'
+      '${same ? '（同一台设备，纪念日跟着搬）' : '（uuid/mac 对不上，不当成同一台）'}',
+    );
+    if (same) unawaited(_migrateMemorials(from.id, device.id));
+  }
+
+  /// 设备身份字段（uuid / mac）规整：去空白、统一小写；占位的「--」当空。
+  static String _identityOf(String value) {
+    final text = value.trim().toLowerCase();
+    return text == '--' || text == '-' ? '' : text;
   }
 
   /// 配网，报错时回查云端确认设备是不是其实已经绑上了。
@@ -3109,11 +3178,11 @@ class FlowerpotState extends ChangeNotifier {
   /// The 纪念日 page's rows: the two fixed dates the device keeps on their own
   /// DPs, then the custom entries.
   ///
-  /// The custom list lives here rather than on the device: DP 154 is an upsert
-  /// channel, not a query — the device never reports the set back — so the app
-  /// is the only place that knows which ids exist and what the user called
-  /// them. Losing this list would leave orphaned entries on the device that
-  /// nothing can name or delete, so it is persisted with the session.
+  /// The custom list lives here rather than on the device: DP 154 frames carry
+  /// no title, and the app cannot ask the device for its set — it only hears
+  /// what the device chooses to report (e.g. after it reconnects, see
+  /// [_noteMemorialReport]). Losing this list would leave orphaned entries on
+  /// the device that nothing can name or delete, so it is persisted.
   List<MemorialEntry> memorialsFor(String deviceId) {
     final device = deviceById(deviceId);
     final custom = _memorials[deviceId] ?? const <MemorialEntry>[];
@@ -3187,19 +3256,27 @@ class FlowerpotState extends ChangeNotifier {
     final saved = _backendReady
         ? await _saveMemorialOnBackend(deviceId, entry, isNew: index < 0)
         : entry;
-    await _publishMemorialFrame(
-      deviceId,
-      TuyaMemorialCodec.encodeEntry(
-        id: saved.id,
-        // 停用帧不带日期，但本地要留着，用户重新开启时不用再选一次。
-        date: saved.date ?? DateTime.now(),
-        type: saved.type,
-        content: saved.content,
-        enabled: saved.enabled,
-      ),
-    );
-    if (index >= 0) {
-      entries[index] = saved;
+    // 设备会回显这一帧（DP154 上报），保存完成前别让补齐逻辑把它当成缺的条目。
+    _memorialsSaving.add(saved.id);
+    try {
+      await _publishMemorialFrame(
+        deviceId,
+        TuyaMemorialCodec.encodeEntry(
+          id: saved.id,
+          // 停用帧不带日期，但本地要留着，用户重新开启时不用再选一次。
+          date: saved.date ?? DateTime.now(),
+          type: saved.type,
+          content: saved.content,
+          enabled: saved.enabled,
+        ),
+      );
+    } finally {
+      _memorialsSaving.remove(saved.id);
+    }
+    // 按 id 重新找：等待期间列表可能被刷新或补齐过。
+    final at = entries.indexWhere((item) => item.id == saved.id);
+    if (at >= 0) {
+      entries[at] = saved;
     } else {
       entries.add(saved);
     }
@@ -3215,6 +3292,8 @@ class FlowerpotState extends ChangeNotifier {
       // 设备先删、后端后删：删帧是幂等的，后端这步失败时条目还在列表里，用户
       // 再点一次就能补上；反过来后端先删的话，失败重试要面对一条列表里已经
       // 没有、设备上还在显示的孤儿记录。
+      _memorialsDeleted.add(id);
+      _reportedMemorials[deviceId]?.remove(id);
       await _publishMemorialFrame(deviceId, TuyaMemorialCodec.encodeDelete(id));
       if (_backendReady) {
         await _backend.deleteAnniversary(id);
@@ -3245,6 +3324,194 @@ class FlowerpotState extends ChangeNotifier {
     _memorials[deviceId] = rows
         .map(_memorialFromBackend)
         .toList(growable: true);
+    await _persistMemorials();
+    notifyListeners();
+    // 后端列表里没有、设备却报过的条目（如重新配网后设备 id 变了），刷新后再补一次。
+    if (_reportedMemorials[deviceId]?.isNotEmpty ?? false) {
+      await _syncReportedMemorials(deviceId);
+    }
+  }
+
+  /// 设备上报了 DP154：记下帧内容，再把列表里缺的条目补回来。
+  ///
+  /// 2026-11-27 测试：重新配网（DP150）后设备还留着自定义纪念日、联网后也重新报了
+  /// DP154，App 却不显示；「移除设备再配网」则正常。App 原先把 154 当只写，设备的上报
+  /// 一律丢掉，列表只认后端按涂鸦设备 id 查到的结果——设备 id 一旦和保存时不同，后端
+  /// 那几条就查不出来了。现在以设备的上报为线索按条目 id 找回来。
+  void _noteMemorialReport(String deviceId, Map<int, Object?> reported) {
+    final dpId = TuyaConfig.dp['memorial_set'];
+    if (dpId == null || !reported.containsKey(dpId)) return;
+    final frames = TuyaMemorialCodec.decodeFrames(reported[dpId]);
+    if (frames.isEmpty) return;
+    final known = _reportedMemorials.putIfAbsent(
+      deviceId,
+      () => <int, MemorialEntry>{},
+    );
+    for (final frame in frames) {
+      final id = frame.entry.id;
+      if (id == 0) continue;
+      if (frame.deleted) {
+        known.remove(id);
+      } else {
+        known[id] = frame.entry;
+      }
+    }
+    _logInteraction(
+      '纪念日 ← $deviceId 设备上报 DP154 ${frames.length} 帧：'
+      '${frames.map((f) => '${f.entry.id}${f.deleted ? '(删除)' : f.entry.enabled ? '' : '(停用)'}').join(' ')}',
+    );
+    unawaited(_syncReportedMemorials(deviceId));
+  }
+
+  /// 按设备报过的条目补齐列表（每台设备串行）。失败只留痕，下一条报文或进纪念日页时再试。
+  Future<void> _syncReportedMemorials(String deviceId) {
+    final previous = _memorialSyncs[deviceId] ?? Future<void>.value();
+    final next = previous.then((_) async {
+      try {
+        await _fillMissingMemorials(deviceId);
+      } on Object catch (error) {
+        _logInteraction('纪念日 ✗ $deviceId 补齐设备上报的条目失败：$error');
+      }
+    });
+    _memorialSyncs[deviceId] = next;
+    return next;
+  }
+
+  Future<void> _fillMissingMemorials(String deviceId) async {
+    final reported = _reportedMemorials[deviceId];
+    if (reported == null || reported.isEmpty) return;
+    final entries = _memorials.putIfAbsent(deviceId, () => <MemorialEntry>[]);
+    var changed = false;
+    for (final id in reported.keys.toList(growable: false)) {
+      if (_memorialsSaving.contains(id) || _memorialsDeleted.contains(id)) {
+        continue;
+      }
+      if (entries.any((item) => item.id == id)) continue;
+      if (entries.length >= TuyaMemorialCodec.maxCustomEntries) break;
+      final frame = reported[id];
+      if (frame == null) continue;
+      final recovered = _backendReady
+          ? await _recoverMemorialFromBackend(deviceId, frame)
+          : frame.copyWith(title: _reportedMemorialTitle);
+      // 等后端期间列表可能已被刷新 / 保存补上了。
+      if (recovered == null ||
+          entries.any((item) => item.id == recovered.id)) {
+        continue;
+      }
+      entries.add(recovered);
+      changed = true;
+    }
+    if (!changed) return;
+    await _persistMemorials();
+    notifyListeners();
+  }
+
+  /// 设备帧里没有标题；只有设备上有、后端也找不回时用这个，用户可以再改。
+  static const String _reportedMemorialTitle = '自定义纪念日';
+
+  /// 设备报上来、列表里没有的一条：按条目 id（就是后端的 anniversaryId）去后端找。
+  /// - 找到了、挂在别的设备 id 上：改挂到当前设备（重新配网后涂鸦设备 id 变了）；
+  /// - 找到了、就是这台：只是列表没带出来，直接补上；
+  /// - 后端没有这条：按设备上的内容在后端重建，再把设备上的旧 id 换成新 id；停用帧
+  ///   没有内容，重建不了，跳过。
+  Future<MemorialEntry?> _recoverMemorialFromBackend(
+    String deviceId,
+    MemorialEntry frame,
+  ) async {
+    final row = await _backend.getAnniversaryDetail(frame.id);
+    if (row != null) {
+      final entry = _memorialFromBackend(row);
+      if (row.deviceId.isNotEmpty && row.deviceId != deviceId) {
+        await _backend.editAnniversary(
+          anniversaryId: row.anniversaryId,
+          deviceId: deviceId,
+          title: row.title,
+          content: row.content,
+          imageContent: row.imageContent,
+          date: row.date ?? frame.date ?? DateTime.now(),
+        );
+        _logInteraction(
+          '纪念日 ↻ ${row.anniversaryId}「${row.title}」后端挂在旧设备 ${row.deviceId}，'
+          '已改挂到 $deviceId',
+        );
+      } else {
+        _logInteraction(
+          '纪念日 ↻ ${row.anniversaryId}「${row.title}」后端有、列表没带出来，已补上',
+        );
+      }
+      return entry;
+    }
+    if (!frame.enabled || frame.date == null || frame.content.trim().isEmpty) {
+      _logInteraction('纪念日 ✗ ${frame.id} 后端没有这条，设备上是停用帧、没有内容，跳过');
+      return null;
+    }
+    final rebuilt = frame.copyWith(title: _reportedMemorialTitle);
+    final id = await _backend.addAnniversary(
+      deviceId: deviceId,
+      title: rebuilt.title,
+      content: rebuilt.content,
+      imageContent: rebuilt.type == MemorialContentType.image,
+      date: rebuilt.date!,
+    );
+    await _backend.setAnniversaryEnabled(<int>[id], true);
+    final saved = rebuilt.copyWith(id: id);
+    if (id != frame.id) {
+      // 设备按 id upsert：先写新 id 再删旧 id，中途失败最多多一条、不会丢。
+      _memorialsSaving.add(id);
+      try {
+        await _publishMemorialFrame(
+          deviceId,
+          TuyaMemorialCodec.encodeEntry(
+            id: id,
+            date: saved.date!,
+            type: saved.type,
+            content: saved.content,
+          ),
+        );
+      } finally {
+        _memorialsSaving.remove(id);
+      }
+      _memorialsDeleted.add(frame.id);
+      _reportedMemorials[deviceId]?.remove(frame.id);
+      await _publishMemorialFrame(
+        deviceId,
+        TuyaMemorialCodec.encodeDelete(frame.id),
+      );
+    }
+    _logInteraction(
+      '纪念日 ↻ 设备上的 ${frame.id} 后端没有，已按设备内容在后端重建为 $id',
+    );
+    return saved;
+  }
+
+  /// 重新配网后涂鸦设备 id 变了（uuid / mac 没变）：把旧 id 名下的纪念日搬到新 id。
+  /// 本机清单直接改键；后端逐条改挂。失败只留痕——设备重新上报 DP154 时还会按条目补。
+  Future<void> _migrateMemorials(String fromId, String toId) async {
+    final local = _memorials.remove(fromId);
+    if (local != null && local.isNotEmpty) {
+      final target = _memorials.putIfAbsent(toId, () => <MemorialEntry>[]);
+      for (final entry in local) {
+        if (target.every((item) => item.id != entry.id)) target.add(entry);
+      }
+    }
+    if (_backendReady) {
+      try {
+        final rows = await _backend.getAnniversaries(fromId);
+        for (final row in rows) {
+          await _backend.editAnniversary(
+            anniversaryId: row.anniversaryId,
+            deviceId: toId,
+            title: row.title,
+            content: row.content,
+            imageContent: row.imageContent,
+            date: row.date ?? DateTime.now(),
+          );
+        }
+        _logInteraction('纪念日 ↻ 后端 ${rows.length} 条从 $fromId 改挂到 $toId');
+      } on Object catch (error) {
+        _logInteraction('纪念日 ✗ 后端从 $fromId 改挂到 $toId 失败：$error');
+      }
+    }
     await _persistMemorials();
     notifyListeners();
   }
@@ -4247,6 +4514,16 @@ class FlowerpotState extends ChangeNotifier {
         code: 're_pairing_rejected',
       );
     }
+    final device = deviceById(id);
+    _rePairingFrom = (
+      id: id,
+      mac: device?.macAddress ?? '',
+      productId: device?.productId ?? '',
+    );
+    _logInteraction(
+      '重新配网 → $id 已下发 DP150（uuid/mac ${device?.macAddress ?? '-'}），'
+      '配网成功后比对设备 ID',
+    );
     return const ActionResult(true, '设备将重启并进入配网');
   });
 
@@ -4829,6 +5106,7 @@ class FlowerpotState extends ChangeNotifier {
       }
       _applyDeviceUpdate(update);
       if (device != null) _noteOpReceipt(device.id, update.reportedDps);
+      if (device != null) _noteMemorialReport(device.id, update.reportedDps);
       // ⚠️ **必须放在 [_applyDeviceUpdate] 之后**：计数一变页面就会重建并去读
       // `plantGuidePending`，而那个读的是合并后的设备快照。先记数的话，页面会拿
       // 着**上一版**状态判定「不用弹」，把这次上报白白消耗掉。
@@ -5917,11 +6195,14 @@ class FlowerpotState extends ChangeNotifier {
     _backendAnimations.clear();
     _knownPlantsByIdentifier.clear();
     _animations.clear();
-    // `_memorials` deliberately survives a logout. It is the only record of
-    // which DP 154 ids exist on a device — the device never reports the set
-    // back — so dropping it would leave entries on the hardware that nothing
-    // can name or delete. It is keyed by device id, which belongs to the
-    // planter rather than to the account.
+    // `_memorials` deliberately survives a logout: without the backend it is
+    // the only record of which DP 154 ids exist and what they are titled. It
+    // is keyed by device id, which belongs to the planter rather than to the
+    // account. The session-only DP 154 bookkeeping below does not.
+    _reportedMemorials.clear();
+    _memorialsSaving.clear();
+    _memorialsDeleted.clear();
+    _rePairingFrom = null;
     _selectedDeviceId = null;
     _backendUserId = null;
     // The native token belongs to the account that fetched it.

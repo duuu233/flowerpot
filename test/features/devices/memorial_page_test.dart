@@ -682,6 +682,113 @@ void main() {
     expect(frame[8], 2);
   });
 
+  group('设备上报的 DP154 补回列表里缺的自定义纪念日', () {
+    Future<void> settle() => Future<void>.delayed(const Duration(milliseconds: 50));
+
+    String frameHex(int id, String content) => TuyaMemorialCodec.encodeRaw(
+      TuyaMemorialCodec.encodeEntry(
+        id: id,
+        date: DateTime(2026, 10, 20),
+        type: MemorialContentType.text,
+        content: content,
+      ),
+    );
+
+    Future<FlowerpotState> start(
+      _AnniversaryServer server,
+      _MemorialRepository repository,
+    ) async {
+      final state = FlowerpotState(
+        repository: repository,
+        backendRepository: server.repository(),
+      );
+      addTearDown(state.dispose);
+      await state.initialize();
+      await state.refreshDevices();
+      await state.refreshMemorials('device-01');
+      return state;
+    }
+
+    test('重新配网后后端那条还挂在旧设备 id 上：按条目 id 找回并改挂到当前设备', () async {
+      final server = _AnniversaryServer()
+        ..rows[9] = <String, Object?>{
+          ..._row(9, title: '相识纪念', image: false, content: '认识100天'),
+          'deviceId': 'old-device',
+        };
+      final repository = _MemorialRepository();
+      final state = await start(server, repository);
+      expect(state.customMemorialsFor('device-01'), isEmpty, reason: '后端按设备 id 查不到');
+
+      repository.pushDeviceUpdate(
+        DeviceUpdate.changed(
+          _device(),
+          changedDps: const <int>{154},
+          reportedDps: <int, Object?>{154: frameHex(9, '认识100天')},
+        ),
+      );
+      await settle();
+
+      final restored = state.customMemorialsFor('device-01').single;
+      expect(restored.id, 9);
+      expect(restored.title, '相识纪念');
+      expect(server.bodyOf('editUserProductAnniversary')['deviceId'], 'device-01');
+      await state.refreshMemorials('device-01');
+      expect(state.customMemorialsFor('device-01').single.id, 9, reason: '改挂后后端列表能查到');
+    });
+
+    test('后端已经没有这条：按设备上的内容在后端重建，再把设备上的旧 id 换掉', () async {
+      final server = _AnniversaryServer();
+      final repository = _MemorialRepository();
+      final state = await start(server, repository);
+
+      repository.pushDeviceUpdate(
+        DeviceUpdate.changed(
+          _device(),
+          changedDps: const <int>{154},
+          reportedDps: <int, Object?>{154: frameHex(5, '老家的花')},
+        ),
+      );
+      await settle();
+
+      final rebuilt = state.customMemorialsFor('device-01').single;
+      expect(rebuilt.id, 40);
+      expect(rebuilt.content, '老家的花');
+      expect(server.bodyOf('addUserProductAnniversary')['content'], '老家的花');
+      final last = TuyaMemorialCodec.decodeFrames(repository.lastDps![154]).single;
+      expect(last.entry.id, 5);
+      expect(last.deleted, isTrue, reason: '新 id 写进设备后删掉旧 id');
+    });
+
+    test('保存时设备回显的同一帧不会让列表多出一条', () async {
+      final server = _AnniversaryServer();
+      final repository = _MemorialRepository();
+      final state = await start(server, repository);
+      final result = await state.saveMemorial(
+        'device-01',
+        MemorialEntry(
+          id: 77,
+          date: DateTime(2026, 10, 20),
+          title: '新的',
+          type: MemorialContentType.text,
+          content: '你好',
+        ),
+      );
+      expect(result.success, isTrue, reason: result.message);
+      final id = state.customMemorialsFor('device-01').single.id;
+
+      repository.pushDeviceUpdate(
+        DeviceUpdate.changed(
+          _device(),
+          changedDps: const <int>{154},
+          reportedDps: <int, Object?>{154: frameHex(id, '你好')},
+        ),
+      );
+      await settle();
+      expect(state.customMemorialsFor('device-01'), hasLength(1));
+      expect(server.detailRequests, 0, reason: '列表里已有就不去后端查');
+    });
+  });
+
   testWidgets('停用时保存也按二选一校验：所选类型为空不提交', (tester) async {
     final server = _AnniversaryServer()
       ..rows[9] = _row(9, title: '纪念日', image: false, content: '原文字');

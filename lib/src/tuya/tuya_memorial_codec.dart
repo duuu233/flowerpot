@@ -110,6 +110,30 @@ abstract final class TuyaMemorialCodec {
     );
   }
 
+  /// 设备上报的 DP154 拆成一条条帧。154 是可下发可上报（rw），设备重新联网后会把自己存着的
+  /// 自定义纪念日报上来；一条报文里可能只有一帧，也可能几帧首尾相接，这里都按头部长度依次切。
+  /// 头部声明的长度超出报文时停在那里（升级中的残缺报文不能把列表搞乱）。
+  /// [deleted] 为真表示这是「删除该 id」的帧（日期 `111111`）。
+  static List<({MemorialEntry entry, bool deleted})> decodeFrames(
+    Object? value,
+  ) {
+    final bytes = decodeRaw(value);
+    final out = <({MemorialEntry entry, bool deleted})>[];
+    if (bytes == null) return out;
+    var offset = 0;
+    while (offset + 10 <= bytes.length) {
+      final end = offset + 10 + bytes[offset + 9];
+      if (end > bytes.length) break;
+      final frame = bytes.sublist(offset, end);
+      final entry = decodeEntry(frame);
+      if (entry != null) {
+        out.add((entry: entry, deleted: _readUint32(frame, 4) == deletedDate));
+      }
+      offset = end;
+    }
+    return out;
+  }
+
   /// `YYYYMMDD` as the number the frame carries, e.g. 2026-08-31 → 20260831.
   static int dateValue(DateTime date) =>
       date.year * 10000 + date.month * 100 + date.day;
